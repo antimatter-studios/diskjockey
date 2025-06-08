@@ -8,7 +8,7 @@ import (
 	"os"
 	"runtime/debug"
 
-	"diskjockey-backend/proto/api"
+	"github.com/christhomas/diskjockey/diskjockey-backend/proto/api"
 
 	"google.golang.org/protobuf/proto"
 )

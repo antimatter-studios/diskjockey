@@ -1,4 +1,4 @@
-module diskjockey-backend
+module github.com/christhomas/diskjockey/diskjockey-backend
 
 go 1.24.3
 

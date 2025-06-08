@@ -1,3 +1,9 @@
 .DS_Store
-go-backend/test-mount
-server.json
+.build
+
+diskjockey-backend/test-mount
+diskjockey-backend/server.json
+diskjockey-backend/diskjockey-backend
+
+diskjockey-cli/djctl
+

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"diskjockey-backend/ipc"
+	"github.com/christhomas/diskjockey/diskjockey-backend/ipc"
 )
 
 func main() {

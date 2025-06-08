@@ -5,8 +5,8 @@ import (
 	"net"
 	"os"
 
-	"diskjockey-backend/config"
-	"diskjockey-backend/plugins"
+	"github.com/christhomas/diskjockey/diskjockey-backend/config"
+	"github.com/christhomas/diskjockey/diskjockey-backend/plugins"
 )
 
 // Server encapsulates the backend server state and logic.

@@ -1,0 +1,6 @@
+go 1.24.3
+
+use (
+	./diskjockey-backend
+	./diskjockey-cli
+)
