@@ -19,26 +19,26 @@ DiskJockey is a modular, virtual filesystem solution for macOS designed to unify
 
 ## Project Status
 
-- [x] Modular Go backend daemon with plugin system
-- [x] Go-based CLI tool (`djctl`) for backend control and debugging
-- [x] Swift/Xcode macOS GUI application
-- [x] Background helper process for IPC and orchestration
-- [x] Shared Swift framework for IPC, protobuf, and backend comms
-- [x] File Provider extension for Finder integration
-- [x] Unified IPC protocol using protobuf
-- [x] Makefile and build automation for Go/Swift targets
-- [x] Multi-process orchestration (main app, helper, backend)
-- [x] Logging and event forwarding via helper
-- [ ] User-friendly GUI for mount management
-- [ ] Full plugin support for additional backends (S3, WebDAV, etc.)
-- [ ] List Directory
-- [ ] Read File
-- [ ] Write File
-- [ ] Delete File
-- [ ] Robust error handling and user notifications
-- [ ] Comprehensive integration and unit tests
-- [ ] End-user documentation and onboarding
-- [ ] Production-ready code signing, packaging, and deployment
+- ✅ Modular Go backend daemon with plugin system
+- ✅ Go-based CLI tool (`djctl`) for backend control and debugging
+- ✅ Swift/Xcode macOS GUI application
+- ✅ Background helper process for IPC and orchestration
+- ✅ Shared Swift framework for IPC, protobuf, and backend comms
+- ✅ File Provider extension for Finder integration
+- ✅ Unified IPC protocol using protobuf
+- ✅ Makefile and build automation for Go/Swift targets
+- ✅ Multi-process orchestration (main app, helper, backend)
+- ✅ Logging and event forwarding via helper
+- ⬜️ User-friendly GUI for mount management
+- ⬜️ Full plugin support for additional backends (S3, WebDAV, etc.)
+- ⬜️ List Directory
+- ⬜️ Read File
+- ⬜️ Write File
+- ⬜️ Delete File
+- ⬜️ Robust error handling and user notifications
+- ⬜️ Comprehensive integration and unit tests
+- ⬜️ End-user documentation and onboarding
+- ⬜️ Production-ready code signing, packaging, and deployment
 
 ---
 
