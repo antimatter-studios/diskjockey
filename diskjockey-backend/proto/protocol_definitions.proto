@@ -1,0 +1,138 @@
+syntax = "proto3";
+
+// Socket protocol message type IDs used in custom framing (not part of protobuf):
+//   2: ReadFileRequest / ReadFileResponse
+//   3: WriteFileRequest / WriteFileResponse
+// These IDs are used in the daemon's socket protocol to identify message types.
+
+package api;
+option go_package = "diskjockey-backend/proto/api;api";
+
+// Handshake
+message HandshakeRequest {
+  string client = 1;
+}
+message HandshakeResponse {
+  string server = 1;
+}
+
+// List Directory
+message ListDirRequest {
+  string plugin = 1;
+  string path = 2;
+}
+message ListDirResponse {
+  repeated FileInfo files = 1;
+  string error = 2;
+}
+
+// Read File
+message ReadFileRequest {
+  string plugin = 1;
+  string path = 2;
+}
+
+message ReadFileResponse {
+  bytes data = 1;
+  string error = 2;
+}
+
+// Write File
+message WriteFileRequest {
+  string plugin = 1;
+  string path = 2;
+  bytes data = 3;
+}
+message WriteFileResponse {
+  string error = 1;
+}
+
+// Delete File
+message DeleteFileRequest {
+  string plugin = 1;
+  string path = 2;
+}
+message DeleteFileResponse {
+  string error = 1;
+}
+
+// Stat (file metadata)
+message StatRequest {
+  string plugin = 1;
+  string path = 2;
+}
+message StatResponse {
+  FileInfo info = 1;
+  string error = 2;
+}
+
+// List available plugin types
+message ListPluginsRequest {}
+message ListPluginsResponse {
+  repeated PluginTypeInfo plugins = 1;
+  string error = 2;
+}
+
+message PluginTypeInfo {
+  string name = 1;
+  string description = 2;
+  repeated ConfigField config_fields = 3;
+}
+
+message ConfigField {
+  string name = 1;
+  string type = 2;
+  string description = 3;
+  bool required = 4;
+}
+
+// List current mounts
+message ListMountsRequest {}
+message ListMountsResponse {
+  repeated MountInfo mounts = 1;
+  string error = 2;
+}
+
+message MountInfo {
+  string name = 1;
+  string plugin_type = 2;
+  map<string, string> config = 3;
+}
+
+// File metadata
+message FileInfo {
+  string name = 1;
+  int64 size = 2;
+  bool is_dir = 3;
+}
+
+// Mount/Unmount management
+message MountRequest {
+  string name = 1;
+  string plugin_type = 2;
+  map<string, string> config = 3;
+}
+message MountResponse {
+  MountInfo mount = 1;
+  string error = 2;
+}
+
+message UnmountRequest {
+  string name = 1;
+}
+message UnmountResponse {
+  string error = 1;
+}
+
+// Mount status event (for event-driven updates)
+enum MountStatus {
+  UNKNOWN = 0;
+  MOUNTED = 1;
+  UNMOUNTED = 2;
+  ERROR = 3;
+}
+message MountStatusUpdate {
+  string name = 1;
+  MountStatus status = 2;
+  string error = 3;
+}
