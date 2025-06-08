@@ -17,7 +17,7 @@
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "D06C9C2725F7AFD200354820"
                BuildableName = "Disk Jockey.app"
-               BlueprintName = "DiskJockeyProduct"
+               BlueprintName = "DiskJockeyApplication"
                ReferencedContainer = "container:DiskJockey.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -29,6 +29,41 @@
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES"
       shouldAutocreateTestPlan = "YES">
+      <Testables>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "5036E5E02DF4949400DA7C59"
+               BuildableName = "DiskJockeyHelperTests.xctest"
+               BlueprintName = "DiskJockeyHelperTests"
+               ReferencedContainer = "container:DiskJockey.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "5036E5EA2DF4949400DA7C59"
+               BuildableName = "DiskJockeyHelperUITests.xctest"
+               BlueprintName = "DiskJockeyHelperUITests"
+               ReferencedContainer = "container:DiskJockey.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "5036E65F2DF5731600DA7C59"
+               BuildableName = "DiskJockeyHelperLibraryTests.xctest"
+               BlueprintName = "DiskJockeyHelperLibraryTests"
+               ReferencedContainer = "container:DiskJockey.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+      </Testables>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"
@@ -46,7 +81,7 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "D06C9C2725F7AFD200354820"
             BuildableName = "Disk Jockey.app"
-            BlueprintName = "DiskJockeyProduct"
+            BlueprintName = "DiskJockeyApplication"
             ReferencedContainer = "container:DiskJockey.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -63,7 +98,7 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "D06C9C2725F7AFD200354820"
             BuildableName = "Disk Jockey.app"
-            BlueprintName = "DiskJockeyProduct"
+            BlueprintName = "DiskJockeyApplication"
             ReferencedContainer = "container:DiskJockey.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
