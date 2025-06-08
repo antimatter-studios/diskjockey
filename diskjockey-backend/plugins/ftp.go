@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/christhomas/diskjockey/diskjockey-backend/types"
 	"github.com/jlaffaye/ftp"
 )
 
@@ -14,48 +15,17 @@ import (
 // Config expects: host, port, username, password, root, ftps (bool)
 type FTPPlugin struct{}
 
-func (FTPPlugin) Name() string { return "ftp" }
+// FTPBackend implements Backend for FTP/FTPS
 
-func (FTPPlugin) Description() string {
-	return "FTP/FTPS-backed remote filesystem mount"
+type FTPBackend struct {
+	mountName string
+	configSvc types.ConfigServiceInterface
+	client    *ftp.ServerConn
+	path      string
+	ftps      bool
 }
 
-func (FTPPlugin) ConfigTemplate() PluginConfigTemplate {
-	return PluginConfigTemplate{
-		"host": PluginConfigField{
-			Type:        "string",
-			Description: "Remote FTP server hostname",
-			Required:    true,
-		},
-		"port": PluginConfigField{
-			Type:        "string",
-			Description: "FTP port (default 21)",
-			Required:    true,
-		},
-		"username": PluginConfigField{
-			Type:        "string",
-			Description: "Username for FTP",
-			Required:    true,
-		},
-		"password": PluginConfigField{
-			Type:        "string",
-			Description: "Password for FTP",
-			Required:    true,
-		},
-		"path": PluginConfigField{
-			Type:        "string",
-			Description: "Remote path prefix for all requests",
-			Required:    true,
-		},
-		"ftps": PluginConfigField{
-			Type:        "bool",
-			Description: "Enable FTPS (TLS) connection",
-			Required:    false,
-		},
-	}
-}
-
-func (FTPPlugin) New(mountName string, configSvc ConfigServiceIface) (Backend, error) {
+func (FTPPlugin) New(mountName string, configSvc types.ConfigServiceInterface) (types.Backend, error) {
 	b := &FTPBackend{mountName: mountName, configSvc: configSvc}
 	if err := b.connect(); err != nil {
 		return nil, err
@@ -63,21 +33,53 @@ func (FTPPlugin) New(mountName string, configSvc ConfigServiceIface) (Backend, e
 	return b, nil
 }
 
-// FTPBackend implements Backend for FTP/FTPS
+func (FTPPlugin) Name() string { return "ftp" }
 
-type FTPBackend struct {
-	mountName string
-	configSvc ConfigServiceIface
-	client    *ftp.ServerConn
-	path      string
-	ftps      bool
+func (FTPPlugin) Description() string {
+	return "FTP/FTPS-backed remote filesystem mount"
+}
+
+func (FTPPlugin) ConfigTemplate() types.PluginConfigTemplate {
+	return types.PluginConfigTemplate{
+		"host": types.PluginConfigField{
+			Type:        "string",
+			Description: "Remote FTP server hostname",
+			Required:    true,
+		},
+		"port": types.PluginConfigField{
+			Type:        "string",
+			Description: "FTP port (default 21)",
+			Required:    true,
+		},
+		"username": types.PluginConfigField{
+			Type:        "string",
+			Description: "Username for FTP",
+			Required:    true,
+		},
+		"password": types.PluginConfigField{
+			Type:        "string",
+			Description: "Password for FTP",
+			Required:    true,
+		},
+		"path": types.PluginConfigField{
+			Type:        "string",
+			Description: "Remote path prefix for all requests",
+			Required:    true,
+		},
+		"ftps": types.PluginConfigField{
+			Type:        "bool",
+			Description: "Enable FTPS (TLS) connection",
+			Required:    false,
+		},
+	}
 }
 
 func (b *FTPBackend) connect() error {
-	cfg, ok := b.configSvc.GetMountConfig(b.mountName)
-	if !ok {
+	cfg, err := b.configSvc.GetMountConfig(b.mountName)
+	if err != nil {
 		return fmt.Errorf("FTPBackend: config for mount '%s' not found", b.mountName)
 	}
+
 	host, _ := cfg["host"].(string)
 	port, _ := cfg["port"].(string)
 	username, _ := cfg["username"].(string)
@@ -85,18 +87,20 @@ func (b *FTPBackend) connect() error {
 	b.path, _ = cfg["path"].(string)
 	b.ftps, _ = cfg["ftps"].(bool)
 	addr := host + ":" + port
-	var (
-		c   *ftp.ServerConn
-		err error
-	)
+
+	var c *ftp.ServerConn
 	if b.ftps {
 		c, err = ftp.Dial(addr, ftp.DialWithTimeout(5*time.Second), ftp.DialWithTLS(&tls.Config{InsecureSkipVerify: true}))
+		if err != nil {
+			return err
+		}
 	} else {
 		c, err = ftp.Dial(addr, ftp.DialWithTimeout(5*time.Second))
+		if err != nil {
+			return err
+		}
 	}
-	if err != nil {
-		return err
-	}
+
 	if err := c.Login(username, password); err != nil {
 		c.Quit()
 		return err
@@ -129,20 +133,20 @@ func (b *FTPBackend) withReconnect(op func() error) error {
 	return err
 }
 
-func (b *FTPBackend) List(path string) ([]FileInfo, error) {
-	var result []FileInfo
+func (b *FTPBackend) List(path string) ([]types.FileInfo, error) {
+	var result []types.FileInfo
 	err := b.withReconnect(func() error {
 		absPath := b.path + path
 		entries, err := b.client.List(absPath)
 		if err != nil {
 			return err
 		}
-		var out []FileInfo
+		var out []types.FileInfo
 		for _, e := range entries {
 			if e.Name == "." || e.Name == ".." {
 				continue
 			}
-			out = append(out, FileInfo{
+			out = append(out, types.FileInfo{
 				Name:  e.Name,
 				IsDir: e.Type == ftp.EntryTypeFolder,
 				Size:  int64(e.Size),

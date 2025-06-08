@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/christhomas/diskjockey/diskjockey-backend/types"
 	dropbox "github.com/dropbox/dropbox-sdk-go-unofficial/v6/dropbox"
 	files "github.com/dropbox/dropbox-sdk-go-unofficial/v6/dropbox/files"
 )
@@ -13,11 +14,17 @@ import (
 
 type DropboxPlugin struct{}
 
-func (DropboxPlugin) Name() string        { return "dropbox" }
-func (DropboxPlugin) Description() string { return "Dropbox cloud storage" }
-func (DropboxPlugin) ConfigTemplate() PluginConfigTemplate {
-	return PluginConfigTemplate{
-		"access_token": PluginConfigField{
+func (DropboxPlugin) Name() string {
+	return "dropbox"
+}
+
+func (DropboxPlugin) Description() string {
+	return "Dropbox cloud storage"
+}
+
+func (DropboxPlugin) ConfigTemplate() types.PluginConfigTemplate {
+	return types.PluginConfigTemplate{
+		"access_token": types.PluginConfigField{
 			Type:        "string",
 			Description: "Dropbox API OAuth2 access token",
 			Required:    true,
@@ -25,7 +32,7 @@ func (DropboxPlugin) ConfigTemplate() PluginConfigTemplate {
 	}
 }
 
-func (DropboxPlugin) New(mountName string, configSvc ConfigServiceIface) (Backend, error) {
+func (DropboxPlugin) New(mountName string, configSvc types.ConfigServiceInterface) (types.Backend, error) {
 	b := &DropboxBackend{mountName: mountName, configSvc: configSvc}
 	if err := b.connect(); err != nil {
 		return nil, err
@@ -35,13 +42,13 @@ func (DropboxPlugin) New(mountName string, configSvc ConfigServiceIface) (Backen
 
 type DropboxBackend struct {
 	mountName string
-	configSvc ConfigServiceIface
+	configSvc types.ConfigServiceInterface
 	client    files.Client
 }
 
 func (b *DropboxBackend) connect() error {
-	cfg, ok := b.configSvc.GetMountConfig(b.mountName)
-	if !ok {
+	cfg, err := b.configSvc.GetMountConfig(b.mountName)
+	if err != nil {
 		return fmt.Errorf("DropboxBackend: config for mount '%s' not found", b.mountName)
 	}
 	token, _ := cfg["access_token"].(string)
@@ -56,7 +63,7 @@ func (b *DropboxBackend) connect() error {
 	return nil
 }
 
-func (b *DropboxBackend) List(path string) ([]FileInfo, error) {
+func (b *DropboxBackend) List(path string) ([]types.FileInfo, error) {
 	if path == "" {
 		path = "" // Dropbox root is ""
 	}
@@ -69,17 +76,17 @@ func (b *DropboxBackend) List(path string) ([]FileInfo, error) {
 		}
 		return nil, err
 	}
-	var out []FileInfo
+	var out []types.FileInfo
 	for _, entry := range res.Entries {
 		switch f := entry.(type) {
 		case *files.FileMetadata:
-			out = append(out, FileInfo{
+			out = append(out, types.FileInfo{
 				Name:  f.Name,
 				IsDir: false,
 				Size:  int64(f.Size),
 			})
 		case *files.FolderMetadata:
-			out = append(out, FileInfo{
+			out = append(out, types.FileInfo{
 				Name:  f.Name,
 				IsDir: true,
 				Size:  0,

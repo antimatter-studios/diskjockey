@@ -1,4 +1,7 @@
 {
+  "socket_path": "/tmp/diskjockey.backend.sock",
+  "cache_dir": "./cache",
+  "max_cache_size": 104857600,
   "mountpoints": [
     {
       "type": "localdirectory",
@@ -66,7 +69,5 @@
         "password": "password"
       }
     }
-  ],
-  "cache_dir": "./cache",
-  "max_cache_size": 104857600
+  ]
 }

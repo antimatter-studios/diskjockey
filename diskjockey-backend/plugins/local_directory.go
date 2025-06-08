@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/christhomas/diskjockey/diskjockey-backend/types"
 )
 
 // LocalDirectoryPlugin implements PluginType for mounting a local directory as a filesystem
@@ -13,16 +15,22 @@ type LocalDirectoryPlugin struct{}
 
 type LocalDirectoryBackend struct {
 	mountName string
-	configSvc ConfigServiceIface
+	configSvc types.ConfigServiceInterface
 	Path      string
 }
 
 // PluginType interface implementation
-func (l LocalDirectoryPlugin) Name() string        { return "localdirectory" }
-func (l LocalDirectoryPlugin) Description() string { return "Local directory filesystem plugin" }
-func (l LocalDirectoryPlugin) ConfigTemplate() PluginConfigTemplate {
-	return PluginConfigTemplate{
-		"path": PluginConfigField{
+func (l LocalDirectoryPlugin) Name() string {
+	return "localdirectory"
+}
+
+func (l LocalDirectoryPlugin) Description() string {
+	return "Local directory filesystem plugin"
+}
+
+func (l LocalDirectoryPlugin) ConfigTemplate() types.PluginConfigTemplate {
+	return types.PluginConfigTemplate{
+		"path": types.PluginConfigField{
 			Type:        "string",
 			Description: "Path prefix for all requests in this mount",
 			Required:    true,
@@ -30,7 +38,7 @@ func (l LocalDirectoryPlugin) ConfigTemplate() PluginConfigTemplate {
 	}
 }
 
-func (l LocalDirectoryPlugin) New(mountName string, configSvc ConfigServiceIface) (Backend, error) {
+func (l LocalDirectoryPlugin) New(mountName string, configSvc types.ConfigServiceInterface) (types.Backend, error) {
 	b := &LocalDirectoryBackend{mountName: mountName, configSvc: configSvc}
 	if err := b.connect(); err != nil {
 		return nil, err
@@ -42,37 +50,43 @@ func (b *LocalDirectoryBackend) connect() error {
 	if b.configSvc == nil {
 		return fmt.Errorf("config service not set")
 	}
-	config, ok := b.configSvc.GetMountConfig(b.mountName)
-	if !ok {
+
+	config, err := b.configSvc.GetMountConfig(b.mountName)
+	if err != nil {
 		return fmt.Errorf("config for mount '%s' not found", b.mountName)
 	}
+
 	path, ok := config["path"].(string)
 	if !ok || path == "" {
 		return fmt.Errorf("localdirectory: missing required config 'path'")
 	}
+
 	b.Path = path
+
 	return nil
 }
 
 // Backend interface implementation
-func (b *LocalDirectoryBackend) List(path string) ([]FileInfo, error) {
+func (b *LocalDirectoryBackend) List(path string) ([]types.FileInfo, error) {
 	dir := filepath.Join(b.Path, path)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
-	var infos []FileInfo
+
+	var infos []types.FileInfo
 	for _, entry := range entries {
 		info, err := entry.Info()
 		if err != nil {
 			continue
 		}
-		infos = append(infos, FileInfo{
+		infos = append(infos, types.FileInfo{
 			Name:  entry.Name(),
 			Size:  info.Size(),
 			IsDir: entry.IsDir(),
 		})
 	}
+
 	return infos, nil
 }
 
@@ -86,6 +100,7 @@ func (b *LocalDirectoryBackend) Write(path string, data []byte) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
+
 	return os.WriteFile(fullPath, data, 0644)
 }
 

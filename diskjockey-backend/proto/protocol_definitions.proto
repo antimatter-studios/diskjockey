@@ -8,6 +8,18 @@ syntax = "proto3";
 package api;
 option go_package = "diskjockey-backend/proto/api;api";
 
+// Central enum for all message type IDs used in the socket protocol
+enum MessageType {
+  UNKNOWN_TYPE = 0;
+  LIST_DIR_REQUEST = 1;
+  MOUNT_REQUEST = 2;
+  UNMOUNT_REQUEST = 3;
+  LIST_MOUNTS_REQUEST = 4;
+  SHUTDOWN_REQUEST = 5;
+  // Add other message types as needed
+}
+
+
 // Handshake
 message HandshakeRequest {
   string client = 1;
@@ -122,6 +134,15 @@ message UnmountRequest {
 }
 message UnmountResponse {
   string error = 1;
+}
+
+// Shutdown backend daemon
+message ShutdownRequest {
+}
+
+message ShutdownResponse {
+  bool success = 1;
+  string message = 2;
 }
 
 // Mount status event (for event-driven updates)

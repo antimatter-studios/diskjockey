@@ -26,6 +26,65 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Central enum for all message type IDs used in the socket protocol
+type MessageType int32
+
+const (
+	MessageType_UNKNOWN_TYPE        MessageType = 0
+	MessageType_LIST_DIR_REQUEST    MessageType = 1
+	MessageType_MOUNT_REQUEST       MessageType = 2
+	MessageType_UNMOUNT_REQUEST     MessageType = 3
+	MessageType_LIST_MOUNTS_REQUEST MessageType = 4
+	MessageType_SHUTDOWN_REQUEST    MessageType = 5 // Add other message types as needed
+)
+
+// Enum value maps for MessageType.
+var (
+	MessageType_name = map[int32]string{
+		0: "UNKNOWN_TYPE",
+		1: "LIST_DIR_REQUEST",
+		2: "MOUNT_REQUEST",
+		3: "UNMOUNT_REQUEST",
+		4: "LIST_MOUNTS_REQUEST",
+		5: "SHUTDOWN_REQUEST",
+	}
+	MessageType_value = map[string]int32{
+		"UNKNOWN_TYPE":        0,
+		"LIST_DIR_REQUEST":    1,
+		"MOUNT_REQUEST":       2,
+		"UNMOUNT_REQUEST":     3,
+		"LIST_MOUNTS_REQUEST": 4,
+		"SHUTDOWN_REQUEST":    5,
+	}
+)
+
+func (x MessageType) Enum() *MessageType {
+	p := new(MessageType)
+	*p = x
+	return p
+}
+
+func (x MessageType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (MessageType) Descriptor() protoreflect.EnumDescriptor {
+	return file_diskjockey_backend_proto_protocol_definitions_proto_enumTypes[0].Descriptor()
+}
+
+func (MessageType) Type() protoreflect.EnumType {
+	return &file_diskjockey_backend_proto_protocol_definitions_proto_enumTypes[0]
+}
+
+func (x MessageType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use MessageType.Descriptor instead.
+func (MessageType) EnumDescriptor() ([]byte, []int) {
+	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{0}
+}
+
 // Mount status event (for event-driven updates)
 type MountStatus int32
 
@@ -63,11 +122,11 @@ func (x MountStatus) String() string {
 }
 
 func (MountStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_enumTypes[0].Descriptor()
+	return file_diskjockey_backend_proto_protocol_definitions_proto_enumTypes[1].Descriptor()
 }
 
 func (MountStatus) Type() protoreflect.EnumType {
-	return &file_diskjockey_backend_proto_protocol_definitions_proto_enumTypes[0]
+	return &file_diskjockey_backend_proto_protocol_definitions_proto_enumTypes[1]
 }
 
 func (x MountStatus) Number() protoreflect.EnumNumber {
@@ -76,7 +135,7 @@ func (x MountStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use MountStatus.Descriptor instead.
 func (MountStatus) EnumDescriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{0}
+	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{1}
 }
 
 // Handshake
@@ -1313,6 +1372,95 @@ func (x *UnmountResponse) GetError() string {
 	return ""
 }
 
+// Shutdown backend daemon
+type ShutdownRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ShutdownRequest) Reset() {
+	*x = ShutdownRequest{}
+	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShutdownRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShutdownRequest) ProtoMessage() {}
+
+func (x *ShutdownRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShutdownRequest.ProtoReflect.Descriptor instead.
+func (*ShutdownRequest) Descriptor() ([]byte, []int) {
+	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{24}
+}
+
+type ShutdownResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ShutdownResponse) Reset() {
+	*x = ShutdownResponse{}
+	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShutdownResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShutdownResponse) ProtoMessage() {}
+
+func (x *ShutdownResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShutdownResponse.ProtoReflect.Descriptor instead.
+func (*ShutdownResponse) Descriptor() ([]byte, []int) {
+	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *ShutdownResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *ShutdownResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
 type MountStatusUpdate struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -1324,7 +1472,7 @@ type MountStatusUpdate struct {
 
 func (x *MountStatusUpdate) Reset() {
 	*x = MountStatusUpdate{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[24]
+	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1336,7 +1484,7 @@ func (x *MountStatusUpdate) String() string {
 func (*MountStatusUpdate) ProtoMessage() {}
 
 func (x *MountStatusUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[24]
+	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1349,7 +1497,7 @@ func (x *MountStatusUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MountStatusUpdate.ProtoReflect.Descriptor instead.
 func (*MountStatusUpdate) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{24}
+	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *MountStatusUpdate) GetName() string {
@@ -1454,11 +1602,22 @@ const file_diskjockey_backend_proto_protocol_definitions_proto_rawDesc = "" +
 	"\x0eUnmountRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\"'\n" +
 	"\x0fUnmountResponse\x12\x14\n" +
-	"\x05error\x18\x01 \x01(\tR\x05error\"g\n" +
+	"\x05error\x18\x01 \x01(\tR\x05error\"\x11\n" +
+	"\x0fShutdownRequest\"F\n" +
+	"\x10ShutdownResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"g\n" +
 	"\x11MountStatusUpdate\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12(\n" +
 	"\x06status\x18\x02 \x01(\x0e2\x10.api.MountStatusR\x06status\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error*A\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error*\x8c\x01\n" +
+	"\vMessageType\x12\x10\n" +
+	"\fUNKNOWN_TYPE\x10\x00\x12\x14\n" +
+	"\x10LIST_DIR_REQUEST\x10\x01\x12\x11\n" +
+	"\rMOUNT_REQUEST\x10\x02\x12\x13\n" +
+	"\x0fUNMOUNT_REQUEST\x10\x03\x12\x17\n" +
+	"\x13LIST_MOUNTS_REQUEST\x10\x04\x12\x14\n" +
+	"\x10SHUTDOWN_REQUEST\x10\x05*A\n" +
 	"\vMountStatus\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aMOUNTED\x10\x01\x12\r\n" +
@@ -1477,48 +1636,51 @@ func file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP() []by
 	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescData
 }
 
-var file_diskjockey_backend_proto_protocol_definitions_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
+var file_diskjockey_backend_proto_protocol_definitions_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
 var file_diskjockey_backend_proto_protocol_definitions_proto_goTypes = []any{
-	(MountStatus)(0),            // 0: api.MountStatus
-	(*HandshakeRequest)(nil),    // 1: api.HandshakeRequest
-	(*HandshakeResponse)(nil),   // 2: api.HandshakeResponse
-	(*ListDirRequest)(nil),      // 3: api.ListDirRequest
-	(*ListDirResponse)(nil),     // 4: api.ListDirResponse
-	(*ReadFileRequest)(nil),     // 5: api.ReadFileRequest
-	(*ReadFileResponse)(nil),    // 6: api.ReadFileResponse
-	(*WriteFileRequest)(nil),    // 7: api.WriteFileRequest
-	(*WriteFileResponse)(nil),   // 8: api.WriteFileResponse
-	(*DeleteFileRequest)(nil),   // 9: api.DeleteFileRequest
-	(*DeleteFileResponse)(nil),  // 10: api.DeleteFileResponse
-	(*StatRequest)(nil),         // 11: api.StatRequest
-	(*StatResponse)(nil),        // 12: api.StatResponse
-	(*ListPluginsRequest)(nil),  // 13: api.ListPluginsRequest
-	(*ListPluginsResponse)(nil), // 14: api.ListPluginsResponse
-	(*PluginTypeInfo)(nil),      // 15: api.PluginTypeInfo
-	(*ConfigField)(nil),         // 16: api.ConfigField
-	(*ListMountsRequest)(nil),   // 17: api.ListMountsRequest
-	(*ListMountsResponse)(nil),  // 18: api.ListMountsResponse
-	(*MountInfo)(nil),           // 19: api.MountInfo
-	(*FileInfo)(nil),            // 20: api.FileInfo
-	(*MountRequest)(nil),        // 21: api.MountRequest
-	(*MountResponse)(nil),       // 22: api.MountResponse
-	(*UnmountRequest)(nil),      // 23: api.UnmountRequest
-	(*UnmountResponse)(nil),     // 24: api.UnmountResponse
-	(*MountStatusUpdate)(nil),   // 25: api.MountStatusUpdate
-	nil,                         // 26: api.MountInfo.ConfigEntry
-	nil,                         // 27: api.MountRequest.ConfigEntry
+	(MessageType)(0),            // 0: api.MessageType
+	(MountStatus)(0),            // 1: api.MountStatus
+	(*HandshakeRequest)(nil),    // 2: api.HandshakeRequest
+	(*HandshakeResponse)(nil),   // 3: api.HandshakeResponse
+	(*ListDirRequest)(nil),      // 4: api.ListDirRequest
+	(*ListDirResponse)(nil),     // 5: api.ListDirResponse
+	(*ReadFileRequest)(nil),     // 6: api.ReadFileRequest
+	(*ReadFileResponse)(nil),    // 7: api.ReadFileResponse
+	(*WriteFileRequest)(nil),    // 8: api.WriteFileRequest
+	(*WriteFileResponse)(nil),   // 9: api.WriteFileResponse
+	(*DeleteFileRequest)(nil),   // 10: api.DeleteFileRequest
+	(*DeleteFileResponse)(nil),  // 11: api.DeleteFileResponse
+	(*StatRequest)(nil),         // 12: api.StatRequest
+	(*StatResponse)(nil),        // 13: api.StatResponse
+	(*ListPluginsRequest)(nil),  // 14: api.ListPluginsRequest
+	(*ListPluginsResponse)(nil), // 15: api.ListPluginsResponse
+	(*PluginTypeInfo)(nil),      // 16: api.PluginTypeInfo
+	(*ConfigField)(nil),         // 17: api.ConfigField
+	(*ListMountsRequest)(nil),   // 18: api.ListMountsRequest
+	(*ListMountsResponse)(nil),  // 19: api.ListMountsResponse
+	(*MountInfo)(nil),           // 20: api.MountInfo
+	(*FileInfo)(nil),            // 21: api.FileInfo
+	(*MountRequest)(nil),        // 22: api.MountRequest
+	(*MountResponse)(nil),       // 23: api.MountResponse
+	(*UnmountRequest)(nil),      // 24: api.UnmountRequest
+	(*UnmountResponse)(nil),     // 25: api.UnmountResponse
+	(*ShutdownRequest)(nil),     // 26: api.ShutdownRequest
+	(*ShutdownResponse)(nil),    // 27: api.ShutdownResponse
+	(*MountStatusUpdate)(nil),   // 28: api.MountStatusUpdate
+	nil,                         // 29: api.MountInfo.ConfigEntry
+	nil,                         // 30: api.MountRequest.ConfigEntry
 }
 var file_diskjockey_backend_proto_protocol_definitions_proto_depIdxs = []int32{
-	20, // 0: api.ListDirResponse.files:type_name -> api.FileInfo
-	20, // 1: api.StatResponse.info:type_name -> api.FileInfo
-	15, // 2: api.ListPluginsResponse.plugins:type_name -> api.PluginTypeInfo
-	16, // 3: api.PluginTypeInfo.config_fields:type_name -> api.ConfigField
-	19, // 4: api.ListMountsResponse.mounts:type_name -> api.MountInfo
-	26, // 5: api.MountInfo.config:type_name -> api.MountInfo.ConfigEntry
-	27, // 6: api.MountRequest.config:type_name -> api.MountRequest.ConfigEntry
-	19, // 7: api.MountResponse.mount:type_name -> api.MountInfo
-	0,  // 8: api.MountStatusUpdate.status:type_name -> api.MountStatus
+	21, // 0: api.ListDirResponse.files:type_name -> api.FileInfo
+	21, // 1: api.StatResponse.info:type_name -> api.FileInfo
+	16, // 2: api.ListPluginsResponse.plugins:type_name -> api.PluginTypeInfo
+	17, // 3: api.PluginTypeInfo.config_fields:type_name -> api.ConfigField
+	20, // 4: api.ListMountsResponse.mounts:type_name -> api.MountInfo
+	29, // 5: api.MountInfo.config:type_name -> api.MountInfo.ConfigEntry
+	30, // 6: api.MountRequest.config:type_name -> api.MountRequest.ConfigEntry
+	20, // 7: api.MountResponse.mount:type_name -> api.MountInfo
+	1,  // 8: api.MountStatusUpdate.status:type_name -> api.MountStatus
 	9,  // [9:9] is the sub-list for method output_type
 	9,  // [9:9] is the sub-list for method input_type
 	9,  // [9:9] is the sub-list for extension type_name
@@ -1536,8 +1698,8 @@ func file_diskjockey_backend_proto_protocol_definitions_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_diskjockey_backend_proto_protocol_definitions_proto_rawDesc), len(file_diskjockey_backend_proto_protocol_definitions_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   27,
+			NumEnums:      2,
+			NumMessages:   29,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
