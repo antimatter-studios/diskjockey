@@ -1,4 +1,48 @@
-# DiskJockey Architecture (June 2025)
+# DiskJockey 
+## Project Summary
+
+DiskJockey is a modular, virtual filesystem solution for macOS designed to unify, mount, and manage remote storage backends (cloud, network, etc.) in a seamless way. It leverages a robust Go backend for performance and plugin extensibility, a Swift/Xcode-based macOS GUI for user interaction, and a lightweight helper process to bridge all IPC and system integration. The project aims to provide a reliable, extensible, and user-friendly way to access and synchronize files from various sources, all presented as native Finder volumes.
+
+**Motivation:**  
+- Simplify integration of multiple remote storage backends into Finder.
+- Provide a secure, auditable, and modular architecture.
+- Make it easy to add new backends (via Go plugins) and automate workflows (via CLI).
+- Decouple UI, backend logic, and system integration for maintainability and testability.
+
+**Aims:**  
+- Support mounting/unmounting remote filesystems as native Finder volumes.
+- Provide a unified, extensible backend for file operations and sync.
+- Deliver a polished macOS GUI and CLI for users and power-users.
+- Ensure robust, secure IPC and logging throughout the stack.
+
+---
+
+## Project Status
+
+- [x] Modular Go backend daemon with plugin system
+- [x] Go-based CLI tool (`djctl`) for backend control and debugging
+- [x] Swift/Xcode macOS GUI application
+- [x] Background helper process for IPC and orchestration
+- [x] Shared Swift framework for IPC, protobuf, and backend comms
+- [x] File Provider extension for Finder integration
+- [x] Unified IPC protocol using protobuf
+- [x] Makefile and build automation for Go/Swift targets
+- [x] Multi-process orchestration (main app, helper, backend)
+- [x] Logging and event forwarding via helper
+- [ ] User-friendly GUI for mount management
+- [ ] Full plugin support for additional backends (S3, WebDAV, etc.)
+- [ ] List Directory
+- [ ] Read File
+- [ ] Write File
+- [ ] Delete File
+- [ ] Robust error handling and user notifications
+- [ ] Comprehensive integration and unit tests
+- [ ] End-user documentation and onboarding
+- [ ] Production-ready code signing, packaging, and deployment
+
+---
+
+# Architecture
 
 ## High-Level Overview
 - **Main App**: Manages mounts, settings, and user orchestration. Does **not** directly request file lists.
@@ -31,7 +75,75 @@
 
 ---
 
-# Go Backend (Details)
+# Project Structure
+
+```
+.
+├── diskjockey-backend/      # Go backend daemon
+│   ├── main.go
+│   ├── ipc/
+│   ├── plugins/
+│   ├── ...
+├── diskjockey-cli/          # Go command-line client (djctl)
+│   ├── main.go
+│   ├── ...
+├── DiskJockeyApplication/   # Main macOS app (Xcode, Swift)
+│   ├── AppDelegate.swift
+│   ├── ...
+├── DiskJockeyHelper/        # Helper app (Xcode, Swift)
+│   ├── main.swift
+│   ├── ...
+├── DiskJockeyHelperLibrary/ # Shared Swift framework for IPC, protobuf, etc.
+│   ├── DiskJockeyAPI.swift
+│   ├── protocol_definitions.pb.swift
+│   ├── ...
+├── DiskJockeyFileProvider/  # File Provider extension (Xcode, Swift)
+│   ├── FileProviderItem.swift
+│   ├── ...
+├── Makefile                 # Build automation
+├── go.work                  # Go workspace file
+├── Package.swift            # SwiftPM manifest
+└── ...
+```
+
+## Component Descriptions
+
+- **diskjockey-backend** (Go):
+  - The backend daemon responsible for all file operations, sync, plugin management, and business logic.
+  - Communicates only with the helper process via IPC (UNIX socket).
+  - Not directly accessed by the main app or extension.
+
+- **diskjockey-cli** (Go, binary: `djctl`):
+  - Command-line tool for advanced users and debugging.
+  - Connects to the backend daemon over IPC for manual mount management, plugin inspection, etc.
+
+- **DiskJockeyApplication** (Swift, Xcode):
+  - The main macOS GUI app.
+  - Manages user settings, mount orchestration, and launches/monitors the helper and backend processes.
+  - Does NOT directly request file lists; delegates all backend communication to the helper.
+
+- **DiskJockeyHelper** (Swift, Xcode):
+  - A background/launch agent process.
+  - Manages persistent IPC connections to the backend.
+  - Bridges communication between the main app, File Provider extension, and backend.
+  - Handles unified logging and event forwarding.
+
+- **DiskJockeyHelperLibrary** (Swift, Xcode & SwiftPM):
+  - Shared framework containing all IPC, protobuf, and backend communication logic.
+  - Used by both the helper app and File Provider extension (and optionally the main app).
+  - Ensures no code duplication and consistent protocol handling.
+
+- **DiskJockeyFileProvider** (Swift, Xcode):
+  - macOS File Provider extension.
+  - Exposes the virtual file system to Finder.
+  - Stateless and short-lived; calls into the helper for all file operations.
+
+- **Makefile / go.work / Package.swift**:
+  - Build system and dependency management for Go and Swift projects.
+
+---
+
+# Diskjockey Backend
 
 This directory contains the Go daemon, plugin system, and cache/metadata logic.
 - main.go: entry point for the daemon
