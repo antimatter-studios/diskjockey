@@ -41,7 +41,10 @@ DiskJockey is a modular, virtual filesystem solution for macOS designed to unify
 ## Plugin Status
 
 CLI status means you can use the `djctl` tool to control the plugin. <br/>
-File Provider status means the plugin is exposed to Finder.
+File Provider status means the plugin is exposed to Finder. <br/>
+
+Right now, nothing is working through finder, I am building the app up in stages
+and I have a rough file provider implementation done. But it's not working yet.
 
 - ✅ Local Directory (mostly useless test dummy plugin)
     - ✅ List Directory (✅ CLI ❌ File Provider)
