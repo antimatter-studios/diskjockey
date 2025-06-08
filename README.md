@@ -40,7 +40,7 @@ DiskJockey is a modular, virtual filesystem solution for macOS designed to unify
 
 ## Plugin Status
 
-CLI status means you can use the `djctl` tool to control the plugin
+CLI status means you can use the `djctl` tool to control the plugin. <br/>
 File Provider status means the plugin is exposed to Finder.
 
 - ✅ Local Directory (mostly useless test dummy plugin)
