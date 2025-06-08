@@ -30,15 +30,49 @@ DiskJockey is a modular, virtual filesystem solution for macOS designed to unify
 - ✅ Multi-process orchestration (main app, helper, backend)
 - ✅ Logging and event forwarding via helper
 - ⬜️ User-friendly GUI for mount management
-- ⬜️ Full plugin support for additional backends (S3, WebDAV, etc.)
-- ⬜️ List Directory
-- ⬜️ Read File
-- ⬜️ Write File
-- ⬜️ Delete File
+- ✅ Plugin system to add different filesystems
 - ⬜️ Robust error handling and user notifications
 - ⬜️ Comprehensive integration and unit tests
 - ⬜️ End-user documentation and onboarding
 - ⬜️ Production-ready code signing, packaging, and deployment
+
+---
+
+## Plugin Status
+
+CLI status means you can use the `djctl` tool to control the plugin
+File Provider status means the plugin is exposed to Finder.
+
+- ✅ Local Directory (mostly useless test dummy plugin)
+    - ✅ List Directory (✅ CLI ❌ File Provider)
+    - ✅ Read File (✅ CLI ❌ File Provider)
+    - ⬜️ Write File 
+    - ⬜️ Delete File 
+- ✅ Dropbox
+    - ✅ List Directory (✅ CLI ❌ File Provider)
+    - ✅ Read File (✅ CLI ❌ File Provider)
+    - ⬜️ Write File 
+    - ⬜️ Delete File 
+- ✅ FTP
+    - ✅ List Directory (✅ CLI ❌ File Provider)
+    - ✅ Read File (✅ CLI ❌ File Provider)
+    - ⬜️ Write File 
+    - ⬜️ Delete File 
+- ✅ SFTP
+    - ✅ List Directory (✅ CLI ❌ File Provider)
+    - ✅ Read File (✅ CLI ❌ File Provider)
+    - ⬜️ Write File 
+    - ⬜️ Delete File 
+- ✅ SMB
+    - ✅ List Directory (✅ CLI ❌ File Provider)
+    - ✅ Read File (✅ CLI ❌ File Provider)
+    - ⬜️ Write File 
+    - ⬜️ Delete File 
+- ✅ WebDAV
+    - ✅ List Directory (✅ CLI ❌ File Provider)
+    - ✅ Read File (✅ CLI ❌ File Provider)
+    - ⬜️ Write File 
+    - ⬜️ Delete File 
 
 ---
 
@@ -146,6 +180,8 @@ DiskJockey is a modular, virtual filesystem solution for macOS designed to unify
 # Diskjockey Backend
 
 This directory contains the Go daemon, plugin system, and cache/metadata logic.
+
+Project Structure:
 - main.go: entry point for the daemon
 - ipc/: IPC server and protocol bindings
 - plugins/: plugin system and dummy/test plugin
@@ -153,3 +189,9 @@ This directory contains the Go daemon, plugin system, and cache/metadata logic.
 - metadata/: BoltDB logic
 - config/: configuration files
 - shared/: generated Go bindings from shared/protocol_definitions.proto
+
+# Diskjockey CLI
+
+This directory contains the Go command-line client (djctl).
+- It's purpose is to provider a way to control the system through the comand line
+- It's useful for debugging purposes, I can test things without having to use the GUI and I can see more detailed information by outputting a different type of data than what you would see only through the GUI
