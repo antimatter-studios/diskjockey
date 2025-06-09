@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		5036E62B2DF4B57800DA7C59 /* DiskJockeyHelper.app in CopyFiles */ = {isa = PBXBuildFile; fileRef = 5036E5D12DF4949300DA7C59 /* DiskJockeyHelper.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		5036E62D2DF4B5CF00DA7C59 /* DiskJockeyHelper.app in CopyFiles */ = {isa = PBXBuildFile; fileRef = 5036E5D12DF4949300DA7C59 /* DiskJockeyHelper.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		5036E6612DF5731600DA7C59 /* DiskJockeyHelperLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5036E6562DF5731600DA7C59 /* DiskJockeyHelperLibrary.framework */; };
 		5036E66B2DF5731600DA7C59 /* DiskJockeyHelperLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5036E6562DF5731600DA7C59 /* DiskJockeyHelperLibrary.framework */; };
@@ -18,6 +17,7 @@
 		5036E6882DF57AFE00DA7C59 /* DiskJockeyHelperLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5036E6562DF5731600DA7C59 /* DiskJockeyHelperLibrary.framework */; };
 		5036E6892DF57AFE00DA7C59 /* DiskJockeyHelperLibrary.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 5036E6562DF5731600DA7C59 /* DiskJockeyHelperLibrary.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		5036E6E12DF5871000DA7C59 /* diskjockey-backend in CopyFiles */ = {isa = PBXBuildFile; fileRef = 5036E6E02DF5871000DA7C59 /* diskjockey-backend */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		5036E6E32DF5965000DA7C59 /* HelperProcessManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5036E6E22DF5965000DA7C59 /* HelperProcessManager.swift */; };
 		5062547C2DF4640A000A9F31 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 506254752DF4640A000A9F31 /* Assets.xcassets */; };
 		5062547D2DF4640A000A9F31 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 506254792DF4640A000A9F31 /* Main.storyboard */; };
 		5062547F2DF4640A000A9F31 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 506254742DF4640A000A9F31 /* AppDelegate.swift */; };
@@ -96,7 +96,6 @@
 			dstSubfolderSpec = 7;
 			files = (
 				5036E6E12DF5871000DA7C59 /* diskjockey-backend in CopyFiles */,
-				5036E62B2DF4B57800DA7C59 /* DiskJockeyHelper.app in CopyFiles */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -164,6 +163,8 @@
 		5036E6562DF5731600DA7C59 /* DiskJockeyHelperLibrary.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = DiskJockeyHelperLibrary.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		5036E6602DF5731600DA7C59 /* DiskJockeyHelperLibraryTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DiskJockeyHelperLibraryTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		5036E6E02DF5871000DA7C59 /* diskjockey-backend */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = "diskjockey-backend"; path = "diskjockey-backend/diskjockey-backend"; sourceTree = "<group>"; };
+		5036E6E22DF5965000DA7C59 /* HelperProcessManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperProcessManager.swift; sourceTree = "<group>"; };
+		5036E6E62DF5A4CF00DA7C59 /* server.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = server.json; path = "diskjockey-backend/server.json"; sourceTree = "<group>"; };
 		506254352DF41B7D000A9F31 /* DiskJockeyCLI */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = DiskJockeyCLI; sourceTree = "<group>"; };
 		506254742DF4640A000A9F31 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		506254752DF4640A000A9F31 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -259,6 +260,7 @@
 			isa = PBXGroup;
 			children = (
 				506254742DF4640A000A9F31 /* AppDelegate.swift */,
+				5036E6E22DF5965000DA7C59 /* HelperProcessManager.swift */,
 				506254752DF4640A000A9F31 /* Assets.xcassets */,
 				506254762DF4640A000A9F31 /* DiskJockeyApplication.entitlements */,
 				506254772DF4640A000A9F31 /* Info.plist */,
@@ -283,6 +285,7 @@
 		D06C9C1F25F7AFD200354820 = {
 			isa = PBXGroup;
 			children = (
+				5036E6E62DF5A4CF00DA7C59 /* server.json */,
 				5036E6E02DF5871000DA7C59 /* diskjockey-backend */,
 				5062547B2DF4640A000A9F31 /* DiskJockeyApplication */,
 				506254902DF4649B000A9F31 /* DiskJockeyFileProvider */,
@@ -644,6 +647,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				5062547F2DF4640A000A9F31 /* AppDelegate.swift in Sources */,
+				5036E6E32DF5965000DA7C59 /* HelperProcessManager.swift in Sources */,
 				506254802DF4640A000A9F31 /* SettingsViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1127,6 +1131,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = DiskJockeyApplication/DiskJockeyApplication.entitlements;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				DEAD_CODE_STRIPPING = YES;
@@ -1151,6 +1156,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = DiskJockeyApplication/DiskJockeyApplication.entitlements;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				DEAD_CODE_STRIPPING = YES;

@@ -26,5 +26,10 @@
 	<string>Main</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>SMLoginItem</key>
+	<dict>
+		<key>com.antimatter-studios.diskjockeyhelper</key>
+		<true/>
+	</dict>
 </dict>
 </plist>
