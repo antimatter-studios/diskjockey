@@ -8,10 +8,20 @@
 import FileProvider
 import DiskJockeyHelperLibrary
 
+// IMPORTANT: The File Provider extension is sandboxed and cannot access /tmp.
+// The socket must be placed in the shared App Group Application Support directory.
+// Update this constant if the socket location changes in the main app/helper.
+// The File Provider extension must connect to the socket created by the helper/backend in the user's Application Support directory.
+// This must match the path used by the backend. Do NOT create the socket here.
+let diskJockeySocketPath: String = {
+    let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+    return supportDir.appendingPathComponent("DiskJockey/diskjockey.sock").path
+}()
+
 class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
     private let enumeratedItemIdentifier: NSFileProviderItemIdentifier
     private let anchor = NSFileProviderSyncAnchor("an anchor".data(using: .utf8)!)
-    private let mountName = "mount1" // Hardcoded for now
+    private let mountID: UInt32 = 1 // TODO: Replace with real mountID from config or API
     
     init(enumeratedItemIdentifier: NSFileProviderItemIdentifier) {
         self.enumeratedItemIdentifier = enumeratedItemIdentifier
@@ -34,16 +44,9 @@ class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
                 path = raw
             }
         }
-        // Use DiskJockeyCore connection pool and file provider
-        let pool = DiskJockeyIPCConnectionPool(socketPath: "/tmp/diskjockey.sock", maxConnections: 4)
-        let provider = DiskJockeyFileProvider(mountName: mountName, pool: pool)
-        guard let files = provider.listDirectory(path: path) else {
-            observer.finishEnumerating(upTo: nil)
-            return
-        }
-        let items = files.map { FileProviderItem(info: $0, parentPath: path) }
-        observer.didEnumerate(items)
+        // DUMMY: No-op for now, just finish enumeration immediately
         observer.finishEnumerating(upTo: nil)
+        return
     }
 
     func enumerateChanges(for observer: NSFileProviderChangeObserver, from anchor: NSFileProviderSyncAnchor) {
