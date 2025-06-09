@@ -21,6 +21,93 @@ fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAP
   typealias Version = _2
 }
 
+/// Central enum for all message type IDs used in the socket protocol
+public enum Api_MessageType: SwiftProtobuf.Enum, Swift.CaseIterable {
+  public typealias RawValue = Int
+  case unknownType // = 0
+  case connect // = 1
+  case listDirRequest // = 2
+  case mountRequest // = 3
+  case unmountRequest // = 4
+  case createMountRequest // = 5
+  case deleteMountRequest // = 6
+  case listMountsRequest // = 7
+  case listPluginsRequest // = 8
+  case mountStatusUpdate // = 9
+  case readFileRequest // = 10
+  case writeFileRequest // = 11
+  case statRequest // = 12
+  case deleteFileRequest // = 13
+  case shutdownRequest // = 99
+  case UNRECOGNIZED(Int)
+
+  public init() {
+    self = .unknownType
+  }
+
+  public init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .unknownType
+    case 1: self = .connect
+    case 2: self = .listDirRequest
+    case 3: self = .mountRequest
+    case 4: self = .unmountRequest
+    case 5: self = .createMountRequest
+    case 6: self = .deleteMountRequest
+    case 7: self = .listMountsRequest
+    case 8: self = .listPluginsRequest
+    case 9: self = .mountStatusUpdate
+    case 10: self = .readFileRequest
+    case 11: self = .writeFileRequest
+    case 12: self = .statRequest
+    case 13: self = .deleteFileRequest
+    case 99: self = .shutdownRequest
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
+
+  public var rawValue: Int {
+    switch self {
+    case .unknownType: return 0
+    case .connect: return 1
+    case .listDirRequest: return 2
+    case .mountRequest: return 3
+    case .unmountRequest: return 4
+    case .createMountRequest: return 5
+    case .deleteMountRequest: return 6
+    case .listMountsRequest: return 7
+    case .listPluginsRequest: return 8
+    case .mountStatusUpdate: return 9
+    case .readFileRequest: return 10
+    case .writeFileRequest: return 11
+    case .statRequest: return 12
+    case .deleteFileRequest: return 13
+    case .shutdownRequest: return 99
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  public static let allCases: [Api_MessageType] = [
+    .unknownType,
+    .connect,
+    .listDirRequest,
+    .mountRequest,
+    .unmountRequest,
+    .createMountRequest,
+    .deleteMountRequest,
+    .listMountsRequest,
+    .listPluginsRequest,
+    .mountStatusUpdate,
+    .readFileRequest,
+    .writeFileRequest,
+    .statRequest,
+    .deleteFileRequest,
+    .shutdownRequest,
+  ]
+
+}
+
 /// Mount status event (for event-driven updates)
 public enum Api_MountStatus: SwiftProtobuf.Enum, Swift.CaseIterable {
   public typealias RawValue = Int
@@ -95,7 +182,7 @@ public struct Api_ListDirRequest: Sendable {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var plugin: String = String()
+  public var mountID: UInt32 = 0
 
   public var path: String = String()
 
@@ -124,7 +211,7 @@ public struct Api_ReadFileRequest: Sendable {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var plugin: String = String()
+  public var mountID: UInt32 = 0
 
   public var path: String = String()
 
@@ -153,7 +240,7 @@ public struct Api_WriteFileRequest: @unchecked Sendable {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var plugin: String = String()
+  public var mountID: UInt32 = 0
 
   public var path: String = String()
 
@@ -176,13 +263,87 @@ public struct Api_WriteFileResponse: Sendable {
   public init() {}
 }
 
+/// Helper → Backend: Initial handshake, sends helper's listening port
+/// Sent by any client to initiate a session with the helper
+public struct Api_ConnectRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// All clients MUST set the correct role; UNKNOWN will result in handshake error.
+  /// Add more fields as needed
+  public var role: Api_ConnectRequest.Role = .unknown
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public enum Role: SwiftProtobuf.Enum, Swift.CaseIterable {
+    public typealias RawValue = Int
+    case unknown // = 0
+    case app // = 1
+    case backend // = 2
+
+    /// Add more as needed
+    case fileProvider // = 3
+    case UNRECOGNIZED(Int)
+
+    public init() {
+      self = .unknown
+    }
+
+    public init?(rawValue: Int) {
+      switch rawValue {
+      case 0: self = .unknown
+      case 1: self = .app
+      case 2: self = .backend
+      case 3: self = .fileProvider
+      default: self = .UNRECOGNIZED(rawValue)
+      }
+    }
+
+    public var rawValue: Int {
+      switch self {
+      case .unknown: return 0
+      case .app: return 1
+      case .backend: return 2
+      case .fileProvider: return 3
+      case .UNRECOGNIZED(let i): return i
+      }
+    }
+
+    // The compiler won't synthesize support with the UNRECOGNIZED case.
+    public static let allCases: [Api_ConnectRequest.Role] = [
+      .unknown,
+      .app,
+      .backend,
+      .fileProvider,
+    ]
+
+  }
+
+  public init() {}
+}
+
+/// Response to ConnectRequest
+public struct Api_ConnectResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// Add more fields as needed
+  public var error: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 /// Delete File
 public struct Api_DeleteFileRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var plugin: String = String()
+  public var mountID: UInt32 = 0
 
   public var path: String = String()
 
@@ -209,7 +370,7 @@ public struct Api_StatRequest: Sendable {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var plugin: String = String()
+  public var mountID: UInt32 = 0
 
   public var path: String = String()
 
@@ -336,6 +497,8 @@ public struct Api_MountInfo: Sendable {
 
   public var config: Dictionary<String,String> = [:]
 
+  public var mountID: UInt32 = 0
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -359,7 +522,34 @@ public struct Api_FileInfo: Sendable {
 }
 
 /// Mount/Unmount management
+/// --- Mount/Unmount now only activate/deactivate an existing mount by ID ---
 public struct Api_MountRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// ID of mount to activate
+  public var mountID: UInt32 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public struct Api_MountResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var error: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// --- Create/Delete are for DB row management ---
+public struct Api_CreateMountRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -375,27 +565,42 @@ public struct Api_MountRequest: Sendable {
   public init() {}
 }
 
-public struct Api_MountResponse: Sendable {
+public struct Api_CreateMountResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var mount: Api_MountInfo {
-    get {return _mount ?? Api_MountInfo()}
-    set {_mount = newValue}
-  }
-  /// Returns true if `mount` has been explicitly set.
-  public var hasMount: Bool {return self._mount != nil}
-  /// Clears the value of `mount`. Subsequent reads from it will return its default value.
-  public mutating func clearMount() {self._mount = nil}
+  public var mountID: UInt32 = 0
 
   public var error: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
+}
 
-  fileprivate var _mount: Api_MountInfo? = nil
+public struct Api_DeleteMountRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var mountID: UInt32 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public struct Api_DeleteMountResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var error: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
 }
 
 public struct Api_UnmountRequest: Sendable {
@@ -403,7 +608,7 @@ public struct Api_UnmountRequest: Sendable {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var name: String = String()
+  public var mountID: UInt32 = 0
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -422,12 +627,37 @@ public struct Api_UnmountResponse: Sendable {
   public init() {}
 }
 
+/// Shutdown backend daemon
+public struct Api_ShutdownRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public struct Api_ShutdownResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var success: Bool = false
+
+  public var message: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 public struct Api_MountStatusUpdate: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var name: String = String()
+  public var mountID: UInt32 = 0
 
   public var status: Api_MountStatus = .unknown
 
@@ -441,6 +671,26 @@ public struct Api_MountStatusUpdate: Sendable {
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 fileprivate let _protobuf_package = "api"
+
+extension Api_MessageType: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    0: .same(proto: "UNKNOWN_TYPE"),
+    1: .same(proto: "CONNECT"),
+    2: .same(proto: "LIST_DIR_REQUEST"),
+    3: .same(proto: "MOUNT_REQUEST"),
+    4: .same(proto: "UNMOUNT_REQUEST"),
+    5: .same(proto: "CREATE_MOUNT_REQUEST"),
+    6: .same(proto: "DELETE_MOUNT_REQUEST"),
+    7: .same(proto: "LIST_MOUNTS_REQUEST"),
+    8: .same(proto: "LIST_PLUGINS_REQUEST"),
+    9: .same(proto: "MOUNT_STATUS_UPDATE"),
+    10: .same(proto: "READ_FILE_REQUEST"),
+    11: .same(proto: "WRITE_FILE_REQUEST"),
+    12: .same(proto: "STAT_REQUEST"),
+    13: .same(proto: "DELETE_FILE_REQUEST"),
+    99: .same(proto: "SHUTDOWN_REQUEST"),
+  ]
+}
 
 extension Api_MountStatus: SwiftProtobuf._ProtoNameProviding {
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
@@ -518,7 +768,7 @@ extension Api_HandshakeResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
 extension Api_ListDirRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ListDirRequest"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "plugin"),
+    1: .standard(proto: "mount_id"),
     2: .same(proto: "path"),
   ]
 
@@ -528,7 +778,7 @@ extension Api_ListDirRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImple
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.plugin) }()
+      case 1: try { try decoder.decodeSingularUInt32Field(value: &self.mountID) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.path) }()
       default: break
       }
@@ -536,8 +786,8 @@ extension Api_ListDirRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImple
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.plugin.isEmpty {
-      try visitor.visitSingularStringField(value: self.plugin, fieldNumber: 1)
+    if self.mountID != 0 {
+      try visitor.visitSingularUInt32Field(value: self.mountID, fieldNumber: 1)
     }
     if !self.path.isEmpty {
       try visitor.visitSingularStringField(value: self.path, fieldNumber: 2)
@@ -546,7 +796,7 @@ extension Api_ListDirRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImple
   }
 
   public static func ==(lhs: Api_ListDirRequest, rhs: Api_ListDirRequest) -> Bool {
-    if lhs.plugin != rhs.plugin {return false}
+    if lhs.mountID != rhs.mountID {return false}
     if lhs.path != rhs.path {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
@@ -594,7 +844,7 @@ extension Api_ListDirResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
 extension Api_ReadFileRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ReadFileRequest"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "plugin"),
+    1: .standard(proto: "mount_id"),
     2: .same(proto: "path"),
   ]
 
@@ -604,7 +854,7 @@ extension Api_ReadFileRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.plugin) }()
+      case 1: try { try decoder.decodeSingularUInt32Field(value: &self.mountID) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.path) }()
       default: break
       }
@@ -612,8 +862,8 @@ extension Api_ReadFileRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.plugin.isEmpty {
-      try visitor.visitSingularStringField(value: self.plugin, fieldNumber: 1)
+    if self.mountID != 0 {
+      try visitor.visitSingularUInt32Field(value: self.mountID, fieldNumber: 1)
     }
     if !self.path.isEmpty {
       try visitor.visitSingularStringField(value: self.path, fieldNumber: 2)
@@ -622,7 +872,7 @@ extension Api_ReadFileRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
   }
 
   public static func ==(lhs: Api_ReadFileRequest, rhs: Api_ReadFileRequest) -> Bool {
-    if lhs.plugin != rhs.plugin {return false}
+    if lhs.mountID != rhs.mountID {return false}
     if lhs.path != rhs.path {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
@@ -670,7 +920,7 @@ extension Api_ReadFileResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
 extension Api_WriteFileRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".WriteFileRequest"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "plugin"),
+    1: .standard(proto: "mount_id"),
     2: .same(proto: "path"),
     3: .same(proto: "data"),
   ]
@@ -681,7 +931,7 @@ extension Api_WriteFileRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.plugin) }()
+      case 1: try { try decoder.decodeSingularUInt32Field(value: &self.mountID) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.path) }()
       case 3: try { try decoder.decodeSingularBytesField(value: &self.data) }()
       default: break
@@ -690,8 +940,8 @@ extension Api_WriteFileRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.plugin.isEmpty {
-      try visitor.visitSingularStringField(value: self.plugin, fieldNumber: 1)
+    if self.mountID != 0 {
+      try visitor.visitSingularUInt32Field(value: self.mountID, fieldNumber: 1)
     }
     if !self.path.isEmpty {
       try visitor.visitSingularStringField(value: self.path, fieldNumber: 2)
@@ -703,7 +953,7 @@ extension Api_WriteFileRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
   }
 
   public static func ==(lhs: Api_WriteFileRequest, rhs: Api_WriteFileRequest) -> Bool {
-    if lhs.plugin != rhs.plugin {return false}
+    if lhs.mountID != rhs.mountID {return false}
     if lhs.path != rhs.path {return false}
     if lhs.data != rhs.data {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
@@ -743,10 +993,83 @@ extension Api_WriteFileResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
   }
 }
 
+extension Api_ConnectRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ConnectRequest"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "role"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularEnumField(value: &self.role) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.role != .unknown {
+      try visitor.visitSingularEnumField(value: self.role, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Api_ConnectRequest, rhs: Api_ConnectRequest) -> Bool {
+    if lhs.role != rhs.role {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Api_ConnectRequest.Role: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    0: .same(proto: "UNKNOWN"),
+    1: .same(proto: "APP"),
+    2: .same(proto: "BACKEND"),
+    3: .same(proto: "FILE_PROVIDER"),
+  ]
+}
+
+extension Api_ConnectResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ConnectResponse"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "error"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.error) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.error.isEmpty {
+      try visitor.visitSingularStringField(value: self.error, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Api_ConnectResponse, rhs: Api_ConnectResponse) -> Bool {
+    if lhs.error != rhs.error {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
 extension Api_DeleteFileRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".DeleteFileRequest"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "plugin"),
+    1: .standard(proto: "mount_id"),
     2: .same(proto: "path"),
   ]
 
@@ -756,7 +1079,7 @@ extension Api_DeleteFileRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.plugin) }()
+      case 1: try { try decoder.decodeSingularUInt32Field(value: &self.mountID) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.path) }()
       default: break
       }
@@ -764,8 +1087,8 @@ extension Api_DeleteFileRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.plugin.isEmpty {
-      try visitor.visitSingularStringField(value: self.plugin, fieldNumber: 1)
+    if self.mountID != 0 {
+      try visitor.visitSingularUInt32Field(value: self.mountID, fieldNumber: 1)
     }
     if !self.path.isEmpty {
       try visitor.visitSingularStringField(value: self.path, fieldNumber: 2)
@@ -774,7 +1097,7 @@ extension Api_DeleteFileRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
   }
 
   public static func ==(lhs: Api_DeleteFileRequest, rhs: Api_DeleteFileRequest) -> Bool {
-    if lhs.plugin != rhs.plugin {return false}
+    if lhs.mountID != rhs.mountID {return false}
     if lhs.path != rhs.path {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
@@ -816,7 +1139,7 @@ extension Api_DeleteFileResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageI
 extension Api_StatRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".StatRequest"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "plugin"),
+    1: .standard(proto: "mount_id"),
     2: .same(proto: "path"),
   ]
 
@@ -826,7 +1149,7 @@ extension Api_StatRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplemen
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.plugin) }()
+      case 1: try { try decoder.decodeSingularUInt32Field(value: &self.mountID) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.path) }()
       default: break
       }
@@ -834,8 +1157,8 @@ extension Api_StatRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplemen
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.plugin.isEmpty {
-      try visitor.visitSingularStringField(value: self.plugin, fieldNumber: 1)
+    if self.mountID != 0 {
+      try visitor.visitSingularUInt32Field(value: self.mountID, fieldNumber: 1)
     }
     if !self.path.isEmpty {
       try visitor.visitSingularStringField(value: self.path, fieldNumber: 2)
@@ -844,7 +1167,7 @@ extension Api_StatRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplemen
   }
 
   public static func ==(lhs: Api_StatRequest, rhs: Api_StatRequest) -> Bool {
-    if lhs.plugin != rhs.plugin {return false}
+    if lhs.mountID != rhs.mountID {return false}
     if lhs.path != rhs.path {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
@@ -1107,6 +1430,7 @@ extension Api_MountInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
     1: .same(proto: "name"),
     2: .standard(proto: "plugin_type"),
     3: .same(proto: "config"),
+    4: .standard(proto: "mount_id"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -1118,6 +1442,7 @@ extension Api_MountInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
       case 1: try { try decoder.decodeSingularStringField(value: &self.name) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.pluginType) }()
       case 3: try { try decoder.decodeMapField(fieldType: SwiftProtobuf._ProtobufMap<SwiftProtobuf.ProtobufString,SwiftProtobuf.ProtobufString>.self, value: &self.config) }()
+      case 4: try { try decoder.decodeSingularUInt32Field(value: &self.mountID) }()
       default: break
       }
     }
@@ -1133,6 +1458,9 @@ extension Api_MountInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
     if !self.config.isEmpty {
       try visitor.visitMapField(fieldType: SwiftProtobuf._ProtobufMap<SwiftProtobuf.ProtobufString,SwiftProtobuf.ProtobufString>.self, value: self.config, fieldNumber: 3)
     }
+    if self.mountID != 0 {
+      try visitor.visitSingularUInt32Field(value: self.mountID, fieldNumber: 4)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -1140,6 +1468,7 @@ extension Api_MountInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
     if lhs.name != rhs.name {return false}
     if lhs.pluginType != rhs.pluginType {return false}
     if lhs.config != rhs.config {return false}
+    if lhs.mountID != rhs.mountID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -1192,6 +1521,70 @@ extension Api_FileInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementat
 extension Api_MountRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".MountRequest"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "mount_id"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt32Field(value: &self.mountID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.mountID != 0 {
+      try visitor.visitSingularUInt32Field(value: self.mountID, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Api_MountRequest, rhs: Api_MountRequest) -> Bool {
+    if lhs.mountID != rhs.mountID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Api_MountResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".MountResponse"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "error"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.error) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.error.isEmpty {
+      try visitor.visitSingularStringField(value: self.error, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Api_MountResponse, rhs: Api_MountResponse) -> Bool {
+    if lhs.error != rhs.error {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Api_CreateMountRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".CreateMountRequest"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .same(proto: "name"),
     2: .standard(proto: "plugin_type"),
     3: .same(proto: "config"),
@@ -1224,7 +1617,7 @@ extension Api_MountRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImpleme
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  public static func ==(lhs: Api_MountRequest, rhs: Api_MountRequest) -> Bool {
+  public static func ==(lhs: Api_CreateMountRequest, rhs: Api_CreateMountRequest) -> Bool {
     if lhs.name != rhs.name {return false}
     if lhs.pluginType != rhs.pluginType {return false}
     if lhs.config != rhs.config {return false}
@@ -1233,10 +1626,10 @@ extension Api_MountRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImpleme
   }
 }
 
-extension Api_MountResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".MountResponse"
+extension Api_CreateMountResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".CreateMountResponse"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "mount"),
+    1: .standard(proto: "mount_id"),
     2: .same(proto: "error"),
   ]
 
@@ -1246,7 +1639,7 @@ extension Api_MountResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularMessageField(value: &self._mount) }()
+      case 1: try { try decoder.decodeSingularUInt32Field(value: &self.mountID) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.error) }()
       default: break
       }
@@ -1254,21 +1647,81 @@ extension Api_MountResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if let v = self._mount {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    } }()
+    if self.mountID != 0 {
+      try visitor.visitSingularUInt32Field(value: self.mountID, fieldNumber: 1)
+    }
     if !self.error.isEmpty {
       try visitor.visitSingularStringField(value: self.error, fieldNumber: 2)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  public static func ==(lhs: Api_MountResponse, rhs: Api_MountResponse) -> Bool {
-    if lhs._mount != rhs._mount {return false}
+  public static func ==(lhs: Api_CreateMountResponse, rhs: Api_CreateMountResponse) -> Bool {
+    if lhs.mountID != rhs.mountID {return false}
+    if lhs.error != rhs.error {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Api_DeleteMountRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DeleteMountRequest"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "mount_id"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt32Field(value: &self.mountID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.mountID != 0 {
+      try visitor.visitSingularUInt32Field(value: self.mountID, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Api_DeleteMountRequest, rhs: Api_DeleteMountRequest) -> Bool {
+    if lhs.mountID != rhs.mountID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Api_DeleteMountResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DeleteMountResponse"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "error"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.error) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.error.isEmpty {
+      try visitor.visitSingularStringField(value: self.error, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Api_DeleteMountResponse, rhs: Api_DeleteMountResponse) -> Bool {
     if lhs.error != rhs.error {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
@@ -1278,7 +1731,7 @@ extension Api_MountResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
 extension Api_UnmountRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".UnmountRequest"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "name"),
+    1: .standard(proto: "mount_id"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -1287,21 +1740,21 @@ extension Api_UnmountRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImple
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.name) }()
+      case 1: try { try decoder.decodeSingularUInt32Field(value: &self.mountID) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.name.isEmpty {
-      try visitor.visitSingularStringField(value: self.name, fieldNumber: 1)
+    if self.mountID != 0 {
+      try visitor.visitSingularUInt32Field(value: self.mountID, fieldNumber: 1)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Api_UnmountRequest, rhs: Api_UnmountRequest) -> Bool {
-    if lhs.name != rhs.name {return false}
+    if lhs.mountID != rhs.mountID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -1339,10 +1792,67 @@ extension Api_UnmountResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
   }
 }
 
+extension Api_ShutdownRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ShutdownRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Api_ShutdownRequest, rhs: Api_ShutdownRequest) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Api_ShutdownResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ShutdownResponse"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "success"),
+    2: .same(proto: "message"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBoolField(value: &self.success) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.message) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.success != false {
+      try visitor.visitSingularBoolField(value: self.success, fieldNumber: 1)
+    }
+    if !self.message.isEmpty {
+      try visitor.visitSingularStringField(value: self.message, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Api_ShutdownResponse, rhs: Api_ShutdownResponse) -> Bool {
+    if lhs.success != rhs.success {return false}
+    if lhs.message != rhs.message {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
 extension Api_MountStatusUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".MountStatusUpdate"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "name"),
+    1: .standard(proto: "mount_id"),
     2: .same(proto: "status"),
     3: .same(proto: "error"),
   ]
@@ -1353,7 +1863,7 @@ extension Api_MountStatusUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.name) }()
+      case 1: try { try decoder.decodeSingularUInt32Field(value: &self.mountID) }()
       case 2: try { try decoder.decodeSingularEnumField(value: &self.status) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.error) }()
       default: break
@@ -1362,8 +1872,8 @@ extension Api_MountStatusUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.name.isEmpty {
-      try visitor.visitSingularStringField(value: self.name, fieldNumber: 1)
+    if self.mountID != 0 {
+      try visitor.visitSingularUInt32Field(value: self.mountID, fieldNumber: 1)
     }
     if self.status != .unknown {
       try visitor.visitSingularEnumField(value: self.status, fieldNumber: 2)
@@ -1375,7 +1885,7 @@ extension Api_MountStatusUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
   }
 
   public static func ==(lhs: Api_MountStatusUpdate, rhs: Api_MountStatusUpdate) -> Bool {
-    if lhs.name != rhs.name {return false}
+    if lhs.mountID != rhs.mountID {return false}
     if lhs.status != rhs.status {return false}
     if lhs.error != rhs.error {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}

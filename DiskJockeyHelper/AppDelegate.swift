@@ -11,26 +11,32 @@ import DiskJockeyHelperLibrary
 @main
 class AppDelegate: NSObject, NSApplicationDelegate {
 
-    var ipcServer: DiskJockeyIPCServer?
+    var messageServer: MessageServer!
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
-        // Minimal IPC server implementation
-        // Handles graceful shutdown on shutdown command (type 99) a UNIX domain socket
-        let socketPath = "/tmp/diskjockey.helper.sock"
-        ipcServer = DiskJockeyIPCServer(socketPath: socketPath)
-        do {
-            try ipcServer?.start()
-            NSLog("DiskJockeyHelper: IPC server started on \(socketPath)")
-        } catch {
-            NSLog("DiskJockeyHelper: Failed to start IPC server: \(error)")
-            NSApp.terminate(nil)
+        NSLog("DiskJockeyHelper started, now initializing TCP Listener")
+
+        let server = MessageServer()
+        self.messageServer = server
+
+        let helperSocket = TCPListener(port: 0) { [weak self] clientFD in
+            guard let self = self else { return }
+            self.messageServer?.acceptClientSocket(clientFD)
         }
+        
+        let port = helperSocket.actualPort ?? 0
+        // Post port to main app via NSDistributedNotificationCenter
+        let userInfo: [AnyHashable: Any] = ["port": port]
+        DistributedNotificationCenter.default().post(name: Notification.Name("DiskJockeyHelperPort"),
+                                                    object: nil,
+                                                    userInfo: userInfo)
+        // print("LISTEN_PORT=\(port)")
+        // fflush(stdout)
     }
 
     func applicationWillTerminate(_ aNotification: Notification) {
-        // Clean up the IPC server
-        ipcServer?.stop()
-        ipcServer = nil
+        messageServer.stop()
+        messageServer = nil
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {

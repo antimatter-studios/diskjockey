@@ -19,6 +19,10 @@ djb:
 	cd ${DISKJOCKEY_BACKEND} && go mod tidy
 	GO111MODULE=on go build -o ./${DISKJOCKEY_BACKEND}/${DISKJOCKEY_BACKEND_BINARY} ./${DISKJOCKEY_BACKEND}
 
+run-djb:
+	@echo "\nRunning ${DISKJOCKEY_BACKEND_BINARY}...\n"
+	cd ${DISKJOCKEY_BACKEND} && ./${DISKJOCKEY_BACKEND_BINARY} --config-dir=${PWD}
+
 djctl:
 	@echo "\nBuilding ${DISKJOCKEY_CLI_BINARY}...\n"
 	cd ${DISKJOCKEY_CLI} && go mod tidy
