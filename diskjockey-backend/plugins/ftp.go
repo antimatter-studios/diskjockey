@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/christhomas/diskjockey/diskjockey-backend/models"
 	"github.com/christhomas/diskjockey/diskjockey-backend/types"
 	"github.com/jlaffaye/ftp"
 )
@@ -18,22 +19,23 @@ type FTPPlugin struct{}
 // FTPBackend implements Backend for FTP/FTPS
 
 type FTPBackend struct {
-	mountName string
-	configSvc types.ConfigServiceInterface
-	client    *ftp.ServerConn
-	path      string
-	ftps      bool
+	mount  *models.Mount
+	client *ftp.ServerConn
+	path   string
+	ftps   bool
 }
 
-func (FTPPlugin) New(mountName string, configSvc types.ConfigServiceInterface) (types.Backend, error) {
-	b := &FTPBackend{mountName: mountName, configSvc: configSvc}
+func (FTPPlugin) New(mount *models.Mount) (types.Backend, error) {
+	b := &FTPBackend{mount: mount}
 	if err := b.connect(); err != nil {
 		return nil, err
 	}
 	return b, nil
 }
 
-func (FTPPlugin) Name() string { return "ftp" }
+func (FTPPlugin) Name() string {
+	return "ftp"
+}
 
 func (FTPPlugin) Description() string {
 	return "FTP/FTPS-backed remote filesystem mount"
@@ -75,30 +77,25 @@ func (FTPPlugin) ConfigTemplate() types.PluginConfigTemplate {
 }
 
 func (b *FTPBackend) connect() error {
-	cfg, err := b.configSvc.GetMountConfig(b.mountName)
-	if err != nil {
-		return fmt.Errorf("FTPBackend: config for mount '%s' not found", b.mountName)
+	host := b.mount.Host
+	port := b.mount.Port
+	username := b.mount.Username
+	password := b.mount.Password
+	b.path = b.mount.Path
+	b.ftps = false // Set this based on a future field if needed
+	addr := fmt.Sprintf("%s:%d", host, port)
+
+	opts := []ftp.DialOption{
+		ftp.DialWithTimeout(5 * time.Second),
 	}
 
-	host, _ := cfg["host"].(string)
-	port, _ := cfg["port"].(string)
-	username, _ := cfg["username"].(string)
-	password, _ := cfg["password"].(string)
-	b.path, _ = cfg["path"].(string)
-	b.ftps, _ = cfg["ftps"].(bool)
-	addr := host + ":" + port
-
-	var c *ftp.ServerConn
 	if b.ftps {
-		c, err = ftp.Dial(addr, ftp.DialWithTimeout(5*time.Second), ftp.DialWithTLS(&tls.Config{InsecureSkipVerify: true}))
-		if err != nil {
-			return err
-		}
-	} else {
-		c, err = ftp.Dial(addr, ftp.DialWithTimeout(5*time.Second))
-		if err != nil {
-			return err
-		}
+		opts = append(opts, ftp.DialWithTLS(&tls.Config{InsecureSkipVerify: true}))
+	}
+
+	c, err := ftp.Dial(addr, opts...)
+	if err != nil {
+		return err
 	}
 
 	if err := c.Login(username, password); err != nil {

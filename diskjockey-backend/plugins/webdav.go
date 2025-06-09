@@ -6,6 +6,7 @@ import (
 	"runtime/debug"
 	"strings"
 
+	"github.com/christhomas/diskjockey/diskjockey-backend/models"
 	"github.com/christhomas/diskjockey/diskjockey-backend/types"
 	"github.com/studio-b12/gowebdav"
 )
@@ -16,16 +17,14 @@ import (
 type WebDAVPlugin struct{}
 
 type WebDAVBackend struct {
-	mountName string
-	configSvc types.ConfigServiceInterface
-	client    *gowebdav.Client
-	Root      string
-	BaseURL   string
-	Path      string
+	mount      *models.Mount
+	client     *gowebdav.Client
+	pathPrefix string
+	BaseURL    string
 }
 
-func (w WebDAVPlugin) New(mountName string, configSvc types.ConfigServiceInterface) (types.Backend, error) {
-	b := &WebDAVBackend{mountName: mountName, configSvc: configSvc}
+func (w WebDAVPlugin) New(mount *models.Mount) (types.Backend, error) {
+	b := &WebDAVBackend{mount: mount}
 	if err := b.connect(); err != nil {
 		return nil, err
 	}
@@ -82,49 +81,24 @@ func (b *WebDAVBackend) connect() error {
 			fmt.Fprintf(os.Stderr, "[WebDAV][PANIC] %v\n%s\n", r, debug.Stack())
 		}
 	}()
-	fmt.Printf("[WebDAV][DEBUG] Mount config: %+v\n", b.configSvc)
+	fmt.Printf("[WebDAV][DEBUG] Mount config: %+v\n", b.mount)
 
-	if b.configSvc == nil {
-		return fmt.Errorf("config service not set")
+	host := b.mount.Host
+	port := b.mount.Port
+	username := b.mount.Username
+	password := b.mount.Password
+	path := b.mount.Path
+
+	scheme := "https"
+	if host == "" {
+		return fmt.Errorf("webdav: missing required config 'host'")
 	}
-
-	config, err := b.configSvc.GetMountConfig(b.mountName)
-	fmt.Printf("[WebDAV][DEBUG] GetMountConfig(%s) => err=%v, config=%#v\n", b.mountName, err, config)
-	if err != nil {
-		return fmt.Errorf("config for mount '%s' not found", b.mountName)
+	portStr := ""
+	if port != 0 {
+		portStr = fmt.Sprintf(":%d", port)
 	}
-
-	// Compose URL if not provided
-	url, urlOk := config["url"].(string)
-	if !urlOk || url == "" {
-		host, _ := config["host"].(string)
-		port, _ := config["port"]
-		path, _ := config["path"].(string)
-
-		scheme := "https"
-
-		if host == "" {
-			fmt.Fprintf(os.Stderr, "[WebDAV][ERROR] No 'url' or 'host' in config\n")
-			return fmt.Errorf("webdav: missing required config 'url' or 'host'")
-		}
-
-		// Default port
-		portStr := ""
-		if p, ok := port.(float64); ok && p > 0 {
-			portStr = fmt.Sprintf(":%d", int(p))
-		} else if p, ok := port.(int); ok && p > 0 {
-			portStr = fmt.Sprintf(":%d", p)
-		}
-
-		url = fmt.Sprintf("%s://%s%s", scheme, host, portStr)
-		fmt.Printf("[WebDAV][DEBUG] Constructed URL: %s\n", url)
-		b.Path = path
-	} else {
-		b.Path, _ = config["path"].(string)
-	}
-
-	username, _ := config["username"].(string)
-	password, _ := config["password"].(string)
+	url := fmt.Sprintf("%s://%s%s", scheme, host, portStr)
+	b.pathPrefix = path
 
 	fmt.Printf("[WebDAV][DEBUG] Connecting to URL: %s\n", url)
 	fmt.Printf("[WebDAV][DEBUG] Username: %s\n", username)
@@ -137,9 +111,9 @@ func (b *WebDAVBackend) connect() error {
 
 func (b *WebDAVBackend) fullPath(requested string) string {
 	// Always prepend b.Path (if set) to the requested path
-	if b.Path != "" {
+	if b.pathPrefix != "" {
 		// Ensure exactly one slash between b.Path and requested
-		cleanPath := b.Path
+		cleanPath := b.pathPrefix
 		if !strings.HasPrefix(cleanPath, "/") {
 			cleanPath = "/" + cleanPath
 		}

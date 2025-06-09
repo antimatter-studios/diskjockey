@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/christhomas/diskjockey/diskjockey-backend/models"
 	"github.com/christhomas/diskjockey/diskjockey-backend/types"
 	dropbox "github.com/dropbox/dropbox-sdk-go-unofficial/v6/dropbox"
 	files "github.com/dropbox/dropbox-sdk-go-unofficial/v6/dropbox/files"
@@ -13,6 +14,23 @@ import (
 // DropboxPlugin implements PluginType for Dropbox
 
 type DropboxPlugin struct{}
+
+type DropboxBackend struct {
+	mount  *models.Mount
+	client files.Client
+}
+
+func (DropboxPlugin) New(mount *models.Mount) (types.Backend, error) {
+	b := &DropboxBackend{
+		mount: mount,
+	}
+
+	if err := b.connect(); err != nil {
+		return nil, err
+	}
+
+	return b, nil
+}
 
 func (DropboxPlugin) Name() string {
 	return "dropbox"
@@ -32,26 +50,8 @@ func (DropboxPlugin) ConfigTemplate() types.PluginConfigTemplate {
 	}
 }
 
-func (DropboxPlugin) New(mountName string, configSvc types.ConfigServiceInterface) (types.Backend, error) {
-	b := &DropboxBackend{mountName: mountName, configSvc: configSvc}
-	if err := b.connect(); err != nil {
-		return nil, err
-	}
-	return b, nil
-}
-
-type DropboxBackend struct {
-	mountName string
-	configSvc types.ConfigServiceInterface
-	client    files.Client
-}
-
 func (b *DropboxBackend) connect() error {
-	cfg, err := b.configSvc.GetMountConfig(b.mountName)
-	if err != nil {
-		return fmt.Errorf("DropboxBackend: config for mount '%s' not found", b.mountName)
-	}
-	token, _ := cfg["access_token"].(string)
+	token := b.mount.AccessToken
 	if token == "" {
 		return fmt.Errorf("missing required dropbox config field: access_token")
 	}

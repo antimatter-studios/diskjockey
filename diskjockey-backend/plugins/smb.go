@@ -6,6 +6,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/christhomas/diskjockey/diskjockey-backend/models"
 	"github.com/christhomas/diskjockey/diskjockey-backend/types"
 	"github.com/hirochachacha/go-smb2"
 )
@@ -15,15 +16,14 @@ import (
 type SMBPlugin struct{}
 
 type SMBBackend struct {
-	mountName string
-	configSvc types.ConfigServiceInterface
-	session   *smb2.Session
-	share     *smb2.Share
-	root      string
+	mount   *models.Mount
+	session *smb2.Session
+	share   *smb2.Share
+	root    string
 }
 
-func (SMBPlugin) New(mountName string, configSvc types.ConfigServiceInterface) (types.Backend, error) {
-	b := &SMBBackend{mountName: mountName, configSvc: configSvc}
+func (SMBPlugin) New(mount *models.Mount) (types.Backend, error) {
+	b := &SMBBackend{mount: mount}
 
 	if err := b.connect(); err != nil {
 		return nil, err
@@ -71,15 +71,10 @@ func (SMBPlugin) ConfigTemplate() types.PluginConfigTemplate {
 }
 
 func (b *SMBBackend) connect() error {
-	cfg, err := b.configSvc.GetMountConfig(b.mountName)
-	if err != nil {
-		return fmt.Errorf("SMBBackend: config for mount '%s' not found", b.mountName)
-	}
-
-	host, _ := cfg["host"].(string)
-	shareName, _ := cfg["share"].(string)
-	username, _ := cfg["username"].(string)
-	password, _ := cfg["password"].(string)
+	host := b.mount.Host
+	shareName := b.mount.Share
+	username := b.mount.Username
+	password := b.mount.Password
 
 	if host == "" || shareName == "" || username == "" {
 		return fmt.Errorf("missing required smb config fields")

@@ -29,8 +29,77 @@ func lsCommand(args []string) {
 	}
 	defer conn.Close()
 	// Build ListDirRequest
+	// Query backend for mount list to resolve mount name to mount_id
+	mountsReq := &api.ListMountsRequest{}
+	mountsMsg, err := proto.Marshal(mountsReq)
+	if err != nil {
+		fmt.Println("Marshal ListMountsRequest error:", err)
+		os.Exit(1)
+	}
+	var lenBuf [4]byte
+	var respType [1]byte
+	// --- ListMountsRequest ---
+	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(mountsMsg)+1))
+	if _, err := conn.Write(lenBuf[:]); err != nil {
+		fmt.Println("Write len error:", err)
+		os.Exit(1)
+	}
+	if _, err := conn.Write([]byte{byte(api.MessageType_LIST_MOUNTS_REQUEST)}); err != nil {
+		fmt.Println("Write type error:", err)
+		os.Exit(1)
+	}
+	if _, err := conn.Write(mountsMsg); err != nil {
+		fmt.Println("Write msg error:", err)
+		os.Exit(1)
+	}
+	// Read ListMountsResponse
+	if _, err := conn.Read(lenBuf[:]); err != nil {
+		fmt.Println("Read resp len error:", err)
+		os.Exit(1)
+	}
+	respLen := binary.BigEndian.Uint32(lenBuf[:])
+	if respLen < 1 {
+		fmt.Println("Invalid resp len")
+		os.Exit(1)
+	}
+	if _, err := conn.Read(respType[:]); err != nil {
+		fmt.Println("Read resp type error:", err)
+		os.Exit(1)
+	}
+	if respType[0] != byte(api.MessageType_LIST_MOUNTS_REQUEST) {
+		fmt.Println("Unexpected resp type for ListMountsResponse:", respType[0])
+		os.Exit(1)
+	}
+	respBytes := make([]byte, respLen-1)
+	if _, err := io.ReadFull(conn, respBytes); err != nil {
+		fmt.Println("Read resp bytes error:", err)
+		os.Exit(1)
+	}
+	mountsResp := &api.ListMountsResponse{}
+	if err := proto.Unmarshal(respBytes, mountsResp); err != nil {
+		fmt.Println("Unmarshal ListMountsResponse error:", err)
+		os.Exit(1)
+	}
+	if mountsResp.Error != "" {
+		fmt.Println("Server error (mounts):", mountsResp.Error)
+		os.Exit(1)
+	}
+	var mountID uint32
+	found := false
+	for _, m := range mountsResp.Mounts {
+		if m.Name == mount {
+			mountID = m.MountId
+			found = true
+			break
+		}
+	}
+	if !found {
+		fmt.Printf("Mount '%s' not found\n", mount)
+		os.Exit(1)
+	}
+	// --- ListDirRequest ---
 	req := &api.ListDirRequest{
-		Plugin: mount,
+		MountId: mountID,
 		Path:   path,
 	}
 	msg, err := proto.Marshal(req)
@@ -38,7 +107,6 @@ func lsCommand(args []string) {
 		fmt.Println("Marshal error:", err)
 		os.Exit(1)
 	}
-	var lenBuf [4]byte
 	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(msg)+1))
 	if _, err := conn.Write(lenBuf[:]); err != nil {
 		fmt.Println("Write len error:", err)
@@ -57,12 +125,11 @@ func lsCommand(args []string) {
 		fmt.Println("Read resp len error:", err)
 		os.Exit(1)
 	}
-	respLen := binary.BigEndian.Uint32(lenBuf[:])
+	respLen = binary.BigEndian.Uint32(lenBuf[:])
 	if respLen < 1 {
 		fmt.Println("Invalid resp len")
 		os.Exit(1)
 	}
-	var respType [1]byte
 	if _, err := conn.Read(respType[:]); err != nil {
 		fmt.Println("Read resp type error:", err)
 		os.Exit(1)
@@ -71,7 +138,7 @@ func lsCommand(args []string) {
 		fmt.Println("Unexpected resp type for ListDirResponse:", respType[0])
 		os.Exit(1)
 	}
-	respBytes := make([]byte, respLen-1)
+	respBytes = make([]byte, respLen-1)
 	if _, err := io.ReadFull(conn, respBytes); err != nil {
 		fmt.Println("Read resp bytes error:", err)
 		os.Exit(1)

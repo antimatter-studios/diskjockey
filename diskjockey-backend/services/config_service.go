@@ -1,90 +1,138 @@
 package services
 
 import (
-	"encoding/json"
 	"errors"
-	"os"
-	"sync"
+	"strconv"
 
-	"github.com/christhomas/diskjockey/diskjockey-backend/types"
+	"github.com/christhomas/diskjockey/diskjockey-backend/models"
 )
 
-// ConfigService provides up-to-date mount config for any backend by name.
+// ConfigService provides access to config, mount, and socket path data from the database.
+
 type ConfigService struct {
-	path   string
-	mu     sync.RWMutex
-	config *types.AppConfig
+	db        *SQLiteService
+	socketPath string
 }
 
-func NewConfigService(path string) (*ConfigService, error) {
-	cs := &ConfigService{path: path}
-	if err := cs.LoadConfig(); err != nil {
-		return nil, err
-	}
-	return cs, nil
+// NewConfigService creates a ConfigService using the given SQLiteService.
+func NewConfigService(db *SQLiteService, socketPath string) *ConfigService {
+	return &ConfigService{db: db, socketPath: socketPath}
 }
 
-// LoadConfig loads config from a JSON file
-func (cs *ConfigService) LoadConfig() error {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-	f, err := os.Open(cs.path)
-	if err != nil {
+// DeleteMount deletes a mount config row by ID
+func (cs *ConfigService) DeleteMount(mountID uint32) error {
+	db := cs.db.GetDB()
+	if err := db.Delete(&models.Mount{}, mountID).Error; err != nil {
 		return err
 	}
-	defer f.Close()
-	var cfg types.AppConfig
-	if err := json.NewDecoder(f).Decode(&cfg); err != nil {
-		return err
-	}
-	cs.config = &cfg
 	return nil
 }
 
-// ListMountpoints returns a slice of all mountpoint configs.
-func (cs *ConfigService) ListMountpoints() ([]types.MountpointConfig, error) {
-	cs.mu.RLock()
-	defer cs.mu.RUnlock()
+// GetMountByName returns the Mount model for the given mount name
+func (cs *ConfigService) GetMountByName(mountName string) (*models.Mount, error) {
+	db := cs.db.GetDB()
 
-	if cs.config == nil {
-		return nil, errors.New("config not loaded")
+	var mount models.Mount
+	if err := db.Preload("Plugin").Where("name = ?", mountName).First(&mount).Error; err != nil {
+		return nil, err
 	}
 
-	return cs.config.Mountpoints, nil
+	return &mount, nil
 }
 
-// GetMountConfig returns a copy of the config for the given mount name.
-func (cs *ConfigService) GetMountConfig(mountName string) (map[string]interface{}, error) {
-	cs.mu.RLock()
-	defer cs.mu.RUnlock()
-
-	if cs.config == nil {
-		return nil, errors.New("config not loaded")
+// GetMountByID fetches a mount by its primary key, including plugin.
+func (cs *ConfigService) GetMountByID(id uint32) (*models.Mount, error) {
+	db := cs.db.GetDB()
+	var mount models.Mount
+	if err := db.Preload("Plugin").First(&mount, id).Error; err != nil {
+		return nil, err
 	}
+	return &mount, nil
+}
 
-	for _, m := range cs.config.Mountpoints {
-		if m.Name == mountName {
-			copy := make(map[string]interface{})
-			for k, v := range m.Config {
-				copy[k] = v
-			}
-			return copy, nil
+// CreateMount inserts a new mount into the database, linking to the plugin by name.
+// It enforces that no mounts overlap (same or parent/child path).
+// CreateMount creates a new mount config row and returns its ID
+func (cs *ConfigService) CreateMount(name string, pluginType string, config map[string]string) (uint32, error) {
+	db := cs.db.GetDB()
+	var plugin models.Plugin
+	if err := db.Where("name = ?", pluginType).First(&plugin).Error; err != nil {
+		return 0, err
+	}
+	mount := models.Mount{
+		Name:   name,
+		Plugin: plugin,
+	}
+	// Set config fields if present
+	if v, ok := config["host"]; ok {
+		mount.Host = v
+	}
+	if v, ok := config["port"]; ok {
+		mount.Port, _ = strconv.Atoi(v)
+	}
+	if v, ok := config["username"]; ok {
+		mount.Username = v
+	}
+	if v, ok := config["password"]; ok {
+		mount.Password = v
+	}
+	if v, ok := config["path"]; ok {
+		mount.Path = v
+	}
+	// Enforce no overlapping mounts
+	var existing []models.Mount
+	if err := db.Find(&existing).Error; err != nil {
+		return 0, err
+	}
+	for _, ex := range existing {
+		if ex.Path == mount.Path || isPathOverlap(ex.Path, mount.Path) {
+			return 0, errors.New("mount path overlaps with existing mount: " + ex.Path)
 		}
 	}
-
-	return nil, errors.New("mount not found")
+	if err := db.Create(&mount).Error; err != nil {
+		return 0, err
+	}
+	return uint32(mount.ID), nil
 }
 
+// isPathOverlap returns true if a or b is a parent/child of the other
+func isPathOverlap(a, b string) bool {
+	if a == b {
+		return true
+	}
+	if len(a) > 0 && len(b) > 0 {
+		if len(a) > len(b) && a[:len(b)] == b && a[len(b)] == '/' {
+			return true
+		}
+		if len(b) > len(a) && b[:len(a)] == a && b[len(a)] == '/' {
+			return true
+		}
+	}
+	return false
+}
+
+// ListMountpoints returns all mounts from the database.
+func (cs *ConfigService) ListMountpoints() ([]models.Mount, error) {
+	db := cs.db.GetDB()
+
+	var mounts []models.Mount
+	if err := db.Preload("Plugin").Find(&mounts).Error; err != nil {
+		return nil, err
+	}
+
+	return mounts, nil
+}
+
+// SetMountMounted sets the IsMounted field for a mount by ID.
+func (cs *ConfigService) SetMountMounted(mountID uint32, mounted bool) error {
+	db := cs.db.GetDB()
+	return db.Model(&models.Mount{}).Where("id = ?", mountID).Update("is_mounted", mounted).Error
+}
+
+// GetSocketPath returns the socket path from the config table.
 func (cs *ConfigService) GetSocketPath() (string, error) {
-	cs.mu.RLock()
-	defer cs.mu.RUnlock()
-	if cs.config == nil {
-		return "", errors.New("config not loaded")
+	if cs.socketPath == "" {
+		return "", errors.New("socket path not set")
 	}
-
-	if cs.config.SocketPath == "" {
-		return "", errors.New("socket path not configured")
-	}
-
-	return cs.config.SocketPath, nil
+	return cs.socketPath, nil
 }

@@ -11,12 +11,20 @@ option go_package = "diskjockey-backend/proto/api;api";
 // Central enum for all message type IDs used in the socket protocol
 enum MessageType {
   UNKNOWN_TYPE = 0;
-  LIST_DIR_REQUEST = 1;
-  MOUNT_REQUEST = 2;
-  UNMOUNT_REQUEST = 3;
-  LIST_MOUNTS_REQUEST = 4;
-  SHUTDOWN_REQUEST = 5;
-  // Add other message types as needed
+  CONNECT = 1;
+  LIST_DIR_REQUEST = 2;
+  MOUNT_REQUEST = 3;
+  UNMOUNT_REQUEST = 4;
+  CREATE_MOUNT_REQUEST = 5;
+  DELETE_MOUNT_REQUEST = 6;
+  LIST_MOUNTS_REQUEST = 7;
+  LIST_PLUGINS_REQUEST = 8;
+  MOUNT_STATUS_UPDATE = 9;
+  READ_FILE_REQUEST = 10;
+  WRITE_FILE_REQUEST = 11;
+  STAT_REQUEST = 12;
+  DELETE_FILE_REQUEST = 13;
+  SHUTDOWN_REQUEST = 99;
 }
 
 
@@ -30,7 +38,7 @@ message HandshakeResponse {
 
 // List Directory
 message ListDirRequest {
-  string plugin = 1;
+  uint32 mount_id = 1;
   string path = 2;
 }
 message ListDirResponse {
@@ -40,7 +48,7 @@ message ListDirResponse {
 
 // Read File
 message ReadFileRequest {
-  string plugin = 1;
+  uint32 mount_id = 1;
   string path = 2;
 }
 
@@ -51,7 +59,7 @@ message ReadFileResponse {
 
 // Write File
 message WriteFileRequest {
-  string plugin = 1;
+  uint32 mount_id = 1;
   string path = 2;
   bytes data = 3;
 }
@@ -59,9 +67,31 @@ message WriteFileResponse {
   string error = 1;
 }
 
+// Helper → Backend: Initial handshake, sends helper's listening port
+// Sent by any client to initiate a session with the helper
+message ConnectRequest {
+  enum Role {
+    UNKNOWN = 0;
+    APP = 1;
+    BACKEND = 2;
+    FILE_PROVIDER = 3;
+    // Add more as needed
+  }
+  Role role = 1;
+  // All clients MUST set the correct role; UNKNOWN will result in handshake error.
+  // Add more fields as needed
+}
+
+// Response to ConnectRequest
+message ConnectResponse {
+  string error = 1;
+  // Add more fields as needed
+}
+
+
 // Delete File
 message DeleteFileRequest {
-  string plugin = 1;
+  uint32 mount_id = 1;
   string path = 2;
 }
 message DeleteFileResponse {
@@ -70,7 +100,7 @@ message DeleteFileResponse {
 
 // Stat (file metadata)
 message StatRequest {
-  string plugin = 1;
+  uint32 mount_id = 1;
   string path = 2;
 }
 message StatResponse {
@@ -109,6 +139,7 @@ message MountInfo {
   string name = 1;
   string plugin_type = 2;
   map<string, string> config = 3;
+  uint32 mount_id = 4;
 }
 
 // File metadata
@@ -119,18 +150,38 @@ message FileInfo {
 }
 
 // Mount/Unmount management
+// --- Mount/Unmount now only activate/deactivate an existing mount by ID ---
 message MountRequest {
+  uint32 mount_id = 1; // ID of mount to activate
+}
+message MountResponse {
+  string error = 1;
+}
+
+// --- Create/Delete are for DB row management ---
+message CreateMountRequest {
   string name = 1;
   string plugin_type = 2;
   map<string, string> config = 3;
 }
-message MountResponse {
-  MountInfo mount = 1;
+message CreateMountResponse {
+  uint32 mount_id = 1;
   string error = 2;
 }
 
+message DeleteMountRequest {
+  uint32 mount_id = 1;
+}
+message DeleteMountResponse {
+  string error = 1;
+}
+// (Old fields for reference)
+// string name = 1;
+// string plugin_type = 2;
+// map<string, string> config = 3;
+
 message UnmountRequest {
-  string name = 1;
+  uint32 mount_id = 1;
 }
 message UnmountResponse {
   string error = 1;
@@ -153,7 +204,7 @@ enum MountStatus {
   ERROR = 3;
 }
 message MountStatusUpdate {
-  string name = 1;
+  uint32 mount_id = 1;
   MountStatus status = 2;
   string error = 3;
 }

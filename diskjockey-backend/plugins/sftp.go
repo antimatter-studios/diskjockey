@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/christhomas/diskjockey/diskjockey-backend/models"
 	"github.com/christhomas/diskjockey/diskjockey-backend/types"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
@@ -19,19 +20,16 @@ import (
 type SFTPPlugin struct{}
 
 type SFTPBackend struct {
-	client    *sftp.Client
-	mountName string
-	configSvc types.ConfigServiceInterface
-	path      string // cached after connect
+	mount  *models.Mount
+	client *sftp.Client
+	path   string // cached after connect
 }
 
-func (SFTPPlugin) New(mountName string, configSvc types.ConfigServiceInterface) (types.Backend, error) {
-	b := &SFTPBackend{mountName: mountName, configSvc: configSvc}
-
+func (SFTPPlugin) New(mount *models.Mount) (types.Backend, error) {
+	b := &SFTPBackend{mount: mount}
 	if err := b.connect(); err != nil {
 		return nil, err
 	}
-
 	return b, nil
 }
 
@@ -51,7 +49,7 @@ func (SFTPPlugin) ConfigTemplate() types.PluginConfigTemplate {
 			Required:    true,
 		},
 		"port": types.PluginConfigField{
-			Type:        "string",
+			Type:        "integer",
 			Description: "SFTP port (default 22)",
 			Required:    true,
 		},
@@ -79,23 +77,18 @@ func (SFTPPlugin) ConfigTemplate() types.PluginConfigTemplate {
 }
 
 func (b *SFTPBackend) connect() error {
-	cfg, err := b.configSvc.GetMountConfig(b.mountName)
-	if err != nil {
-		return fmt.Errorf("SFTPBackend: config for mount '%s' not found", b.mountName)
-	}
-
-	host, _ := cfg["host"].(string)
-	port, _ := cfg["port"].(string)
-	username, _ := cfg["username"].(string)
-	password, _ := cfg["password"].(string)
-	b.path = cfg["path"].(string)
-	useAgent, _ := cfg["use_ssh_agent"].(bool)
+	host := b.mount.Host
+	port := b.mount.Port
+	username := b.mount.Username
+	password := b.mount.Password
+	b.path = b.mount.Path
+	useAgent := false // Set this based on a future field if needed
 
 	if host == "" || username == "" {
 		return fmt.Errorf("missing required sftp config fields")
 	}
 
-	addr := host + ":" + port
+	addr := host + ":" + string(port)
 	auths := []ssh.AuthMethod{}
 	if password != "" {
 		auths = append(auths, ssh.Password(password))

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/christhomas/diskjockey/diskjockey-backend/models"
 	"github.com/christhomas/diskjockey/diskjockey-backend/types"
 )
 
@@ -14,9 +15,16 @@ import (
 type LocalDirectoryPlugin struct{}
 
 type LocalDirectoryBackend struct {
-	mountName string
-	configSvc types.ConfigServiceInterface
-	Path      string
+	mount *models.Mount
+	Path  string
+}
+
+func (l LocalDirectoryPlugin) New(mount *models.Mount) (types.Backend, error) {
+	b := &LocalDirectoryBackend{mount: mount}
+	if err := b.connect(); err != nil {
+		return nil, err
+	}
+	return b, nil
 }
 
 // PluginType interface implementation
@@ -38,26 +46,9 @@ func (l LocalDirectoryPlugin) ConfigTemplate() types.PluginConfigTemplate {
 	}
 }
 
-func (l LocalDirectoryPlugin) New(mountName string, configSvc types.ConfigServiceInterface) (types.Backend, error) {
-	b := &LocalDirectoryBackend{mountName: mountName, configSvc: configSvc}
-	if err := b.connect(); err != nil {
-		return nil, err
-	}
-	return b, nil
-}
-
 func (b *LocalDirectoryBackend) connect() error {
-	if b.configSvc == nil {
-		return fmt.Errorf("config service not set")
-	}
-
-	config, err := b.configSvc.GetMountConfig(b.mountName)
-	if err != nil {
-		return fmt.Errorf("config for mount '%s' not found", b.mountName)
-	}
-
-	path, ok := config["path"].(string)
-	if !ok || path == "" {
+	path := b.mount.Path
+	if path == "" {
 		return fmt.Errorf("localdirectory: missing required config 'path'")
 	}
 
