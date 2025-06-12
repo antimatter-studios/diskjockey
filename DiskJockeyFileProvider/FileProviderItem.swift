@@ -7,7 +7,7 @@
 
 import FileProvider
 import UniformTypeIdentifiers
-import DiskJockeyHelperLibrary
+import DiskJockeyLibrary
 
 class FileProviderItem: NSObject, NSFileProviderItem {
     private let info: DiskJockeyFileItem

@@ -1,6 +1,6 @@
 import Foundation
 import SwiftProtobuf
-import DiskJockeyHelperLibrary
+import DiskJockeyLibrary
 
 /// MessageServer: Accepts new client sockets and dispatches messages
 class MessageServer {

@@ -6,7 +6,7 @@
 //
 
 import FileProvider
-import DiskJockeyHelperLibrary
+import DiskJockeyLibrary
 
 // IMPORTANT: The File Provider extension is sandboxed and cannot access /tmp.
 // The socket must be placed in the shared App Group Application Support directory.

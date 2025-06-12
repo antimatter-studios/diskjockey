@@ -2,7 +2,7 @@
 // DiskJockeyApplication
 
 import Foundation
-import DiskJockeyHelperLibrary
+import DiskJockeyLibrary
 import AppKit
 import os.log
 import ServiceManagement

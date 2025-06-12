@@ -2,10 +2,9 @@ import SwiftUI
 import Foundation
 
 @main
-struct SwiftUIPluginListApp: App {
+struct DiskJockeyApp: App {
     @StateObject var pluginModel = PluginModel()
     @StateObject var backendManager = BackendManager()
-    // Keep menu bar controller alive
     @State private var menuBarController: MenuBarController? = nil
 
     // Remove observer registration from init to avoid 'mutating self' capture
@@ -14,9 +13,14 @@ struct SwiftUIPluginListApp: App {
     static func registerObservers(pluginModel: PluginModel) {
         guard !observersRegistered else { return }
         func focusMainWindow() {
-            // Open the custom URL scheme to request the main window
-            if let url = URL(string: "myapp://main") {
+            // Only open the custom URL scheme if no main window is visible
+            let isMainWindowOpen = NSApplication.shared.windows.contains(where: { $0.isVisible && $0.level == .normal })
+            if !isMainWindowOpen, let url = URL(string: "myapp://main") {
                 NSWorkspace.shared.open(url)
+            } else if isMainWindowOpen {
+                // If already open, bring to front
+                NSApplication.shared.windows.filter { $0.isVisible && $0.level == .normal }.forEach { $0.makeKeyAndOrderFront(nil) }
+                NSApp.activate(ignoringOtherApps: true)
             }
         }
         NotificationCenter.default.addObserver(forName: NSNotification.Name("ShowSettingsPage"), object: nil, queue: .main) { _ in
@@ -35,7 +39,7 @@ struct SwiftUIPluginListApp: App {
             ContentView()
                 .environmentObject(pluginModel)
                 .onAppear {
-                    SwiftUIPluginListApp.registerObservers(pluginModel: pluginModel)
+                    DiskJockeyApp.registerObservers(pluginModel: pluginModel)
                     backendManager.startBackendAndConnect { plugins in
                         pluginModel.plugins = plugins
                         pluginModel.selectedPlugin = plugins.first

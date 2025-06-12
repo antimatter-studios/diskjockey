@@ -19,7 +19,7 @@
 		504036E42DFAF2D800183122 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504036DF2DFAF2D800183122 /* ContentView.swift */; };
 		504036E52DFAF2D800183122 /* PluginModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504036E02DFAF2D800183122 /* PluginModel.swift */; };
 		504036E62DFAF2D800183122 /* README_SWIFTUI.md in Resources */ = {isa = PBXBuildFile; fileRef = 504036E12DFAF2D800183122 /* README_SWIFTUI.md */; };
-		504036E82DFAF51200183122 /* SwiftUIPluginListApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504036E72DFAF51200183122 /* SwiftUIPluginListApp.swift */; };
+		504036E82DFAF51200183122 /* DiskJockeyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504036E72DFAF51200183122 /* DiskJockeyApp.swift */; };
 		504036EA2DFAF52600183122 /* BackendManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504036E92DFAF52600183122 /* BackendManager.swift */; };
 		504036EC2DFAF61000183122 /* MenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504036EB2DFAF61000183122 /* MenuBarController.swift */; };
 		504036EE2DFAF68300183122 /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504036ED2DFAF68300183122 /* AboutView.swift */; };
@@ -112,7 +112,7 @@
 		504036DF2DFAF2D800183122 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		504036E02DFAF2D800183122 /* PluginModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginModel.swift; sourceTree = "<group>"; };
 		504036E12DFAF2D800183122 /* README_SWIFTUI.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README_SWIFTUI.md; sourceTree = "<group>"; };
-		504036E72DFAF51200183122 /* SwiftUIPluginListApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftUIPluginListApp.swift; sourceTree = "<group>"; };
+		504036E72DFAF51200183122 /* DiskJockeyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskJockeyApp.swift; sourceTree = "<group>"; };
 		504036E92DFAF52600183122 /* BackendManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendManager.swift; sourceTree = "<group>"; };
 		504036EB2DFAF61000183122 /* MenuBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarController.swift; sourceTree = "<group>"; };
 		504036ED2DFAF68300183122 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
@@ -175,7 +175,7 @@
 				504036ED2DFAF68300183122 /* AboutView.swift */,
 				504036EB2DFAF61000183122 /* MenuBarController.swift */,
 				504036E92DFAF52600183122 /* BackendManager.swift */,
-				504036E72DFAF51200183122 /* SwiftUIPluginListApp.swift */,
+				504036E72DFAF51200183122 /* DiskJockeyApp.swift */,
 				504036DF2DFAF2D800183122 /* ContentView.swift */,
 				504036E02DFAF2D800183122 /* PluginModel.swift */,
 				504036E12DFAF2D800183122 /* README_SWIFTUI.md */,
@@ -393,7 +393,7 @@
 				504036EE2DFAF68300183122 /* AboutView.swift in Sources */,
 				504036E42DFAF2D800183122 /* ContentView.swift in Sources */,
 				504036E52DFAF2D800183122 /* PluginModel.swift in Sources */,
-				504036E82DFAF51200183122 /* SwiftUIPluginListApp.swift in Sources */,
+				504036E82DFAF51200183122 /* DiskJockeyApp.swift in Sources */,
 				5036E7242DF825A400DA7C59 /* protocol_definitions.pb.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

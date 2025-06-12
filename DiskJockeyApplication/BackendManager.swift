@@ -1,5 +1,5 @@
 import Foundation
-import DiskJockeyHelperLibrary
+import DiskJockeyLibrary
 
 class BackendManager: ObservableObject {
     private var backendProcess: Process?
