@@ -6,73 +6,65 @@
 //
 
 import Cocoa
-import FileProvider
 import DiskJockeyHelperLibrary
 
 @main
 class AppDelegate: NSObject, NSApplicationDelegate {
 
-    var helperProcessManager: HelperProcessManager!
-    var helperAPI: HelperAPI!
+    var tcpListener: TCPListener!
+    var messageServer: MessageServer!
+    var backendProcess: Process?
 
     var statusItem: NSStatusItem?
 
     var settingsWindowController: NSWindowController?
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
-        helperProcessManager = HelperProcessManager()
-        launchHelperPhase()
+        // Start the message server
+        messageServer = MessageServer()
 
-        setupFileProvider()
+        // Start the TCP listener on a random port (0 = let OS choose)
+        tcpListener = TCPListener(port: 0) { [weak self] clientFD in
+            self?.messageServer.acceptClientSocket(clientFD)
+        }
+
+        guard let actualPort = tcpListener.actualPort else {
+            NSLog("Failed to get TCP listener port")
+            return
+        }
+        NSLog("TCP listener started on port \(actualPort)")
+
+        // Launch the Go backend, passing the port
+        launchBackend(helperPort: actualPort)
+
         setupStatusBar()
         setupMenuBar()
     }
 
-    private func launchHelperPhase() {
-        helperProcessManager.launchAndMonitorHelper { [weak self] helperPort in
-            guard let self = self else { return }
-            if let helperPort = helperPort {
-                self.launchBackendPhase(helperPort: helperPort)
-            } else {
-                NSLog("Failed to get helper port from DiskJockeyHelper")
+    private func launchBackend(helperPort: Int) {
+        // Find the backend executable (customize the path as needed)
+        let fileManager = FileManager.default
+        let appSupportDir = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        
+        if let backendURL = Bundle.main.url(forResource: "diskjockey-backend", withExtension: nil) {
+            let process = Process()
+            process.executableURL = backendURL
+            process.arguments = [
+                "--config-dir", appSupportDir.appendingPathComponent("DiskJockey").path,
+                "--helper-port", String(helperPort)
+            ]
+            process.terminationHandler = { _ in
+                NSLog("Backend process terminated")
             }
-        }
-    }
-
-    private func launchBackendPhase(helperPort: Int) {
-        helperProcessManager.launchAndMonitorBackend(helperPort: helperPort) { [weak self] success in
-            guard let self = self else { return }
-            if success != nil {
-                self.connectToHelperPhase(helperPort: helperPort)
-            } else {
-                NSLog("Failed to launch backend")
+            do {
+                try process.run()
+                backendProcess = process
+                NSLog("Launched backend with --helper-port \(helperPort)")
+            } catch {
+                NSLog("Failed to launch backend: \(error)")
             }
-        }
-    }
-
-    private func connectToHelperPhase(helperPort: Int) {
-        let connection = TCPConnection(host: "127.0.0.1", port: helperPort)
-        self.helperAPI = HelperAPI(socket: connection)
-        self.helperAPI.connect(role: .app) { [weak self] result in
-            guard let self = self else { return }
-            switch result {
-            case .success:
-                NSLog("App CONNECT handshake with helper succeeded")
-                // TODO: Start listening for async events/messages from helper
-            case .failure(let error):
-                fatalError("App CONNECT handshake with helper failed: \(error)")
-            }
-        }
-    }
-    
-    private func setupFileProvider() {
-        let identifier = NSFileProviderDomainIdentifier(rawValue: "diskjockey")
-        let domain = NSFileProviderDomain(identifier: identifier, displayName: "Disk Jockey")
-        NSFileProviderManager.add(domain) { error in
-            guard let error = error else {
-                return
-            }
-            NSLog(error.localizedDescription)
+        } else {
+            NSLog("Failed to find backend executable")
         }
     }
 
@@ -109,8 +101,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ aNotification: Notification) {
-        // Insert code here to tear down your application
-        print("FIXME: You should disconnect all mounts here")
+        // Stop the TCP listener and message server
+        messageServer?.stop()
+        messageServer = nil
+        tcpListener?.disconnect()
+        tcpListener = nil
+        // Terminate backend process if running
+        backendProcess?.terminate()
+        backendProcess = nil
     }
 }
-

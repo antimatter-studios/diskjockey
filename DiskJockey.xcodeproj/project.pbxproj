@@ -7,21 +7,23 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		5036E62D2DF4B5CF00DA7C59 /* DiskJockeyHelper.app in CopyFiles */ = {isa = PBXBuildFile; fileRef = 5036E5D12DF4949300DA7C59 /* DiskJockeyHelper.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		5036E6612DF5731600DA7C59 /* DiskJockeyHelperLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5036E6562DF5731600DA7C59 /* DiskJockeyHelperLibrary.framework */; };
-		5036E66B2DF5731600DA7C59 /* DiskJockeyHelperLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5036E6562DF5731600DA7C59 /* DiskJockeyHelperLibrary.framework */; };
-		5036E66C2DF5731600DA7C59 /* DiskJockeyHelperLibrary.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 5036E6562DF5731600DA7C59 /* DiskJockeyHelperLibrary.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		5036E6752DF5737900DA7C59 /* DiskJockeyHelperLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5036E6562DF5731600DA7C59 /* DiskJockeyHelperLibrary.framework */; };
-		5036E6762DF5737900DA7C59 /* DiskJockeyHelperLibrary.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 5036E6562DF5731600DA7C59 /* DiskJockeyHelperLibrary.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		5036E66B2DF5731600DA7C59 /* DiskJockeyLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5036E6562DF5731600DA7C59 /* DiskJockeyLibrary.framework */; };
+		5036E66C2DF5731600DA7C59 /* DiskJockeyLibrary.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 5036E6562DF5731600DA7C59 /* DiskJockeyLibrary.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		5036E67B2DF5740900DA7C59 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = 5036E67A2DF5740900DA7C59 /* SwiftProtobuf */; };
-		5036E6882DF57AFE00DA7C59 /* DiskJockeyHelperLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5036E6562DF5731600DA7C59 /* DiskJockeyHelperLibrary.framework */; };
-		5036E6892DF57AFE00DA7C59 /* DiskJockeyHelperLibrary.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 5036E6562DF5731600DA7C59 /* DiskJockeyHelperLibrary.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		5036E6882DF57AFE00DA7C59 /* DiskJockeyLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5036E6562DF5731600DA7C59 /* DiskJockeyLibrary.framework */; };
+		5036E6892DF57AFE00DA7C59 /* DiskJockeyLibrary.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 5036E6562DF5731600DA7C59 /* DiskJockeyLibrary.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		5036E6E12DF5871000DA7C59 /* diskjockey-backend in CopyFiles */ = {isa = PBXBuildFile; fileRef = 5036E6E02DF5871000DA7C59 /* diskjockey-backend */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		5036E6E32DF5965000DA7C59 /* HelperProcessManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5036E6E22DF5965000DA7C59 /* HelperProcessManager.swift */; };
+		5036E7232DF825A400DA7C59 /* MessageServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5036E7212DF825A400DA7C59 /* MessageServer.swift */; };
+		5036E7242DF825A400DA7C59 /* protocol_definitions.pb.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5036E7222DF825A400DA7C59 /* protocol_definitions.pb.swift */; };
+		504036E42DFAF2D800183122 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504036DF2DFAF2D800183122 /* ContentView.swift */; };
+		504036E52DFAF2D800183122 /* PluginModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504036E02DFAF2D800183122 /* PluginModel.swift */; };
+		504036E62DFAF2D800183122 /* README_SWIFTUI.md in Resources */ = {isa = PBXBuildFile; fileRef = 504036E12DFAF2D800183122 /* README_SWIFTUI.md */; };
+		504036E82DFAF51200183122 /* SwiftUIPluginListApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504036E72DFAF51200183122 /* SwiftUIPluginListApp.swift */; };
+		504036EA2DFAF52600183122 /* BackendManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504036E92DFAF52600183122 /* BackendManager.swift */; };
+		504036EC2DFAF61000183122 /* MenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504036EB2DFAF61000183122 /* MenuBarController.swift */; };
+		504036EE2DFAF68300183122 /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504036ED2DFAF68300183122 /* AboutView.swift */; };
 		5062547C2DF4640A000A9F31 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 506254752DF4640A000A9F31 /* Assets.xcassets */; };
-		5062547D2DF4640A000A9F31 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 506254792DF4640A000A9F31 /* Main.storyboard */; };
-		5062547F2DF4640A000A9F31 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 506254742DF4640A000A9F31 /* AppDelegate.swift */; };
-		506254802DF4640A000A9F31 /* SettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5062547A2DF4640A000A9F31 /* SettingsViewController.swift */; };
 		506254912DF4649B000A9F31 /* FileProviderItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5062548E2DF4649B000A9F31 /* FileProviderItem.swift */; };
 		506254922DF4649B000A9F31 /* FileProviderEnumerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5062548C2DF4649B000A9F31 /* FileProviderEnumerator.swift */; };
 		506254932DF4649B000A9F31 /* FileProviderExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5062548D2DF4649B000A9F31 /* FileProviderExtension.swift */; };
@@ -30,42 +32,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		5036E5E22DF4949400DA7C59 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = D06C9C2025F7AFD200354820 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 5036E5D02DF4949300DA7C59;
-			remoteInfo = DiskJockeyHelper;
-		};
-		5036E5EC2DF4949400DA7C59 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = D06C9C2025F7AFD200354820 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 5036E5D02DF4949300DA7C59;
-			remoteInfo = DiskJockeyHelper;
-		};
-		5036E6622DF5731600DA7C59 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = D06C9C2025F7AFD200354820 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 5036E6552DF5731600DA7C59;
-			remoteInfo = DiskJockeyHelperLibrary;
-		};
-		5036E6642DF5731600DA7C59 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = D06C9C2025F7AFD200354820 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = D06C9C2725F7AFD200354820;
-			remoteInfo = DiskJockeyApplication;
-		};
 		5036E6692DF5731600DA7C59 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = D06C9C2025F7AFD200354820 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 5036E6552DF5731600DA7C59;
-			remoteInfo = DiskJockeyHelperLibrary;
-		};
-		5036E6772DF5737900DA7C59 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = D06C9C2025F7AFD200354820 /* Project object */;
 			proxyType = 1;
@@ -99,34 +66,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		5036E62C2DF4B5AB00DA7C59 /* CopyFiles */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = Contents/Library/LoginItems;
-			dstSubfolderSpec = 1;
-			files = (
-				5036E62D2DF4B5CF00DA7C59 /* DiskJockeyHelper.app in CopyFiles */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		5036E6792DF5737900DA7C59 /* Embed Frameworks */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 10;
-			files = (
-				5036E6762DF5737900DA7C59 /* DiskJockeyHelperLibrary.framework in Embed Frameworks */,
-			);
-			name = "Embed Frameworks";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		5062542F2DF3C3E5000A9F31 /* Embed Frameworks */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				5036E66C2DF5731600DA7C59 /* DiskJockeyHelperLibrary.framework in Embed Frameworks */,
+				5036E66C2DF5731600DA7C59 /* DiskJockeyLibrary.framework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -137,7 +83,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				5036E6892DF57AFE00DA7C59 /* DiskJockeyHelperLibrary.framework in Embed Frameworks */,
+				5036E6892DF57AFE00DA7C59 /* DiskJockeyLibrary.framework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -157,21 +103,22 @@
 
 /* Begin PBXFileReference section */
 		5034A2902DF47DAD00540B87 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = Platforms/MacOSX.platform/Developer/Library/Frameworks/XCTest.framework; sourceTree = DEVELOPER_DIR; };
-		5036E5D12DF4949300DA7C59 /* DiskJockeyHelper.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DiskJockeyHelper.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		5036E5E12DF4949400DA7C59 /* DiskJockeyHelperTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DiskJockeyHelperTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		5036E5EB2DF4949400DA7C59 /* DiskJockeyHelperUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DiskJockeyHelperUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		5036E6562DF5731600DA7C59 /* DiskJockeyHelperLibrary.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = DiskJockeyHelperLibrary.framework; sourceTree = BUILT_PRODUCTS_DIR; };
-		5036E6602DF5731600DA7C59 /* DiskJockeyHelperLibraryTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DiskJockeyHelperLibraryTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		5036E6562DF5731600DA7C59 /* DiskJockeyLibrary.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = DiskJockeyLibrary.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		5036E6E02DF5871000DA7C59 /* diskjockey-backend */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = "diskjockey-backend"; path = "diskjockey-backend/diskjockey-backend"; sourceTree = "<group>"; };
 		5036E6E22DF5965000DA7C59 /* HelperProcessManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperProcessManager.swift; sourceTree = "<group>"; };
 		5036E6E62DF5A4CF00DA7C59 /* server.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = server.json; path = "diskjockey-backend/server.json"; sourceTree = "<group>"; };
-		506254352DF41B7D000A9F31 /* DiskJockeyCLI */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = DiskJockeyCLI; sourceTree = "<group>"; };
-		506254742DF4640A000A9F31 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		5036E7212DF825A400DA7C59 /* MessageServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageServer.swift; sourceTree = "<group>"; };
+		5036E7222DF825A400DA7C59 /* protocol_definitions.pb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = protocol_definitions.pb.swift; sourceTree = "<group>"; };
+		504036DF2DFAF2D800183122 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		504036E02DFAF2D800183122 /* PluginModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginModel.swift; sourceTree = "<group>"; };
+		504036E12DFAF2D800183122 /* README_SWIFTUI.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README_SWIFTUI.md; sourceTree = "<group>"; };
+		504036E72DFAF51200183122 /* SwiftUIPluginListApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftUIPluginListApp.swift; sourceTree = "<group>"; };
+		504036E92DFAF52600183122 /* BackendManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendManager.swift; sourceTree = "<group>"; };
+		504036EB2DFAF61000183122 /* MenuBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarController.swift; sourceTree = "<group>"; };
+		504036ED2DFAF68300183122 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
 		506254752DF4640A000A9F31 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		506254762DF4640A000A9F31 /* DiskJockeyApplication.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DiskJockeyApplication.entitlements; sourceTree = "<group>"; };
 		506254772DF4640A000A9F31 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		506254782DF4640A000A9F31 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
-		5062547A2DF4640A000A9F31 /* SettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewController.swift; sourceTree = "<group>"; };
 		5062548B2DF4649B000A9F31 /* DiskJockeyFileProvider.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DiskJockeyFileProvider.entitlements; sourceTree = "<group>"; };
 		5062548C2DF4649B000A9F31 /* FileProviderEnumerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileProviderEnumerator.swift; sourceTree = "<group>"; };
 		5062548D2DF4649B000A9F31 /* FileProviderExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileProviderExtension.swift; sourceTree = "<group>"; };
@@ -183,36 +130,10 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		5036E5D22DF4949300DA7C59 /* DiskJockeyHelper */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = DiskJockeyHelper; sourceTree = "<group>"; };
-		5036E5E42DF4949400DA7C59 /* DiskJockeyHelperTests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = DiskJockeyHelperTests; sourceTree = "<group>"; };
-		5036E5EE2DF4949400DA7C59 /* DiskJockeyHelperUITests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = DiskJockeyHelperUITests; sourceTree = "<group>"; };
-		5036E6572DF5731600DA7C59 /* DiskJockeyHelperLibrary */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = DiskJockeyHelperLibrary; sourceTree = "<group>"; };
-		5036E6662DF5731600DA7C59 /* DiskJockeyHelperLibraryTests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = DiskJockeyHelperLibraryTests; sourceTree = "<group>"; };
+		5036E6572DF5731600DA7C59 /* DiskJockeyLibrary */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = DiskJockeyLibrary; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		5036E5CE2DF4949300DA7C59 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				5036E6752DF5737900DA7C59 /* DiskJockeyHelperLibrary.framework in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		5036E5DE2DF4949400DA7C59 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		5036E5E82DF4949400DA7C59 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		5036E6532DF5731600DA7C59 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -221,19 +142,11 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		5036E65D2DF5731600DA7C59 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				5036E6612DF5731600DA7C59 /* DiskJockeyHelperLibrary.framework in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		D06C9C2525F7AFD200354820 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				5036E66B2DF5731600DA7C59 /* DiskJockeyHelperLibrary.framework in Frameworks */,
+				5036E66B2DF5731600DA7C59 /* DiskJockeyLibrary.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -241,7 +154,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				5036E6882DF57AFE00DA7C59 /* DiskJockeyHelperLibrary.framework in Frameworks */,
+				5036E6882DF57AFE00DA7C59 /* DiskJockeyLibrary.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -259,13 +172,19 @@
 		5062547B2DF4640A000A9F31 /* DiskJockeyApplication */ = {
 			isa = PBXGroup;
 			children = (
-				506254742DF4640A000A9F31 /* AppDelegate.swift */,
+				504036ED2DFAF68300183122 /* AboutView.swift */,
+				504036EB2DFAF61000183122 /* MenuBarController.swift */,
+				504036E92DFAF52600183122 /* BackendManager.swift */,
+				504036E72DFAF51200183122 /* SwiftUIPluginListApp.swift */,
+				504036DF2DFAF2D800183122 /* ContentView.swift */,
+				504036E02DFAF2D800183122 /* PluginModel.swift */,
+				504036E12DFAF2D800183122 /* README_SWIFTUI.md */,
+				5036E7212DF825A400DA7C59 /* MessageServer.swift */,
+				5036E7222DF825A400DA7C59 /* protocol_definitions.pb.swift */,
 				5036E6E22DF5965000DA7C59 /* HelperProcessManager.swift */,
 				506254752DF4640A000A9F31 /* Assets.xcassets */,
 				506254762DF4640A000A9F31 /* DiskJockeyApplication.entitlements */,
 				506254772DF4640A000A9F31 /* Info.plist */,
-				506254792DF4640A000A9F31 /* Main.storyboard */,
-				5062547A2DF4640A000A9F31 /* SettingsViewController.swift */,
 			);
 			path = DiskJockeyApplication;
 			sourceTree = "<group>";
@@ -287,15 +206,10 @@
 			children = (
 				5036E6E62DF5A4CF00DA7C59 /* server.json */,
 				5036E6E02DF5871000DA7C59 /* diskjockey-backend */,
+				5036E6572DF5731600DA7C59 /* DiskJockeyLibrary */,
 				5062547B2DF4640A000A9F31 /* DiskJockeyApplication */,
 				506254902DF4649B000A9F31 /* DiskJockeyFileProvider */,
-				506254352DF41B7D000A9F31 /* DiskJockeyCLI */,
 				D0FA53CF26300F1700C32328 /* README.md */,
-				5036E5D22DF4949300DA7C59 /* DiskJockeyHelper */,
-				5036E5E42DF4949400DA7C59 /* DiskJockeyHelperTests */,
-				5036E5EE2DF4949400DA7C59 /* DiskJockeyHelperUITests */,
-				5036E6572DF5731600DA7C59 /* DiskJockeyHelperLibrary */,
-				5036E6662DF5731600DA7C59 /* DiskJockeyHelperLibraryTests */,
 				D06C9C2925F7AFD200354820 /* Products */,
 				5034A27C2DF46EFA00540B87 /* Frameworks */,
 			);
@@ -306,11 +220,7 @@
 			children = (
 				D06C9C2825F7AFD200354820 /* Disk Jockey.app */,
 				D06C9C3F25F7B01300354820 /* DiskJockeyFileProvider.appex */,
-				5036E5D12DF4949300DA7C59 /* DiskJockeyHelper.app */,
-				5036E5E12DF4949400DA7C59 /* DiskJockeyHelperTests.xctest */,
-				5036E5EB2DF4949400DA7C59 /* DiskJockeyHelperUITests.xctest */,
-				5036E6562DF5731600DA7C59 /* DiskJockeyHelperLibrary.framework */,
-				5036E6602DF5731600DA7C59 /* DiskJockeyHelperLibraryTests.xctest */,
+				5036E6562DF5731600DA7C59 /* DiskJockeyLibrary.framework */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -328,79 +238,9 @@
 /* End PBXHeadersBuildPhase section */
 
 /* Begin PBXNativeTarget section */
-		5036E5D02DF4949300DA7C59 /* DiskJockeyHelper */ = {
+		5036E6552DF5731600DA7C59 /* DiskJockeyLibrary */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 5036E5F32DF4949400DA7C59 /* Build configuration list for PBXNativeTarget "DiskJockeyHelper" */;
-			buildPhases = (
-				5036E5CD2DF4949300DA7C59 /* Sources */,
-				5036E5CE2DF4949300DA7C59 /* Frameworks */,
-				5036E5CF2DF4949300DA7C59 /* Resources */,
-				5036E6792DF5737900DA7C59 /* Embed Frameworks */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				5036E6782DF5737900DA7C59 /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				5036E5D22DF4949300DA7C59 /* DiskJockeyHelper */,
-			);
-			name = DiskJockeyHelper;
-			packageProductDependencies = (
-			);
-			productName = DiskJockeyHelper;
-			productReference = 5036E5D12DF4949300DA7C59 /* DiskJockeyHelper.app */;
-			productType = "com.apple.product-type.application";
-		};
-		5036E5E02DF4949400DA7C59 /* DiskJockeyHelperTests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 5036E5F62DF4949400DA7C59 /* Build configuration list for PBXNativeTarget "DiskJockeyHelperTests" */;
-			buildPhases = (
-				5036E5DD2DF4949400DA7C59 /* Sources */,
-				5036E5DE2DF4949400DA7C59 /* Frameworks */,
-				5036E5DF2DF4949400DA7C59 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				5036E5E32DF4949400DA7C59 /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				5036E5E42DF4949400DA7C59 /* DiskJockeyHelperTests */,
-			);
-			name = DiskJockeyHelperTests;
-			packageProductDependencies = (
-			);
-			productName = DiskJockeyHelperTests;
-			productReference = 5036E5E12DF4949400DA7C59 /* DiskJockeyHelperTests.xctest */;
-			productType = "com.apple.product-type.bundle.unit-test";
-		};
-		5036E5EA2DF4949400DA7C59 /* DiskJockeyHelperUITests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 5036E5F92DF4949400DA7C59 /* Build configuration list for PBXNativeTarget "DiskJockeyHelperUITests" */;
-			buildPhases = (
-				5036E5E72DF4949400DA7C59 /* Sources */,
-				5036E5E82DF4949400DA7C59 /* Frameworks */,
-				5036E5E92DF4949400DA7C59 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				5036E5ED2DF4949400DA7C59 /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				5036E5EE2DF4949400DA7C59 /* DiskJockeyHelperUITests */,
-			);
-			name = DiskJockeyHelperUITests;
-			packageProductDependencies = (
-			);
-			productName = DiskJockeyHelperUITests;
-			productReference = 5036E5EB2DF4949400DA7C59 /* DiskJockeyHelperUITests.xctest */;
-			productType = "com.apple.product-type.bundle.ui-testing";
-		};
-		5036E6552DF5731600DA7C59 /* DiskJockeyHelperLibrary */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 5036E66D2DF5731700DA7C59 /* Build configuration list for PBXNativeTarget "DiskJockeyHelperLibrary" */;
+			buildConfigurationList = 5036E66D2DF5731700DA7C59 /* Build configuration list for PBXNativeTarget "DiskJockeyLibrary" */;
 			buildPhases = (
 				5036E6512DF5731600DA7C59 /* Headers */,
 				5036E6522DF5731600DA7C59 /* Sources */,
@@ -412,39 +252,15 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				5036E6572DF5731600DA7C59 /* DiskJockeyHelperLibrary */,
+				5036E6572DF5731600DA7C59 /* DiskJockeyLibrary */,
 			);
-			name = DiskJockeyHelperLibrary;
+			name = DiskJockeyLibrary;
 			packageProductDependencies = (
 				5036E67A2DF5740900DA7C59 /* SwiftProtobuf */,
 			);
 			productName = DiskJockeyHelperLibrary;
-			productReference = 5036E6562DF5731600DA7C59 /* DiskJockeyHelperLibrary.framework */;
+			productReference = 5036E6562DF5731600DA7C59 /* DiskJockeyLibrary.framework */;
 			productType = "com.apple.product-type.framework";
-		};
-		5036E65F2DF5731600DA7C59 /* DiskJockeyHelperLibraryTests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 5036E6702DF5731700DA7C59 /* Build configuration list for PBXNativeTarget "DiskJockeyHelperLibraryTests" */;
-			buildPhases = (
-				5036E65C2DF5731600DA7C59 /* Sources */,
-				5036E65D2DF5731600DA7C59 /* Frameworks */,
-				5036E65E2DF5731600DA7C59 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				5036E6632DF5731600DA7C59 /* PBXTargetDependency */,
-				5036E6652DF5731600DA7C59 /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				5036E6662DF5731600DA7C59 /* DiskJockeyHelperLibraryTests */,
-			);
-			name = DiskJockeyHelperLibraryTests;
-			packageProductDependencies = (
-			);
-			productName = DiskJockeyHelperLibraryTests;
-			productReference = 5036E6602DF5731600DA7C59 /* DiskJockeyHelperLibraryTests.xctest */;
-			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		D06C9C2725F7AFD200354820 /* DiskJockeyApplication */ = {
 			isa = PBXNativeTarget;
@@ -456,7 +272,6 @@
 				D06C9C4F25F7B01300354820 /* Embed Foundation Extensions */,
 				5062542F2DF3C3E5000A9F31 /* Embed Frameworks */,
 				5036E6282DF4B53100DA7C59 /* CopyFiles */,
-				5036E62C2DF4B5AB00DA7C59 /* CopyFiles */,
 			);
 			buildRules = (
 			);
@@ -498,23 +313,8 @@
 				LastSwiftUpdateCheck = 1640;
 				LastUpgradeCheck = 1640;
 				TargetAttributes = {
-					5036E5D02DF4949300DA7C59 = {
-						CreatedOnToolsVersion = 16.4;
-					};
-					5036E5E02DF4949400DA7C59 = {
-						CreatedOnToolsVersion = 16.4;
-						TestTargetID = 5036E5D02DF4949300DA7C59;
-					};
-					5036E5EA2DF4949400DA7C59 = {
-						CreatedOnToolsVersion = 16.4;
-						TestTargetID = 5036E5D02DF4949300DA7C59;
-					};
 					5036E6552DF5731600DA7C59 = {
 						CreatedOnToolsVersion = 16.4;
-					};
-					5036E65F2DF5731600DA7C59 = {
-						CreatedOnToolsVersion = 16.4;
-						TestTargetID = D06C9C2725F7AFD200354820;
 					};
 					D06C9C2725F7AFD200354820 = {
 						CreatedOnToolsVersion = 12.5;
@@ -542,45 +342,13 @@
 			targets = (
 				D06C9C2725F7AFD200354820 /* DiskJockeyApplication */,
 				D06C9C3E25F7B01300354820 /* DiskJockeyFileProvider */,
-				5036E5D02DF4949300DA7C59 /* DiskJockeyHelper */,
-				5036E5E02DF4949400DA7C59 /* DiskJockeyHelperTests */,
-				5036E5EA2DF4949400DA7C59 /* DiskJockeyHelperUITests */,
-				5036E6552DF5731600DA7C59 /* DiskJockeyHelperLibrary */,
-				5036E65F2DF5731600DA7C59 /* DiskJockeyHelperLibraryTests */,
+				5036E6552DF5731600DA7C59 /* DiskJockeyLibrary */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		5036E5CF2DF4949300DA7C59 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		5036E5DF2DF4949400DA7C59 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		5036E5E92DF4949400DA7C59 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		5036E6542DF5731600DA7C59 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		5036E65E2DF5731600DA7C59 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -591,9 +359,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				504036E62DFAF2D800183122 /* README_SWIFTUI.md in Resources */,
 				D0FA53D026300F1700C32328 /* README.md in Resources */,
 				5062547C2DF4640A000A9F31 /* Assets.xcassets in Resources */,
-				5062547D2DF4640A000A9F31 /* Main.storyboard in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -607,35 +375,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		5036E5CD2DF4949300DA7C59 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		5036E5DD2DF4949400DA7C59 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		5036E5E72DF4949400DA7C59 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		5036E6522DF5731600DA7C59 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		5036E65C2DF5731600DA7C59 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -646,9 +386,15 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				5062547F2DF4640A000A9F31 /* AppDelegate.swift in Sources */,
+				504036EC2DFAF61000183122 /* MenuBarController.swift in Sources */,
+				504036EA2DFAF52600183122 /* BackendManager.swift in Sources */,
 				5036E6E32DF5965000DA7C59 /* HelperProcessManager.swift in Sources */,
-				506254802DF4640A000A9F31 /* SettingsViewController.swift in Sources */,
+				5036E7232DF825A400DA7C59 /* MessageServer.swift in Sources */,
+				504036EE2DFAF68300183122 /* AboutView.swift in Sources */,
+				504036E42DFAF2D800183122 /* ContentView.swift in Sources */,
+				504036E52DFAF2D800183122 /* PluginModel.swift in Sources */,
+				504036E82DFAF51200183122 /* SwiftUIPluginListApp.swift in Sources */,
+				5036E7242DF825A400DA7C59 /* protocol_definitions.pb.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -665,39 +411,14 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		5036E5E32DF4949400DA7C59 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 5036E5D02DF4949300DA7C59 /* DiskJockeyHelper */;
-			targetProxy = 5036E5E22DF4949400DA7C59 /* PBXContainerItemProxy */;
-		};
-		5036E5ED2DF4949400DA7C59 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 5036E5D02DF4949300DA7C59 /* DiskJockeyHelper */;
-			targetProxy = 5036E5EC2DF4949400DA7C59 /* PBXContainerItemProxy */;
-		};
-		5036E6632DF5731600DA7C59 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 5036E6552DF5731600DA7C59 /* DiskJockeyHelperLibrary */;
-			targetProxy = 5036E6622DF5731600DA7C59 /* PBXContainerItemProxy */;
-		};
-		5036E6652DF5731600DA7C59 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = D06C9C2725F7AFD200354820 /* DiskJockeyApplication */;
-			targetProxy = 5036E6642DF5731600DA7C59 /* PBXContainerItemProxy */;
-		};
 		5036E66A2DF5731600DA7C59 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 5036E6552DF5731600DA7C59 /* DiskJockeyHelperLibrary */;
+			target = 5036E6552DF5731600DA7C59 /* DiskJockeyLibrary */;
 			targetProxy = 5036E6692DF5731600DA7C59 /* PBXContainerItemProxy */;
-		};
-		5036E6782DF5737900DA7C59 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 5036E6552DF5731600DA7C59 /* DiskJockeyHelperLibrary */;
-			targetProxy = 5036E6772DF5737900DA7C59 /* PBXContainerItemProxy */;
 		};
 		5036E68B2DF57AFE00DA7C59 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 5036E6552DF5731600DA7C59 /* DiskJockeyHelperLibrary */;
+			target = 5036E6552DF5731600DA7C59 /* DiskJockeyLibrary */;
 			targetProxy = 5036E68A2DF57AFE00DA7C59 /* PBXContainerItemProxy */;
 		};
 		D06C9C4A25F7B01300354820 /* PBXTargetDependency */ = {
@@ -707,177 +428,7 @@
 		};
 /* End PBXTargetDependency section */
 
-/* Begin PBXVariantGroup section */
-		506254792DF4640A000A9F31 /* Main.storyboard */ = {
-			isa = PBXVariantGroup;
-			children = (
-				506254782DF4640A000A9F31 /* Base */,
-			);
-			name = Main.storyboard;
-			sourceTree = "<group>";
-		};
-/* End PBXVariantGroup section */
-
 /* Begin XCBuildConfiguration section */
-		5036E5F42DF4949400DA7C59 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
-				CODE_SIGN_ENTITLEMENTS = DiskJockeyHelper/DiskJockeyHelper.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
-				DEAD_CODE_STRIPPING = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSMainStoryboardFile = Main;
-				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-				);
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.6;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.antimatter-studios.diskjockeyhelper";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				REGISTER_APP_GROUPS = YES;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-			};
-			name = Debug;
-		};
-		5036E5F52DF4949400DA7C59 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
-				CODE_SIGN_ENTITLEMENTS = DiskJockeyHelper/DiskJockeyHelper.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
-				DEAD_CODE_STRIPPING = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSMainStoryboardFile = Main;
-				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-				);
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.6;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.antimatter-studios.diskjockeyhelper";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				REGISTER_APP_GROUPS = YES;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-			};
-			name = Release;
-		};
-		5036E5F72DF4949400DA7C59 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEAD_CODE_STRIPPING = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
-				GENERATE_INFOPLIST_FILE = YES;
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.6;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.antimatter-studios.DiskJockeyHelperTests";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/DiskJockeyHelper.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/DiskJockeyHelper";
-			};
-			name = Debug;
-		};
-		5036E5F82DF4949400DA7C59 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEAD_CODE_STRIPPING = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
-				GENERATE_INFOPLIST_FILE = YES;
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.6;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.antimatter-studios.DiskJockeyHelperTests";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/DiskJockeyHelper.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/DiskJockeyHelper";
-			};
-			name = Release;
-		};
-		5036E5FA2DF4949400DA7C59 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEAD_CODE_STRIPPING = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
-				GENERATE_INFOPLIST_FILE = YES;
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.6;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.antimatter-studios.DiskJockeyHelperUITests";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = DiskJockeyHelper;
-			};
-			name = Debug;
-		};
-		5036E5FB2DF4949400DA7C59 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEAD_CODE_STRIPPING = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
-				GENERATE_INFOPLIST_FILE = YES;
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.6;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.antimatter-studios.DiskJockeyHelperUITests";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = DiskJockeyHelper;
-			};
-			name = Release;
-		};
 		5036E66E2DF5731700DA7C59 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -908,7 +459,7 @@
 				MARKETING_VERSION = 1.0;
 				MODULE_VERIFIER_SUPPORTED_LANGUAGES = "objective-c objective-c++";
 				MODULE_VERIFIER_SUPPORTED_LANGUAGE_STANDARDS = "gnu17 gnu++20";
-				PRODUCT_BUNDLE_IDENTIFIER = "com.antimatter-studios.DiskJockeyHelperLibrary";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.antimatter-studios.DiskJockeyLibrary";
 				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
 				SKIP_INSTALL = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
@@ -951,7 +502,7 @@
 				MARKETING_VERSION = 1.0;
 				MODULE_VERIFIER_SUPPORTED_LANGUAGES = "objective-c objective-c++";
 				MODULE_VERIFIER_SUPPORTED_LANGUAGE_STANDARDS = "gnu17 gnu++20";
-				PRODUCT_BUNDLE_IDENTIFIER = "com.antimatter-studios.DiskJockeyHelperLibrary";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.antimatter-studios.DiskJockeyLibrary";
 				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -960,51 +511,6 @@
 				SWIFT_VERSION = 5.0;
 				VERSIONING_SYSTEM = "apple-generic";
 				VERSION_INFO_PREFIX = "";
-			};
-			name = Release;
-		};
-		5036E6712DF5731700DA7C59 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEAD_CODE_STRIPPING = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
-				GENERATE_INFOPLIST_FILE = YES;
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 15.5;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.antimatter-studios.DiskJockeyHelperLibraryTests";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Disk Jockey.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Disk Jockey";
-			};
-			name = Debug;
-		};
-		5036E6722DF5731700DA7C59 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEAD_CODE_STRIPPING = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
-				GENERATE_INFOPLIST_FILE = YES;
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 15.5;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.antimatter-studios.DiskJockeyHelperLibraryTests";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Disk Jockey.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Disk Jockey";
 			};
 			name = Release;
 		};
@@ -1131,13 +637,16 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = DiskJockeyApplication/DiskJockeyApplication.entitlements;
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "";
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = "";
-				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = NO;
 				INFOPLIST_FILE = DiskJockeyApplication/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Disk Jockey";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -1145,6 +654,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 14.6;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.antimatter-studios.diskjockey";
 				PRODUCT_NAME = "Disk Jockey";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
 				SWIFT_VERSION = 5.0;
 			};
@@ -1156,13 +666,16 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = DiskJockeyApplication/DiskJockeyApplication.entitlements;
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "";
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = "";
-				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = NO;
 				INFOPLIST_FILE = DiskJockeyApplication/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Disk Jockey";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -1170,6 +683,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 14.6;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.antimatter-studios.diskjockey";
 				PRODUCT_NAME = "Disk Jockey";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
 				SWIFT_VERSION = 5.0;
 			};
@@ -1228,47 +742,11 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		5036E5F32DF4949400DA7C59 /* Build configuration list for PBXNativeTarget "DiskJockeyHelper" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				5036E5F42DF4949400DA7C59 /* Debug */,
-				5036E5F52DF4949400DA7C59 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		5036E5F62DF4949400DA7C59 /* Build configuration list for PBXNativeTarget "DiskJockeyHelperTests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				5036E5F72DF4949400DA7C59 /* Debug */,
-				5036E5F82DF4949400DA7C59 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		5036E5F92DF4949400DA7C59 /* Build configuration list for PBXNativeTarget "DiskJockeyHelperUITests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				5036E5FA2DF4949400DA7C59 /* Debug */,
-				5036E5FB2DF4949400DA7C59 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		5036E66D2DF5731700DA7C59 /* Build configuration list for PBXNativeTarget "DiskJockeyHelperLibrary" */ = {
+		5036E66D2DF5731700DA7C59 /* Build configuration list for PBXNativeTarget "DiskJockeyLibrary" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				5036E66E2DF5731700DA7C59 /* Debug */,
 				5036E66F2DF5731700DA7C59 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		5036E6702DF5731700DA7C59 /* Build configuration list for PBXNativeTarget "DiskJockeyHelperLibraryTests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				5036E6712DF5731700DA7C59 /* Debug */,
-				5036E6722DF5731700DA7C59 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
