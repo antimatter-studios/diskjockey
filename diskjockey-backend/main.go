@@ -9,7 +9,6 @@ import (
 
 	"github.com/christhomas/diskjockey/diskjockey-backend/ipc"
 	"github.com/christhomas/diskjockey/diskjockey-backend/plugins"
-	"github.com/christhomas/diskjockey/diskjockey-backend/proto/api"
 	"github.com/christhomas/diskjockey/diskjockey-backend/services"
 )
 
@@ -32,36 +31,26 @@ func main() {
 	}
 
 	if _, err := os.Stat(configDir); os.IsNotExist(err) {
-		fmt.Println("Config dir does not exist, creating")
-		if err := os.MkdirAll(configDir, 0755); err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to create config dir: %v\n", err)
-			os.Exit(1)
-		}
+		fmt.Printf("Config dir does not exist, creating: %s\n", configDir)
+		os.Exit(1)
 	}
 
-	// Connect to helper and perform CONNECT handshake
-	helperAPI, err := ipc.NewHelperAPI(helperPort)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to connect to helper: %v\n", err)
-		os.Exit(1)
-	}
-	defer helperAPI.Close()
-	if err := helperAPI.Connect(api.ConnectRequest_BACKEND); err != nil {
-		fmt.Fprintf(os.Stderr, "CONNECT with BACKEND role to helper failed: %v\n", err)
-		os.Exit(1)
-	}
+	fmt.Printf("DiskJockeyBackend starting... port='%d', configDir='%s'\n", helperPort, configDir)
 
 	// FIXME: deprecated socketPath is no longer used
 	socketPath := filepath.Join(configDir, "diskjockey.backend.sock")
 
 	dbPath := filepath.Join(configDir, "diskjockey.sqlite")
+	sqliteService := services.NewSQLiteService(dbPath)
 
 	if err := ensureFileExists(dbPath, ""); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create db: %v\n", err)
 		os.Exit(1)
+	} else {
+		fmt.Printf("Found db: %s\n", dbPath)
 	}
 
-	configService := services.NewConfigService(services.NewSQLiteService(dbPath), socketPath)
+	configService := services.NewConfigService(sqliteService, socketPath)
 	pluginService := services.NewPluginService()
 	pluginService.RegisterPluginType(plugins.LocalDirectoryPlugin{})
 	pluginService.RegisterPluginType(plugins.FTPPlugin{})
@@ -70,15 +59,17 @@ func main() {
 	pluginService.RegisterPluginType(plugins.DropboxPlugin{})
 	pluginService.RegisterPluginType(plugins.WebDAVPlugin{})
 
-	server, err := ipc.NewServer(configService, pluginService)
-
-	if err != nil {
-		fmt.Printf("[Startup Error] %v\n", err)
-		os.Exit(1)
+	fmt.Println("Registered plugins:")
+	for _, info := range pluginService.ListPluginTypes() {
+		fmt.Printf("- %s: %s\n", info.Name, info.Description)
 	}
 
-	if err := server.Start(); err != nil {
-		fmt.Println("IPC server error:", err)
+	// Create a new backend client
+	client := ipc.NewBackendClient(configService, pluginService)
+
+	// Connect to main app (combined app+helper) and process messages
+	if err := client.RunClient(helperPort); err != nil {
+		fmt.Fprintf(os.Stderr, "Backend client error: %v\n", err)
 		os.Exit(1)
 	}
 }
