@@ -47,8 +47,12 @@ struct MountView: View {
                         .stroke(Color.gray.opacity(0.3), lineWidth: 1)
                 )
                 
-                // 7. Add Mount button in bottom right
-                Button(action: { 
+            }
+            
+            // Add Mount button (right aligned)
+            HStack {
+                Spacer()
+                Button(action: {
                     mountModel.selectedMount = nil
                     mountModel.isAdding = true
                 }) {
@@ -56,8 +60,8 @@ struct MountView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
-                .padding(8)
             }
+            .padding(.vertical, 12)
             
             // Mount form area
             if mountModel.isAdding {
