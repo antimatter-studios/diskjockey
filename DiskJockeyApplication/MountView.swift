@@ -5,7 +5,7 @@ struct MountView: View {
     @EnvironmentObject var pluginModel: PluginModel
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 0) {
             // 1. Title "Mount" - pinned to the top
             Text("Mount")
                 .font(.title2)
@@ -13,7 +13,7 @@ struct MountView: View {
                 .padding(.bottom, 4)
             
             // 2. Listbox with white background
-            ZStack(alignment: .bottomTrailing) {
+            ZStack(alignment: .leading) {
                 // Mount list container
                 VStack(alignment: .leading, spacing: 0) {
                     // 3 & 4. Show mounts if not empty with names
@@ -23,36 +23,23 @@ struct MountView: View {
                             .padding()
                             .frame(maxWidth: .infinity, alignment: .center)
                     } else {
-                        // Use ScrollView for scrollable content
-                        ScrollView {
-                            LazyVStack(alignment: .leading, spacing: 0) {
-                                ForEach(mountModel.mounts) { mount in
-                                    // 5. Make mounts clickable
-                                    Button(action: {
-                                        // 6. Open mount form view on click
-                                        mountModel.selectedMount = mount
-                                    }) {
-                                        HStack {
-                                            Text(mount.name.isEmpty ? mount.url : mount.name)
-                                                .foregroundColor(.primary)
-                                            Spacer()
-                                        }
-                                        .padding(.vertical, 8)
-                                        .padding(.horizontal, 12)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .background(mountModel.selectedMount?.id == mount.id ? Color.gray.opacity(0.2) : Color.clear)
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
-                                    
-                                    if mount.id != mountModel.mounts.last?.id {
-                                        Divider()
-                                    }
+                        // List of mounts
+                        List {
+                            ForEach(mountModel.mounts) { mount in
+                                // 5. Make mounts clickable
+                                Button(action: {
+                                    // 6. Open mount form view on click
+                                    mountModel.selectedMount = mount
+                                }) {
+                                    Text(mount.name.isEmpty ? mount.url : mount.name)
+                                        .foregroundColor(.primary)
                                 }
+                                .buttonStyle(PlainButtonStyle())
                             }
                         }
+                        .listStyle(PlainListStyle())
                     }
                 }
-                .frame(maxWidth: .infinity)
                 .background(Color.white)
                 .cornerRadius(8)
                 .overlay(
@@ -71,7 +58,6 @@ struct MountView: View {
                 .controlSize(.small)
                 .padding(8)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
             
             // Mount form area
             if mountModel.isAdding {
@@ -100,10 +86,8 @@ struct MountView: View {
                 )
                 .padding(.top, 12)
             }
-            
-            Spacer() // Push everything to the top
         }
         .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top) // Force top alignment
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
