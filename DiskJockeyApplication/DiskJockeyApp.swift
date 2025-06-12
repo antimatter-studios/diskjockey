@@ -3,14 +3,15 @@ import Foundation
 
 @main
 struct DiskJockeyApp: App {
+    @State private var menuBarController: MenuBarController? = nil
     @StateObject var pluginModel = PluginModel()
     @StateObject var backendManager = BackendManager()
-    @State private var menuBarController: MenuBarController? = nil
+    @StateObject var sidebarModel = SidebarModel()
 
     // Remove observer registration from init to avoid 'mutating self' capture
     // We'll register observers in .onAppear using a static helper
     static var observersRegistered = false
-    static func registerObservers(pluginModel: PluginModel) {
+    static func registerObservers(pluginModel: PluginModel, sidebarModel: SidebarModel) {
         guard !observersRegistered else { return }
         func focusMainWindow() {
             // Only open the custom URL scheme if no main window is visible
@@ -25,11 +26,15 @@ struct DiskJockeyApp: App {
         }
         NotificationCenter.default.addObserver(forName: NSNotification.Name("ShowSettingsPage"), object: nil, queue: .main) { _ in
             focusMainWindow()
-            pluginModel.selectedSidebarItem = .plugin(pluginModel.plugins.first ?? Plugin(name: "", description: ""))
+            sidebarModel.selectedItem = .plugins
         }
         NotificationCenter.default.addObserver(forName: NSNotification.Name("ShowAboutPage"), object: nil, queue: .main) { _ in
             focusMainWindow()
-            pluginModel.selectedSidebarItem = .about
+            sidebarModel.selectedItem = .about
+        }
+        NotificationCenter.default.addObserver(forName: NSNotification.Name("ShowQuitPage"), object: nil, queue: .main) { _ in
+            focusMainWindow()
+            sidebarModel.selectedItem = .quit
         }
         observersRegistered = true
     }
@@ -38,11 +43,11 @@ struct DiskJockeyApp: App {
         WindowGroup("main") {
             ContentView()
                 .environmentObject(pluginModel)
+                .environmentObject(sidebarModel)
                 .onAppear {
-                    DiskJockeyApp.registerObservers(pluginModel: pluginModel)
+                    DiskJockeyApp.registerObservers(pluginModel: pluginModel, sidebarModel: sidebarModel)
                     backendManager.startBackendAndConnect { plugins in
                         pluginModel.plugins = plugins
-                        pluginModel.selectedPlugin = plugins.first
                     }
                     if menuBarController == nil {
                         menuBarController = MenuBarController()

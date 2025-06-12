@@ -1,5 +1,4 @@
 ---
-trigger: always_on
 description: This file contains the global rules for Cascade and overrides all other rules.
 ---
 
@@ -17,3 +16,4 @@ These are global rules that apply to every request you make, you should follow t
 10. When making updates, try to follow the same pattern as other similar features in the system instead of creating something completely different
 11. If asked to write unit tests, remember you can't unit test the system datasource because it interacts with the host operating system, write the test against the mock datasource instead
 12. Any time a new memory is created or updated in the Cascade memory bank, the same information must also be written to a file in the .windsurf directory in the codebase. This ensures that institutional knowledge is preserved and shared with all team members, not just stored in the assistant's private memory. The file should be named and organized for easy discovery (e.g., .windsurf/pipeline-overview.md, .windsurf/build-scripts.md, etc).
+13. If there is a written planning document, please automatically keep it updated against your memory bank. 

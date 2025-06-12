@@ -13,7 +13,6 @@
 		5036E6882DF57AFE00DA7C59 /* DiskJockeyLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5036E6562DF5731600DA7C59 /* DiskJockeyLibrary.framework */; };
 		5036E6892DF57AFE00DA7C59 /* DiskJockeyLibrary.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 5036E6562DF5731600DA7C59 /* DiskJockeyLibrary.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		5036E6E12DF5871000DA7C59 /* diskjockey-backend in CopyFiles */ = {isa = PBXBuildFile; fileRef = 5036E6E02DF5871000DA7C59 /* diskjockey-backend */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		5036E6E32DF5965000DA7C59 /* HelperProcessManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5036E6E22DF5965000DA7C59 /* HelperProcessManager.swift */; };
 		5036E7232DF825A400DA7C59 /* MessageServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5036E7212DF825A400DA7C59 /* MessageServer.swift */; };
 		5036E7242DF825A400DA7C59 /* protocol_definitions.pb.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5036E7222DF825A400DA7C59 /* protocol_definitions.pb.swift */; };
 		504036E42DFAF2D800183122 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504036DF2DFAF2D800183122 /* ContentView.swift */; };
@@ -23,6 +22,13 @@
 		504036EA2DFAF52600183122 /* BackendManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504036E92DFAF52600183122 /* BackendManager.swift */; };
 		504036EC2DFAF61000183122 /* MenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504036EB2DFAF61000183122 /* MenuBarController.swift */; };
 		504036EE2DFAF68300183122 /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504036ED2DFAF68300183122 /* AboutView.swift */; };
+		504036FF2DFB1F3200183122 /* MountModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504036FD2DFB1F3200183122 /* MountModel.swift */; };
+		504037002DFB1F3200183122 /* MountView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504036FE2DFB1F3200183122 /* MountView.swift */; };
+		504037022DFB20C200183122 /* SidebarModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504037012DFB20C200183122 /* SidebarModel.swift */; };
+		504037042DFB235700183122 /* PluginsPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504037032DFB235700183122 /* PluginsPanelView.swift */; };
+		504037062DFB359500183122 /* QuitPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504037052DFB359500183122 /* QuitPanelView.swift */; };
+		504037092DFB3FDF00183122 /* MountFormView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504037082DFB3FDF00183122 /* MountFormView.swift */; };
+		5040370A2DFB3FDF00183122 /* MountFormSchema.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504037072DFB3FDF00183122 /* MountFormSchema.swift */; };
 		5062547C2DF4640A000A9F31 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 506254752DF4640A000A9F31 /* Assets.xcassets */; };
 		506254912DF4649B000A9F31 /* FileProviderItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5062548E2DF4649B000A9F31 /* FileProviderItem.swift */; };
 		506254922DF4649B000A9F31 /* FileProviderEnumerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5062548C2DF4649B000A9F31 /* FileProviderEnumerator.swift */; };
@@ -105,7 +111,6 @@
 		5034A2902DF47DAD00540B87 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = Platforms/MacOSX.platform/Developer/Library/Frameworks/XCTest.framework; sourceTree = DEVELOPER_DIR; };
 		5036E6562DF5731600DA7C59 /* DiskJockeyLibrary.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = DiskJockeyLibrary.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		5036E6E02DF5871000DA7C59 /* diskjockey-backend */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = "diskjockey-backend"; path = "diskjockey-backend/diskjockey-backend"; sourceTree = "<group>"; };
-		5036E6E22DF5965000DA7C59 /* HelperProcessManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperProcessManager.swift; sourceTree = "<group>"; };
 		5036E6E62DF5A4CF00DA7C59 /* server.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = server.json; path = "diskjockey-backend/server.json"; sourceTree = "<group>"; };
 		5036E7212DF825A400DA7C59 /* MessageServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageServer.swift; sourceTree = "<group>"; };
 		5036E7222DF825A400DA7C59 /* protocol_definitions.pb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = protocol_definitions.pb.swift; sourceTree = "<group>"; };
@@ -116,6 +121,13 @@
 		504036E92DFAF52600183122 /* BackendManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendManager.swift; sourceTree = "<group>"; };
 		504036EB2DFAF61000183122 /* MenuBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarController.swift; sourceTree = "<group>"; };
 		504036ED2DFAF68300183122 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
+		504036FD2DFB1F3200183122 /* MountModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MountModel.swift; sourceTree = "<group>"; };
+		504036FE2DFB1F3200183122 /* MountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MountView.swift; sourceTree = "<group>"; };
+		504037012DFB20C200183122 /* SidebarModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarModel.swift; sourceTree = "<group>"; };
+		504037032DFB235700183122 /* PluginsPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginsPanelView.swift; sourceTree = "<group>"; };
+		504037052DFB359500183122 /* QuitPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuitPanelView.swift; sourceTree = "<group>"; };
+		504037072DFB3FDF00183122 /* MountFormSchema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MountFormSchema.swift; sourceTree = "<group>"; };
+		504037082DFB3FDF00183122 /* MountFormView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MountFormView.swift; sourceTree = "<group>"; };
 		506254752DF4640A000A9F31 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		506254762DF4640A000A9F31 /* DiskJockeyApplication.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DiskJockeyApplication.entitlements; sourceTree = "<group>"; };
 		506254772DF4640A000A9F31 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -173,18 +185,24 @@
 			isa = PBXGroup;
 			children = (
 				504036ED2DFAF68300183122 /* AboutView.swift */,
-				504036EB2DFAF61000183122 /* MenuBarController.swift */,
-				504036E92DFAF52600183122 /* BackendManager.swift */,
-				504036E72DFAF51200183122 /* DiskJockeyApp.swift */,
-				504036DF2DFAF2D800183122 /* ContentView.swift */,
-				504036E02DFAF2D800183122 /* PluginModel.swift */,
-				504036E12DFAF2D800183122 /* README_SWIFTUI.md */,
-				5036E7212DF825A400DA7C59 /* MessageServer.swift */,
-				5036E7222DF825A400DA7C59 /* protocol_definitions.pb.swift */,
-				5036E6E22DF5965000DA7C59 /* HelperProcessManager.swift */,
 				506254752DF4640A000A9F31 /* Assets.xcassets */,
+				504036E92DFAF52600183122 /* BackendManager.swift */,
+				504036DF2DFAF2D800183122 /* ContentView.swift */,
+				504036E72DFAF51200183122 /* DiskJockeyApp.swift */,
 				506254762DF4640A000A9F31 /* DiskJockeyApplication.entitlements */,
 				506254772DF4640A000A9F31 /* Info.plist */,
+				504036EB2DFAF61000183122 /* MenuBarController.swift */,
+				5036E7212DF825A400DA7C59 /* MessageServer.swift */,
+				504037072DFB3FDF00183122 /* MountFormSchema.swift */,
+				504037082DFB3FDF00183122 /* MountFormView.swift */,
+				504036FD2DFB1F3200183122 /* MountModel.swift */,
+				504036FE2DFB1F3200183122 /* MountView.swift */,
+				504036E02DFAF2D800183122 /* PluginModel.swift */,
+				504037032DFB235700183122 /* PluginsPanelView.swift */,
+				5036E7222DF825A400DA7C59 /* protocol_definitions.pb.swift */,
+				504037052DFB359500183122 /* QuitPanelView.swift */,
+				504036E12DFAF2D800183122 /* README_SWIFTUI.md */,
+				504037012DFB20C200183122 /* SidebarModel.swift */,
 			);
 			path = DiskJockeyApplication;
 			sourceTree = "<group>";
@@ -206,9 +224,9 @@
 			children = (
 				5036E6E62DF5A4CF00DA7C59 /* server.json */,
 				5036E6E02DF5871000DA7C59 /* diskjockey-backend */,
-				5036E6572DF5731600DA7C59 /* DiskJockeyLibrary */,
 				5062547B2DF4640A000A9F31 /* DiskJockeyApplication */,
 				506254902DF4649B000A9F31 /* DiskJockeyFileProvider */,
+				5036E6572DF5731600DA7C59 /* DiskJockeyLibrary */,
 				D0FA53CF26300F1700C32328 /* README.md */,
 				D06C9C2925F7AFD200354820 /* Products */,
 				5034A27C2DF46EFA00540B87 /* Frameworks */,
@@ -386,15 +404,21 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				504037092DFB3FDF00183122 /* MountFormView.swift in Sources */,
+				5040370A2DFB3FDF00183122 /* MountFormSchema.swift in Sources */,
 				504036EC2DFAF61000183122 /* MenuBarController.swift in Sources */,
 				504036EA2DFAF52600183122 /* BackendManager.swift in Sources */,
-				5036E6E32DF5965000DA7C59 /* HelperProcessManager.swift in Sources */,
+				504036FF2DFB1F3200183122 /* MountModel.swift in Sources */,
+				504037002DFB1F3200183122 /* MountView.swift in Sources */,
 				5036E7232DF825A400DA7C59 /* MessageServer.swift in Sources */,
 				504036EE2DFAF68300183122 /* AboutView.swift in Sources */,
+				504037042DFB235700183122 /* PluginsPanelView.swift in Sources */,
 				504036E42DFAF2D800183122 /* ContentView.swift in Sources */,
 				504036E52DFAF2D800183122 /* PluginModel.swift in Sources */,
 				504036E82DFAF51200183122 /* DiskJockeyApp.swift in Sources */,
 				5036E7242DF825A400DA7C59 /* protocol_definitions.pb.swift in Sources */,
+				504037022DFB20C200183122 /* SidebarModel.swift in Sources */,
+				504037062DFB359500183122 /* QuitPanelView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

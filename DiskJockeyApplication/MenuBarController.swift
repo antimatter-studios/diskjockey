@@ -19,16 +19,24 @@ class MenuBarController: NSObject {
         let settingsItem = NSMenuItem(title: "Settings", action: #selector(showSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
+        let quitPanelItem = NSMenuItem(title: "Quit", action: #selector(showQuitPanel), keyEquivalent: "q")
+        quitPanelItem.target = self
+        menu.addItem(quitPanelItem)
+        menu.addItem(NSMenuItem.separator())
         menu.delegate = self
         statusItem?.menu = menu
     }
     
     @objc func showAbout() {
-        NotificationCenter.default.post(name: NSNotification.Name("ShowAboutPage"), object: nil)
+        NotificationCenter.default.post(name: Notification.Name("ShowAboutPage"), object: nil)
     }
     
     @objc func showSettings() {
-        NotificationCenter.default.post(name: NSNotification.Name("ShowSettingsPage"), object: nil)
+        NotificationCenter.default.post(name: Notification.Name("ShowSettingsPage"), object: nil)
+    }
+    
+    @objc func showQuitPanel() {
+        NotificationCenter.default.post(name: Notification.Name("ShowQuitPage"), object: nil)
     }
     
     @objc private func windowClosed(_ notification: Notification) {

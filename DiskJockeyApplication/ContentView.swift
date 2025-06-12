@@ -1,33 +1,40 @@
 import SwiftUI
 
 struct ContentView: View {
+    @EnvironmentObject var sidebarModel: SidebarModel
     @EnvironmentObject var pluginModel: PluginModel
+    @StateObject var mountModel = MountModel()
 
     var body: some View {
         NavigationSplitView {
-            List(selection: $pluginModel.selectedSidebarItem) {
-                // About at the top
-                Text("About").tag(SidebarItem.about)
-                // Plugins
-                ForEach(pluginModel.plugins) { plugin in
-                    Text(plugin.name).tag(SidebarItem.plugin(plugin))
+            List(selection: $sidebarModel.selectedItem) {
+                NavigationLink(value: SidebarItem.about) {
+                    Label("About", systemImage: "info.circle")
+                }
+                NavigationLink(value: SidebarItem.mounts) {
+                    Label("Mounts", systemImage: "externaldrive")
+                }
+                NavigationLink(value: SidebarItem.plugins) {
+                    Label("Plugins", systemImage: "puzzlepiece.extension")
+                }
+                NavigationLink(value: SidebarItem.quit) {
+                    Label("Quit", systemImage: "power")
                 }
             }
             .navigationTitle("Disk Jockey")
         } detail: {
-            switch pluginModel.selectedSidebarItem {
+            switch sidebarModel.selectedItem {
             case .about:
                 AboutView()
-            case .plugin(let plugin):
-                VStack(alignment: .leading, spacing: 16) {
-                    Text(plugin.name)
-                        .font(.title)
-                        .bold()
-                    Text(plugin.description)
-                        .font(.body)
-                    Spacer()
-                }
-                .padding()
+            case .mounts:
+                MountView()
+                    .environmentObject(mountModel)
+                    .environmentObject(pluginModel)
+            case .plugins:
+                PluginsPanelView()
+                    .environmentObject(pluginModel)
+            case .quit:
+                QuitPanelView()
             case .none:
                 Text("Select an item from the sidebar.")
                     .foregroundColor(.secondary)
