@@ -1,4 +1,5 @@
 import SwiftUI
+import DiskJockeyLibrary
 
 struct MountFormView: View {
     @EnvironmentObject var mountModel: MountModel
@@ -24,52 +25,23 @@ struct MountFormView: View {
             _form = State(initialValue: mount)
             _mountTypeSelection = State(initialValue: mount.type.rawValue)
         } else {
-            _form = State(initialValue: MountPoint(
-                id: UUID(), 
-                name: "", 
-                type: .webdav, 
-                url: "", 
-                username: "", 
-                password: "", 
-                hostname: nil, 
-                shareName: nil))
+            let newMount = MountPoint(
+                id: UUID(),
+                name: "",
+                type: .webdav,
+                url: "",
+                username: "",
+                password: ""
+                // hostname and shareName are optional with nil defaults
+            )
+            _form = State(initialValue: newMount)
             _mountTypeSelection = State(initialValue: "")
         }
     }
     
-    @ViewBuilder
-    private func fieldView(field: FormField) -> some View {
-        if field.isOptional, let keyPath = field.optionalKeyPath {
-            let binding = Binding<String>(
-                get: { form[keyPath: keyPath] ?? "" },
-                set: { form[keyPath: keyPath] = $0 }
-            )
-            if field.isSecure {
-                SecureField(field.label, text: binding)
-            } else {
-                TextField(field.label, text: binding)
-            }
-        } else if let keyPath = field.stringKeyPath {
-            let binding = Binding<String>(
-                get: { form[keyPath: keyPath] },
-                set: { form[keyPath: keyPath] = $0 }
-            )
-            if field.isSecure {
-                SecureField(field.label, text: binding)
-            } else {
-                TextField(field.label, text: binding)
-            }
-        }
-    }
-
-    
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if isEditing, let mount = mount {
-                Text("Mount Details").font(.headline)
-            } else {
-                Text("Add New Mount").font(.headline)
-            }
+            Text(isEditing ? "Mount Details" : "Add New Mount").font(.headline)
             
             Picker("Type", selection: $mountTypeSelection) {
                 Text("Select Mount Type").tag("")
@@ -79,8 +51,20 @@ struct MountFormView: View {
             }
             .pickerStyle(MenuPickerStyle())
             
-            ForEach(MountFormSchema.fields(for: mountTypeSelection)) { field in
-                fieldView(field: field)
+            TextField("Name", text: $form.name)
+            TextField("URL", text: $form.url)
+            TextField("Username", text: $form.username)
+            SecureField("Password", text: $form.password)
+            
+            if mountTypeSelection == MountType.samba.rawValue {
+                TextField("Hostname", text: Binding(
+                    get: { form.hostname ?? "" },
+                    set: { form.hostname = $0.isEmpty ? nil : $0 }
+                ))
+                TextField("Share Name", text: Binding(
+                    get: { form.shareName ?? "" },
+                    set: { form.shareName = $0.isEmpty ? nil : $0 }
+                ))
             }
             
             HStack {
