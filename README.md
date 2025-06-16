@@ -1,13 +1,20 @@
 # DiskJockey 
 ## Project Summary
 
+![mainwindow](media/mainwindow.png)
+
+
 DiskJockey is a modular, virtual filesystem solution for macOS designed to unify, mount, and manage remote storage backends (cloud, network, etc.) in a seamless way. It leverages a robust Go backend for performance and plugin extensibility, a Swift/Xcode-based macOS GUI for user interaction, and a lightweight helper process to bridge all IPC and system integration. The project aims to provide a reliable, extensible, and user-friendly way to access and synchronize files from various sources, all presented as native Finder volumes.
 
 ## Updates:
 
 __15/05/2025:__ I finally was able to launch a file provider and see actual finder volumes. The files were fake. But the file provider was working. I was able to see the volumes in finder and I was able to mount and unmount them. 
 
-__14/06/2025:__ I realise I need a developer account and I can't launch a file provider extension without one :(
+![fileprovider](media/fileprovider.png)
+
+__14/06/2025:__ I realise I need a developer account and I can't launch a file provider extension without one :( But on the positive side, I was able to improve the user interface a lot and I think it looks pretty nice so far!
+
+![mainwindow](media/mounts.png)
 
 __12/06/2025:__ My architecture isn't working as I expect. I think I can't really use a helper application to mediate between the file provider and the backend. I need to find a different way to do this. Because I can't actually get the helper app to run. I think I need to use a different approach.
 
