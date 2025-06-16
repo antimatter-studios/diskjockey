@@ -2,7 +2,7 @@ DISKJOCKEY_BACKEND := diskjockey-backend
 DISKJOCKEY_BACKEND_BINARY := ${DISKJOCKEY_BACKEND}
 DISKJOCKEY_CLI := diskjockey-cli
 DISKJOCKEY_CLI_BINARY := djctl
-SWIFT_PB_OUTPUT := DiskJockeyApplication
+SWIFT_PB_OUTPUT := DiskJockeyLibrary
 PROTO_SRC=${DISKJOCKEY_BACKEND}/proto/protocol_definitions.proto
 
 .PHONY: all proto djb djctl clean

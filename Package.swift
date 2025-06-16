@@ -6,27 +6,16 @@ let package = Package(
     defaultLocalization: "en",
     platforms: [.macOS(.v14)],
     products: [
-        .library(name: "DiskJockeyHelperLibrary", targets: ["DiskJockeyHelperLibrary"]),
-        .executable(name: "DiskJockeyHelper", targets: ["DiskJockeyHelper"]),
+        .library(name: "DiskJockeyLibrary", targets: ["DiskJockeyLibrary"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.21.0")
     ],
     targets: [
         .target(
-            name: "DiskJockeyHelperLibrary",
+            name: "DiskJockeyLibrary",
             dependencies: [.product(name: "SwiftProtobuf", package: "swift-protobuf")],
-            path: "DiskJockeyHelperLibrary"
+            path: "DiskJockeyLibrary"
         ),
-        .executableTarget(
-            name: "DiskJockeyHelper",
-            dependencies: ["DiskJockeyHelperLibrary"],
-            path: "DiskJockeyHelper"
-        ),
-        .testTarget(
-            name: "DiskJockeyHelperLibraryTests",
-            dependencies: ["DiskJockeyHelperLibrary"],
-            path: "DiskJockeyHelperLibraryTests"
-        )
     ]
 )
