@@ -22,8 +22,7 @@ public class TCPConnection: TCPSocket {
         }
         
         if result != 0 {
-            close(socket)
-            self.socket = -1
+            self.disconnect()
         }
     }
 }

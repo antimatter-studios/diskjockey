@@ -5,16 +5,16 @@ public class TCPListener: TCPSocket {
     private var shouldStopAccepting = false
     public private(set) var actualPort: Int?
     
-    public init(port: Int, onAccept: @escaping (Int32) -> Void) {
+    public init?(port: Int, onAccept: @escaping (Int32) -> Void) {
         super.init()
         self.actualPort = port
-        NSLog("DiskJockeyHelper: Attempting to listen on port \(port)")
+        NSLog("DiskJockey: Attempting to listen on port \(port)")
 
         lock.lock(); defer { lock.unlock() }
-        if socket >= 0 { return }
+        if socket >= 0 { return nil }
 
         socket = Darwin.socket(AF_INET, SOCK_STREAM, 0)
-        guard socket >= 0 else { return }
+        guard socket >= 0 else { return nil }
 
         var addr = sockaddr_in()
         addr.sin_family = sa_family_t(AF_INET)
@@ -32,7 +32,7 @@ public class TCPListener: TCPSocket {
         guard bindResult == 0 else {
             close(socket)
             self.socket = -1
-            return
+            return nil
         }
 
         // Retrieve the actual port after binding
@@ -47,9 +47,9 @@ public class TCPListener: TCPSocket {
         if rc == 0 {
             let portValue = Int(UInt16(bigEndian: sockAddr.sin_port))
             self.actualPort = portValue
-            NSLog("DiskJockeyHelper: Listening port was updated to \(port)")
+            NSLog("DiskJockey: Listening port was updated to \(port)")
         } else {
-            NSLog("DiskJockeyHelper: Could not get port number")
+            NSLog("DiskJockey: Could not get port number")
         }
 
         Darwin.listen(socket, 5)
