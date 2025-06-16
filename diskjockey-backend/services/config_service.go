@@ -10,13 +10,12 @@ import (
 // ConfigService provides access to config, mount, and socket path data from the database.
 
 type ConfigService struct {
-	db        *SQLiteService
-	socketPath string
+	db *SQLiteService
 }
 
 // NewConfigService creates a ConfigService using the given SQLiteService.
-func NewConfigService(db *SQLiteService, socketPath string) *ConfigService {
-	return &ConfigService{db: db, socketPath: socketPath}
+func NewConfigService(db *SQLiteService) *ConfigService {
+	return &ConfigService{db: db}
 }
 
 // DeleteMount deletes a mount config row by ID
@@ -127,12 +126,4 @@ func (cs *ConfigService) ListMountpoints() ([]models.Mount, error) {
 func (cs *ConfigService) SetMountMounted(mountID uint32, mounted bool) error {
 	db := cs.db.GetDB()
 	return db.Model(&models.Mount{}).Where("id = ?", mountID).Update("is_mounted", mounted).Error
-}
-
-// GetSocketPath returns the socket path from the config table.
-func (cs *ConfigService) GetSocketPath() (string, error) {
-	if cs.socketPath == "" {
-		return "", errors.New("socket path not set")
-	}
-	return cs.socketPath, nil
 }

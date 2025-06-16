@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"time"
 
 	"github.com/christhomas/diskjockey/diskjockey-backend/proto/api"
 	"github.com/christhomas/diskjockey/diskjockey-backend/services"
@@ -14,11 +15,13 @@ import (
 type BackendClient struct {
 	configService *services.ConfigService
 	pluginService *services.PluginService
+	server        *BackendServer // Reference to the server for shutdown
 	handshakeDone bool
 }
 
-func NewBackendClient(config *services.ConfigService, plugins *services.PluginService) *BackendClient {
+func NewBackendClient(server *BackendServer, config *services.ConfigService, plugins *services.PluginService) *BackendClient {
 	return &BackendClient{
+		server:        server,
 		configService: config,
 		pluginService: plugins,
 	}
@@ -108,6 +111,7 @@ func (c *BackendClient) handleMessage(msgType api.MessageType, msg []byte, conn 
 		c.handshakeDone = true
 		fmt.Println("[BackendClient] CONNECT handshake succeeded")
 		return nil
+
 	case api.MessageType_LIST_PLUGINS_REQUEST:
 		// Application is requesting plugin list; reply with plugin names
 		var req api.ListPluginsRequest
@@ -125,6 +129,40 @@ func (c *BackendClient) handleMessage(msgType api.MessageType, msg []byte, conn 
 			return fmt.Errorf("failed to send ListPluginsResponse: %w", err)
 		}
 		fmt.Println("[BackendClient] ListPluginsResponse sent to application")
+		return nil
+
+	case api.MessageType_SHUTDOWN_REQUEST:
+		// Handle graceful shutdown
+		fmt.Println("[BackendClient] Received SHUTDOWN_REQUEST, initiating graceful shutdown...")
+
+		// Stop any ongoing operations
+		// TODO: Add any necessary cleanup for plugins or other services
+
+		// Send response before shutting down
+		resp := &api.ShutdownResponse{
+			Success: true,
+			Message: "Shutting down gracefully",
+		}
+		if err := c.SendMessage(conn, api.MessageType_SHUTDOWN_REQUEST, resp); err != nil {
+			fmt.Fprintf(os.Stderr, "[BackendClient] Failed to send shutdown response: %v\n", err)
+		}
+
+		// Close the connection
+		conn.Close()
+
+		// Signal server to shut down
+		if c.server != nil {
+			if err := c.server.Shutdown(); err != nil {
+				fmt.Fprintf(os.Stderr, "[BackendClient] Error during server shutdown: %v\n", err)
+			}
+		}
+
+		// Exit the process after a short delay to allow the response to be sent
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			os.Exit(0)
+		}()
+
 		return nil
 	// Add other message types here
 	default:

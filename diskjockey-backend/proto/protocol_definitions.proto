@@ -8,6 +8,12 @@ syntax = "proto3";
 package api;
 option go_package = "diskjockey-backend/proto/api;api";
 
+// Message wrapper that contains the actual message and its type
+message Message {
+  MessageType type = 1;
+  bytes payload = 2;  // Serialized message data
+}
+
 // Central enum for all message type IDs used in the socket protocol
 enum MessageType {
   UNKNOWN_TYPE = 0;

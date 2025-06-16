@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/christhomas/diskjockey/diskjockey-backend/ipc"
 	"github.com/christhomas/diskjockey/diskjockey-backend/plugins"
@@ -14,16 +16,8 @@ import (
 
 func main() {
 	var configDir string
-	var helperPort int
-
-	flag.IntVar(&helperPort, "helper-port", 0, "Port to connect to DiskJockeyHelper")
 	flag.StringVar(&configDir, "config-dir", "", "Directory for config and DB files")
 	flag.Parse()
-
-	if helperPort == 0 {
-		fmt.Fprintln(os.Stderr, "--helper-port is required")
-		os.Exit(1)
-	}
 
 	if configDir == "" {
 		fmt.Println("No config dir specified, using default")
@@ -35,10 +29,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("DiskJockeyBackend starting... port='%d', configDir='%s'\n", helperPort, configDir)
+	fmt.Println("DiskJockey Backend starting...")
 
-	// FIXME: deprecated socketPath is no longer used
-	socketPath := filepath.Join(configDir, "diskjockey.backend.sock")
+	fmt.Printf("Config Dir: %s\n", configDir)
 
 	dbPath := filepath.Join(configDir, "diskjockey.sqlite")
 	sqliteService := services.NewSQLiteService(dbPath)
@@ -50,7 +43,7 @@ func main() {
 		fmt.Printf("Found db: %s\n", dbPath)
 	}
 
-	configService := services.NewConfigService(sqliteService, socketPath)
+	configService := services.NewConfigService(sqliteService)
 	pluginService := services.NewPluginService()
 	pluginService.RegisterPluginType(plugins.LocalDirectoryPlugin{})
 	pluginService.RegisterPluginType(plugins.FTPPlugin{})
@@ -64,14 +57,23 @@ func main() {
 		fmt.Printf("- %s: %s\n", info.Name, info.Description)
 	}
 
-	// Create a new backend client
-	client := ipc.NewBackendClient(configService, pluginService)
-
-	// Connect to main app (combined app+helper) and process messages
-	if err := client.RunClient(helperPort); err != nil {
-		fmt.Fprintf(os.Stderr, "Backend client error: %v\n", err)
+	// Start backend server (listen for incoming connections)
+	server := ipc.NewBackendServer(configService, pluginService)
+	port, err := server.RunServer()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Backend server error: %v\n", err)
 		os.Exit(1)
 	}
+	fmt.Printf("Listening on port %d\n", port)
+	
+	// Create a channel to wait for signals
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	
+	// Block indefinitely until a signal is received
+	fmt.Println("Server running. Press Ctrl+C to exit.")
+	sig := <-sigChan // This will block until a signal is sent to the channel
+	fmt.Printf("Received signal %v, shutting down...\n", sig)
 }
 
 // ensureFileExists creates the file at path with defaultContent if it does not exist.
