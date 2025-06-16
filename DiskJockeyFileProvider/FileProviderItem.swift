@@ -25,11 +25,17 @@ class FileProviderItem: NSObject, NSFileProviderItem {
         }
     }
 
-    // For legacy/manual init
+    // For legacy/manual init - deprecated, use info-based init instead
     init(identifier: NSFileProviderItemIdentifier) {
-        self.info = DiskJockeyFileItem(name: "", size: 0, isDirectory: false)
+        let name = identifier.rawValue.replacingOccurrences(of: "item-", with: "")
+        self.info = DiskJockeyFileItem(
+            name: name,
+            size: name.hasSuffix(".txt") ? 100 : 0,
+            isDirectory: name.isEmpty || !name.contains(".")
+        )
         self.parentPath = "/"
         self.identifierValue = identifier.rawValue
+        NSLog("[FileProviderItem] Created item %@ as %@", name, info.isDirectory ? "directory" : "file")
     }
 
     var itemIdentifier: NSFileProviderItemIdentifier {

@@ -9,19 +9,25 @@ import FileProvider
 
 class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
     required init(domain: NSFileProviderDomain) {
+        NSLog("[FileProviderExtension] Initializing with domain: %@", domain.identifier.rawValue)
         super.init()
+        NSLog("[FileProviderExtension] Initialized successfully")
     }
     
     func invalidate() {
+        NSLog("[FileProviderExtension] Invalidating extension")
         // TODO: cleanup any resources
     }
     
     func item(for identifier: NSFileProviderItemIdentifier, request: NSFileProviderRequest, completionHandler: @escaping (NSFileProviderItem?, Error?) -> Void) -> Progress {
-        // resolve the given identifier to a record in the model
+        NSLog("[FileProviderExtension] Requesting item for identifier: %@", identifier.rawValue)
         
+        // resolve the given identifier to a record in the model
         // TODO: implement the actual lookup
 
-        completionHandler(FileProviderItem(identifier: identifier), nil)
+        let item = FileProviderItem(identifier: identifier)
+        NSLog("[FileProviderExtension] Returning item: %@", item)
+        completionHandler(item, nil)
         return Progress()
     }
     
@@ -54,6 +60,9 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
     }
     
     func enumerator(for containerItemIdentifier: NSFileProviderItemIdentifier, request: NSFileProviderRequest) throws -> NSFileProviderEnumerator {
-        return FileProviderEnumerator(enumeratedItemIdentifier: containerItemIdentifier)
+        NSLog("[FileProviderExtension] Creating enumerator for container: %@", containerItemIdentifier.rawValue)
+        let enumerator = FileProviderEnumerator(enumeratedItemIdentifier: containerItemIdentifier)
+        NSLog("[FileProviderExtension] Enumerator created successfully")
+        return enumerator
     }
 }
