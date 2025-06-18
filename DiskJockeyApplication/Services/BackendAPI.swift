@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import Network
 import SwiftProtobuf
+import DiskJockeyLibrary
 
 public enum APIError: Error {
     case notConnected
@@ -14,6 +15,12 @@ public enum APIError: Error {
 }
 
 open class BackendAPI: ObservableObject {
+    // ...
+    private var reconnectHandler: (() async throws -> Void)?
+    public func setReconnectHandler(_ handler: @escaping () async throws -> Void) {
+        self.reconnectHandler = handler
+    }
+    private let logger: LogRepository?
     // MARK: - Types
     
     public struct ConnectionInfo: Equatable {
@@ -68,12 +75,18 @@ open class BackendAPI: ObservableObject {
     
     // MARK: - Initialization
     
-    public init() {
-        // No setup needed here
+    public init(logger: LogRepository? = nil) {
+        self.logger = logger
     }
     
     deinit {
         disconnect()
+    }
+
+    // MARK: - Logging
+    private func log(_ msg: String) {
+        print("BackendAPI: \(msg)")
+        logger?.addLogEntry(LogEntry(message: msg, category: "backend"))
     }
     
     // MARK: - Public Methods
@@ -104,23 +117,52 @@ open class BackendAPI: ObservableObject {
     
     // MARK: - Plugin Management
     
-    /// Fetches the list of available plugins
+    /// Ensures connection, reconnects if needed, then performs the given async action.
+    public func ensureConnectedAndPerform<T>(action: @escaping () async throws -> T) async throws -> T {
+        if case .connected = self.connectionState {
+            return try await action()
+        } else if let reconnect = self.reconnectHandler {
+            try await reconnect()
+            let connected = await waitForConnection(timeout: 10)
+            if connected {
+                return try await action()
+            } else {
+                throw APIError.notConnected
+            }
+        } else {
+            throw APIError.notConnected
+        }
+    }
+    
+    /// Waits for the backend API to connect, up to the given timeout (in seconds).
+    private func waitForConnection(timeout: TimeInterval) async -> Bool {
+        let start = Date()
+        while Date().timeIntervalSince(start) < timeout {
+            if case .connected = self.connectionState {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
+        }
+        return false
+    }
+    
+    /// Fetches the list of available plugins, auto-reconnecting if needed.
     /// - Returns: An array of Plugin objects
     public func listPlugins() async throws -> [Plugin] {
-        let request = Api_ListPluginsRequest()
-        let response: Api_ListPluginsResponse = try await sendRequest(
-            request,
-            responseType: Api_ListPluginsResponse.self,
-            messageType: .listPluginsRequest
-        )
-        
-        // Convert API models to domain models
-        return response.plugins.map { apiPlugin in
-            Plugin(
-                name: apiPlugin.name,
-                version: "1.0.0",
-                description: apiPlugin.description_p
+        return try await ensureConnectedAndPerform {
+            let request = Api_ListPluginsRequest()
+            let response: Api_ListPluginsResponse = try await self.sendRequest(
+                request,
+                responseType: Api_ListPluginsResponse.self,
+                messageType: .listPluginsRequest
             )
+            return response.plugins.map { apiPlugin in
+                Plugin(
+                    name: apiPlugin.name,
+                    version: "1.0.0",
+                    description: apiPlugin.description_p
+                )
+            }
         }
     }
     
@@ -130,6 +172,7 @@ open class BackendAPI: ObservableObject {
         // Cancel any existing connection
         disconnect()
         
+        log("Attempting to connect to backend at \(host):\(port)")
         connectionState = .connecting
         
         let connection = NWConnection(
@@ -147,14 +190,17 @@ open class BackendAPI: ObservableObject {
             switch state {
             case .ready:
                 let info = ConnectionInfo(host: host, port: UInt16(port))
+                self.log("Successfully connected to backend at \(host):\(port)")
                 self.connectionState = .connected(info)
                 self.startReceiving()
                 
             case .failed(let error):
+                self.log("Failed to connect to backend at \(host):\(port): \(error.localizedDescription)")
                 self.connectionState = .failed(error)
                 self.cleanup()
                 
             case .cancelled:
+                self.log("Connection to backend at \(host):\(port) cancelled")
                 self.connectionState = .disconnected
                 self.cleanup()
                 
@@ -168,13 +214,17 @@ open class BackendAPI: ObservableObject {
         
         // Wait for connection to be established or fail
         return try await withCheckedThrowingContinuation { continuation in
-            let cancellable = connectionStatePublisher
+            var didResume = false
+            var cancellableRef: AnyCancellable?
+            cancellableRef = connectionStatePublisher
                 .first { state in
                     if case .connected = state { return true }
                     if case .failed = state { return true }
                     return false
                 }
-                .sink { [weak self] state in
+                .sink { state in
+                    guard !didResume else { return }
+                    didResume = true
                     if case .connected = state {
                         continuation.resume()
                     } else if case .failed(let error) = state {
@@ -182,18 +232,20 @@ open class BackendAPI: ObservableObject {
                     } else {
                         continuation.resume(throwing: APIError.connectionFailed())
                     }
+                    cancellableRef = nil
                 }
-            
-            // Store the cancellable to keep it alive
-            var cancellableRef: AnyCancellable? = cancellable
-            
-            // Clean up after continuation is called
+
+            // Resume continuation if the task is cancelled
             Task {
-                _ = await withTaskCancellationHandler {
-                    cancellableRef = nil
-                } onCancel: {
-                    cancellableRef?.cancel()
-                    cancellableRef = nil
+                while !didResume {
+                    try? await Task.sleep(nanoseconds: 20_000_000) // 20ms polling
+                    if Task.isCancelled, !didResume {
+                        didResume = true
+                        cancellableRef?.cancel()
+                        cancellableRef = nil
+                        continuation.resume(throwing: CancellationError())
+                        break
+                    }
                 }
             }
         }

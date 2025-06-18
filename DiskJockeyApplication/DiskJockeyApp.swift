@@ -36,6 +36,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// The SwiftUI content view
     private var contentView: some View {
         ContentView(container: container)
+            .environmentObject(container.appLogModel)
     }
     
     // MARK: - Application Lifecycle

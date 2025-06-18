@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import DiskJockeyLibrary
 
 public struct BackendProcessInfo: Equatable {
     public let port: Int
@@ -46,6 +47,16 @@ public enum BackendProcessError: Error, Equatable {
 }
 
 public final class BackendProcess: ObservableObject {
+    private let logger: LogRepository?
+
+    public init(logger: LogRepository? = nil) {
+        self.logger = logger
+    }
+    
+    private func log(_ msg: String) {
+        print("Backend: \(msg)")
+        logger?.addLogEntry(LogEntry(message: msg, category: "backend"))
+    }
     // MARK: - State
     
     public enum State: Equatable {
@@ -71,7 +82,7 @@ public final class BackendProcess: ObservableObject {
     
     private var process: Process?
     private var observers = [AnyCancellable]()
-    private var configDir: URL?
+    private var configDir: String?
     private var readBuffer = Data()
     private var timeoutWorkItem: DispatchWorkItem?
     private let ioQueue = DispatchQueue(label: "com.diskjockey.backend.process", qos: .utility)
@@ -79,7 +90,7 @@ public final class BackendProcess: ObservableObject {
     private var isReading = false
     
     @Published public private(set) var state: State = .stopped
-    public var statePublisher: AnyPublisher<State, Never> {
+    public var processStatePublisher: AnyPublisher<State, Never> {
         $state.eraseToAnyPublisher()
     }
     
@@ -90,9 +101,16 @@ public final class BackendProcess: ObservableObject {
     // MARK: - Public Methods
     
     /// Sets the configuration directory for the backend process
-    /// - Parameter configDir: The URL of the configuration directory
-    public func setConfigDir(_ configDir: URL) {
-        self.configDir = configDir
+    public func setConfigDir() -> String? {
+        // Find the backend executable (customize the path as needed)
+        let fileManager = FileManager.default
+        let appSupportDir = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        
+        if let backendURL = Bundle.main.url(forResource: "diskjockey-backend", withExtension: nil) {
+            self.configDir = appSupportDir.appendingPathComponent("DiskJockey").path
+        }
+
+        return self.configDir
     }
     
     /// Starts the backend process if it's not already running
@@ -100,40 +118,48 @@ public final class BackendProcess: ObservableObject {
     public func start() throws {
         // Ensure we're not already running
         guard !state.isRunning else {
+            log("Backend already running, aborting start.")
             throw BackendProcessError.alreadyRunning
         }
         
         // Ensure we have a valid config directory
-        guard let configDir = self.configDir else {
+        guard let configDir = self.setConfigDir() else {
+            log("No config directory set, aborting start.")
             throw BackendProcessError.invalidConfigDirectory
         }
         
         // Ensure the backend executable exists
         guard let backendURL = Bundle.main.url(forResource: "diskjockey-backend", withExtension: nil) else {
+            log("Backend executable not found in bundle, aborting start.")
             throw BackendProcessError.executableNotFound
         }
         
         // Clean up any existing process
+        log("Cleaning up any existing backend process.")
         cleanup()
         
+        log("Setting backend process state to .starting")
         // Update state to starting
         state = .starting
         
+        log("Creating and configuring backend process instance.")
         // Create and configure the process
         let process = Process()
         process.executableURL = backendURL
-        process.arguments = ["--config-dir", configDir.path]
+        process.arguments = ["--config-dir", configDir]
         
+        log("Setting up pipes for backend process.")
         // Set up pipes
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
         
+        log("Setting up termination handler for backend process.")
         // Set up termination handler
         process.terminationHandler = { [weak self] process in
             guard let self = self else { return }
-            print("Backend process terminated with status: \(process.terminationStatus)")
-            
+            let status = process.terminationStatus
+            log("Backend process terminated with status: \(status)")
             DispatchQueue.main.async {
                 self.cleanup()
                 if case .running = self.state {
@@ -144,18 +170,22 @@ public final class BackendProcess: ObservableObject {
         }
         
         do {
+            log("Launching '\(backendURL.lastPathComponent)' with arguments: \(process.arguments ?? [])")
             // Start the process
             print("Launching '\(backendURL.lastPathComponent)' with arguments: \(process.arguments ?? [])")
             try process.run()
             
+            log("Storing process and file handle.")
             // Store process and file handle
             self.process = process
             self.fileHandle = pipe.fileHandleForReading
             self.isReading = true
             
+            log("Starting to read backend output in background.")
             // Start reading output in the background
             startReading()
             
+            log("Setting up backend process startup timeout.")
             // Set up timeout
             setupTimeout()
             
@@ -171,7 +201,9 @@ public final class BackendProcess: ObservableObject {
     /// - Returns: `true` if the process was stopped, `false` if it wasn't running
     @discardableResult
     public func stop() -> Bool {
+        log("[BackendProcess] stop() called")
         guard let process = process else {
+            log("[BackendProcess] stop() failed: no process running")
             return false
         }
         
@@ -182,12 +214,12 @@ public final class BackendProcess: ObservableObject {
         process.terminate()
         
         // Wait for process to terminate (with timeout)
-        let timeout: TimeInterval = 5.0 // 5 seconds timeout
+        let timeout: TimeInterval = 30.0 // 5 seconds timeout
         let startTime = Date()
         
         while process.isRunning {
             if Date().timeIntervalSince(startTime) > timeout {
-                print("Warning: Timeout waiting for process to terminate")
+                self.log("Warning: Timeout waiting for process to terminate")
                 process.terminate()
                 // Give it a moment to terminate gracefully
                 Thread.sleep(forTimeInterval: 0.5)
@@ -265,7 +297,7 @@ public final class BackendProcess: ObservableObject {
                             self.cancelTimeout()
                         }
                         
-                        print("Backend process started on port: \(port)")
+                        self.log("Backend process started on port: \(port)")
                     }
                 }
             }
@@ -289,7 +321,7 @@ public final class BackendProcess: ObservableObject {
         let workItem = DispatchWorkItem { [weak self] in
             guard let self = self, case .starting = self.state else { return }
             
-            print("Timeout waiting for backend to start")
+            self.log("Timeout waiting for backend to start")
             self.cleanup()
             self.state = .failed(.timeout)
         }

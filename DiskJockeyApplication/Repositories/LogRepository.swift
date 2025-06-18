@@ -3,7 +3,6 @@ import Combine
 import DiskJockeyLibrary
 
 /// Repository for managing log entries
-@MainActor
 public final class LogRepository: ObservableObject {
     // MARK: - Published Properties
     
@@ -27,6 +26,10 @@ public final class LogRepository: ObservableObject {
         }
     }
     
+    public func logsPublisher() -> AnyPublisher<[LogEntry], Never> {
+        $logs.eraseToAnyPublisher()
+    }
+    
     // MARK: - Public Methods
     
     public func addLogEntry(_ entry: LogEntry) {
@@ -44,11 +47,21 @@ public final class LogRepository: ObservableObject {
     public func fetchLogs(limit: Int = 100, filter: String? = nil) async {
         await refresh(limit: limit, filter: filter)
     }
+
+    public func exportLogs() {
+        // For now, we'll just use the in-memory logs
+        // In the future, we can implement actual API calls when the backend supports it
+        let logs = Array(self.logs.prefix(self.maxLogEntries))
+        
+        // Export to a file
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("logs.txt")
+        try? logs.map { $0.message }.joined(separator: "\n").write(to: fileURL, atomically: true, encoding: .utf8)
+    }
     
     public func refresh() async {
         await refresh(limit: 100, filter: nil)
     }
-    
+
     /// Internal refresh implementation with parameters
     private func refresh(limit: Int, filter: String?) async {
         guard !isLoading else { return }
@@ -66,7 +79,7 @@ public final class LogRepository: ObservableObject {
             filteredLogs = filteredLogs.filter {
                 $0.message.lowercased().contains(lowercasedFilter) ||
                 $0.source.lowercased().contains(lowercasedFilter) ||
-                $0.level.rawValue.lowercased().contains(lowercasedFilter)
+                $0.category.lowercased().contains(lowercasedFilter)
             }
         }
         
@@ -80,9 +93,9 @@ public final class LogRepository: ObservableObject {
         }
     }
     
-    public func clearLogs() async throws {
-        await MainActor.run {
-            self.logs = []
+    public func clearLogs() {
+        DispatchQueue.main.async { [weak self] in
+            self?.logs = []
         }
     }
     

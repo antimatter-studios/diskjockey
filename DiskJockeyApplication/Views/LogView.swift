@@ -4,9 +4,10 @@ import DiskJockeyLibrary
 struct LogView: View {
     // MARK: - Properties
     
-    @EnvironmentObject private var logRepository: LogRepository
+    @EnvironmentObject private var appLogModel: AppLogModel
     @State private var searchText = ""
-    @State private var selectedLogLevel: LogLevel = .all
+    @State private var selectedCategory: String = "all"
+    @State private var refreshID = UUID()
     
     // MARK: - Body
     
@@ -14,10 +15,9 @@ struct LogView: View {
         VStack(spacing: 0) {
             // Toolbar
             HStack {
-                Picker("Log Level", selection: $selectedLogLevel) {
-                    ForEach(LogLevel.allCases) { level in
-                        Text(level.displayName)
-                            .tag(level)
+                Picker("Category", selection: $selectedCategory) {
+                    ForEach(categories, id: \.self) { cat in
+                        Text(cat.capitalized).tag(cat)
                     }
                 }
                 .frame(width: 150)
@@ -28,30 +28,27 @@ struct LogView: View {
                 
                 Spacer()
                 
-                Button(action: clearLogs) {
+                Button(action: clearLogs ) {
                     Label("Clear", systemImage: "trash")
                 }
-                .disabled(logRepository.logs.isEmpty)
+                .disabled(appLogModel.messages.isEmpty)
                 
-                Button(action: refreshLogs) {
+                Button(action: refreshLogs ) {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
-                .disabled(logRepository.isLoading)
+                .disabled(appLogModel.messages.isEmpty)
                 
-                Button(action: exportLogs) {
+                Button(action: exportLogs ) {
                     Label("Export", systemImage: "square.and.arrow.up")
                 }
-                .disabled(logRepository.logs.isEmpty)
+                .disabled(appLogModel.messages.isEmpty)
             }
             .padding()
             
             Divider()
             
             // Log List
-            if logRepository.isLoading {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if logRepository.logs.isEmpty {
+            if appLogModel.messages.isEmpty {
                 ContentUnavailableView(
                     "No Logs",
                     systemImage: "doc.text.magnifyingglass",
@@ -59,11 +56,18 @@ struct LogView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(filteredLogs) { log in
-                    LogRow(log: log)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
-                        .listRowSeparator(.hidden)
+                List(filteredMessages, id: \.id) { msg in
+                    HStack(alignment: .top, spacing: 8) {
+                        Text("[") + Text(msg.category.capitalized).bold() + Text("] ")
+                        Text(msg.message)
+                            .font(.system(.body, design: .monospaced))
+                        Spacer()
+                        Text(msg.timestamp, style: .time)
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                    }
                 }
+                .id(refreshID)
                 .listStyle(.plain)
             }
         }
@@ -73,60 +77,38 @@ struct LogView: View {
         }
     }
     
-    // MARK: - Computed Properties
-    
-    private var filteredLogs: [LogEntry] {
-        var logs = logRepository.logs
-        
-        // Filter by log level
-        if selectedLogLevel != .all {
-            logs = logs.filter { $0.level.rawValue == selectedLogLevel.rawValue }
-        }
-        
-        // Filter by search text
-        if !searchText.isEmpty {
-            let searchLowercased = searchText.lowercased()
-            logs = logs.filter {
-                $0.message.lowercased().contains(searchLowercased) ||
-                $0.source.lowercased().contains(searchLowercased)
-            }
-        }
-        
-        return logs
-    }
-    
-    // MARK: - Private Methods
-    
-    private func refreshLogs() {
-        Task {
-            await logRepository.fetchLogs()
-        }
-    }
+    // MARK: - Actions
     
     private func clearLogs() {
-        Task {
-            try? await logRepository.clearLogs()
-        }
+        appLogModel.clearLogs()
+    }
+    
+    private func refreshLogs() {
+        appLogModel.refreshLogs()
     }
     
     private func exportLogs() {
-        let savePanel = NSSavePanel()
-        savePanel.allowedContentTypes = [.commaSeparatedText]
-        savePanel.nameFieldStringValue = "DiskJockey-Logs-\(Date().formatted(date: .numeric, time: .shortened)).csv"
-        
-        if savePanel.runModal() == .OK, let url = savePanel.url {
-            let csvString = logRepository.logs
-                .map { "\($0.timestamp),\"\($0.level.rawValue)\",\"\($0.source)\",\"\($0.message.replacingOccurrences(of: "\"", with: "\"\""))\"" }
-                .joined(separator: "\n")
-            
-            let header = "Timestamp,Level,Source,Message\n"
-            let csvData = (header + csvString).data(using: .utf8)
-            
-            do {
-                try csvData?.write(to: url)
-            } catch {
-                print("Error exporting logs: \(error)")
-            }
+        appLogModel.exportLogs()
+    }
+    
+    // MARK: - Computed Properties
+    
+    private var categories: [String] {
+        let cats = Set(appLogModel.messages.map { $0.category })
+        return ["all"] + cats.sorted()
+    }
+    
+    private var filteredMessages: [LogEntry] {
+        let logs: [LogEntry]
+        if selectedCategory == "all" {
+            logs = appLogModel.messages
+        } else {
+            logs = appLogModel.messages.filter { $0.category == selectedCategory }
+        }
+        if searchText.isEmpty {
+            return logs
+        } else {
+            return logs.filter { $0.message.localizedCaseInsensitiveContains(searchText) }
         }
     }
 }
@@ -144,16 +126,16 @@ struct LogRow: View {
                 .foregroundColor(.secondary)
                 .frame(width: 80, alignment: .leading)
             
-            // Log level
-            Text(log.level.rawValue.uppercased())
+            // Category
+            Text(log.category.capitalized)
                 .font(.caption2)
                 .fontWeight(.bold)
-                .foregroundColor(.white)
+                .foregroundColor(.accentColor)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(logLevelColor)
+                .background(Color.gray.opacity(0.2))
                 .cornerRadius(4)
-                .frame(width: 60)
+                .frame(width: 80)
             
             // Source
             Text(log.source)
@@ -172,16 +154,7 @@ struct LogRow: View {
         .padding(.vertical, 4)
     }
     
-    private var logLevelColor: Color {
-        switch log.level {
-        case .debug: return .gray
-        case .info: return .blue
-        case .warning: return .orange
-        case .error: return .red
-        case .fatal: return .purple
-        default: return .secondary
-        }
-    }
+
 }
 
 // MARK: - SearchBar

@@ -4,6 +4,9 @@ import DiskJockeyLibrary
 
 @MainActor
 public final class AppContainer: ObservableObject {
+    // MARK: - Logging
+    public let appLogModel: AppLogModel
+    public var appLogger: AppLogger { appLogModel as! AppLogger }
     // MARK: - Public Properties
     
     /// The plugin repository for managing plugins
@@ -33,23 +36,63 @@ public final class AppContainer: ObservableObject {
     // MARK: - Initialization
     
     public init() {
-        // Initialize backend process
-        self.backendProcess = BackendProcess()
-        
         // Initialize API
         self.backendAPI = BackendAPI()
-        
+        self.connectionState = .disconnected
+        self.processState = .stopped
+                
         // Initialize repositories with the API
         self.pluginRepository = PluginRepository(api: self.backendAPI)
         self.mountRepository = MountRepository(api: self.backendAPI)
         self.logRepository = LogRepository(api: self.backendAPI)
         
+        // Initialize logger first (if needed)
+        self.appLogModel = AppLogModel(logRepository: self.logRepository)
+
+        // Initialize backend process
+        self.backendProcess = BackendProcess(logger: self.logRepository)
+
+        // Set reconnect handler for backendAPI
+        self.backendAPI.setReconnectHandler { [weak self] in
+            await self?.restartBackend()
+        }
+                
         // Set up observations
         setupProcessObservation()
         setupAPIObservation()
     }
     
     // MARK: - Public Methods
+
+    /// Ensures the backend is connected, restarting if needed, then performs the given async action.
+    public func ensureBackendConnectedAndPerform(_ action: @escaping () async throws -> Void) {
+        Task {
+            if case .connected = self.connectionState {
+                try? await action()
+            } else {
+                print("Backend not connected, attempting to restart...")
+                await self.restartBackend()
+                let connected = await waitForConnection(timeout: 10)
+                if connected {
+                    try? await action()
+                } else {
+                    self.error = NSError(domain: "AppContainer", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to reconnect to backend"])
+                }
+            }
+        }
+    }
+
+    /// Waits for the backend API to connect, up to the given timeout (in seconds).
+    private func waitForConnection(timeout: TimeInterval) async -> Bool {
+        let start = Date()
+        while Date().timeIntervalSince(start) < timeout {
+            if case .connected = self.connectionState {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
+        }
+        return false
+    }
     
     /// Starts the backend process
     public func startBackend() {
@@ -81,7 +124,7 @@ public final class AppContainer: ObservableObject {
     // MARK: - Private Methods
     
     private func setupProcessObservation() {
-        backendProcess.statePublisher
+        backendProcess.processStatePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
                 guard let self = self else { return }
@@ -107,18 +150,22 @@ public final class AppContainer: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
                 self?.connectionState = state
+                if case .connected = state {
+                    Task { [weak self] in
+                        await self?.refreshRepositories()
+                    }
+                }
             }
             .store(in: &cancellables)
     }
     
     private func handleBackendStarted(port: Int) {
         error = nil
-        
         // Connect the API to the backend
         Task {
             do {
+                print("Connecting to backend at localhost:\(port)")
                 try await backendAPI.connect(host: "localhost", port: port)
-                await refreshRepositories()
             } catch {
                 self.error = error
             }
@@ -126,7 +173,7 @@ public final class AppContainer: ObservableObject {
     }
     
     private func handleBackendStopped() {
-        // The API will automatically disconnect when the process terminates
+        backendAPI.disconnect()
         error = nil
     }
     

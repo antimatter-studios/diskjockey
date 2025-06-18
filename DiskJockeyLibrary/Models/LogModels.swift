@@ -1,53 +1,5 @@
 import Foundation
 
-/// Represents the severity level of a log entry
-public enum LogLevel: String, Codable, CaseIterable, Equatable, Hashable, Identifiable {
-    public var id: String { self.rawValue }
-    case all = "all"
-    case debug = "debug"
-    case info = "info"
-    case warning = "warning"
-    case error = "error"
-    case critical = "critical"
-    case fatal = "fatal"
-    
-    public var displayName: String {
-        switch self {
-        case .all: return "All"
-        case .debug: return "Debug"
-        case .info: return "Info"
-        case .warning: return "Warning"
-        case .error: return "Error"
-        case .critical: return "Critical"
-        case .fatal: return "Fatal"
-        }
-    }
-    
-    public var iconName: String {
-        switch self {
-        case .all: return "ladybug"
-        case .debug: return "ladybug"
-        case .info: return "info.circle"
-        case .warning: return "exclamationmark.triangle"
-        case .error: return "xmark.circle"
-        case .critical: return "exclamationmark.octagon"
-        case .fatal: return "exclamationmark.octagon"
-        }
-    }
-    
-    public var colorName: String {
-        switch self {
-        case .all: return "gray"
-        case .debug: return "gray"
-        case .info: return "blue"
-        case .warning: return "yellow"
-        case .error: return "red"
-        case .critical: return "purple"
-        case .fatal: return "purple"
-        }
-    }
-}
-
 /// Represents a single log entry in the system
 public struct LogEntry: Identifiable, Equatable, Hashable, Codable {
     /// Unique identifier for the log entry
@@ -56,8 +8,8 @@ public struct LogEntry: Identifiable, Equatable, Hashable, Codable {
     /// The log message
     public let message: String
     
-    /// The log level
-    public let level: LogLevel
+    /// The log category (e.g., "backend", "app", "sync")
+    public let category: String
     
     /// The timestamp when the log was created
     public let timestamp: Date
@@ -72,14 +24,14 @@ public struct LogEntry: Identifiable, Equatable, Hashable, Codable {
     public init(
         id: UUID = UUID(),
         message: String,
-        level: LogLevel = .info,
+        category: String,
         timestamp: Date = Date(),
         source: String = "App",
         metadata: [String: String]? = nil
     ) {
         self.id = id
         self.message = message
-        self.level = level
+        self.category = category
         self.timestamp = timestamp
         self.source = source
         self.metadata = metadata
