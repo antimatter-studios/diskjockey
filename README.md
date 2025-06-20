@@ -7,6 +7,10 @@ DiskJockey is a modular, virtual filesystem solution for macOS designed to unify
 
 ## Updates:
 
+__20/05/2025:__ Refactorings, Backend is now a server, started using localization, added locking around the tcp socket, disabled reconnection logic, added listing of mounts and disk types to the interface
+
+![mounts](media/mount-view.png)
+
 __18/05/2025:__ I was able to sort out how data can flow between the different parts of the app. I was able to get the app to output log messages to the app log model and display them in the app. I was also able to get the app to output log messages to the system log view
 
 ![systemlog](media/system-log.png)
