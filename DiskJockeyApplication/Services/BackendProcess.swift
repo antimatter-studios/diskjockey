@@ -116,6 +116,7 @@ public final class BackendProcess: ObservableObject {
     /// Starts the backend process if it's not already running
     /// - Throws: `BackendProcessError` if the process cannot be started
     public func start() throws {
+        log("[BackendProcess] start() called")
         // Ensure we're not already running
         guard !state.isRunning else {
             log("Backend already running, aborting start.")
@@ -136,7 +137,7 @@ public final class BackendProcess: ObservableObject {
         
         // Clean up any existing process
         log("Cleaning up any existing backend process.")
-        cleanup()
+        // cleanup()
         
         log("Setting backend process state to .starting")
         // Update state to starting
@@ -202,47 +203,48 @@ public final class BackendProcess: ObservableObject {
     @discardableResult
     public func stop() -> Bool {
         log("[BackendProcess] stop() called")
-        guard let process = process else {
-            log("[BackendProcess] stop() failed: no process running")
-            return false
-        }
+        // guard let process = process else {
+        //     log("[BackendProcess] stop() failed: no process running")
+        //     return false
+        // }
         
-        // Clean up resources
-        cleanup()
+        // // Terminate the process
+        // process.terminate()
         
-        // Terminate the process
-        process.terminate()
+        // // Wait for process to terminate (with timeout)
+        // let timeout: TimeInterval = 30.0 // 5 seconds timeout
+        // let startTime = Date()
         
-        // Wait for process to terminate (with timeout)
-        let timeout: TimeInterval = 30.0 // 5 seconds timeout
-        let startTime = Date()
+        // while process.isRunning {
+        //     if Date().timeIntervalSince(startTime) > timeout {
+        //         self.log("Warning: Timeout waiting for process to terminate")
+        //         process.terminate()
+        //         // Give it a moment to terminate gracefully
+        //         Thread.sleep(forTimeInterval: 0.5)
+        //         if process.isRunning {
+        //             process.interrupt()
+        //         }
+        //         break
+        //     }
+        //     Thread.sleep(forTimeInterval: 0.1)
+        // }
         
-        while process.isRunning {
-            if Date().timeIntervalSince(startTime) > timeout {
-                self.log("Warning: Timeout waiting for process to terminate")
-                process.terminate()
-                // Give it a moment to terminate gracefully
-                Thread.sleep(forTimeInterval: 0.5)
-                if process.isRunning {
-                    process.interrupt()
-                }
-                break
-            }
-            Thread.sleep(forTimeInterval: 0.1)
-        }
+        // // Now safe to clean up resources
+        // cleanup()
         
-        // Update state if we were running
-        if case .running = state {
-            state = .stopped
-        }
+        // // Update state if we were running
+        // if case .running = state {
+        //     state = .stopped
+        // }
         
-        self.process = nil
+        // self.process = nil
         return true
     }
     
     /// Restarts the backend process
     /// - Throws: `BackendProcessError` if the process cannot be restarted
     public func restart() throws {
+        log("[BackendProcess] restart() called")
         stop()
         try start()
     }
@@ -336,17 +338,18 @@ public final class BackendProcess: ObservableObject {
     }
     
     private func cleanup() {
-        isReading = false
-        cancelTimeout()
+        log("[BackendProcess] cleanup() called")
+        // isReading = false
+        // cancelTimeout()
         
-        // Close file handles
-        try? fileHandle?.close()
-        fileHandle = nil
+        // // Close file handles
+        // try? fileHandle?.close()
+        // fileHandle = nil
         
-        // Clear buffer
-        readBuffer.removeAll()
+        // // Clear buffer
+        // readBuffer.removeAll()
         
-        // Remove any observers
-        observers.removeAll()
+        // // Remove any observers
+        // observers.removeAll()
     }
 }

@@ -1,5 +1,5 @@
 DISKJOCKEY_BACKEND := diskjockey-backend
-DISKJOCKEY_BACKEND_BINARY := ${DISKJOCKEY_BACKEND}
+DISKJOCKEY_BACKEND_BINARY := diskjockey-backend
 DISKJOCKEY_CLI := diskjockey-cli
 DISKJOCKEY_CLI_BINARY := djctl
 SWIFT_PB_OUTPUT := DiskJockeyLibrary
@@ -7,7 +7,7 @@ PROTO_SRC=${DISKJOCKEY_BACKEND}/proto/protocol_definitions.proto
 
 .PHONY: all proto djb djctl clean
 
-all: proto djb djctl swiftpm-build
+all: proto djb djctl
 
 proto:
 	@echo "\nGenerating protocol definitions...\n"
@@ -27,14 +27,6 @@ djctl:
 	@echo "\nBuilding ${DISKJOCKEY_CLI_BINARY}...\n"
 	cd ${DISKJOCKEY_CLI} && go mod tidy
 	GO111MODULE=on go build -o ./${DISKJOCKEY_CLI}/${DISKJOCKEY_CLI_BINARY} ./${DISKJOCKEY_CLI}
-
-swiftpm-build:
-	@echo "\nBuilding SwiftPM...\n"	
-	swift build
-
-swiftpm-test:
-	@echo "\nTesting SwiftPM...\n"
-	swift test
 
 clean:
 	@echo "\nCleaning up...\n"

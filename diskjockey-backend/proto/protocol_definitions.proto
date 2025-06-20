@@ -19,18 +19,31 @@ enum MessageType {
   UNKNOWN_TYPE = 0;
   CONNECT = 1;
   LIST_DIR_REQUEST = 2;
-  MOUNT_REQUEST = 3;
-  UNMOUNT_REQUEST = 4;
-  CREATE_MOUNT_REQUEST = 5;
-  DELETE_MOUNT_REQUEST = 6;
-  LIST_MOUNTS_REQUEST = 7;
-  LIST_PLUGINS_REQUEST = 8;
-  MOUNT_STATUS_UPDATE = 9;
-  READ_FILE_REQUEST = 10;
-  WRITE_FILE_REQUEST = 11;
-  STAT_REQUEST = 12;
-  DELETE_FILE_REQUEST = 13;
+  LIST_DIR_RESPONSE = 3;
+  MOUNT_REQUEST = 4;
+  MOUNT_RESPONSE = 5;
+  UNMOUNT_REQUEST = 6;
+  UNMOUNT_RESPONSE = 7;
+  CREATE_MOUNT_REQUEST = 8;
+  CREATE_MOUNT_RESPONSE = 9;
+  DELETE_MOUNT_REQUEST = 10;
+  DELETE_MOUNT_RESPONSE = 11;
+  LIST_MOUNTS_REQUEST = 12;
+  LIST_MOUNTS_RESPONSE = 13;
+  LIST_DISK_TYPES_REQUEST = 14;
+  LIST_DISK_TYPES_RESPONSE = 15;
+  MOUNT_STATUS_UPDATE_REQUEST = 16;
+  MOUNT_STATUS_UPDATE_RESPONSE = 17;
+  READ_FILE_REQUEST = 18;
+  READ_FILE_RESPONSE = 19;
+  WRITE_FILE_REQUEST = 20;
+  WRITE_FILE_RESPONSE = 21;
+  STAT_REQUEST = 22;
+  STAT_RESPONSE = 23;
+  DELETE_FILE_REQUEST = 24;
+  DELETE_FILE_RESPONSE = 25;
   SHUTDOWN_REQUEST = 99;
+  SHUTDOWN_RESPONSE = 100;
 }
 
 
@@ -114,14 +127,14 @@ message StatResponse {
   string error = 2;
 }
 
-// List available plugin types
-message ListPluginsRequest {}
-message ListPluginsResponse {
-  repeated PluginTypeInfo plugins = 1;
+// List available disk types
+message ListDiskTypesRequest {}
+message ListDiskTypesResponse {
+  repeated DiskTypeInfo disk_types = 1;
   string error = 2;
 }
 
-message PluginTypeInfo {
+message DiskTypeInfo {
   string name = 1;
   string description = 2;
   repeated ConfigField config_fields = 3;
@@ -143,7 +156,7 @@ message ListMountsResponse {
 
 message MountInfo {
   string name = 1;
-  string plugin_type = 2;
+  string disk_type = 2;
   map<string, string> config = 3;
   uint32 mount_id = 4;
 }
@@ -167,7 +180,7 @@ message MountResponse {
 // --- Create/Delete are for DB row management ---
 message CreateMountRequest {
   string name = 1;
-  string plugin_type = 2;
+  string disk_type = 2;
   map<string, string> config = 3;
 }
 message CreateMountResponse {
@@ -183,7 +196,7 @@ message DeleteMountResponse {
 }
 // (Old fields for reference)
 // string name = 1;
-// string plugin_type = 2;
+// string disk_type = 2;
 // map<string, string> config = 3;
 
 message UnmountRequest {

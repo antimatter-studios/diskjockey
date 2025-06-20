@@ -30,58 +30,97 @@ const (
 type MessageType int32
 
 const (
-	MessageType_UNKNOWN_TYPE         MessageType = 0
-	MessageType_CONNECT              MessageType = 1
-	MessageType_LIST_DIR_REQUEST     MessageType = 2
-	MessageType_MOUNT_REQUEST        MessageType = 3
-	MessageType_UNMOUNT_REQUEST      MessageType = 4
-	MessageType_CREATE_MOUNT_REQUEST MessageType = 5
-	MessageType_DELETE_MOUNT_REQUEST MessageType = 6
-	MessageType_LIST_MOUNTS_REQUEST  MessageType = 7
-	MessageType_LIST_PLUGINS_REQUEST MessageType = 8
-	MessageType_MOUNT_STATUS_UPDATE  MessageType = 9
-	MessageType_READ_FILE_REQUEST    MessageType = 10
-	MessageType_WRITE_FILE_REQUEST   MessageType = 11
-	MessageType_STAT_REQUEST         MessageType = 12
-	MessageType_DELETE_FILE_REQUEST  MessageType = 13
-	MessageType_SHUTDOWN_REQUEST     MessageType = 99
+	MessageType_UNKNOWN_TYPE                 MessageType = 0
+	MessageType_CONNECT                      MessageType = 1
+	MessageType_LIST_DIR_REQUEST             MessageType = 2
+	MessageType_LIST_DIR_RESPONSE            MessageType = 3
+	MessageType_MOUNT_REQUEST                MessageType = 4
+	MessageType_MOUNT_RESPONSE               MessageType = 5
+	MessageType_UNMOUNT_REQUEST              MessageType = 6
+	MessageType_UNMOUNT_RESPONSE             MessageType = 7
+	MessageType_CREATE_MOUNT_REQUEST         MessageType = 8
+	MessageType_CREATE_MOUNT_RESPONSE        MessageType = 9
+	MessageType_DELETE_MOUNT_REQUEST         MessageType = 10
+	MessageType_DELETE_MOUNT_RESPONSE        MessageType = 11
+	MessageType_LIST_MOUNTS_REQUEST          MessageType = 12
+	MessageType_LIST_MOUNTS_RESPONSE         MessageType = 13
+	MessageType_LIST_DISK_TYPES_REQUEST      MessageType = 14
+	MessageType_LIST_DISK_TYPES_RESPONSE     MessageType = 15
+	MessageType_MOUNT_STATUS_UPDATE_REQUEST  MessageType = 16
+	MessageType_MOUNT_STATUS_UPDATE_RESPONSE MessageType = 17
+	MessageType_READ_FILE_REQUEST            MessageType = 18
+	MessageType_READ_FILE_RESPONSE           MessageType = 19
+	MessageType_WRITE_FILE_REQUEST           MessageType = 20
+	MessageType_WRITE_FILE_RESPONSE          MessageType = 21
+	MessageType_STAT_REQUEST                 MessageType = 22
+	MessageType_STAT_RESPONSE                MessageType = 23
+	MessageType_DELETE_FILE_REQUEST          MessageType = 24
+	MessageType_DELETE_FILE_RESPONSE         MessageType = 25
+	MessageType_SHUTDOWN_REQUEST             MessageType = 99
+	MessageType_SHUTDOWN_RESPONSE            MessageType = 100
 )
 
 // Enum value maps for MessageType.
 var (
 	MessageType_name = map[int32]string{
-		0:  "UNKNOWN_TYPE",
-		1:  "CONNECT",
-		2:  "LIST_DIR_REQUEST",
-		3:  "MOUNT_REQUEST",
-		4:  "UNMOUNT_REQUEST",
-		5:  "CREATE_MOUNT_REQUEST",
-		6:  "DELETE_MOUNT_REQUEST",
-		7:  "LIST_MOUNTS_REQUEST",
-		8:  "LIST_PLUGINS_REQUEST",
-		9:  "MOUNT_STATUS_UPDATE",
-		10: "READ_FILE_REQUEST",
-		11: "WRITE_FILE_REQUEST",
-		12: "STAT_REQUEST",
-		13: "DELETE_FILE_REQUEST",
-		99: "SHUTDOWN_REQUEST",
+		0:   "UNKNOWN_TYPE",
+		1:   "CONNECT",
+		2:   "LIST_DIR_REQUEST",
+		3:   "LIST_DIR_RESPONSE",
+		4:   "MOUNT_REQUEST",
+		5:   "MOUNT_RESPONSE",
+		6:   "UNMOUNT_REQUEST",
+		7:   "UNMOUNT_RESPONSE",
+		8:   "CREATE_MOUNT_REQUEST",
+		9:   "CREATE_MOUNT_RESPONSE",
+		10:  "DELETE_MOUNT_REQUEST",
+		11:  "DELETE_MOUNT_RESPONSE",
+		12:  "LIST_MOUNTS_REQUEST",
+		13:  "LIST_MOUNTS_RESPONSE",
+		14:  "LIST_DISK_TYPES_REQUEST",
+		15:  "LIST_DISK_TYPES_RESPONSE",
+		16:  "MOUNT_STATUS_UPDATE_REQUEST",
+		17:  "MOUNT_STATUS_UPDATE_RESPONSE",
+		18:  "READ_FILE_REQUEST",
+		19:  "READ_FILE_RESPONSE",
+		20:  "WRITE_FILE_REQUEST",
+		21:  "WRITE_FILE_RESPONSE",
+		22:  "STAT_REQUEST",
+		23:  "STAT_RESPONSE",
+		24:  "DELETE_FILE_REQUEST",
+		25:  "DELETE_FILE_RESPONSE",
+		99:  "SHUTDOWN_REQUEST",
+		100: "SHUTDOWN_RESPONSE",
 	}
 	MessageType_value = map[string]int32{
-		"UNKNOWN_TYPE":         0,
-		"CONNECT":              1,
-		"LIST_DIR_REQUEST":     2,
-		"MOUNT_REQUEST":        3,
-		"UNMOUNT_REQUEST":      4,
-		"CREATE_MOUNT_REQUEST": 5,
-		"DELETE_MOUNT_REQUEST": 6,
-		"LIST_MOUNTS_REQUEST":  7,
-		"LIST_PLUGINS_REQUEST": 8,
-		"MOUNT_STATUS_UPDATE":  9,
-		"READ_FILE_REQUEST":    10,
-		"WRITE_FILE_REQUEST":   11,
-		"STAT_REQUEST":         12,
-		"DELETE_FILE_REQUEST":  13,
-		"SHUTDOWN_REQUEST":     99,
+		"UNKNOWN_TYPE":                 0,
+		"CONNECT":                      1,
+		"LIST_DIR_REQUEST":             2,
+		"LIST_DIR_RESPONSE":            3,
+		"MOUNT_REQUEST":                4,
+		"MOUNT_RESPONSE":               5,
+		"UNMOUNT_REQUEST":              6,
+		"UNMOUNT_RESPONSE":             7,
+		"CREATE_MOUNT_REQUEST":         8,
+		"CREATE_MOUNT_RESPONSE":        9,
+		"DELETE_MOUNT_REQUEST":         10,
+		"DELETE_MOUNT_RESPONSE":        11,
+		"LIST_MOUNTS_REQUEST":          12,
+		"LIST_MOUNTS_RESPONSE":         13,
+		"LIST_DISK_TYPES_REQUEST":      14,
+		"LIST_DISK_TYPES_RESPONSE":     15,
+		"MOUNT_STATUS_UPDATE_REQUEST":  16,
+		"MOUNT_STATUS_UPDATE_RESPONSE": 17,
+		"READ_FILE_REQUEST":            18,
+		"READ_FILE_RESPONSE":           19,
+		"WRITE_FILE_REQUEST":           20,
+		"WRITE_FILE_RESPONSE":          21,
+		"STAT_REQUEST":                 22,
+		"STAT_RESPONSE":                23,
+		"DELETE_FILE_REQUEST":          24,
+		"DELETE_FILE_RESPONSE":         25,
+		"SHUTDOWN_REQUEST":             99,
+		"SHUTDOWN_RESPONSE":            100,
 	}
 )
 
@@ -967,27 +1006,27 @@ func (x *StatResponse) GetError() string {
 	return ""
 }
 
-// List available plugin types
-type ListPluginsRequest struct {
+// List available disk types
+type ListDiskTypesRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ListPluginsRequest) Reset() {
-	*x = ListPluginsRequest{}
+func (x *ListDiskTypesRequest) Reset() {
+	*x = ListDiskTypesRequest{}
 	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ListPluginsRequest) String() string {
+func (x *ListDiskTypesRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ListPluginsRequest) ProtoMessage() {}
+func (*ListDiskTypesRequest) ProtoMessage() {}
 
-func (x *ListPluginsRequest) ProtoReflect() protoreflect.Message {
+func (x *ListDiskTypesRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -999,33 +1038,33 @@ func (x *ListPluginsRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ListPluginsRequest.ProtoReflect.Descriptor instead.
-func (*ListPluginsRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use ListDiskTypesRequest.ProtoReflect.Descriptor instead.
+func (*ListDiskTypesRequest) Descriptor() ([]byte, []int) {
 	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{15}
 }
 
-type ListPluginsResponse struct {
+type ListDiskTypesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Plugins       []*PluginTypeInfo      `protobuf:"bytes,1,rep,name=plugins,proto3" json:"plugins,omitempty"`
+	DiskTypes     []*DiskTypeInfo        `protobuf:"bytes,1,rep,name=disk_types,json=diskTypes,proto3" json:"disk_types,omitempty"`
 	Error         string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ListPluginsResponse) Reset() {
-	*x = ListPluginsResponse{}
+func (x *ListDiskTypesResponse) Reset() {
+	*x = ListDiskTypesResponse{}
 	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ListPluginsResponse) String() string {
+func (x *ListDiskTypesResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ListPluginsResponse) ProtoMessage() {}
+func (*ListDiskTypesResponse) ProtoMessage() {}
 
-func (x *ListPluginsResponse) ProtoReflect() protoreflect.Message {
+func (x *ListDiskTypesResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1037,26 +1076,26 @@ func (x *ListPluginsResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ListPluginsResponse.ProtoReflect.Descriptor instead.
-func (*ListPluginsResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use ListDiskTypesResponse.ProtoReflect.Descriptor instead.
+func (*ListDiskTypesResponse) Descriptor() ([]byte, []int) {
 	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{16}
 }
 
-func (x *ListPluginsResponse) GetPlugins() []*PluginTypeInfo {
+func (x *ListDiskTypesResponse) GetDiskTypes() []*DiskTypeInfo {
 	if x != nil {
-		return x.Plugins
+		return x.DiskTypes
 	}
 	return nil
 }
 
-func (x *ListPluginsResponse) GetError() string {
+func (x *ListDiskTypesResponse) GetError() string {
 	if x != nil {
 		return x.Error
 	}
 	return ""
 }
 
-type PluginTypeInfo struct {
+type DiskTypeInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	Description   string                 `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
@@ -1065,20 +1104,20 @@ type PluginTypeInfo struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *PluginTypeInfo) Reset() {
-	*x = PluginTypeInfo{}
+func (x *DiskTypeInfo) Reset() {
+	*x = DiskTypeInfo{}
 	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *PluginTypeInfo) String() string {
+func (x *DiskTypeInfo) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*PluginTypeInfo) ProtoMessage() {}
+func (*DiskTypeInfo) ProtoMessage() {}
 
-func (x *PluginTypeInfo) ProtoReflect() protoreflect.Message {
+func (x *DiskTypeInfo) ProtoReflect() protoreflect.Message {
 	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1090,26 +1129,26 @@ func (x *PluginTypeInfo) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use PluginTypeInfo.ProtoReflect.Descriptor instead.
-func (*PluginTypeInfo) Descriptor() ([]byte, []int) {
+// Deprecated: Use DiskTypeInfo.ProtoReflect.Descriptor instead.
+func (*DiskTypeInfo) Descriptor() ([]byte, []int) {
 	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{17}
 }
 
-func (x *PluginTypeInfo) GetName() string {
+func (x *DiskTypeInfo) GetName() string {
 	if x != nil {
 		return x.Name
 	}
 	return ""
 }
 
-func (x *PluginTypeInfo) GetDescription() string {
+func (x *DiskTypeInfo) GetDescription() string {
 	if x != nil {
 		return x.Description
 	}
 	return ""
 }
 
-func (x *PluginTypeInfo) GetConfigFields() []*ConfigField {
+func (x *DiskTypeInfo) GetConfigFields() []*ConfigField {
 	if x != nil {
 		return x.ConfigFields
 	}
@@ -1276,7 +1315,7 @@ func (x *ListMountsResponse) GetError() string {
 type MountInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	PluginType    string                 `protobuf:"bytes,2,opt,name=plugin_type,json=pluginType,proto3" json:"plugin_type,omitempty"`
+	DiskType      string                 `protobuf:"bytes,2,opt,name=disk_type,json=diskType,proto3" json:"disk_type,omitempty"`
 	Config        map[string]string      `protobuf:"bytes,3,rep,name=config,proto3" json:"config,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	MountId       uint32                 `protobuf:"varint,4,opt,name=mount_id,json=mountId,proto3" json:"mount_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1320,9 +1359,9 @@ func (x *MountInfo) GetName() string {
 	return ""
 }
 
-func (x *MountInfo) GetPluginType() string {
+func (x *MountInfo) GetDiskType() string {
 	if x != nil {
-		return x.PluginType
+		return x.DiskType
 	}
 	return ""
 }
@@ -1496,7 +1535,7 @@ func (x *MountResponse) GetError() string {
 type CreateMountRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	PluginType    string                 `protobuf:"bytes,2,opt,name=plugin_type,json=pluginType,proto3" json:"plugin_type,omitempty"`
+	DiskType      string                 `protobuf:"bytes,2,opt,name=disk_type,json=diskType,proto3" json:"disk_type,omitempty"`
 	Config        map[string]string      `protobuf:"bytes,3,rep,name=config,proto3" json:"config,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1539,9 +1578,9 @@ func (x *CreateMountRequest) GetName() string {
 	return ""
 }
 
-func (x *CreateMountRequest) GetPluginType() string {
+func (x *CreateMountRequest) GetDiskType() string {
 	if x != nil {
-		return x.PluginType
+		return x.DiskType
 	}
 	return ""
 }
@@ -1979,12 +2018,13 @@ const file_diskjockey_backend_proto_protocol_definitions_proto_rawDesc = "" +
 	"\x04path\x18\x02 \x01(\tR\x04path\"G\n" +
 	"\fStatResponse\x12!\n" +
 	"\x04info\x18\x01 \x01(\v2\r.api.FileInfoR\x04info\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"\x14\n" +
-	"\x12ListPluginsRequest\"Z\n" +
-	"\x13ListPluginsResponse\x12-\n" +
-	"\aplugins\x18\x01 \x03(\v2\x13.api.PluginTypeInfoR\aplugins\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"}\n" +
-	"\x0ePluginTypeInfo\x12\x12\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\x16\n" +
+	"\x14ListDiskTypesRequest\"_\n" +
+	"\x15ListDiskTypesResponse\x120\n" +
+	"\n" +
+	"disk_types\x18\x01 \x03(\v2\x11.api.DiskTypeInfoR\tdiskTypes\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"{\n" +
+	"\fDiskTypeInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x125\n" +
 	"\rconfig_fields\x18\x03 \x03(\v2\x10.api.ConfigFieldR\fconfigFields\"s\n" +
@@ -1996,11 +2036,10 @@ const file_diskjockey_backend_proto_protocol_definitions_proto_rawDesc = "" +
 	"\x11ListMountsRequest\"R\n" +
 	"\x12ListMountsResponse\x12&\n" +
 	"\x06mounts\x18\x01 \x03(\v2\x0e.api.MountInfoR\x06mounts\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"\xca\x01\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\xc6\x01\n" +
 	"\tMountInfo\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1f\n" +
-	"\vplugin_type\x18\x02 \x01(\tR\n" +
-	"pluginType\x122\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
+	"\tdisk_type\x18\x02 \x01(\tR\bdiskType\x122\n" +
 	"\x06config\x18\x03 \x03(\v2\x1a.api.MountInfo.ConfigEntryR\x06config\x12\x19\n" +
 	"\bmount_id\x18\x04 \x01(\rR\amountId\x1a9\n" +
 	"\vConfigEntry\x12\x10\n" +
@@ -2013,11 +2052,10 @@ const file_diskjockey_backend_proto_protocol_definitions_proto_rawDesc = "" +
 	"\fMountRequest\x12\x19\n" +
 	"\bmount_id\x18\x01 \x01(\rR\amountId\"%\n" +
 	"\rMountResponse\x12\x14\n" +
-	"\x05error\x18\x01 \x01(\tR\x05error\"\xc1\x01\n" +
+	"\x05error\x18\x01 \x01(\tR\x05error\"\xbd\x01\n" +
 	"\x12CreateMountRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1f\n" +
-	"\vplugin_type\x18\x02 \x01(\tR\n" +
-	"pluginType\x12;\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
+	"\tdisk_type\x18\x02 \x01(\tR\bdiskType\x12;\n" +
 	"\x06config\x18\x03 \x03(\v2#.api.CreateMountRequest.ConfigEntryR\x06config\x1a9\n" +
 	"\vConfigEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
@@ -2040,24 +2078,37 @@ const file_diskjockey_backend_proto_protocol_definitions_proto_rawDesc = "" +
 	"\x11MountStatusUpdate\x12\x19\n" +
 	"\bmount_id\x18\x01 \x01(\rR\amountId\x12(\n" +
 	"\x06status\x18\x02 \x01(\x0e2\x10.api.MountStatusR\x06status\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error*\xda\x02\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error*\xab\x05\n" +
 	"\vMessageType\x12\x10\n" +
 	"\fUNKNOWN_TYPE\x10\x00\x12\v\n" +
 	"\aCONNECT\x10\x01\x12\x14\n" +
-	"\x10LIST_DIR_REQUEST\x10\x02\x12\x11\n" +
-	"\rMOUNT_REQUEST\x10\x03\x12\x13\n" +
-	"\x0fUNMOUNT_REQUEST\x10\x04\x12\x18\n" +
-	"\x14CREATE_MOUNT_REQUEST\x10\x05\x12\x18\n" +
-	"\x14DELETE_MOUNT_REQUEST\x10\x06\x12\x17\n" +
-	"\x13LIST_MOUNTS_REQUEST\x10\a\x12\x18\n" +
-	"\x14LIST_PLUGINS_REQUEST\x10\b\x12\x17\n" +
-	"\x13MOUNT_STATUS_UPDATE\x10\t\x12\x15\n" +
-	"\x11READ_FILE_REQUEST\x10\n" +
-	"\x12\x16\n" +
-	"\x12WRITE_FILE_REQUEST\x10\v\x12\x10\n" +
-	"\fSTAT_REQUEST\x10\f\x12\x17\n" +
-	"\x13DELETE_FILE_REQUEST\x10\r\x12\x14\n" +
-	"\x10SHUTDOWN_REQUEST\x10c*A\n" +
+	"\x10LIST_DIR_REQUEST\x10\x02\x12\x15\n" +
+	"\x11LIST_DIR_RESPONSE\x10\x03\x12\x11\n" +
+	"\rMOUNT_REQUEST\x10\x04\x12\x12\n" +
+	"\x0eMOUNT_RESPONSE\x10\x05\x12\x13\n" +
+	"\x0fUNMOUNT_REQUEST\x10\x06\x12\x14\n" +
+	"\x10UNMOUNT_RESPONSE\x10\a\x12\x18\n" +
+	"\x14CREATE_MOUNT_REQUEST\x10\b\x12\x19\n" +
+	"\x15CREATE_MOUNT_RESPONSE\x10\t\x12\x18\n" +
+	"\x14DELETE_MOUNT_REQUEST\x10\n" +
+	"\x12\x19\n" +
+	"\x15DELETE_MOUNT_RESPONSE\x10\v\x12\x17\n" +
+	"\x13LIST_MOUNTS_REQUEST\x10\f\x12\x18\n" +
+	"\x14LIST_MOUNTS_RESPONSE\x10\r\x12\x1b\n" +
+	"\x17LIST_DISK_TYPES_REQUEST\x10\x0e\x12\x1c\n" +
+	"\x18LIST_DISK_TYPES_RESPONSE\x10\x0f\x12\x1f\n" +
+	"\x1bMOUNT_STATUS_UPDATE_REQUEST\x10\x10\x12 \n" +
+	"\x1cMOUNT_STATUS_UPDATE_RESPONSE\x10\x11\x12\x15\n" +
+	"\x11READ_FILE_REQUEST\x10\x12\x12\x16\n" +
+	"\x12READ_FILE_RESPONSE\x10\x13\x12\x16\n" +
+	"\x12WRITE_FILE_REQUEST\x10\x14\x12\x17\n" +
+	"\x13WRITE_FILE_RESPONSE\x10\x15\x12\x10\n" +
+	"\fSTAT_REQUEST\x10\x16\x12\x11\n" +
+	"\rSTAT_RESPONSE\x10\x17\x12\x17\n" +
+	"\x13DELETE_FILE_REQUEST\x10\x18\x12\x18\n" +
+	"\x14DELETE_FILE_RESPONSE\x10\x19\x12\x14\n" +
+	"\x10SHUTDOWN_REQUEST\x10c\x12\x15\n" +
+	"\x11SHUTDOWN_RESPONSE\x10d*A\n" +
 	"\vMountStatus\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aMOUNTED\x10\x01\x12\r\n" +
@@ -2079,53 +2130,53 @@ func file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP() []by
 var file_diskjockey_backend_proto_protocol_definitions_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
 var file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
 var file_diskjockey_backend_proto_protocol_definitions_proto_goTypes = []any{
-	(MessageType)(0),            // 0: api.MessageType
-	(MountStatus)(0),            // 1: api.MountStatus
-	(ConnectRequest_Role)(0),    // 2: api.ConnectRequest.Role
-	(*Message)(nil),             // 3: api.Message
-	(*HandshakeRequest)(nil),    // 4: api.HandshakeRequest
-	(*HandshakeResponse)(nil),   // 5: api.HandshakeResponse
-	(*ListDirRequest)(nil),      // 6: api.ListDirRequest
-	(*ListDirResponse)(nil),     // 7: api.ListDirResponse
-	(*ReadFileRequest)(nil),     // 8: api.ReadFileRequest
-	(*ReadFileResponse)(nil),    // 9: api.ReadFileResponse
-	(*WriteFileRequest)(nil),    // 10: api.WriteFileRequest
-	(*WriteFileResponse)(nil),   // 11: api.WriteFileResponse
-	(*ConnectRequest)(nil),      // 12: api.ConnectRequest
-	(*ConnectResponse)(nil),     // 13: api.ConnectResponse
-	(*DeleteFileRequest)(nil),   // 14: api.DeleteFileRequest
-	(*DeleteFileResponse)(nil),  // 15: api.DeleteFileResponse
-	(*StatRequest)(nil),         // 16: api.StatRequest
-	(*StatResponse)(nil),        // 17: api.StatResponse
-	(*ListPluginsRequest)(nil),  // 18: api.ListPluginsRequest
-	(*ListPluginsResponse)(nil), // 19: api.ListPluginsResponse
-	(*PluginTypeInfo)(nil),      // 20: api.PluginTypeInfo
-	(*ConfigField)(nil),         // 21: api.ConfigField
-	(*ListMountsRequest)(nil),   // 22: api.ListMountsRequest
-	(*ListMountsResponse)(nil),  // 23: api.ListMountsResponse
-	(*MountInfo)(nil),           // 24: api.MountInfo
-	(*FileInfo)(nil),            // 25: api.FileInfo
-	(*MountRequest)(nil),        // 26: api.MountRequest
-	(*MountResponse)(nil),       // 27: api.MountResponse
-	(*CreateMountRequest)(nil),  // 28: api.CreateMountRequest
-	(*CreateMountResponse)(nil), // 29: api.CreateMountResponse
-	(*DeleteMountRequest)(nil),  // 30: api.DeleteMountRequest
-	(*DeleteMountResponse)(nil), // 31: api.DeleteMountResponse
-	(*UnmountRequest)(nil),      // 32: api.UnmountRequest
-	(*UnmountResponse)(nil),     // 33: api.UnmountResponse
-	(*ShutdownRequest)(nil),     // 34: api.ShutdownRequest
-	(*ShutdownResponse)(nil),    // 35: api.ShutdownResponse
-	(*MountStatusUpdate)(nil),   // 36: api.MountStatusUpdate
-	nil,                         // 37: api.MountInfo.ConfigEntry
-	nil,                         // 38: api.CreateMountRequest.ConfigEntry
+	(MessageType)(0),              // 0: api.MessageType
+	(MountStatus)(0),              // 1: api.MountStatus
+	(ConnectRequest_Role)(0),      // 2: api.ConnectRequest.Role
+	(*Message)(nil),               // 3: api.Message
+	(*HandshakeRequest)(nil),      // 4: api.HandshakeRequest
+	(*HandshakeResponse)(nil),     // 5: api.HandshakeResponse
+	(*ListDirRequest)(nil),        // 6: api.ListDirRequest
+	(*ListDirResponse)(nil),       // 7: api.ListDirResponse
+	(*ReadFileRequest)(nil),       // 8: api.ReadFileRequest
+	(*ReadFileResponse)(nil),      // 9: api.ReadFileResponse
+	(*WriteFileRequest)(nil),      // 10: api.WriteFileRequest
+	(*WriteFileResponse)(nil),     // 11: api.WriteFileResponse
+	(*ConnectRequest)(nil),        // 12: api.ConnectRequest
+	(*ConnectResponse)(nil),       // 13: api.ConnectResponse
+	(*DeleteFileRequest)(nil),     // 14: api.DeleteFileRequest
+	(*DeleteFileResponse)(nil),    // 15: api.DeleteFileResponse
+	(*StatRequest)(nil),           // 16: api.StatRequest
+	(*StatResponse)(nil),          // 17: api.StatResponse
+	(*ListDiskTypesRequest)(nil),  // 18: api.ListDiskTypesRequest
+	(*ListDiskTypesResponse)(nil), // 19: api.ListDiskTypesResponse
+	(*DiskTypeInfo)(nil),          // 20: api.DiskTypeInfo
+	(*ConfigField)(nil),           // 21: api.ConfigField
+	(*ListMountsRequest)(nil),     // 22: api.ListMountsRequest
+	(*ListMountsResponse)(nil),    // 23: api.ListMountsResponse
+	(*MountInfo)(nil),             // 24: api.MountInfo
+	(*FileInfo)(nil),              // 25: api.FileInfo
+	(*MountRequest)(nil),          // 26: api.MountRequest
+	(*MountResponse)(nil),         // 27: api.MountResponse
+	(*CreateMountRequest)(nil),    // 28: api.CreateMountRequest
+	(*CreateMountResponse)(nil),   // 29: api.CreateMountResponse
+	(*DeleteMountRequest)(nil),    // 30: api.DeleteMountRequest
+	(*DeleteMountResponse)(nil),   // 31: api.DeleteMountResponse
+	(*UnmountRequest)(nil),        // 32: api.UnmountRequest
+	(*UnmountResponse)(nil),       // 33: api.UnmountResponse
+	(*ShutdownRequest)(nil),       // 34: api.ShutdownRequest
+	(*ShutdownResponse)(nil),      // 35: api.ShutdownResponse
+	(*MountStatusUpdate)(nil),     // 36: api.MountStatusUpdate
+	nil,                           // 37: api.MountInfo.ConfigEntry
+	nil,                           // 38: api.CreateMountRequest.ConfigEntry
 }
 var file_diskjockey_backend_proto_protocol_definitions_proto_depIdxs = []int32{
 	0,  // 0: api.Message.type:type_name -> api.MessageType
 	25, // 1: api.ListDirResponse.files:type_name -> api.FileInfo
 	2,  // 2: api.ConnectRequest.role:type_name -> api.ConnectRequest.Role
 	25, // 3: api.StatResponse.info:type_name -> api.FileInfo
-	20, // 4: api.ListPluginsResponse.plugins:type_name -> api.PluginTypeInfo
-	21, // 5: api.PluginTypeInfo.config_fields:type_name -> api.ConfigField
+	20, // 4: api.ListDiskTypesResponse.disk_types:type_name -> api.DiskTypeInfo
+	21, // 5: api.DiskTypeInfo.config_fields:type_name -> api.ConfigField
 	24, // 6: api.ListMountsResponse.mounts:type_name -> api.MountInfo
 	37, // 7: api.MountInfo.config:type_name -> api.MountInfo.ConfigEntry
 	38, // 8: api.CreateMountRequest.config:type_name -> api.CreateMountRequest.ConfigEntry

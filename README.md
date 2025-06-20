@@ -3,7 +3,7 @@
 
 ![mainwindow](media/mainwindow.png)
 
-DiskJockey is a modular, virtual filesystem solution for macOS designed to unify, mount, and manage remote storage backends (cloud, network, etc.) in a seamless way. It leverages a robust Go backend for performance and plugin extensibility, a Swift/Xcode-based macOS GUI for user interaction, and a lightweight helper process to bridge all IPC and system integration. The project aims to provide a reliable, extensible, and user-friendly way to access and synchronize files from various sources, all presented as native Finder volumes.
+DiskJockey is a modular, virtual filesystem solution for macOS designed to unify, mount, and manage remote storage backends (cloud, network, etc.) in a seamless way. It leverages a robust Go backend for performance and disk types extensibility, a Swift/Xcode-based macOS GUI for user interaction, and a lightweight helper process to bridge all IPC and system integration. The project aims to provide a reliable, extensible, and user-friendly way to access and synchronize files from various sources, all presented as native Finder volumes.
 
 ## Updates:
 
@@ -29,7 +29,7 @@ the project requires you to, because you are going to need to run a File Provide
 ## Motivation  
 - Simplify integration of multiple remote storage backends into Finder.
 - Provide a secure, auditable, and modular architecture.
-- Make it easy to add new backends (via Go plugins) and automate workflows (via CLI).
+- Make it easy to add new backends (via disk types) and automate workflows (via CLI).
 - Decouple UI, backend logic, and system integration for maintainability and testability.
 
 ## Aims  
@@ -42,7 +42,7 @@ the project requires you to, because you are going to need to run a File Provide
 
 ## Project Status
 
-- ✅ Modular Go backend daemon with plugin system
+- ✅ Modular Go backend daemon with disk types system
 - ✅ Go-based CLI tool (`djctl`) for backend control and debugging
 - ✅ Swift/Xcode macOS GUI application
 - ✅ Background helper process for IPC and orchestration
@@ -53,7 +53,7 @@ the project requires you to, because you are going to need to run a File Provide
 - ✅ Multi-process orchestration (main app, helper, backend)
 - ✅ Logging and event forwarding via helper
 - ⬜️ User-friendly GUI for mount management
-- ✅ Plugin system to add different filesystems
+- ✅ Disk types system to add different filesystems
 - ⬜️ Robust error handling and user notifications
 - ⬜️ Comprehensive integration and unit tests
 - ⬜️ End-user documentation and onboarding
@@ -61,15 +61,15 @@ the project requires you to, because you are going to need to run a File Provide
 
 ---
 
-## Plugin Status
+## Disk Type Status
 
-CLI status means you can use the `djctl` tool to control the plugin. <br/>
-File Provider status means the plugin is exposed to Finder. <br/>
+CLI status means you can use the `djctl` tool to control the disk type. <br/>
+File Provider status means the disk type is exposed to Finder. <br/>
 
 Right now, nothing is working through finder, I am building the app up in stages
 and I have a rough file provider implementation done. But it's not working yet.
 
-- ✅ Local Directory (mostly useless test dummy plugin)
+- ✅ Local Directory (mostly useless test dummy disk type)
     - ✅ List Directory (✅ CLI ❌ File Provider)
     - ✅ Read File (✅ CLI ❌ File Provider)
     - ⬜️ Write File 
@@ -116,7 +116,7 @@ and I have a rough file provider implementation done. But it's not working yet.
   - Runs as a separate process managed by the main application
   - Handles file operations, sync, and business logic
   - Exposes a gRPC/HTTP API for communication
-  - Manages plugin system for different storage backends
+  - Manages disk type system for different storage backends
   - Returns port information for direct connections
 
 - **File Provider Extension**:
@@ -131,7 +131,7 @@ and I have a rough file provider implementation done. But it's not working yet.
 | Mount/unmount         | App UI            | App → Backend                        |
 | File operations       | Finder (via FP)   | FileProvider → App → Backend         |
 | Backend notifications | Backend           | Backend → App → (UI/FileProvider)    |
-| Plugin management     | App UI            | App → Backend                        |
+| DiskTypes management  | App UI            | App → Backend                        |
 
 ### Benefits
 - Simplified architecture with fewer moving parts
@@ -172,27 +172,27 @@ and I have a rough file provider implementation done. But it's not working yet.
 │   │   └── client.go
 │   │   └── server.go
 │   │
-│   ├── plugins/                  # Plugin system
+│   ├── disk types/                  # DiskTypes system
 │   │   └── dropbox.go
 │   │   └── ftp.go
 │   │   └── sftp.go
-│   │   └── smb.go
+│   │   └── samba.go
 │   │   └── webdav.go
 │   │
 │   ├── services/                   # Services
 │   │   └── config_service.go
 │   │   └── sqlite_service.go
-│   │   └── plugin_service.go
+│   │   └── disktype_service.go
 │   │
 │   ├── models/                      # gRPC/HTTP API
 │   │   └── mount.go
-│   │   └── plugin.go
+│   │   └── disktype.go
 │   │   └── config.go
 │   │
 │   ├── migrations/                 # Database migrations
 │   │   └── migrations.go
 │   │   └── 20250608182000_create_mounts.go
-│   │   └── 20250608182001_create_plugins.go
+│   │   └── 20250608182001_create_disk types.go
 │   │   └── 20250608182002_create_configs.go
 │   │   └── ...etc
 │
@@ -209,7 +209,7 @@ and I have a rough file provider implementation done. But it's not working yet.
   - Contains shared code used by both the app and File Provider extension
 
 - **Backend** (Go):
-  - Handles all file operations, sync, and plugin management
+  - Handles all file operations, sync, and disk types management
   - Exposes gRPC/HTTP API for communication
   - Manages mount points and storage backends
   - Runs as a separate process managed by the main app
@@ -230,7 +230,7 @@ and I have a rough file provider implementation done. But it's not working yet.
 ### Prerequisites
 - Xcode 14+
 - Go 1.19+
-- Protocol Buffer compiler (protoc) with Swift and Go plugins
+- Protocol Buffer compiler (protoc) with Swift and disk types
 
 ### Running
 
@@ -239,5 +239,5 @@ and I have a rough file provider implementation done. But it's not working yet.
 3. Use the CLI for advanced operations:
    ```bash
    ./djctl list-mounts
-   ./djctl list-plugins
+   ./djctl list-disk types
    ```

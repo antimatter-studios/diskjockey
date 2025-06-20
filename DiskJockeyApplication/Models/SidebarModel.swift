@@ -6,7 +6,7 @@ import SwiftUI
 public enum SidebarItem: Hashable, Identifiable {
     case about
     case mounts
-    case plugins
+    case diskTypes
     case systemLog
     case quit
     
@@ -14,7 +14,7 @@ public enum SidebarItem: Hashable, Identifiable {
         switch self {
         case .about: return "about"
         case .mounts: return "mounts"
-        case .plugins: return "plugins"
+        case .diskTypes: return "diskTypes"
         case .systemLog: return "systemLog"
         case .quit: return "quit"
         }
@@ -24,7 +24,7 @@ public enum SidebarItem: Hashable, Identifiable {
         switch self {
         case .about: return "About"
         case .mounts: return "Mounts"
-        case .plugins: return "Plugins"
+        case .diskTypes: return "Disk Types"
         case .systemLog: return "System Log"
         case .quit: return "Quit"
         }
@@ -34,7 +34,7 @@ public enum SidebarItem: Hashable, Identifiable {
         switch self {
         case .about: return "info.circle"
         case .mounts: return "externaldrive"
-        case .plugins: return "puzzlepiece.extension"
+        case .diskTypes: return "puzzlepiece.extension"
         case .systemLog: return "terminal"
         case .quit: return "power"
         }
@@ -46,7 +46,7 @@ public final class SidebarModel: ObservableObject {
     /// The currently selected sidebar item
     @Published public var selectedItem: SidebarItem = .about
     
-    public init(selectedItem: SidebarItem = .plugins) {
+    public init(selectedItem: SidebarItem = .diskTypes) {
         self.selectedItem = selectedItem
     }
 }

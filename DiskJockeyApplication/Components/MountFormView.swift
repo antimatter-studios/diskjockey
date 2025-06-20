@@ -5,7 +5,7 @@ struct MountFormView: View {
     @EnvironmentObject var mountModel: MountModel
     var isEditing: Bool
     var mount: MountPoint? = nil
-    var pluginTypes: [String]
+    var diskTypes: [String]
     var onSave: () -> Void = {}
     var onCancel: () -> Void = {}
     @State private var form: MountPoint
@@ -13,22 +13,22 @@ struct MountFormView: View {
     @State private var showDeleteAlert = false
     
     // Initialize the form with default values
-    init(isEditing: Bool, mount: MountPoint? = nil, pluginTypes: [String], onSave: @escaping () -> Void = {}, onCancel: @escaping () -> Void = {}) {
+    init(isEditing: Bool, mount: MountPoint? = nil, diskTypes: [String], onSave: @escaping () -> Void = {}, onCancel: @escaping () -> Void = {}) {
         self.isEditing = isEditing
         self.mount = mount
-        self.pluginTypes = pluginTypes
+        self.diskTypes = diskTypes
         self.onSave = onSave
         self.onCancel = onCancel
         
         // Initialize form with either the provided mount or default values
         if let mount = mount {
             _form = State(initialValue: mount)
-            _mountTypeSelection = State(initialValue: mount.type.rawValue)
+            _mountTypeSelection = State(initialValue: mount.diskType.rawValue)
         } else {
             let newMount = MountPoint(
                 id: UUID(),
                 name: "",
-                type: .webdav,
+                diskType: .localdirectory,
                 url: "",
                 username: "",
                 password: ""
@@ -45,7 +45,7 @@ struct MountFormView: View {
             
             Picker("Type", selection: $mountTypeSelection) {
                 Text("Select Mount Type").tag("")
-                ForEach(pluginTypes, id: \.self) { type in
+                ForEach(diskTypes, id: \.self) { type in
                     Text(type).tag(type)
                 }
             }
@@ -56,7 +56,7 @@ struct MountFormView: View {
             TextField("Username", text: $form.username)
             SecureField("Password", text: $form.password)
             
-            if mountTypeSelection == MountType.samba.rawValue {
+            if mountTypeSelection == DiskTypeEnum.samba.rawValue {
                 TextField("Hostname", text: Binding(
                     get: { form.hostname ?? "" },
                     set: { form.hostname = $0.isEmpty ? nil : $0 }
@@ -101,8 +101,8 @@ struct MountFormView: View {
                     
                     Button(action: {
                         // Only update form.type if a valid type is selected
-                        if let validType = MountType(rawValue: mountTypeSelection) {
-                            form.type = validType
+                        if let validType = DiskTypeEnum(rawValue: mountTypeSelection) {
+                            form.diskType = validType
                         }
                         
                         if isEditing, let mount = mount {

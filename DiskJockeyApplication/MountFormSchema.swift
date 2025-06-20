@@ -40,7 +40,7 @@ public struct MountFormSchema {
     public static func createMountPoint(from values: [String: Any]) -> MountPoint {
         MountPoint(
             name: values["name"] as? String ?? "",
-            type: .webdav, // Default type, can be adjusted based on form
+            diskType: .localdirectory, // Default type, can be adjusted based on form
             url: "", // Will be constructed from hostname and share
             username: values["username"] as? String ?? "",
             password: values["password"] as? String ?? "",

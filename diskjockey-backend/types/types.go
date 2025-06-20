@@ -12,22 +12,22 @@ type AppConfig struct {
 	MaxCacheSize int64         `json:"max_cache_size"`
 }
 
-// Mount describes an active plugin instance
-// (unique name, plugin type, config, Backend)
+// Mount describes an active disk type instance
+// (unique name, disk type, config, Backend)
 type Mount struct {
-	Name       string
-	PluginType string
-	Backend    Backend
+	Name     string
+	DiskType string
+	Backend  Backend
 }
 
-// FileInfo describes a file or directory returned by plugins
+// FileInfo describes a file or directory returned by disk types
 type FileInfo struct {
 	Name  string
 	Size  int64
 	IsDir bool
 }
 
-// Backend defines the plugin instance interface (for a mount)
+// Backend defines the disk type instance interface (for a mount)
 type Backend interface {
 	List(path string) ([]FileInfo, error)
 	Read(path string) ([]byte, error)
@@ -36,26 +36,26 @@ type Backend interface {
 	Reconnect() error
 }
 
-// PluginType defines a plugin type (template)
-type PluginType interface {
+// DiskType defines a disk type (template)
+type DiskType interface {
 	New(mount *models.Mount) (Backend, error)
 	Name() string
 	Description() string
-	ConfigTemplate() PluginConfigTemplate
+	ConfigTemplate() DiskTypeConfigTemplate
 }
 
-// ListPluginTypes returns all registered plugin types
-type PluginTypeInfo struct {
+// ListDiskTypes returns all registered disk types
+type DiskTypeInfo struct {
 	Name        string
 	Description string
-	Config      PluginConfigTemplate
+	Config      DiskTypeConfigTemplate
 }
 
-// PluginConfigTemplate describes config options for a plugin type
+// DiskTypeConfigTemplate describes config options for a disk type
 // (e.g., fields, types, description, required)
-type PluginConfigTemplate map[string]PluginConfigField
+type DiskTypeConfigTemplate map[string]DiskTypeConfigField
 
-type PluginConfigField struct {
+type DiskTypeConfigField struct {
 	Type        string // e.g. "string", "int", "bool"
 	Description string
 	Required    bool

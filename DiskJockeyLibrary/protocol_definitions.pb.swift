@@ -27,18 +27,31 @@ public enum Api_MessageType: SwiftProtobuf.Enum, Swift.CaseIterable {
   case unknownType // = 0
   case connect // = 1
   case listDirRequest // = 2
-  case mountRequest // = 3
-  case unmountRequest // = 4
-  case createMountRequest // = 5
-  case deleteMountRequest // = 6
-  case listMountsRequest // = 7
-  case listPluginsRequest // = 8
-  case mountStatusUpdate // = 9
-  case readFileRequest // = 10
-  case writeFileRequest // = 11
-  case statRequest // = 12
-  case deleteFileRequest // = 13
+  case listDirResponse // = 3
+  case mountRequest // = 4
+  case mountResponse // = 5
+  case unmountRequest // = 6
+  case unmountResponse // = 7
+  case createMountRequest // = 8
+  case createMountResponse // = 9
+  case deleteMountRequest // = 10
+  case deleteMountResponse // = 11
+  case listMountsRequest // = 12
+  case listMountsResponse // = 13
+  case listDiskTypesRequest // = 14
+  case listDiskTypesResponse // = 15
+  case mountStatusUpdateRequest // = 16
+  case mountStatusUpdateResponse // = 17
+  case readFileRequest // = 18
+  case readFileResponse // = 19
+  case writeFileRequest // = 20
+  case writeFileResponse // = 21
+  case statRequest // = 22
+  case statResponse // = 23
+  case deleteFileRequest // = 24
+  case deleteFileResponse // = 25
   case shutdownRequest // = 99
+  case shutdownResponse // = 100
   case UNRECOGNIZED(Int)
 
   public init() {
@@ -50,18 +63,31 @@ public enum Api_MessageType: SwiftProtobuf.Enum, Swift.CaseIterable {
     case 0: self = .unknownType
     case 1: self = .connect
     case 2: self = .listDirRequest
-    case 3: self = .mountRequest
-    case 4: self = .unmountRequest
-    case 5: self = .createMountRequest
-    case 6: self = .deleteMountRequest
-    case 7: self = .listMountsRequest
-    case 8: self = .listPluginsRequest
-    case 9: self = .mountStatusUpdate
-    case 10: self = .readFileRequest
-    case 11: self = .writeFileRequest
-    case 12: self = .statRequest
-    case 13: self = .deleteFileRequest
+    case 3: self = .listDirResponse
+    case 4: self = .mountRequest
+    case 5: self = .mountResponse
+    case 6: self = .unmountRequest
+    case 7: self = .unmountResponse
+    case 8: self = .createMountRequest
+    case 9: self = .createMountResponse
+    case 10: self = .deleteMountRequest
+    case 11: self = .deleteMountResponse
+    case 12: self = .listMountsRequest
+    case 13: self = .listMountsResponse
+    case 14: self = .listDiskTypesRequest
+    case 15: self = .listDiskTypesResponse
+    case 16: self = .mountStatusUpdateRequest
+    case 17: self = .mountStatusUpdateResponse
+    case 18: self = .readFileRequest
+    case 19: self = .readFileResponse
+    case 20: self = .writeFileRequest
+    case 21: self = .writeFileResponse
+    case 22: self = .statRequest
+    case 23: self = .statResponse
+    case 24: self = .deleteFileRequest
+    case 25: self = .deleteFileResponse
     case 99: self = .shutdownRequest
+    case 100: self = .shutdownResponse
     default: self = .UNRECOGNIZED(rawValue)
     }
   }
@@ -71,18 +97,31 @@ public enum Api_MessageType: SwiftProtobuf.Enum, Swift.CaseIterable {
     case .unknownType: return 0
     case .connect: return 1
     case .listDirRequest: return 2
-    case .mountRequest: return 3
-    case .unmountRequest: return 4
-    case .createMountRequest: return 5
-    case .deleteMountRequest: return 6
-    case .listMountsRequest: return 7
-    case .listPluginsRequest: return 8
-    case .mountStatusUpdate: return 9
-    case .readFileRequest: return 10
-    case .writeFileRequest: return 11
-    case .statRequest: return 12
-    case .deleteFileRequest: return 13
+    case .listDirResponse: return 3
+    case .mountRequest: return 4
+    case .mountResponse: return 5
+    case .unmountRequest: return 6
+    case .unmountResponse: return 7
+    case .createMountRequest: return 8
+    case .createMountResponse: return 9
+    case .deleteMountRequest: return 10
+    case .deleteMountResponse: return 11
+    case .listMountsRequest: return 12
+    case .listMountsResponse: return 13
+    case .listDiskTypesRequest: return 14
+    case .listDiskTypesResponse: return 15
+    case .mountStatusUpdateRequest: return 16
+    case .mountStatusUpdateResponse: return 17
+    case .readFileRequest: return 18
+    case .readFileResponse: return 19
+    case .writeFileRequest: return 20
+    case .writeFileResponse: return 21
+    case .statRequest: return 22
+    case .statResponse: return 23
+    case .deleteFileRequest: return 24
+    case .deleteFileResponse: return 25
     case .shutdownRequest: return 99
+    case .shutdownResponse: return 100
     case .UNRECOGNIZED(let i): return i
     }
   }
@@ -92,18 +131,31 @@ public enum Api_MessageType: SwiftProtobuf.Enum, Swift.CaseIterable {
     .unknownType,
     .connect,
     .listDirRequest,
+    .listDirResponse,
     .mountRequest,
+    .mountResponse,
     .unmountRequest,
+    .unmountResponse,
     .createMountRequest,
+    .createMountResponse,
     .deleteMountRequest,
+    .deleteMountResponse,
     .listMountsRequest,
-    .listPluginsRequest,
-    .mountStatusUpdate,
+    .listMountsResponse,
+    .listDiskTypesRequest,
+    .listDiskTypesResponse,
+    .mountStatusUpdateRequest,
+    .mountStatusUpdateResponse,
     .readFileRequest,
+    .readFileResponse,
     .writeFileRequest,
+    .writeFileResponse,
     .statRequest,
+    .statResponse,
     .deleteFileRequest,
+    .deleteFileResponse,
     .shutdownRequest,
+    .shutdownResponse,
   ]
 
 }
@@ -418,8 +470,8 @@ public struct Api_StatResponse: Sendable {
   fileprivate var _info: Api_FileInfo? = nil
 }
 
-/// List available plugin types
-public struct Api_ListPluginsRequest: Sendable {
+/// List available disk types
+public struct Api_ListDiskTypesRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -429,12 +481,12 @@ public struct Api_ListPluginsRequest: Sendable {
   public init() {}
 }
 
-public struct Api_ListPluginsResponse: Sendable {
+public struct Api_ListDiskTypesResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var plugins: [Api_PluginTypeInfo] = []
+  public var diskTypes: [Api_DiskTypeInfo] = []
 
   public var error: String = String()
 
@@ -443,7 +495,7 @@ public struct Api_ListPluginsResponse: Sendable {
   public init() {}
 }
 
-public struct Api_PluginTypeInfo: Sendable {
+public struct Api_DiskTypeInfo: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -509,7 +561,7 @@ public struct Api_MountInfo: Sendable {
 
   public var name: String = String()
 
-  public var pluginType: String = String()
+  public var diskType: String = String()
 
   public var config: Dictionary<String,String> = [:]
 
@@ -572,7 +624,7 @@ public struct Api_CreateMountRequest: Sendable {
 
   public var name: String = String()
 
-  public var pluginType: String = String()
+  public var diskType: String = String()
 
   public var config: Dictionary<String,String> = [:]
 
@@ -693,18 +745,31 @@ extension Api_MessageType: SwiftProtobuf._ProtoNameProviding {
     0: .same(proto: "UNKNOWN_TYPE"),
     1: .same(proto: "CONNECT"),
     2: .same(proto: "LIST_DIR_REQUEST"),
-    3: .same(proto: "MOUNT_REQUEST"),
-    4: .same(proto: "UNMOUNT_REQUEST"),
-    5: .same(proto: "CREATE_MOUNT_REQUEST"),
-    6: .same(proto: "DELETE_MOUNT_REQUEST"),
-    7: .same(proto: "LIST_MOUNTS_REQUEST"),
-    8: .same(proto: "LIST_PLUGINS_REQUEST"),
-    9: .same(proto: "MOUNT_STATUS_UPDATE"),
-    10: .same(proto: "READ_FILE_REQUEST"),
-    11: .same(proto: "WRITE_FILE_REQUEST"),
-    12: .same(proto: "STAT_REQUEST"),
-    13: .same(proto: "DELETE_FILE_REQUEST"),
+    3: .same(proto: "LIST_DIR_RESPONSE"),
+    4: .same(proto: "MOUNT_REQUEST"),
+    5: .same(proto: "MOUNT_RESPONSE"),
+    6: .same(proto: "UNMOUNT_REQUEST"),
+    7: .same(proto: "UNMOUNT_RESPONSE"),
+    8: .same(proto: "CREATE_MOUNT_REQUEST"),
+    9: .same(proto: "CREATE_MOUNT_RESPONSE"),
+    10: .same(proto: "DELETE_MOUNT_REQUEST"),
+    11: .same(proto: "DELETE_MOUNT_RESPONSE"),
+    12: .same(proto: "LIST_MOUNTS_REQUEST"),
+    13: .same(proto: "LIST_MOUNTS_RESPONSE"),
+    14: .same(proto: "LIST_DISK_TYPES_REQUEST"),
+    15: .same(proto: "LIST_DISK_TYPES_RESPONSE"),
+    16: .same(proto: "MOUNT_STATUS_UPDATE_REQUEST"),
+    17: .same(proto: "MOUNT_STATUS_UPDATE_RESPONSE"),
+    18: .same(proto: "READ_FILE_REQUEST"),
+    19: .same(proto: "READ_FILE_RESPONSE"),
+    20: .same(proto: "WRITE_FILE_REQUEST"),
+    21: .same(proto: "WRITE_FILE_RESPONSE"),
+    22: .same(proto: "STAT_REQUEST"),
+    23: .same(proto: "STAT_RESPONSE"),
+    24: .same(proto: "DELETE_FILE_REQUEST"),
+    25: .same(proto: "DELETE_FILE_RESPONSE"),
     99: .same(proto: "SHUTDOWN_REQUEST"),
+    100: .same(proto: "SHUTDOWN_RESPONSE"),
   ]
 }
 
@@ -1270,8 +1335,8 @@ extension Api_StatResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImpleme
   }
 }
 
-extension Api_ListPluginsRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".ListPluginsRequest"
+extension Api_ListDiskTypesRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ListDiskTypesRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -1283,16 +1348,16 @@ extension Api_ListPluginsRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageI
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  public static func ==(lhs: Api_ListPluginsRequest, rhs: Api_ListPluginsRequest) -> Bool {
+  public static func ==(lhs: Api_ListDiskTypesRequest, rhs: Api_ListDiskTypesRequest) -> Bool {
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Api_ListPluginsResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".ListPluginsResponse"
+extension Api_ListDiskTypesResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ListDiskTypesResponse"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "plugins"),
+    1: .standard(proto: "disk_types"),
     2: .same(proto: "error"),
   ]
 
@@ -1302,7 +1367,7 @@ extension Api_ListPluginsResponse: SwiftProtobuf.Message, SwiftProtobuf._Message
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.plugins) }()
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.diskTypes) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.error) }()
       default: break
       }
@@ -1310,8 +1375,8 @@ extension Api_ListPluginsResponse: SwiftProtobuf.Message, SwiftProtobuf._Message
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.plugins.isEmpty {
-      try visitor.visitRepeatedMessageField(value: self.plugins, fieldNumber: 1)
+    if !self.diskTypes.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.diskTypes, fieldNumber: 1)
     }
     if !self.error.isEmpty {
       try visitor.visitSingularStringField(value: self.error, fieldNumber: 2)
@@ -1319,16 +1384,16 @@ extension Api_ListPluginsResponse: SwiftProtobuf.Message, SwiftProtobuf._Message
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  public static func ==(lhs: Api_ListPluginsResponse, rhs: Api_ListPluginsResponse) -> Bool {
-    if lhs.plugins != rhs.plugins {return false}
+  public static func ==(lhs: Api_ListDiskTypesResponse, rhs: Api_ListDiskTypesResponse) -> Bool {
+    if lhs.diskTypes != rhs.diskTypes {return false}
     if lhs.error != rhs.error {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Api_PluginTypeInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".PluginTypeInfo"
+extension Api_DiskTypeInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DiskTypeInfo"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .same(proto: "name"),
     2: .same(proto: "description"),
@@ -1362,7 +1427,7 @@ extension Api_PluginTypeInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImple
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  public static func ==(lhs: Api_PluginTypeInfo, rhs: Api_PluginTypeInfo) -> Bool {
+  public static func ==(lhs: Api_DiskTypeInfo, rhs: Api_DiskTypeInfo) -> Bool {
     if lhs.name != rhs.name {return false}
     if lhs.description_p != rhs.description_p {return false}
     if lhs.configFields != rhs.configFields {return false}
@@ -1482,7 +1547,7 @@ extension Api_MountInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
   public static let protoMessageName: String = _protobuf_package + ".MountInfo"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .same(proto: "name"),
-    2: .standard(proto: "plugin_type"),
+    2: .standard(proto: "disk_type"),
     3: .same(proto: "config"),
     4: .standard(proto: "mount_id"),
   ]
@@ -1494,7 +1559,7 @@ extension Api_MountInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.name) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.pluginType) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.diskType) }()
       case 3: try { try decoder.decodeMapField(fieldType: SwiftProtobuf._ProtobufMap<SwiftProtobuf.ProtobufString,SwiftProtobuf.ProtobufString>.self, value: &self.config) }()
       case 4: try { try decoder.decodeSingularUInt32Field(value: &self.mountID) }()
       default: break
@@ -1506,8 +1571,8 @@ extension Api_MountInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
     if !self.name.isEmpty {
       try visitor.visitSingularStringField(value: self.name, fieldNumber: 1)
     }
-    if !self.pluginType.isEmpty {
-      try visitor.visitSingularStringField(value: self.pluginType, fieldNumber: 2)
+    if !self.diskType.isEmpty {
+      try visitor.visitSingularStringField(value: self.diskType, fieldNumber: 2)
     }
     if !self.config.isEmpty {
       try visitor.visitMapField(fieldType: SwiftProtobuf._ProtobufMap<SwiftProtobuf.ProtobufString,SwiftProtobuf.ProtobufString>.self, value: self.config, fieldNumber: 3)
@@ -1520,7 +1585,7 @@ extension Api_MountInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
 
   public static func ==(lhs: Api_MountInfo, rhs: Api_MountInfo) -> Bool {
     if lhs.name != rhs.name {return false}
-    if lhs.pluginType != rhs.pluginType {return false}
+    if lhs.diskType != rhs.diskType {return false}
     if lhs.config != rhs.config {return false}
     if lhs.mountID != rhs.mountID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
@@ -1640,7 +1705,7 @@ extension Api_CreateMountRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageI
   public static let protoMessageName: String = _protobuf_package + ".CreateMountRequest"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .same(proto: "name"),
-    2: .standard(proto: "plugin_type"),
+    2: .standard(proto: "disk_type"),
     3: .same(proto: "config"),
   ]
 
@@ -1651,7 +1716,7 @@ extension Api_CreateMountRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageI
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.name) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.pluginType) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.diskType) }()
       case 3: try { try decoder.decodeMapField(fieldType: SwiftProtobuf._ProtobufMap<SwiftProtobuf.ProtobufString,SwiftProtobuf.ProtobufString>.self, value: &self.config) }()
       default: break
       }
@@ -1662,8 +1727,8 @@ extension Api_CreateMountRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageI
     if !self.name.isEmpty {
       try visitor.visitSingularStringField(value: self.name, fieldNumber: 1)
     }
-    if !self.pluginType.isEmpty {
-      try visitor.visitSingularStringField(value: self.pluginType, fieldNumber: 2)
+    if !self.diskType.isEmpty {
+      try visitor.visitSingularStringField(value: self.diskType, fieldNumber: 2)
     }
     if !self.config.isEmpty {
       try visitor.visitMapField(fieldType: SwiftProtobuf._ProtobufMap<SwiftProtobuf.ProtobufString,SwiftProtobuf.ProtobufString>.self, value: self.config, fieldNumber: 3)
@@ -1673,7 +1738,7 @@ extension Api_CreateMountRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageI
 
   public static func ==(lhs: Api_CreateMountRequest, rhs: Api_CreateMountRequest) -> Bool {
     if lhs.name != rhs.name {return false}
-    if lhs.pluginType != rhs.pluginType {return false}
+    if lhs.diskType != rhs.diskType {return false}
     if lhs.config != rhs.config {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true

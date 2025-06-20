@@ -1,0 +1,6 @@
+"mounts_column_name" = "Name";
+"mounts_column_type" = "Type";
+"mounts_column_speed" = "Speed";
+"mounts_column_status" = "Status";
+
+// Add more keys below as needed for your app

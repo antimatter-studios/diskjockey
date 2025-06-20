@@ -9,8 +9,8 @@ public final class AppContainer: ObservableObject {
     public var appLogger: AppLogger { appLogModel as! AppLogger }
     // MARK: - Public Properties
     
-    /// The plugin repository for managing plugins
-    public let pluginRepository: PluginRepository
+    /// The disk type repository for managing diskTypes
+    public let diskTypeRepository: DiskTypeRepository
     
     /// The mount repository for managing mounts
     public let mountRepository: MountRepository
@@ -30,19 +30,21 @@ public final class AppContainer: ObservableObject {
     // MARK: - Private Properties
     
     private let backendProcess: BackendProcess
-    private var backendAPI: BackendAPI
+    public let apiState: BackendAPIState
+    public let backendAPI: BackendAPI
     private var cancellables = Set<AnyCancellable>()
     
     // MARK: - Initialization
     
     public init() {
-        // Initialize API
-        self.backendAPI = BackendAPI()
+        // Initialize state and API
+        self.apiState = BackendAPIState()
+        self.backendAPI = BackendAPI(state: self.apiState)
         self.connectionState = .disconnected
         self.processState = .stopped
                 
         // Initialize repositories with the API
-        self.pluginRepository = PluginRepository(api: self.backendAPI)
+        self.diskTypeRepository = DiskTypeRepository(api: self.backendAPI)
         self.mountRepository = MountRepository(api: self.backendAPI)
         self.logRepository = LogRepository(api: self.backendAPI)
         
@@ -53,9 +55,18 @@ public final class AppContainer: ObservableObject {
         self.backendProcess = BackendProcess(logger: self.logRepository)
 
         // Set reconnect handler for backendAPI
-        self.backendAPI.setReconnectHandler { [weak self] in
+        Task { await self.backendAPI.setReconnectHandler { [weak self] in
+            print("Backend disconnected, attempting to restart...")
             await self?.restartBackend()
-        }
+        }}
+
+        // Observe connection state changes from apiState
+        self.apiState.$connectionState
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                self?.connectionState = state
+            }
+            .store(in: &cancellables)
                 
         // Set up observations
         setupProcessObservation()
@@ -146,7 +157,7 @@ public final class AppContainer: ObservableObject {
     }
     
     private func setupAPIObservation() {
-        backendAPI.connectionStatePublisher
+        apiState.$connectionState
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
                 self?.connectionState = state
@@ -173,7 +184,9 @@ public final class AppContainer: ObservableObject {
     }
     
     private func handleBackendStopped() {
-        backendAPI.disconnect()
+        Task {
+            await backendAPI.disconnect()
+        }
         error = nil
     }
     
@@ -187,7 +200,7 @@ public final class AppContainer: ObservableObject {
         // Use TaskGroup to refresh all repositories concurrently
         await withTaskGroup(of: Void.self) { group in
             group.addTask { [weak self] in
-                try? await self?.pluginRepository.refresh()
+                try? await self?.diskTypeRepository.refresh()
             }
             group.addTask { [weak self] in
                 try? await self?.mountRepository.refresh()

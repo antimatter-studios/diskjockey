@@ -39,11 +39,11 @@ public enum AppError: LocalizedError, Equatable {
     case sessionExpired
     case insufficientPermissions
     
-    // MARK: - Plugin Errors
-    case pluginNotFound
-    case pluginLoadFailed(String)
-    case pluginExecutionFailed(String)
-    case pluginIncompatible
+    // MARK: - Disk Type Errors
+    case diskTypeNotFound
+    case diskTypeLoadFailed(String)
+    case diskTypeExecutionFailed(String)
+    case diskTypeIncompatible
     
     // MARK: - Mount Errors
     case mountFailed(String)
@@ -127,15 +127,15 @@ public enum AppError: LocalizedError, Equatable {
         case .insufficientPermissions:
             return "You don't have sufficient permissions to perform this action."
             
-        // Plugin Errors
-        case .pluginNotFound:
-            return "The requested plugin was not found."
-        case .pluginLoadFailed(let message):
-            return "Failed to load plugin: \(message)"
-        case .pluginExecutionFailed(let message):
-            return "Plugin execution failed: \(message)"
-        case .pluginIncompatible:
-            return "The plugin is not compatible with this version of the application."
+        // Disk Type Errors
+        case .diskTypeNotFound:
+            return "The requested disk type was not found."
+        case .diskTypeLoadFailed(let message):
+            return "Failed to load disk type: \(message)"
+        case .diskTypeExecutionFailed(let message):
+            return "Disk type execution failed: \(message)"
+        case .diskTypeIncompatible:
+            return "The disk type is not compatible with this version of the application."
             
         // Mount Errors
         case .mountFailed(let message):
@@ -198,10 +198,10 @@ public enum AppError: LocalizedError, Equatable {
              (.invalidCredentials, .invalidCredentials),
              (.sessionExpired, .sessionExpired),
              (.insufficientPermissions, .insufficientPermissions),
-             (.pluginNotFound, .pluginNotFound),
-             (.pluginLoadFailed, .pluginLoadFailed),
-             (.pluginExecutionFailed, .pluginExecutionFailed),
-             (.pluginIncompatible, .pluginIncompatible),
+             (.diskTypeNotFound, .diskTypeNotFound),
+             (.diskTypeLoadFailed, .diskTypeLoadFailed),
+             (.diskTypeExecutionFailed, .diskTypeExecutionFailed),
+             (.diskTypeIncompatible, .diskTypeIncompatible),
              (.mountFailed, .mountFailed),
              (.unmountFailed, .unmountFailed),
              (.mountPointInUse, .mountPointInUse),

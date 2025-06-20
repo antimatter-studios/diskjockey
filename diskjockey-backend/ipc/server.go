@@ -7,24 +7,23 @@ import (
 	"sync"
 	"time"
 
-	"github.com/christhomas/diskjockey/diskjockey-backend/proto/api"
 	"github.com/christhomas/diskjockey/diskjockey-backend/services"
 )
 
 type BackendServer struct {
-	configService  *services.ConfigService
-	pluginService  *services.PluginService
-	shutdownChan   chan struct{} // Channel to signal shutdown
-	listener       net.Listener  // Store the listener for graceful shutdown
-	lastActivityMu sync.Mutex    // Protects lastActivity
-	lastActivity   time.Time     // Last time of activity
+	configService   *services.ConfigService
+	disktypeService *services.DiskTypeService
+	shutdownChan    chan struct{} // Channel to signal shutdown
+	listener        net.Listener  // Store the listener for graceful shutdown
+	lastActivityMu  sync.Mutex    // Protects lastActivity
+	lastActivity    time.Time     // Last time of activity
 }
 
-func NewBackendServer(config *services.ConfigService, plugins *services.PluginService) *BackendServer {
+func NewBackendServer(config *services.ConfigService, disktypes *services.DiskTypeService) *BackendServer {
 	s := &BackendServer{
-		configService: config,
-		pluginService: plugins,
-		shutdownChan:  make(chan struct{}),
+		configService:   config,
+		disktypeService: disktypes,
+		shutdownChan:    make(chan struct{}),
 	}
 	s.lastActivity = time.Now()
 	return s
@@ -64,7 +63,8 @@ func (s *BackendServer) RunServer() (int, error) {
 				}
 				continue
 			}
-			go s.handleConnection(conn)
+			client := NewBackendClient(conn, s.configService, s.disktypeService)
+			go client.Start()
 		}
 	}()
 
@@ -84,34 +84,6 @@ func (s *BackendServer) Shutdown() error {
 		return s.listener.Close()
 	}
 	return nil
-}
-
-// handleConnection processes a single client connection
-func (s *BackendServer) handleConnection(conn net.Conn) {
-	defer conn.Close()
-	s.updateActivity() // Update last activity on every request
-	// Read message type and payload (same as client)
-	var buf [4]byte
-	if _, err := conn.Read(buf[:]); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to read message length: %v\n", err)
-		return
-	}
-	msgLen := int(buf[0])<<24 | int(buf[1])<<16 | int(buf[2])<<8 | int(buf[3])
-	msgType := make([]byte, 1)
-	if _, err := conn.Read(msgType); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to read message type: %v\n", err)
-		return
-	}
-	payload := make([]byte, msgLen-1)
-	if _, err := conn.Read(payload); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to read message payload: %v\n", err)
-		return
-	}
-	// Handle message (reuse client logic)
-	client := NewBackendClient(s, s.configService, s.pluginService)
-	if err := client.handleMessage(api.MessageType(msgType[0]), payload, conn); err != nil {
-		fmt.Fprintf(os.Stderr, "handleMessage error: %v\n", err)
-	}
 }
 
 // updateActivity records the current time as the last activity

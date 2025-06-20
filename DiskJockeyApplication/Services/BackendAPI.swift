@@ -1,8 +1,9 @@
-import Foundation
 import Combine
+import DiskJockeyLibrary
+import Foundation
 import Network
 import SwiftProtobuf
-import DiskJockeyLibrary
+
 
 public enum APIError: Error {
     case notConnected
@@ -14,36 +15,81 @@ public enum APIError: Error {
     case protocolError(String)
 }
 
-open class BackendAPI: ObservableObject {
-    // ...
+public final class BackendAPIState: ObservableObject {
+    @Published var connectionState: BackendAPI.ConnectionState = .disconnected
+}
+
+// Minimal async lock actor for critical section serialization
+actor AsyncLock {
+    private var isLocked = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func withLock<T>(_ operation: () async throws -> T) async rethrows -> T {
+        // Wait until lock is available
+        try await acquire()
+        defer { release() }
+        return try await operation()
+    }
+
+    private func acquire() async {
+        if isLocked {
+            await withCheckedContinuation { continuation in
+                waiters.append(continuation)
+            }
+        } else {
+            isLocked = true
+        }
+    }
+
+    private func release() {
+        if let next = waiters.first {
+            waiters.removeFirst()
+            next.resume()
+        } else {
+            isLocked = false
+        }
+    }
+}
+
+public class BackendAPI {
+    public let state: BackendAPIState
+    private let queue = DispatchQueue(label: "com.diskjockey.backend-api")
+    private var connection: NWConnection?
+    private var receiveTask: Task<Void, Never>?
+    private let socketLock = AsyncLock()
+    private let connectionStateSubject = CurrentValueSubject<ConnectionState, Never>(.disconnected)
+    private let logger: LogRepository?
+
+    public var connectionStatePublisher: AnyPublisher<ConnectionState, Never> {
+        connectionStateSubject.eraseToAnyPublisher()
+    }
+    
     private var reconnectHandler: (() async throws -> Void)?
     public func setReconnectHandler(_ handler: @escaping () async throws -> Void) {
         self.reconnectHandler = handler
     }
-    private let logger: LogRepository?
-    // MARK: - Types
-    
+
     public struct ConnectionInfo: Equatable {
         public let host: String
         public let port: UInt16
-        
+
         public init(host: String, port: UInt16) {
             self.host = host
             self.port = port
         }
     }
-    
+
     public enum ConnectionState: Equatable {
         case disconnected
         case connecting
         case connected(ConnectionInfo)
         case failed(Error)
-        
+
         public var isConnected: Bool {
             if case .connected = self { return true }
             return false
         }
-        
+
         public static func == (lhs: ConnectionState, rhs: ConnectionState) -> Bool {
             switch (lhs, rhs) {
             case (.disconnected, .disconnected):
@@ -60,25 +106,36 @@ open class BackendAPI: ObservableObject {
             }
         }
     }
-    
-    // MARK: - Properties
-    
-    private let queue = DispatchQueue(label: "com.diskjockey.backend-api")
-    private var connection: NWConnection?
-    private var messageHandlers: [Api_MessageType: (Data) -> Void] = [:]
-    private var receiveTask: Task<Void, Never>?
-    
-    @Published public private(set) var connectionState: ConnectionState = .disconnected
-    public var connectionStatePublisher: AnyPublisher<ConnectionState, Never> {
-        $connectionState.eraseToAnyPublisher()
+
+    private var connectionState: ConnectionState = .disconnected {
+        didSet {
+            DispatchQueue.main.async {
+                self.state.connectionState = self.connectionState
+            }
+            connectionStateSubject.send(connectionState)
+        }
     }
-    
+    // Use this method to safely update connectionState from non-actor closures
+    public func setConnectionState(_ state: ConnectionState) async {
+        self.connectionState = state
+        // connectionStateSubject.send(state) is not needed here, as didSet will trigger it
+        DispatchQueue.main.async {
+            self.state.connectionState = self.connectionState
+        }
+    }
+    public var currentConnectionState: ConnectionState { connectionState }
+
     // MARK: - Initialization
-    
-    public init(logger: LogRepository? = nil) {
+
+    public init(state: BackendAPIState, logger: LogRepository? = nil) {
+        self.state = state
         self.logger = logger
+        // Set initial state value
+        DispatchQueue.main.async {
+            self.state.connectionState = self.connectionState
+        }
     }
-    
+
     deinit {
         disconnect()
     }
@@ -88,35 +145,8 @@ open class BackendAPI: ObservableObject {
         print("BackendAPI: \(msg)")
         logger?.addLogEntry(LogEntry(message: msg, category: "backend"))
     }
-    
-    // MARK: - Public Methods
-    
-    // MARK: - Mount Management
-    
-    public func listMounts() async throws -> [Mount] {
-        let request = Api_ListMountsRequest()
-        let response: Api_ListMountsResponse = try await sendRequest(
-            request,
-            responseType: Api_ListMountsResponse.self,
-            messageType: .listMountsRequest
-        )
-        
-        return response.mounts.map { apiMount in
-            Mount(
-                id: UUID(), // Generate a new UUID since we don't have one from the server
-                name: apiMount.name,
-                path: "", // Not provided in MountInfo
-                remotePath: "", // Not provided in MountInfo
-                isMounted: false, // Default to false since we don't have this info
-                type: MountType(rawValue: apiMount.pluginType.lowercased()) ?? .other,
-                lastAccessed: nil, // Not provided in MountInfo
-                metadata: apiMount.config // Using config map as metadata
-            )
-        }
-    }
-    
-    // MARK: - Plugin Management
-    
+
+    // MARK: - Connection Management
     /// Ensures connection, reconnects if needed, then performs the given async action.
     public func ensureConnectedAndPerform<T>(action: @escaping () async throws -> T) async throws -> T {
         if case .connected = self.connectionState {
@@ -133,7 +163,7 @@ open class BackendAPI: ObservableObject {
             throw APIError.notConnected
         }
     }
-    
+
     /// Waits for the backend API to connect, up to the given timeout (in seconds).
     private func waitForConnection(timeout: TimeInterval) async -> Bool {
         let start = Date()
@@ -141,82 +171,67 @@ open class BackendAPI: ObservableObject {
             if case .connected = self.connectionState {
                 return true
             }
-            try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
+            try? await Task.sleep(nanoseconds: 200_000_000)  // 200ms
         }
         return false
     }
-    
-    /// Fetches the list of available plugins, auto-reconnecting if needed.
-    /// - Returns: An array of Plugin objects
-    public func listPlugins() async throws -> [Plugin] {
-        return try await ensureConnectedAndPerform {
-            let request = Api_ListPluginsRequest()
-            let response: Api_ListPluginsResponse = try await self.sendRequest(
-                request,
-                responseType: Api_ListPluginsResponse.self,
-                messageType: .listPluginsRequest
-            )
-            return response.plugins.map { apiPlugin in
-                Plugin(
-                    name: apiPlugin.name,
-                    version: "1.0.0",
-                    description: apiPlugin.description_p
-                )
-            }
-        }
-    }
-    
-    // MARK: - Connection Management
-    
+
     public func connect(host: String = "localhost", port: Int) async throws {
         // Cancel any existing connection
         disconnect()
-        
+
         log("Attempting to connect to backend at \(host):\(port)")
         connectionState = .connecting
-        
+
         let connection = NWConnection(
             host: NWEndpoint.Host(host),
             port: NWEndpoint.Port(integerLiteral: UInt16(port)),
             using: .tcp
         )
-        
+
         self.connection = connection
-        
+
         // Set up state update handler
         connection.stateUpdateHandler = { [weak self] state in
             guard let self = self else { return }
-            
+
             switch state {
             case .ready:
                 let info = ConnectionInfo(host: host, port: UInt16(port))
-                self.log("Successfully connected to backend at \(host):\(port)")
-                self.connectionState = .connected(info)
-                self.startReceiving()
-                
+                Task {
+                    self.log("Successfully connected to backend at \(host):\(port)")
+                    await self.setConnectionState(.connected(info))
+                    self.startReceiving()
+                }
+
             case .failed(let error):
-                self.log("Failed to connect to backend at \(host):\(port): \(error.localizedDescription)")
-                self.connectionState = .failed(error)
-                self.cleanup()
-                
+                Task {
+                    self.log("Failed to connect to backend at \(host):\(port): \(error.localizedDescription)")
+                    await self.setConnectionState(.failed(error))
+                    self.cleanup()
+                }
+
             case .cancelled:
-                self.log("Connection to backend at \(host):\(port) cancelled")
-                self.connectionState = .disconnected
-                self.cleanup()
-                
+                Task {
+                    self.log("Connection to backend at \(host):\(port) cancelled")
+                    await self.setConnectionState(.disconnected)
+                    self.cleanup()
+                }
+
             default:
                 break
             }
         }
-        
+
         // Start the connection
         connection.start(queue: queue)
-        
+
         // Wait for connection to be established or fail
         return try await withCheckedThrowingContinuation { continuation in
             var didResume = false
             var cancellableRef: AnyCancellable?
-            cancellableRef = connectionStatePublisher
+            cancellableRef =
+                connectionStatePublisher
                 .first { state in
                     if case .connected = state { return true }
                     if case .failed = state { return true }
@@ -238,7 +253,7 @@ open class BackendAPI: ObservableObject {
             // Resume continuation if the task is cancelled
             Task {
                 while !didResume {
-                    try? await Task.sleep(nanoseconds: 20_000_000) // 20ms polling
+                    try? await Task.sleep(nanoseconds: 20_000_000)  // 20ms polling
                     if Task.isCancelled, !didResume {
                         didResume = true
                         cancellableRef?.cancel()
@@ -250,92 +265,96 @@ open class BackendAPI: ObservableObject {
             }
         }
     }
-    
+
     public func disconnect() {
         connection?.cancel()
         cleanup()
     }
-    
+
     public func sendRequest<Request: SwiftProtobuf.Message, Response: SwiftProtobuf.Message>(
         _ request: Request,
         responseType: Response.Type,
         messageType: Api_MessageType
     ) async throws -> Response {
-        guard connectionState.isConnected, let connection = connection else {
-            throw APIError.notConnected
-        }
-        
-        return try await withCheckedThrowingContinuation { continuation in
-            do {
-                // Create the message
-                var message = Api_Message()
-                message.type = messageType
-                message.payload = try request.serializedData()
-                
-                // Serialize the message
-                let data = try message.serializedData()
-                let size = Int32(data.count)
-                var sizeData = withUnsafeBytes(of: size.bigEndian) { Data($0) }
-                sizeData.append(data)
-                
-                // Send the data
-                connection.send(
-                    content: sizeData,
-                    completion: .contentProcessed { [weak self] error in
-                        if let error = error {
-                            continuation.resume(throwing: APIError.requestFailed(error))
-                            return
-                        }
-                        
-                        // Set up a one-time handler for the response
-                        self?.messageHandlers[messageType] = { data in
-                            do {
-                                let response = try responseType.init(serializedBytes: data)
-                                continuation.resume(returning: response)
-                            } catch {
-                                continuation.resume(throwing: APIError.decodingError)
-                            }
-                        }
-                    }
-                )
-            } catch {
-                continuation.resume(throwing: APIError.encodingError)
+        return try await socketLock.withLock {
+            self.log("Sending request: \(messageType)")
+
+            guard connectionState.isConnected, let connection = connection else {
+                throw APIError.notConnected
             }
+
+            // Create the message
+            var message = Api_Message()
+            message.type = messageType
+            message.payload = try request.serializedData()
+            let data = try message.serializedData()
+            let size = Int32(data.count)
+            var sizeData = withUnsafeBytes(of: size.bigEndian) { Data($0) }
+            sizeData.append(data)
+
+            // Uncomment to debug raw protobuf bytes:
+            logRawDataIfEnabled("Sent sizeData", data: sizeData)
+            // Send the data
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                connection.send(content: sizeData, completion: .contentProcessed { error in
+                    if let error = error {
+                        continuation.resume(throwing: APIError.requestFailed(error))
+                    } else {
+                        continuation.resume()
+                    }
+                })
+            }
+
+            // Wait for the response (blocking)
+            let responseMessage = try await receiveMessage(expectedType: responseType, expectedMessageType: messageType)
+            return responseMessage
         }
     }
-    
+
+    private func receiveMessage<Response: SwiftProtobuf.Message>(expectedType: Response.Type, expectedMessageType: Api_MessageType) async throws -> Response {
+        guard let connection = connection else { throw APIError.notConnected }
+
+        // Read message size (4 bytes)
+        let sizeData = try await receiveData(count: 4, from: connection)
+        let size = sizeData.withUnsafeBytes { $0.load(as: Int32.self).bigEndian }
+
+        // Read message payload
+        let messageData = try await receiveData(count: Int(size), from: connection)
+        logRawDataIfEnabled("Received messageData", data: messageData)
+        print("[DEBUG] First 20 bytes (Swift): \(messageData.prefix(20).map { String(format: "%02x", $0) }.joined(separator: " "))")
+        do {
+            // DECODE ENVELOPE: Api_Message
+            let envelope = try Api_Message(serializedBytes: messageData)
+//            if envelope.type != expectedType {
+//                print("[PROTOBUF ERROR] Unexpected message type: got \(envelope.type), expected \(expectedMessageType)")
+//                throw APIError.protocolError("Unexpected message type: got \(envelope.type), expected \(expectedMessageType)")
+//            }
+            // DECODE PAYLOAD
+            return try expectedType.init(serializedBytes: envelope.payload)
+        } catch {
+            print("[PROTOBUF ERROR] Could not decode Protocol Buffer: \(error)")
+            print("[PROTOBUF ERROR] Raw bytes (hex): \(messageData.map { String(format: "%02x", $0) }.joined())")
+            if let text = String(data: messageData, encoding: .utf8) {
+                print("[PROTOBUF ERROR] Raw bytes (utf8): \(text)")
+            } else {
+                print("[PROTOBUF ERROR] Raw bytes (utf8): <not valid utf8>")
+            }
+            throw error
+        }
+    }
+
+    /// Helper for debugging raw protobuf bytes. Enable by uncommenting calls.
+    private func logRawDataIfEnabled(_ label: String, data: Data) {
+        // comment this out when you don't want it anymore
+        print("[DEBUG] \(label): \(data as NSData)")
+    }
+
     // MARK: - Private Methods
-    
+
     private func startReceiving() {
-        receiveTask?.cancel()
-        receiveTask = Task { [weak self] in
-            guard let self = self, let connection = self.connection else { return }
-            
-            while !Task.isCancelled {
-                do {
-                    // Read message size (4 bytes)
-                    let sizeData = try await self.receiveData(count: 4, from: connection)
-                    let size = sizeData.withUnsafeBytes { $0.load(as: Int32.self).bigEndian }
-                    
-                    // Read message payload
-                    let messageData = try await self.receiveData(count: Int(size), from: connection)
-                    let message = try Api_Message(serializedBytes: messageData)
-                    
-                    // Call the appropriate handler
-                    if let handler = self.messageHandlers[message.type] {
-                        handler(message.payload)
-                        self.messageHandlers.removeValue(forKey: message.type)
-                    }
-                } catch {
-                    if !Task.isCancelled {
-                        print("Error receiving data: \(error)")
-                    }
-                    break
-                }
-            }
-        }
+        // No-op: stateless API does not need a receive loop for handlers
     }
-    
+
     private func receiveData(count: Int, from connection: NWConnection) async throws -> Data {
         try await withCheckedThrowingContinuation { continuation in
             connection.receive(
@@ -352,22 +371,68 @@ open class BackendAPI: ObservableObject {
             }
         }
     }
-    
+
     private func cleanup() {
         receiveTask?.cancel()
         receiveTask = nil
-        
+
         connection?.cancel()
         connection = nil
-        
+
         if case .connected = connectionState {
             connectionState = .disconnected
         }
-        
-        // Cancel all pending handlers
-        messageHandlers.values.forEach { handler in
-            handler(Data()) // Send empty data to unblock any waiting tasks
+    }
+
+    // MARK: - Mount Management
+
+    public func listMounts() async throws -> [Mount] {
+        return try await ensureConnectedAndPerform {
+            let request = Api_ListMountsRequest()
+            let response: Api_ListMountsResponse = try await self.sendRequest(
+                request,
+                responseType: Api_ListMountsResponse.self,
+                messageType: .listMountsRequest
+            )
+
+            let mounts = response.mounts.map { apiMount in
+                Mount(
+                    id: UUID(),  // Generate a new UUID since we don't have one from the server
+                    diskType: DiskTypeEnum(rawValue: apiMount.diskType.lowercased()) ?? .localdirectory,
+                    name: apiMount.name,
+                    path: "",  // Not provided in MountInfo
+                    remotePath: "",  // Not provided in MountInfo
+                    isMounted: false,  // Default to false since we don't have this info
+                    lastAccessed: nil,  // Not provided in MountInfo
+                    metadata: apiMount.config  // Using config map as metadata
+                )
+            }
+            self.log("Listed \(mounts.count) mounts")
+            return mounts
         }
-        messageHandlers.removeAll()
+    }
+
+    // MARK: - DiskType Management
+
+    /// Fetches the list of available diskTypes, auto-reconnecting if needed.
+    /// - Returns: An array of DiskType objects
+    public func listDiskTypes() async throws -> [DiskType] {
+        return try await ensureConnectedAndPerform {
+            let request = Api_ListDiskTypesRequest()
+            let response: Api_ListDiskTypesResponse = try await self.sendRequest(
+                request,
+                responseType: Api_ListDiskTypesResponse.self,
+                messageType: .listDiskTypesRequest
+            )
+            let diskTypes = response.diskTypes.map { apiDiskType in
+                DiskType(
+                    name: apiDiskType.name,
+                    version: "1.0.0",
+                    description: apiDiskType.description_p
+                )
+            }
+            self.log("Listed \(diskTypes) diskTypes")
+            return diskTypes
+        }
     }
 }

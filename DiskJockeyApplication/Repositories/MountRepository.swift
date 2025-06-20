@@ -116,7 +116,7 @@ public final class MountRepository: ObservableObject {
     public func addMount(_ mount: Mount) async throws {
         var request = Api_CreateMountRequest()
         request.name = mount.name
-        request.pluginType = mount.type.rawValue
+        request.diskType = mount.diskType.rawValue
         
         // Add mount configuration to the config dictionary
         var config: [String: String] = [:]

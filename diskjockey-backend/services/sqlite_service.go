@@ -2,7 +2,10 @@ package services
 
 import (
 	"fmt"
+	"io/ioutil"
 	"net/url"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/christhomas/diskjockey/diskjockey-backend/migrations"
@@ -44,8 +47,27 @@ type SQLiteParams struct {
 	FullFSync   bool   // Full fsync on commit
 }
 
+// ensureFileExists creates the file at path with defaultContent if it does not exist.
+func ensureFileExists(path, defaultContent string) error {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		dir := filepath.Dir(path)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
+		return ioutil.WriteFile(path, []byte(defaultContent), 0644)
+	}
+	return nil
+}
+
 // NewSQLiteService creates a new DatabaseService instance with recommended SQLite parameters.
 func NewSQLiteService(database string) *SQLiteService {
+	if err := ensureFileExists(database, ""); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create db: %v\n", err)
+		os.Exit(1)
+	} else {
+		fmt.Printf("Found db: %s\n", database)
+	}
+
 	return &SQLiteService{
 		params: SQLiteParams{
 			Path:        database,

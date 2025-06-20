@@ -5,7 +5,7 @@ import Combine
 public struct MountPoint: Identifiable, Codable, Equatable {
     public let id: UUID
     public var name: String
-    public var type: MountType
+    public var diskType: DiskTypeEnum
     public var url: String
     public var username: String
     public var password: String
@@ -17,7 +17,7 @@ public struct MountPoint: Identifiable, Codable, Equatable {
     public init(
         id: UUID = UUID(),
         name: String = "",
-        type: MountType = .webdav,
+        diskType: DiskTypeEnum = .localdirectory,
         url: String = "",
         username: String = "",
         password: String = "",
@@ -26,7 +26,7 @@ public struct MountPoint: Identifiable, Codable, Equatable {
     ) {
         self.id = id
         self.name = name
-        self.type = type
+        self.diskType = diskType
         self.url = url
         self.username = username
         self.password = password

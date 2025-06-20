@@ -51,23 +51,23 @@ class MessageProcessor {
     /// Handles a single message from a backend response
     private func handleMessage(typeId: UInt8, payload: Data, clientFD: Int32) {
         if typeId == Api_MessageType.connect.rawValue {
-            // After handshake, send ListPluginsRequest (example: chain request)
-            var req = Api_ListPluginsRequest()
-            sendRequest(type: .listPluginsRequest, message: req)
-        } else if typeId == Api_MessageType.listPluginsRequest.rawValue {
-            // Handle ListPluginsResponse
+            // After handshake, send ListDiskTypesRequest (example: chain request)
+            var req = Api_ListDiskTypesRequest()
+            sendRequest(type: .listDiskTypesRequest, message: req)
+        } else if typeId == Api_MessageType.listDiskTypesRequest.rawValue {
+            // Handle ListDiskTypesResponse
             do {
-                let resp = try Api_ListPluginsResponse(serializedBytes: Array(payload))
-                print("Active plugins:")
-                for plugin in resp.plugins {
-                    print(" - \(plugin.name)")
+                let resp = try Api_ListDiskTypesResponse(serializedBytes: Array(payload))
+                print("Active disk types:")
+                for diskType in resp.diskTypes {
+                    print(" - \(diskType.name)")
                 }
                 // Notify UI
                 DispatchQueue.main.async {
-                    NotificationCenter.default.post(name: NSNotification.Name("PluginsListUpdated"), object: nil, userInfo: ["plugins": resp.plugins])
+                    NotificationCenter.default.post(name: NSNotification.Name("DiskTypesListUpdated"), object: nil, userInfo: ["diskTypes": resp.diskTypes])
                 }
             } catch {
-                NSLog("Failed to decode ListPluginsResponse: %@", error.localizedDescription)
+                NSLog("Failed to decode ListDiskTypesResponse: %@", error.localizedDescription)
             }
         } else {
             // Not sure what to do when you don't understand the message

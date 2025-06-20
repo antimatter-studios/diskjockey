@@ -49,8 +49,8 @@ struct ContentView: View {
                 Label("Mounts", systemImage: "externaldrive")
             }
             
-            NavigationLink(value: SidebarItem.plugins) {
-                Label("Plugins", systemImage: "puzzlepiece.extension")
+            NavigationLink(value: SidebarItem.diskTypes) {
+                Label("Disk Types", systemImage: "puzzlepiece.extension")
             }
             
             NavigationLink(value: SidebarItem.systemLog) {
@@ -73,10 +73,11 @@ struct ContentView: View {
         case .mounts:
             MountView()
                 .environmentObject(container.mountRepository)
+                .environmentObject(container.diskTypeRepository)
                 .eraseToAnyView()
             
-        case .plugins:
-            PluginView(repository: container.pluginRepository)
+        case .diskTypes:
+            DiskTypeView(repository: container.diskTypeRepository)
                 .eraseToAnyView()
             
         case .systemLog:

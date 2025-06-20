@@ -1,9 +1,4 @@
 .DS_Store
 .build
-
-diskjockey-backend/test-mount
-diskjockey-backend/server.json
-diskjockey-backend/diskjockey-backend
-
-diskjockey-cli/djctl
-
+project.xcworkspace
+xcuserdata

@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 
 	"github.com/christhomas/diskjockey/diskjockey-backend/models"
@@ -32,35 +33,35 @@ func (cs *ConfigService) GetMountByName(mountName string) (*models.Mount, error)
 	db := cs.db.GetDB()
 
 	var mount models.Mount
-	if err := db.Preload("Plugin").Where("name = ?", mountName).First(&mount).Error; err != nil {
+	if err := db.Where("name = ?", mountName).First(&mount).Error; err != nil {
 		return nil, err
 	}
 
 	return &mount, nil
 }
 
-// GetMountByID fetches a mount by its primary key, including plugin.
+// GetMountByID fetches a mount by its primary key, including disktype.
 func (cs *ConfigService) GetMountByID(id uint32) (*models.Mount, error) {
 	db := cs.db.GetDB()
 	var mount models.Mount
-	if err := db.Preload("Plugin").First(&mount, id).Error; err != nil {
+	if err := db.First(&mount, id).Error; err != nil {
 		return nil, err
 	}
 	return &mount, nil
 }
 
-// CreateMount inserts a new mount into the database, linking to the plugin by name.
+// CreateMount inserts a new mount into the database, linking to the disktype by name.
 // It enforces that no mounts overlap (same or parent/child path).
 // CreateMount creates a new mount config row and returns its ID
-func (cs *ConfigService) CreateMount(name string, pluginType string, config map[string]string) (uint32, error) {
+func (cs *ConfigService) CreateMount(name string, disktype string, config map[string]string, disktypeService *DiskTypeService) (uint32, error) {
 	db := cs.db.GetDB()
-	var plugin models.Plugin
-	if err := db.Where("name = ?", pluginType).First(&plugin).Error; err != nil {
-		return 0, err
+	// Validate disk type exists in code (not DB)
+	if _, ok := disktypeService.LookupDiskType(disktype); !ok {
+		return 0, errors.New("disk type does not exist: " + disktype)
 	}
 	mount := models.Mount{
-		Name:   name,
-		Plugin: plugin,
+		Name:     name,
+		DiskType: disktype,
 	}
 	// Set config fields if present
 	if v, ok := config["host"]; ok {
@@ -88,9 +89,12 @@ func (cs *ConfigService) CreateMount(name string, pluginType string, config map[
 			return 0, errors.New("mount path overlaps with existing mount: " + ex.Path)
 		}
 	}
+	fmt.Printf("[ConfigService] Creating mount: %+v\n", mount)
 	if err := db.Create(&mount).Error; err != nil {
+		fmt.Printf("[ConfigService] Failed to create mount: %v\n", err)
 		return 0, err
 	}
+	fmt.Printf("[ConfigService] Created mount: %+v\n", mount)
 	return uint32(mount.ID), nil
 }
 
@@ -115,7 +119,7 @@ func (cs *ConfigService) ListMountpoints() ([]models.Mount, error) {
 	db := cs.db.GetDB()
 
 	var mounts []models.Mount
-	if err := db.Preload("Plugin").Find(&mounts).Error; err != nil {
+	if err := db.Order("id ASC").Find(&mounts).Error; err != nil {
 		return nil, err
 	}
 

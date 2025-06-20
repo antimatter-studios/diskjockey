@@ -3,7 +3,7 @@
 ## Current High-Level Plan
 - Sidebar and menu bar should both have a Quit item, which navigates to a controlled shutdown panel (not instant quit).
 - The Quit panel must show shutdown progress and info before actually quitting the app.
-- Mounts CRUD UI must be fully functional and top-aligned, with dynamic plugin type pickers.
+- Mounts CRUD UI must be fully functional and top-aligned, with dynamic disk type pickers.
 - SwiftUI architecture with ObservableObject/EnvironmentObject for all shared state.
 - No AppKit/storyboard dependencies; all UI is SwiftUI.
 - Menu bar and sidebar navigation is unified via notifications and SidebarModel.selectedItem.

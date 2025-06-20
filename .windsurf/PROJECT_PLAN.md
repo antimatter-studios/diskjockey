@@ -1,11 +1,11 @@
 # 📋 Project Plan (Updated): Virtual Filesystem for macOS with FileProvider & Go Backend
 
-This plan outlines the phases, tasks, and design thinking for a robust, plugin-based, cloud-synced virtual filesystem on macOS. It incorporates best practices for IPC, metadata, resilience, and security.
+This plan outlines the phases, tasks, and design thinking for a robust, disk type-based, cloud-synced virtual filesystem on macOS. It incorporates best practices for IPC, metadata, resilience, and security.
 
 ---
 
 ## 🎯 Project Objective
-Build a secure, mountable macOS virtual drive that integrates with Finder, supports POSIX access, and synchronizes data with multiple backends (SFTP, WebDAV, IPFS), with modular plugin support.
+Build a secure, mountable macOS virtual drive that integrates with Finder, supports POSIX access, and synchronizes data with multiple backends (SFTP, WebDAV, IPFS), with modular disk type support.
 
 ---
 
@@ -27,8 +27,8 @@ Build a secure, mountable macOS virtual drive that integrates with Finder, suppo
 
 ### Phase 3: Go Daemon Design
 - Define the Backend interface in Go
-- Implement a sample plugin: SFTPBackend
-- Implement plugin loading/configuration
+- Implement a sample disk type: SFTPBackend
+- Implement disk type loading/configuration
 - Add local metadata store (BoltDB, see technical-specs.md for rationale)
 - Support logging, metrics, and configuration reloading
 
@@ -37,7 +37,7 @@ Build a secure, mountable macOS virtual drive that integrates with Finder, suppo
 - Handle startProvidingItem(at:) to download file from Go daemon
 - Cache files locally in a disk-backed storage
 - Watch for file modifications and notify the Go daemon
-- Upload changed files via appropriate backend plugin
+- Upload changed files via appropriate backend disk type
 
 ### Phase 5: User Experience and Management
 - Build a Swift-based menu bar app
@@ -62,7 +62,7 @@ Build a secure, mountable macOS virtual drive that integrates with Finder, suppo
 
 ## 📂 Key Deliverables
 - Swift FileProvider extension (POSIX-compatible virtual drive)
-- Go-based daemon with plugin architecture
+- Go-based daemon with disk type architecture
 - At least one working backend (SFTP)
 - Local metadata + cache engine (BoltDB, on-disk cache)
 - UI for controlling sync, settings, and error reporting
@@ -72,7 +72,7 @@ Build a secure, mountable macOS virtual drive that integrates with Finder, suppo
 
 ## 🧠 Design Thinking Notes
 - POSIX compatibility is guaranteed only inside FileProvider volume
-- Plugin interface in Go must isolate errors and support retries
+- Disk type interface in Go must isolate errors and support retries
 - Files must be fully hydrated before POSIX access—no just-in-time reads
 - Go handles protocol logic, sync engine, caching
 - Swift handles system-level and GUI interactions
@@ -85,7 +85,7 @@ Build a secure, mountable macOS virtual drive that integrates with Finder, suppo
 
 ## ✅ Success Criteria
 - POSIX file access works seamlessly via the mounted volume
-- Multiple backends supported via plugins
+- Multiple backends supported via disk types
 - No need to reduce macOS system security (no SIP reduction or kernel extensions)
 - Handles sync, conflicts, and caching transparently
 - User can install and use app with minimal technical knowledge

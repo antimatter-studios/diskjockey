@@ -1,6 +1,6 @@
 # 📁 Virtual Filesystem Architecture for macOS (FileProvider-Based, Updated)
 
-This document describes a secure, plugin-capable, cross-protocol virtual filesystem for macOS using Apple’s FileProvider framework for POSIX compatibility, and a Go-based daemon to orchestrate backend data operations. It incorporates recommendations for IPC, metadata, resilience, and security.
+This document describes a secure, disk type-capable, cross-protocol virtual filesystem for macOS using Apple’s FileProvider framework for POSIX compatibility, and a Go-based daemon to orchestrate backend data operations. It incorporates recommendations for IPC, metadata, resilience, and security.
 
 ---
 
@@ -27,12 +27,12 @@ The application provides a virtual drive mountable via Finder that:
 
 ### 2. Core Daemon (Go)
 - Persistent background process, restartable and stateless between crashes (all state persisted)
-- Implements business logic, cache management, plugin coordination
+- Implements business logic, cache management, disk type coordination
 - Uses BoltDB for metadata storage (see technical-specs.md for rationale)
 - Communicates with the Swift extension via IPC (Unix sockets, Protobuf/gRPC)
 - Handles authentication, permission mapping, logging, and journaling
 
-### 3. Plugin Backends (Go interfaces)
+### 3. Disk Type Backends (Go interfaces)
 - Modular adapters that implement a common Backend interface:
   - `List(path string) ([]FileInfo, error)`
   - `Read(path string) (io.ReadCloser, error)`
@@ -40,7 +40,7 @@ The application provides a virtual drive mountable via Finder that:
   - `Delete(path string) error`
 - Examples: SFTPBackend, WebDAVBackend, IPFSBackend
 - Responsible for fetching file data and syncing modifications
-- Plugins are loaded/configured dynamically based on user settings
+- Disk types are loaded/configured dynamically based on user settings
 
 ### 4. Cache Directory (User-Managed Disk Cache)
 - Stores locally available file data
@@ -77,8 +77,8 @@ All data transfer between the FileProvider and the Go daemon occurs over a secur
 3. FileProvider receives the request and checks metadata
 4. If file is not available locally:
    - Swift requests file from Go daemon via IPC
-   - Go daemon routes request to appropriate plugin
-   - Plugin fetches file and streams to Swift
+   - Go daemon routes request to appropriate disk type
+   - Disk type backend fetches file and streams to Swift
    - Swift writes file into the virtual volume
 5. File is now accessible via POSIX APIs
 6. When user modifies the file:

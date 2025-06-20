@@ -15,7 +15,7 @@
 
 3. **Go Daemon Core**
    - Implement metadata storage using BoltDB (see technical-specs.md for rationale).
-   - Implement plugin registry and dummy backend.
+   - Implement disk type registry and dummy backend.
    - Add logging and configuration reload support.
 
 4. **End-to-End Dummy Flow**
@@ -24,7 +24,7 @@
    - Swift writes file into FileProvider volume.
 
 5. **Add Real Backend (SFTP)**
-   - Implement SFTPBackend plugin in Go.
+   - Implement SFTPBackend disk type in Go.
    - Test real file fetch and sync.
 
 6. **Cache and Sync**

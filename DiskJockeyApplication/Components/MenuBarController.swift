@@ -44,7 +44,7 @@ class MenuBarController: NSObject {
     }
     
     @objc private func showSettings() {
-        sidebarModel.selectedItem = .plugins
+        sidebarModel.selectedItem = .diskTypes
         NotificationCenter.default.post(name: NSNotification.Name("ShowSettingsPage"), object: nil)
         NotificationCenter.default.post(name: NSNotification.Name("ShowMainWindow"), object: nil)
     }

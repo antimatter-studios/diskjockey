@@ -1,6 +1,6 @@
 # 🛠 TECHNICAL_SPECS_UPDATED.md: Virtual Filesystem for macOS
 
-This document details the technical steps, rationale, and additional best practices for implementing a robust, plugin-based virtual filesystem using Swift (FileProvider & GUI) and Go (backend daemon, plugins).
+This document details the technical steps, rationale, and additional best practices for implementing a robust, disk type-based virtual filesystem using Swift (FileProvider & GUI) and Go (backend daemon, disk types).
 
 ---
 
@@ -20,7 +20,7 @@ project-root/
 ├── go-backend/
 │   ├── main.go
 │   ├── ipc/
-│   ├── plugins/
+│   ├── disktypes/
 │   ├── cache/
 │   ├── metadata/ (BoltDB)
 │   └── config/
@@ -71,7 +71,7 @@ project-root/
 - In Go:
   - Start IPC server listener
   - Accept requests from Swift
-  - Route requests to plugin layer
+  - Route requests to disk type layer
 - In Swift:
   - Connect to socket
   - Encode/decode messages
@@ -84,7 +84,7 @@ project-root/
 - Implement:
   - Metadata store (BoltDB)
   - Cache manager (file expiration, prefetch, LRU, pinning, checksum)
-  - Request dispatcher (connects IPC to plugins)
+  - Request dispatcher (connects IPC to disk types)
   - Journaling for operation logs
   - Logging (to file & stdout)
   - Config reload support
@@ -95,16 +95,16 @@ project-root/
 - High performance
 - Avoids SQLite locking issues
 
-### 5. Implement Plugin System in Go
-- Define Backend interface:
+### 5. Implement Disk Type System in Go
+- Define DiskType interface:
   - List(path) ([]FileInfo, error)
   - Read(path) (io.ReadCloser, error)
   - Write(path, data io.Reader) error
   - Delete(path) error
-- Create sample plugin: SFTPBackend
-- Plugin registry, load config (JSON, TOML, or YAML)
+- Create sample disk type: SFTPBackend
+- Disk type registry, load config (JSON, TOML, or YAML)
 - Route requests by domain/path
-- Plugins must isolate errors and support retries
+- Disk types must isolate errors and support retries
 
 ### 6. Integrate Go Daemon with FileProvider
 - Swift receives provide/startProviding item request
@@ -132,7 +132,7 @@ project-root/
 ### 9. Development & Testing Utilities
 - CLI to manually test daemon requests
 - Write logs to file/stdout
-- Unit tests for plugin interface, IPC handlers
+- Unit tests for disk type interface, IPC handlers
 - Use Instruments/fs_usage for POSIX flow
 - [Optional] Integration tests for end-to-end flows
 
@@ -164,7 +164,7 @@ project-root/
 - **Documentation:** Inline code docs, user/developer guides, and troubleshooting FAQ
 - **Accessibility:** Menu bar app and notifications should support VoiceOver
 - **Internationalization:** Prepare for localization if distributing broadly
-- **Performance:** Profile cache, IPC, and plugin code under real workloads
+- **Performance:** Profile cache, IPC, and disk type code under real workloads
 
 ---
 
@@ -172,7 +172,7 @@ project-root/
 - App runs with FileProvider integration
 - Volume appears in Finder and via POSIX
 - Go daemon responds to IPC and serves files
-- Cache system and plugin interface are reliable
+- Cache system and disk type interface are reliable
 - All error and sync states are visible in UI/logs
 - Fully signed and notarized application package
 - Tested with third-party apps (VSCode, ffmpeg, go build)
