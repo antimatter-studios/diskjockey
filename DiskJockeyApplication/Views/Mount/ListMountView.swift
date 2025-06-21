@@ -10,6 +10,7 @@ import SwiftUI
 
 struct ListMountView: View {
     @EnvironmentObject private var mountRepository: MountRepository
+    @StateObject private var mountManager = MountManager.shared
 
     var body: some View {
         VStack {
@@ -21,7 +22,7 @@ struct ListMountView: View {
                             Text("mounts_column_name").bold()
                             Text("mounts_column_type").bold()
                             Text("mounts_column_speed").bold()
-                            Text("mounts_column_status").bold()
+                            Text("mounts_column_action").bold()
                         }
                         Divider().gridCellColumns(4)
                         // Rows
@@ -35,12 +36,25 @@ struct ListMountView: View {
                                 }
                                 Text(mount.diskType.rawValue.capitalized).font(.subheadline)
                                 Text("64 KB/sec").font(.subheadline)
-                                Text(mount.isMounted ? "Mounted" : "Unmounted")
-                                    .font(.caption)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 2)
-                                    .background(Capsule().fill(mount.isMounted ? Color.green.opacity(0.2) : Color.red.opacity(0.2)))
-                                    .foregroundColor(mount.isMounted ? .green : .red)
+                                if mountManager.isMounted(mount) {
+                                    Button(action: {
+                                        Task { try? await mountManager.unmount(mount) }
+                                    }) {
+                                        Text("Unmount")
+                                            .font(.caption)
+                                    }
+                                } else {
+                                    Button(action: {
+                                        Task { try? await mountManager.mount(mount) }
+                                    }) {
+                                        Text("Mount")
+                                            .font(.caption)
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 2)
+                                            .background(Capsule().fill(Color.green.opacity(0.2)))
+                                            .foregroundColor(.green)
+                                    }
+                                }
                             }
                         }
                     }

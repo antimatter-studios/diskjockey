@@ -5,8 +5,8 @@ syntax = "proto3";
 //   3: WriteFileRequest / WriteFileResponse
 // These IDs are used in the daemon's socket protocol to identify message types.
 
-package api;
-option go_package = "diskjockey-backend/proto/api;api";
+package backend;
+option go_package = "diskjockey-backend/proto/backend;backend";
 
 // Message wrapper that contains the actual message and its type
 message Message {

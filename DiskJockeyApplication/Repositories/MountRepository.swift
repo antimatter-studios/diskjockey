@@ -56,21 +56,10 @@ public final class MountRepository: ObservableObject {
         guard !mount.isMounted else { return }
         
         do {
-            // Find the mount to get its mount_id
             guard let mountId = mounts.first(where: { $0.id == id })?.metadata["mount_id"].flatMap(UInt32.init) else {
                 throw MountError.mountNotFound(id: id)
             }
-            
-            var request = Api_MountRequest()
-            request.mountID = mountId
-            
-            let _: Api_MountResponse = try await api.sendRequest(
-                request,
-                responseType: Api_MountResponse.self,
-                messageType: .mountRequest
-            )
-            
-            // Update local state with a new mounted instance
+            try await api.mount(id: mountId)
             var updatedMount = mounts[index]
             updatedMount = updatedMount.withMounted(true)
             mounts[index] = updatedMount
@@ -89,21 +78,10 @@ public final class MountRepository: ObservableObject {
         guard mount.isMounted else { return }
         
         do {
-            // Find the mount to get its mount_id
             guard let mountId = mounts.first(where: { $0.id == id })?.metadata["mount_id"].flatMap(UInt32.init) else {
                 throw MountError.mountNotFound(id: id)
             }
-            
-            var request = Api_UnmountRequest()
-            request.mountID = mountId
-            
-            let _: Api_UnmountResponse = try await api.sendRequest(
-                request,
-                responseType: Api_UnmountResponse.self,
-                messageType: .unmountRequest
-            )
-            
-            // Update local state with a new unmounted instance
+            try await api.unmount(id: mountId)
             var updatedMount = mounts[index]
             updatedMount = updatedMount.withMounted(false)
             mounts[index] = updatedMount
@@ -114,42 +92,15 @@ public final class MountRepository: ObservableObject {
     }
     
     public func addMount(_ mount: Mount) async throws {
-        var request = Api_CreateMountRequest()
-        request.name = mount.name
-        request.diskType = mount.diskType.rawValue
-        
-        // Add mount configuration to the config dictionary
-        var config: [String: String] = [:]
-        if !mount.path.isEmpty { config["path"] = mount.path }
-        if !mount.remotePath.isEmpty { config["remotePath"] = mount.remotePath }
-        request.config = config
-        
-        let _: Api_CreateMountResponse = try await api.sendRequest(
-            request,
-            responseType: Api_CreateMountResponse.self,
-            messageType: .createMountRequest
-        )
-        
-        // Refresh the mounts list
+        try await api.addMount(mount)
         await fetchMounts()
     }
     
     public func removeMount(id: UUID) async throws {
-        // Find the mount to get its mount_id
         guard let mountId = mounts.first(where: { $0.id == id })?.metadata["mount_id"].flatMap(UInt32.init) else {
             throw MountError.mountNotFound(id: id)
         }
-        
-        var request = Api_DeleteMountRequest()
-        request.mountID = mountId
-        
-        let _: Api_DeleteMountResponse = try await api.sendRequest(
-            request,
-            responseType: Api_DeleteMountResponse.self,
-            messageType: .deleteMountRequest
-        )
-        
-        // Remove from local state if the API call succeeds
+        try await api.removeMount(id: mountId)
         mounts.removeAll { $0.id == id }
     }
     

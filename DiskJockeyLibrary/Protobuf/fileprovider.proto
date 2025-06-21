@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package diskjockey.fileprovider;
+
+message FileProviderRequest {
+  oneof request_type {
+    ListRequest list = 1;
+    StatRequest stat = 2;
+    ReadRequest read = 3;
+  }
+  string mount_id = 10; // UUID string for the mount/domain
+}
+
+message ListRequest {
+  string path = 1;
+}
+
+message StatRequest {
+  string path = 1;
+}
+
+message ReadRequest {
+  string path = 1;
+  int64 offset = 2;
+  int64 length = 3;
+}
+
+message FileProviderResponse {
+  oneof response_type {
+    ListResponse list = 1;
+    StatResponse stat = 2;
+    ReadResponse read = 3;
+    ErrorResponse error = 4;
+  }
+}
+
+message ListResponse {
+  repeated FileInfo files = 1;
+}
+
+message StatResponse {
+  FileInfo file = 1;
+}
+
+message ReadResponse {
+  bytes data = 1;
+  bool eof = 2;
+}
+
+message ErrorResponse {
+  string message = 1;
+  int32 code = 2;
+}
+
+message FileInfo {
+  string name = 1;
+  bool is_directory = 2;
+  int64 size = 3;
+  int64 mtime = 4;
+}

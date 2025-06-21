@@ -7,6 +7,12 @@ DiskJockey is a modular, virtual filesystem solution for macOS designed to unify
 
 ## Updates:
 
+__21/06/2025:__ Mounts are working! I can select a Particular mount to mount or unmount and it will
+appear in the Finder sidebar as a new drive. So now I have a communication channel between the mac
+app and the file provider extension. With that, I will be able to process messages about file operations
+
+![mount](media/mounts-are-working.gif)
+
 __20/05/2025:__ Refactorings, Backend is now a server, started using localization, added locking around the tcp socket, disabled reconnection logic, added listing of mounts and disk types to the interface
 
 ![mounts](media/mount-view.png)
@@ -56,7 +62,7 @@ the project requires you to, because you are going to need to run a File Provide
 - ✅ Makefile and build automation for Go/Swift targets
 - ✅ Multi-process orchestration (main app, helper, backend)
 - ✅ Logging and event forwarding via helper
-- ⬜️ User-friendly GUI for mount management
+- ✅ User-friendly GUI for mount management
 - ✅ Disk types system to add different filesystems
 - ⬜️ Robust error handling and user notifications
 - ⬜️ Comprehensive integration and unit tests

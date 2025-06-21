@@ -148,6 +148,9 @@
 		};
 		50A51F942E05892200AC6D10 /* DiskJockeyApplication */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				507828532E06A2B100BAC180 /* Exceptions for "DiskJockeyApplication" folder in "DiskJockey" target */,
+			);
 			path = DiskJockeyApplication;
 			sourceTree = "<group>";
 		};

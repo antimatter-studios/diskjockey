@@ -274,7 +274,7 @@ public class BackendAPI {
     public func sendRequest<Request: SwiftProtobuf.Message, Response: SwiftProtobuf.Message>(
         _ request: Request,
         responseType: Response.Type,
-        messageType: Api_MessageType
+        messageType: Backend_MessageType
     ) async throws -> Response {
         return try await socketLock.withLock {
             self.log("Sending request: \(messageType)")
@@ -284,7 +284,7 @@ public class BackendAPI {
             }
 
             // Create the message
-            var message = Api_Message()
+            var message = Backend_Message()
             message.type = messageType
             message.payload = try request.serializedData()
             let data = try message.serializedData()
@@ -311,7 +311,7 @@ public class BackendAPI {
         }
     }
 
-    private func receiveMessage<Response: SwiftProtobuf.Message>(expectedType: Response.Type, expectedMessageType: Api_MessageType) async throws -> Response {
+    private func receiveMessage<Response: SwiftProtobuf.Message>(expectedType: Response.Type, expectedMessageType: Backend_MessageType) async throws -> Response {
         guard let connection = connection else { throw APIError.notConnected }
 
         // Read message size (4 bytes)
@@ -323,8 +323,8 @@ public class BackendAPI {
         logRawDataIfEnabled("Received messageData", data: messageData)
         print("[DEBUG] First 20 bytes (Swift): \(messageData.prefix(20).map { String(format: "%02x", $0) }.joined(separator: " "))")
         do {
-            // DECODE ENVELOPE: Api_Message
-            let envelope = try Api_Message(serializedBytes: messageData)
+            // DECODE ENVELOPE: Backend_Message
+            let envelope = try Backend_Message(serializedBytes: messageData)
 //            if envelope.type != expectedType {
 //                print("[PROTOBUF ERROR] Unexpected message type: got \(envelope.type), expected \(expectedMessageType)")
 //                throw APIError.protocolError("Unexpected message type: got \(envelope.type), expected \(expectedMessageType)")
@@ -386,12 +386,75 @@ public class BackendAPI {
 
     // MARK: - Mount Management
 
+    public func addMount(_ mount: Mount) async throws {
+        try await ensureConnectedAndPerform {
+            let request = Backend_CreateMountRequest.with {
+                $0.name = mount.name
+                $0.diskType = mount.diskType.rawValue
+                $0.config = {
+                    var config: [String: String] = [:]
+                    if !mount.path.isEmpty { config["path"] = mount.path }
+                    if !mount.remotePath.isEmpty { config["remotePath"] = mount.remotePath }
+                    return config
+                }()
+            }
+            _ = try await self.sendRequest(
+                request,
+                responseType: Backend_CreateMountResponse.self,
+                messageType: .createMountRequest
+            )
+            self.log("Created mount: \(mount.name)")
+        }
+    }
+
+    public func removeMount(id: UInt32) async throws {
+        try await ensureConnectedAndPerform {
+            let request = Backend_DeleteMountRequest.with {
+                $0.mountID = id
+            }
+            _ = try await self.sendRequest(
+                request,
+                responseType: Backend_DeleteMountResponse.self,
+                messageType: .deleteMountRequest
+            )
+            self.log("Deleted mountID: \(id)")
+        }
+    }
+
+    public func mount(id: UInt32) async throws {
+        try await ensureConnectedAndPerform {
+            let request = Backend_MountRequest.with {
+                $0.mountID = id
+            }
+            _ = try await self.sendRequest(
+                request,
+                responseType: Backend_MountResponse.self,
+                messageType: .mountRequest
+            )
+            self.log("Mounted mountID: \(id)")
+        }
+    }
+
+    public func unmount(id: UInt32) async throws {
+        try await ensureConnectedAndPerform {
+            let request = Backend_UnmountRequest.with {
+                $0.mountID = id
+            }
+            _ = try await self.sendRequest(
+                request,
+                responseType: Backend_UnmountResponse.self,
+                messageType: .unmountRequest
+            )
+            self.log("Unmounted mountID: \(id)")
+        }
+    }
+
     public func listMounts() async throws -> [Mount] {
         return try await ensureConnectedAndPerform {
-            let request = Api_ListMountsRequest()
-            let response: Api_ListMountsResponse = try await self.sendRequest(
+            let request = Backend_ListMountsRequest()
+            let response: Backend_ListMountsResponse = try await self.sendRequest(
                 request,
-                responseType: Api_ListMountsResponse.self,
+                responseType: Backend_ListMountsResponse.self,
                 messageType: .listMountsRequest
             )
 
@@ -418,10 +481,10 @@ public class BackendAPI {
     /// - Returns: An array of DiskType objects
     public func listDiskTypes() async throws -> [DiskType] {
         return try await ensureConnectedAndPerform {
-            let request = Api_ListDiskTypesRequest()
-            let response: Api_ListDiskTypesResponse = try await self.sendRequest(
+            let request = Backend_ListDiskTypesRequest()
+            let response: Backend_ListDiskTypesResponse = try await self.sendRequest(
                 request,
-                responseType: Api_ListDiskTypesResponse.self,
+                responseType: Backend_ListDiskTypesResponse.self,
                 messageType: .listDiskTypesRequest
             )
             let diskTypes = response.diskTypes.map { apiDiskType in

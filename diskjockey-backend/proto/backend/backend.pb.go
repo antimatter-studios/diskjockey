@@ -2,14 +2,14 @@
 // versions:
 // 	protoc-gen-go v1.36.6
 // 	protoc        v5.29.3
-// source: diskjockey-backend/proto/protocol_definitions.proto
+// source: diskjockey-backend/proto/backend.proto
 
 // Socket protocol message type IDs used in custom framing (not part of protobuf):
 //   2: ReadFileRequest / ReadFileResponse
 //   3: WriteFileRequest / WriteFileResponse
 // These IDs are used in the daemon's socket protocol to identify message types.
 
-package api
+package backend
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -135,11 +135,11 @@ func (x MessageType) String() string {
 }
 
 func (MessageType) Descriptor() protoreflect.EnumDescriptor {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_enumTypes[0].Descriptor()
+	return file_diskjockey_backend_proto_backend_proto_enumTypes[0].Descriptor()
 }
 
 func (MessageType) Type() protoreflect.EnumType {
-	return &file_diskjockey_backend_proto_protocol_definitions_proto_enumTypes[0]
+	return &file_diskjockey_backend_proto_backend_proto_enumTypes[0]
 }
 
 func (x MessageType) Number() protoreflect.EnumNumber {
@@ -148,7 +148,7 @@ func (x MessageType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use MessageType.Descriptor instead.
 func (MessageType) EnumDescriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{0}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{0}
 }
 
 // Mount status event (for event-driven updates)
@@ -188,11 +188,11 @@ func (x MountStatus) String() string {
 }
 
 func (MountStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_enumTypes[1].Descriptor()
+	return file_diskjockey_backend_proto_backend_proto_enumTypes[1].Descriptor()
 }
 
 func (MountStatus) Type() protoreflect.EnumType {
-	return &file_diskjockey_backend_proto_protocol_definitions_proto_enumTypes[1]
+	return &file_diskjockey_backend_proto_backend_proto_enumTypes[1]
 }
 
 func (x MountStatus) Number() protoreflect.EnumNumber {
@@ -201,7 +201,7 @@ func (x MountStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use MountStatus.Descriptor instead.
 func (MountStatus) EnumDescriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{1}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{1}
 }
 
 type ConnectRequest_Role int32
@@ -240,11 +240,11 @@ func (x ConnectRequest_Role) String() string {
 }
 
 func (ConnectRequest_Role) Descriptor() protoreflect.EnumDescriptor {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_enumTypes[2].Descriptor()
+	return file_diskjockey_backend_proto_backend_proto_enumTypes[2].Descriptor()
 }
 
 func (ConnectRequest_Role) Type() protoreflect.EnumType {
-	return &file_diskjockey_backend_proto_protocol_definitions_proto_enumTypes[2]
+	return &file_diskjockey_backend_proto_backend_proto_enumTypes[2]
 }
 
 func (x ConnectRequest_Role) Number() protoreflect.EnumNumber {
@@ -253,13 +253,13 @@ func (x ConnectRequest_Role) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ConnectRequest_Role.Descriptor instead.
 func (ConnectRequest_Role) EnumDescriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{9, 0}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{9, 0}
 }
 
 // Message wrapper that contains the actual message and its type
 type Message struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Type          MessageType            `protobuf:"varint,1,opt,name=type,proto3,enum=api.MessageType" json:"type,omitempty"`
+	Type          MessageType            `protobuf:"varint,1,opt,name=type,proto3,enum=backend.MessageType" json:"type,omitempty"`
 	Payload       []byte                 `protobuf:"bytes,2,opt,name=payload,proto3" json:"payload,omitempty"` // Serialized message data
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -267,7 +267,7 @@ type Message struct {
 
 func (x *Message) Reset() {
 	*x = Message{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[0]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -279,7 +279,7 @@ func (x *Message) String() string {
 func (*Message) ProtoMessage() {}
 
 func (x *Message) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[0]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -292,7 +292,7 @@ func (x *Message) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Message.ProtoReflect.Descriptor instead.
 func (*Message) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{0}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *Message) GetType() MessageType {
@@ -319,7 +319,7 @@ type HandshakeRequest struct {
 
 func (x *HandshakeRequest) Reset() {
 	*x = HandshakeRequest{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[1]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -331,7 +331,7 @@ func (x *HandshakeRequest) String() string {
 func (*HandshakeRequest) ProtoMessage() {}
 
 func (x *HandshakeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[1]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -344,7 +344,7 @@ func (x *HandshakeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HandshakeRequest.ProtoReflect.Descriptor instead.
 func (*HandshakeRequest) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{1}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *HandshakeRequest) GetClient() string {
@@ -363,7 +363,7 @@ type HandshakeResponse struct {
 
 func (x *HandshakeResponse) Reset() {
 	*x = HandshakeResponse{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[2]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -375,7 +375,7 @@ func (x *HandshakeResponse) String() string {
 func (*HandshakeResponse) ProtoMessage() {}
 
 func (x *HandshakeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[2]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -388,7 +388,7 @@ func (x *HandshakeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HandshakeResponse.ProtoReflect.Descriptor instead.
 func (*HandshakeResponse) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{2}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *HandshakeResponse) GetServer() string {
@@ -409,7 +409,7 @@ type ListDirRequest struct {
 
 func (x *ListDirRequest) Reset() {
 	*x = ListDirRequest{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[3]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -421,7 +421,7 @@ func (x *ListDirRequest) String() string {
 func (*ListDirRequest) ProtoMessage() {}
 
 func (x *ListDirRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[3]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -434,7 +434,7 @@ func (x *ListDirRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDirRequest.ProtoReflect.Descriptor instead.
 func (*ListDirRequest) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{3}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ListDirRequest) GetMountId() uint32 {
@@ -461,7 +461,7 @@ type ListDirResponse struct {
 
 func (x *ListDirResponse) Reset() {
 	*x = ListDirResponse{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[4]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -473,7 +473,7 @@ func (x *ListDirResponse) String() string {
 func (*ListDirResponse) ProtoMessage() {}
 
 func (x *ListDirResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[4]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -486,7 +486,7 @@ func (x *ListDirResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDirResponse.ProtoReflect.Descriptor instead.
 func (*ListDirResponse) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{4}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ListDirResponse) GetFiles() []*FileInfo {
@@ -514,7 +514,7 @@ type ReadFileRequest struct {
 
 func (x *ReadFileRequest) Reset() {
 	*x = ReadFileRequest{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[5]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -526,7 +526,7 @@ func (x *ReadFileRequest) String() string {
 func (*ReadFileRequest) ProtoMessage() {}
 
 func (x *ReadFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[5]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -539,7 +539,7 @@ func (x *ReadFileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadFileRequest.ProtoReflect.Descriptor instead.
 func (*ReadFileRequest) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{5}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ReadFileRequest) GetMountId() uint32 {
@@ -566,7 +566,7 @@ type ReadFileResponse struct {
 
 func (x *ReadFileResponse) Reset() {
 	*x = ReadFileResponse{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[6]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -578,7 +578,7 @@ func (x *ReadFileResponse) String() string {
 func (*ReadFileResponse) ProtoMessage() {}
 
 func (x *ReadFileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[6]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -591,7 +591,7 @@ func (x *ReadFileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadFileResponse.ProtoReflect.Descriptor instead.
 func (*ReadFileResponse) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{6}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ReadFileResponse) GetData() []byte {
@@ -620,7 +620,7 @@ type WriteFileRequest struct {
 
 func (x *WriteFileRequest) Reset() {
 	*x = WriteFileRequest{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[7]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -632,7 +632,7 @@ func (x *WriteFileRequest) String() string {
 func (*WriteFileRequest) ProtoMessage() {}
 
 func (x *WriteFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[7]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -645,7 +645,7 @@ func (x *WriteFileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteFileRequest.ProtoReflect.Descriptor instead.
 func (*WriteFileRequest) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{7}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *WriteFileRequest) GetMountId() uint32 {
@@ -678,7 +678,7 @@ type WriteFileResponse struct {
 
 func (x *WriteFileResponse) Reset() {
 	*x = WriteFileResponse{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[8]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -690,7 +690,7 @@ func (x *WriteFileResponse) String() string {
 func (*WriteFileResponse) ProtoMessage() {}
 
 func (x *WriteFileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[8]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -703,7 +703,7 @@ func (x *WriteFileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteFileResponse.ProtoReflect.Descriptor instead.
 func (*WriteFileResponse) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{8}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *WriteFileResponse) GetError() string {
@@ -717,14 +717,14 @@ func (x *WriteFileResponse) GetError() string {
 // Sent by any client to initiate a session with the helper
 type ConnectRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Role          ConnectRequest_Role    `protobuf:"varint,1,opt,name=role,proto3,enum=api.ConnectRequest_Role" json:"role,omitempty"`
+	Role          ConnectRequest_Role    `protobuf:"varint,1,opt,name=role,proto3,enum=backend.ConnectRequest_Role" json:"role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ConnectRequest) Reset() {
 	*x = ConnectRequest{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[9]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -736,7 +736,7 @@ func (x *ConnectRequest) String() string {
 func (*ConnectRequest) ProtoMessage() {}
 
 func (x *ConnectRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[9]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -749,7 +749,7 @@ func (x *ConnectRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConnectRequest.ProtoReflect.Descriptor instead.
 func (*ConnectRequest) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{9}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ConnectRequest) GetRole() ConnectRequest_Role {
@@ -769,7 +769,7 @@ type ConnectResponse struct {
 
 func (x *ConnectResponse) Reset() {
 	*x = ConnectResponse{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[10]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -781,7 +781,7 @@ func (x *ConnectResponse) String() string {
 func (*ConnectResponse) ProtoMessage() {}
 
 func (x *ConnectResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[10]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -794,7 +794,7 @@ func (x *ConnectResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConnectResponse.ProtoReflect.Descriptor instead.
 func (*ConnectResponse) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{10}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ConnectResponse) GetError() string {
@@ -815,7 +815,7 @@ type DeleteFileRequest struct {
 
 func (x *DeleteFileRequest) Reset() {
 	*x = DeleteFileRequest{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[11]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -827,7 +827,7 @@ func (x *DeleteFileRequest) String() string {
 func (*DeleteFileRequest) ProtoMessage() {}
 
 func (x *DeleteFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[11]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -840,7 +840,7 @@ func (x *DeleteFileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteFileRequest.ProtoReflect.Descriptor instead.
 func (*DeleteFileRequest) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{11}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *DeleteFileRequest) GetMountId() uint32 {
@@ -866,7 +866,7 @@ type DeleteFileResponse struct {
 
 func (x *DeleteFileResponse) Reset() {
 	*x = DeleteFileResponse{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[12]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -878,7 +878,7 @@ func (x *DeleteFileResponse) String() string {
 func (*DeleteFileResponse) ProtoMessage() {}
 
 func (x *DeleteFileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[12]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -891,7 +891,7 @@ func (x *DeleteFileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteFileResponse.ProtoReflect.Descriptor instead.
 func (*DeleteFileResponse) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{12}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *DeleteFileResponse) GetError() string {
@@ -912,7 +912,7 @@ type StatRequest struct {
 
 func (x *StatRequest) Reset() {
 	*x = StatRequest{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[13]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -924,7 +924,7 @@ func (x *StatRequest) String() string {
 func (*StatRequest) ProtoMessage() {}
 
 func (x *StatRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[13]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -937,7 +937,7 @@ func (x *StatRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatRequest.ProtoReflect.Descriptor instead.
 func (*StatRequest) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{13}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *StatRequest) GetMountId() uint32 {
@@ -964,7 +964,7 @@ type StatResponse struct {
 
 func (x *StatResponse) Reset() {
 	*x = StatResponse{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[14]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -976,7 +976,7 @@ func (x *StatResponse) String() string {
 func (*StatResponse) ProtoMessage() {}
 
 func (x *StatResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[14]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -989,7 +989,7 @@ func (x *StatResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatResponse.ProtoReflect.Descriptor instead.
 func (*StatResponse) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{14}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *StatResponse) GetInfo() *FileInfo {
@@ -1015,7 +1015,7 @@ type ListDiskTypesRequest struct {
 
 func (x *ListDiskTypesRequest) Reset() {
 	*x = ListDiskTypesRequest{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[15]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1027,7 +1027,7 @@ func (x *ListDiskTypesRequest) String() string {
 func (*ListDiskTypesRequest) ProtoMessage() {}
 
 func (x *ListDiskTypesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[15]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1040,7 +1040,7 @@ func (x *ListDiskTypesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDiskTypesRequest.ProtoReflect.Descriptor instead.
 func (*ListDiskTypesRequest) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{15}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{15}
 }
 
 type ListDiskTypesResponse struct {
@@ -1053,7 +1053,7 @@ type ListDiskTypesResponse struct {
 
 func (x *ListDiskTypesResponse) Reset() {
 	*x = ListDiskTypesResponse{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[16]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1065,7 +1065,7 @@ func (x *ListDiskTypesResponse) String() string {
 func (*ListDiskTypesResponse) ProtoMessage() {}
 
 func (x *ListDiskTypesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[16]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1078,7 +1078,7 @@ func (x *ListDiskTypesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDiskTypesResponse.ProtoReflect.Descriptor instead.
 func (*ListDiskTypesResponse) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{16}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ListDiskTypesResponse) GetDiskTypes() []*DiskTypeInfo {
@@ -1106,7 +1106,7 @@ type DiskTypeInfo struct {
 
 func (x *DiskTypeInfo) Reset() {
 	*x = DiskTypeInfo{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[17]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1118,7 +1118,7 @@ func (x *DiskTypeInfo) String() string {
 func (*DiskTypeInfo) ProtoMessage() {}
 
 func (x *DiskTypeInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[17]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1131,7 +1131,7 @@ func (x *DiskTypeInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiskTypeInfo.ProtoReflect.Descriptor instead.
 func (*DiskTypeInfo) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{17}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *DiskTypeInfo) GetName() string {
@@ -1167,7 +1167,7 @@ type ConfigField struct {
 
 func (x *ConfigField) Reset() {
 	*x = ConfigField{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[18]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1179,7 +1179,7 @@ func (x *ConfigField) String() string {
 func (*ConfigField) ProtoMessage() {}
 
 func (x *ConfigField) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[18]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1192,7 +1192,7 @@ func (x *ConfigField) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigField.ProtoReflect.Descriptor instead.
 func (*ConfigField) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{18}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ConfigField) GetName() string {
@@ -1232,7 +1232,7 @@ type ListMountsRequest struct {
 
 func (x *ListMountsRequest) Reset() {
 	*x = ListMountsRequest{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[19]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1244,7 +1244,7 @@ func (x *ListMountsRequest) String() string {
 func (*ListMountsRequest) ProtoMessage() {}
 
 func (x *ListMountsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[19]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1257,7 +1257,7 @@ func (x *ListMountsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMountsRequest.ProtoReflect.Descriptor instead.
 func (*ListMountsRequest) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{19}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{19}
 }
 
 type ListMountsResponse struct {
@@ -1270,7 +1270,7 @@ type ListMountsResponse struct {
 
 func (x *ListMountsResponse) Reset() {
 	*x = ListMountsResponse{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[20]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1282,7 +1282,7 @@ func (x *ListMountsResponse) String() string {
 func (*ListMountsResponse) ProtoMessage() {}
 
 func (x *ListMountsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[20]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1295,7 +1295,7 @@ func (x *ListMountsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMountsResponse.ProtoReflect.Descriptor instead.
 func (*ListMountsResponse) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{20}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ListMountsResponse) GetMounts() []*MountInfo {
@@ -1324,7 +1324,7 @@ type MountInfo struct {
 
 func (x *MountInfo) Reset() {
 	*x = MountInfo{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[21]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1336,7 +1336,7 @@ func (x *MountInfo) String() string {
 func (*MountInfo) ProtoMessage() {}
 
 func (x *MountInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[21]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1349,7 +1349,7 @@ func (x *MountInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MountInfo.ProtoReflect.Descriptor instead.
 func (*MountInfo) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{21}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *MountInfo) GetName() string {
@@ -1392,7 +1392,7 @@ type FileInfo struct {
 
 func (x *FileInfo) Reset() {
 	*x = FileInfo{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[22]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1404,7 +1404,7 @@ func (x *FileInfo) String() string {
 func (*FileInfo) ProtoMessage() {}
 
 func (x *FileInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[22]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1417,7 +1417,7 @@ func (x *FileInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileInfo.ProtoReflect.Descriptor instead.
 func (*FileInfo) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{22}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *FileInfo) GetName() string {
@@ -1452,7 +1452,7 @@ type MountRequest struct {
 
 func (x *MountRequest) Reset() {
 	*x = MountRequest{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[23]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1464,7 +1464,7 @@ func (x *MountRequest) String() string {
 func (*MountRequest) ProtoMessage() {}
 
 func (x *MountRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[23]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1477,7 +1477,7 @@ func (x *MountRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MountRequest.ProtoReflect.Descriptor instead.
 func (*MountRequest) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{23}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *MountRequest) GetMountId() uint32 {
@@ -1496,7 +1496,7 @@ type MountResponse struct {
 
 func (x *MountResponse) Reset() {
 	*x = MountResponse{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[24]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1508,7 +1508,7 @@ func (x *MountResponse) String() string {
 func (*MountResponse) ProtoMessage() {}
 
 func (x *MountResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[24]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1521,7 +1521,7 @@ func (x *MountResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MountResponse.ProtoReflect.Descriptor instead.
 func (*MountResponse) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{24}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *MountResponse) GetError() string {
@@ -1543,7 +1543,7 @@ type CreateMountRequest struct {
 
 func (x *CreateMountRequest) Reset() {
 	*x = CreateMountRequest{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[25]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1555,7 +1555,7 @@ func (x *CreateMountRequest) String() string {
 func (*CreateMountRequest) ProtoMessage() {}
 
 func (x *CreateMountRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[25]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1568,7 +1568,7 @@ func (x *CreateMountRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateMountRequest.ProtoReflect.Descriptor instead.
 func (*CreateMountRequest) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{25}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *CreateMountRequest) GetName() string {
@@ -1602,7 +1602,7 @@ type CreateMountResponse struct {
 
 func (x *CreateMountResponse) Reset() {
 	*x = CreateMountResponse{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[26]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1614,7 +1614,7 @@ func (x *CreateMountResponse) String() string {
 func (*CreateMountResponse) ProtoMessage() {}
 
 func (x *CreateMountResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[26]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1627,7 +1627,7 @@ func (x *CreateMountResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateMountResponse.ProtoReflect.Descriptor instead.
 func (*CreateMountResponse) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{26}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *CreateMountResponse) GetMountId() uint32 {
@@ -1653,7 +1653,7 @@ type DeleteMountRequest struct {
 
 func (x *DeleteMountRequest) Reset() {
 	*x = DeleteMountRequest{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[27]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1665,7 +1665,7 @@ func (x *DeleteMountRequest) String() string {
 func (*DeleteMountRequest) ProtoMessage() {}
 
 func (x *DeleteMountRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[27]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1678,7 +1678,7 @@ func (x *DeleteMountRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteMountRequest.ProtoReflect.Descriptor instead.
 func (*DeleteMountRequest) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{27}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *DeleteMountRequest) GetMountId() uint32 {
@@ -1697,7 +1697,7 @@ type DeleteMountResponse struct {
 
 func (x *DeleteMountResponse) Reset() {
 	*x = DeleteMountResponse{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[28]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1709,7 +1709,7 @@ func (x *DeleteMountResponse) String() string {
 func (*DeleteMountResponse) ProtoMessage() {}
 
 func (x *DeleteMountResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[28]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1722,7 +1722,7 @@ func (x *DeleteMountResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteMountResponse.ProtoReflect.Descriptor instead.
 func (*DeleteMountResponse) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{28}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *DeleteMountResponse) GetError() string {
@@ -1741,7 +1741,7 @@ type UnmountRequest struct {
 
 func (x *UnmountRequest) Reset() {
 	*x = UnmountRequest{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[29]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1753,7 +1753,7 @@ func (x *UnmountRequest) String() string {
 func (*UnmountRequest) ProtoMessage() {}
 
 func (x *UnmountRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[29]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1766,7 +1766,7 @@ func (x *UnmountRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnmountRequest.ProtoReflect.Descriptor instead.
 func (*UnmountRequest) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{29}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *UnmountRequest) GetMountId() uint32 {
@@ -1785,7 +1785,7 @@ type UnmountResponse struct {
 
 func (x *UnmountResponse) Reset() {
 	*x = UnmountResponse{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[30]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1797,7 +1797,7 @@ func (x *UnmountResponse) String() string {
 func (*UnmountResponse) ProtoMessage() {}
 
 func (x *UnmountResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[30]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1810,7 +1810,7 @@ func (x *UnmountResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnmountResponse.ProtoReflect.Descriptor instead.
 func (*UnmountResponse) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{30}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *UnmountResponse) GetError() string {
@@ -1829,7 +1829,7 @@ type ShutdownRequest struct {
 
 func (x *ShutdownRequest) Reset() {
 	*x = ShutdownRequest{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[31]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1841,7 +1841,7 @@ func (x *ShutdownRequest) String() string {
 func (*ShutdownRequest) ProtoMessage() {}
 
 func (x *ShutdownRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[31]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1854,7 +1854,7 @@ func (x *ShutdownRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShutdownRequest.ProtoReflect.Descriptor instead.
 func (*ShutdownRequest) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{31}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{31}
 }
 
 type ShutdownResponse struct {
@@ -1867,7 +1867,7 @@ type ShutdownResponse struct {
 
 func (x *ShutdownResponse) Reset() {
 	*x = ShutdownResponse{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[32]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1879,7 +1879,7 @@ func (x *ShutdownResponse) String() string {
 func (*ShutdownResponse) ProtoMessage() {}
 
 func (x *ShutdownResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[32]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1892,7 +1892,7 @@ func (x *ShutdownResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShutdownResponse.ProtoReflect.Descriptor instead.
 func (*ShutdownResponse) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{32}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *ShutdownResponse) GetSuccess() bool {
@@ -1912,7 +1912,7 @@ func (x *ShutdownResponse) GetMessage() string {
 type MountStatusUpdate struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	MountId       uint32                 `protobuf:"varint,1,opt,name=mount_id,json=mountId,proto3" json:"mount_id,omitempty"`
-	Status        MountStatus            `protobuf:"varint,2,opt,name=status,proto3,enum=api.MountStatus" json:"status,omitempty"`
+	Status        MountStatus            `protobuf:"varint,2,opt,name=status,proto3,enum=backend.MountStatus" json:"status,omitempty"`
 	Error         string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1920,7 +1920,7 @@ type MountStatusUpdate struct {
 
 func (x *MountStatusUpdate) Reset() {
 	*x = MountStatusUpdate{}
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[33]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1932,7 +1932,7 @@ func (x *MountStatusUpdate) String() string {
 func (*MountStatusUpdate) ProtoMessage() {}
 
 func (x *MountStatusUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes[33]
+	mi := &file_diskjockey_backend_proto_backend_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1945,7 +1945,7 @@ func (x *MountStatusUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MountStatusUpdate.ProtoReflect.Descriptor instead.
 func (*MountStatusUpdate) Descriptor() ([]byte, []int) {
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP(), []int{33}
+	return file_diskjockey_backend_proto_backend_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *MountStatusUpdate) GetMountId() uint32 {
@@ -1969,13 +1969,13 @@ func (x *MountStatusUpdate) GetError() string {
 	return ""
 }
 
-var File_diskjockey_backend_proto_protocol_definitions_proto protoreflect.FileDescriptor
+var File_diskjockey_backend_proto_backend_proto protoreflect.FileDescriptor
 
-const file_diskjockey_backend_proto_protocol_definitions_proto_rawDesc = "" +
+const file_diskjockey_backend_proto_backend_proto_rawDesc = "" +
 	"\n" +
-	"3diskjockey-backend/proto/protocol_definitions.proto\x12\x03api\"I\n" +
-	"\aMessage\x12$\n" +
-	"\x04type\x18\x01 \x01(\x0e2\x10.api.MessageTypeR\x04type\x12\x18\n" +
+	"&diskjockey-backend/proto/backend.proto\x12\abackend\"M\n" +
+	"\aMessage\x12(\n" +
+	"\x04type\x18\x01 \x01(\x0e2\x14.backend.MessageTypeR\x04type\x12\x18\n" +
 	"\apayload\x18\x02 \x01(\fR\apayload\"*\n" +
 	"\x10HandshakeRequest\x12\x16\n" +
 	"\x06client\x18\x01 \x01(\tR\x06client\"+\n" +
@@ -1983,9 +1983,9 @@ const file_diskjockey_backend_proto_protocol_definitions_proto_rawDesc = "" +
 	"\x06server\x18\x01 \x01(\tR\x06server\"?\n" +
 	"\x0eListDirRequest\x12\x19\n" +
 	"\bmount_id\x18\x01 \x01(\rR\amountId\x12\x12\n" +
-	"\x04path\x18\x02 \x01(\tR\x04path\"L\n" +
-	"\x0fListDirResponse\x12#\n" +
-	"\x05files\x18\x01 \x03(\v2\r.api.FileInfoR\x05files\x12\x14\n" +
+	"\x04path\x18\x02 \x01(\tR\x04path\"P\n" +
+	"\x0fListDirResponse\x12'\n" +
+	"\x05files\x18\x01 \x03(\v2\x11.backend.FileInfoR\x05files\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\"@\n" +
 	"\x0fReadFileRequest\x12\x19\n" +
 	"\bmount_id\x18\x01 \x01(\rR\amountId\x12\x12\n" +
@@ -1998,9 +1998,9 @@ const file_diskjockey_backend_proto_protocol_definitions_proto_rawDesc = "" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x12\n" +
 	"\x04data\x18\x03 \x01(\fR\x04data\")\n" +
 	"\x11WriteFileResponse\x12\x14\n" +
-	"\x05error\x18\x01 \x01(\tR\x05error\"|\n" +
-	"\x0eConnectRequest\x12,\n" +
-	"\x04role\x18\x01 \x01(\x0e2\x18.api.ConnectRequest.RoleR\x04role\"<\n" +
+	"\x05error\x18\x01 \x01(\tR\x05error\"\x80\x01\n" +
+	"\x0eConnectRequest\x120\n" +
+	"\x04role\x18\x01 \x01(\x0e2\x1c.backend.ConnectRequest.RoleR\x04role\"<\n" +
 	"\x04Role\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\a\n" +
 	"\x03APP\x10\x01\x12\v\n" +
@@ -2015,32 +2015,32 @@ const file_diskjockey_backend_proto_protocol_definitions_proto_rawDesc = "" +
 	"\x05error\x18\x01 \x01(\tR\x05error\"<\n" +
 	"\vStatRequest\x12\x19\n" +
 	"\bmount_id\x18\x01 \x01(\rR\amountId\x12\x12\n" +
-	"\x04path\x18\x02 \x01(\tR\x04path\"G\n" +
-	"\fStatResponse\x12!\n" +
-	"\x04info\x18\x01 \x01(\v2\r.api.FileInfoR\x04info\x12\x14\n" +
+	"\x04path\x18\x02 \x01(\tR\x04path\"K\n" +
+	"\fStatResponse\x12%\n" +
+	"\x04info\x18\x01 \x01(\v2\x11.backend.FileInfoR\x04info\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\"\x16\n" +
-	"\x14ListDiskTypesRequest\"_\n" +
-	"\x15ListDiskTypesResponse\x120\n" +
+	"\x14ListDiskTypesRequest\"c\n" +
+	"\x15ListDiskTypesResponse\x124\n" +
 	"\n" +
-	"disk_types\x18\x01 \x03(\v2\x11.api.DiskTypeInfoR\tdiskTypes\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"{\n" +
+	"disk_types\x18\x01 \x03(\v2\x15.backend.DiskTypeInfoR\tdiskTypes\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\x7f\n" +
 	"\fDiskTypeInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
-	"\vdescription\x18\x02 \x01(\tR\vdescription\x125\n" +
-	"\rconfig_fields\x18\x03 \x03(\v2\x10.api.ConfigFieldR\fconfigFields\"s\n" +
+	"\vdescription\x18\x02 \x01(\tR\vdescription\x129\n" +
+	"\rconfig_fields\x18\x03 \x03(\v2\x14.backend.ConfigFieldR\fconfigFields\"s\n" +
 	"\vConfigField\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12 \n" +
 	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x1a\n" +
 	"\brequired\x18\x04 \x01(\bR\brequired\"\x13\n" +
-	"\x11ListMountsRequest\"R\n" +
-	"\x12ListMountsResponse\x12&\n" +
-	"\x06mounts\x18\x01 \x03(\v2\x0e.api.MountInfoR\x06mounts\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"\xc6\x01\n" +
+	"\x11ListMountsRequest\"V\n" +
+	"\x12ListMountsResponse\x12*\n" +
+	"\x06mounts\x18\x01 \x03(\v2\x12.backend.MountInfoR\x06mounts\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\xca\x01\n" +
 	"\tMountInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
-	"\tdisk_type\x18\x02 \x01(\tR\bdiskType\x122\n" +
-	"\x06config\x18\x03 \x03(\v2\x1a.api.MountInfo.ConfigEntryR\x06config\x12\x19\n" +
+	"\tdisk_type\x18\x02 \x01(\tR\bdiskType\x126\n" +
+	"\x06config\x18\x03 \x03(\v2\x1e.backend.MountInfo.ConfigEntryR\x06config\x12\x19\n" +
 	"\bmount_id\x18\x04 \x01(\rR\amountId\x1a9\n" +
 	"\vConfigEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
@@ -2052,11 +2052,11 @@ const file_diskjockey_backend_proto_protocol_definitions_proto_rawDesc = "" +
 	"\fMountRequest\x12\x19\n" +
 	"\bmount_id\x18\x01 \x01(\rR\amountId\"%\n" +
 	"\rMountResponse\x12\x14\n" +
-	"\x05error\x18\x01 \x01(\tR\x05error\"\xbd\x01\n" +
+	"\x05error\x18\x01 \x01(\tR\x05error\"\xc1\x01\n" +
 	"\x12CreateMountRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
-	"\tdisk_type\x18\x02 \x01(\tR\bdiskType\x12;\n" +
-	"\x06config\x18\x03 \x03(\v2#.api.CreateMountRequest.ConfigEntryR\x06config\x1a9\n" +
+	"\tdisk_type\x18\x02 \x01(\tR\bdiskType\x12?\n" +
+	"\x06config\x18\x03 \x03(\v2'.backend.CreateMountRequest.ConfigEntryR\x06config\x1a9\n" +
 	"\vConfigEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"F\n" +
@@ -2074,10 +2074,10 @@ const file_diskjockey_backend_proto_protocol_definitions_proto_rawDesc = "" +
 	"\x0fShutdownRequest\"F\n" +
 	"\x10ShutdownResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"n\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"r\n" +
 	"\x11MountStatusUpdate\x12\x19\n" +
-	"\bmount_id\x18\x01 \x01(\rR\amountId\x12(\n" +
-	"\x06status\x18\x02 \x01(\x0e2\x10.api.MountStatusR\x06status\x12\x14\n" +
+	"\bmount_id\x18\x01 \x01(\rR\amountId\x12,\n" +
+	"\x06status\x18\x02 \x01(\x0e2\x14.backend.MountStatusR\x06status\x12\x14\n" +
 	"\x05error\x18\x03 \x01(\tR\x05error*\xab\x05\n" +
 	"\vMessageType\x12\x10\n" +
 	"\fUNKNOWN_TYPE\x10\x00\x12\v\n" +
@@ -2113,74 +2113,74 @@ const file_diskjockey_backend_proto_protocol_definitions_proto_rawDesc = "" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aMOUNTED\x10\x01\x12\r\n" +
 	"\tUNMOUNTED\x10\x02\x12\t\n" +
-	"\x05ERROR\x10\x03B\"Z diskjockey-backend/proto/api;apib\x06proto3"
+	"\x05ERROR\x10\x03B*Z(diskjockey-backend/proto/backend;backendb\x06proto3"
 
 var (
-	file_diskjockey_backend_proto_protocol_definitions_proto_rawDescOnce sync.Once
-	file_diskjockey_backend_proto_protocol_definitions_proto_rawDescData []byte
+	file_diskjockey_backend_proto_backend_proto_rawDescOnce sync.Once
+	file_diskjockey_backend_proto_backend_proto_rawDescData []byte
 )
 
-func file_diskjockey_backend_proto_protocol_definitions_proto_rawDescGZIP() []byte {
-	file_diskjockey_backend_proto_protocol_definitions_proto_rawDescOnce.Do(func() {
-		file_diskjockey_backend_proto_protocol_definitions_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_diskjockey_backend_proto_protocol_definitions_proto_rawDesc), len(file_diskjockey_backend_proto_protocol_definitions_proto_rawDesc)))
+func file_diskjockey_backend_proto_backend_proto_rawDescGZIP() []byte {
+	file_diskjockey_backend_proto_backend_proto_rawDescOnce.Do(func() {
+		file_diskjockey_backend_proto_backend_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_diskjockey_backend_proto_backend_proto_rawDesc), len(file_diskjockey_backend_proto_backend_proto_rawDesc)))
 	})
-	return file_diskjockey_backend_proto_protocol_definitions_proto_rawDescData
+	return file_diskjockey_backend_proto_backend_proto_rawDescData
 }
 
-var file_diskjockey_backend_proto_protocol_definitions_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
-var file_diskjockey_backend_proto_protocol_definitions_proto_goTypes = []any{
-	(MessageType)(0),              // 0: api.MessageType
-	(MountStatus)(0),              // 1: api.MountStatus
-	(ConnectRequest_Role)(0),      // 2: api.ConnectRequest.Role
-	(*Message)(nil),               // 3: api.Message
-	(*HandshakeRequest)(nil),      // 4: api.HandshakeRequest
-	(*HandshakeResponse)(nil),     // 5: api.HandshakeResponse
-	(*ListDirRequest)(nil),        // 6: api.ListDirRequest
-	(*ListDirResponse)(nil),       // 7: api.ListDirResponse
-	(*ReadFileRequest)(nil),       // 8: api.ReadFileRequest
-	(*ReadFileResponse)(nil),      // 9: api.ReadFileResponse
-	(*WriteFileRequest)(nil),      // 10: api.WriteFileRequest
-	(*WriteFileResponse)(nil),     // 11: api.WriteFileResponse
-	(*ConnectRequest)(nil),        // 12: api.ConnectRequest
-	(*ConnectResponse)(nil),       // 13: api.ConnectResponse
-	(*DeleteFileRequest)(nil),     // 14: api.DeleteFileRequest
-	(*DeleteFileResponse)(nil),    // 15: api.DeleteFileResponse
-	(*StatRequest)(nil),           // 16: api.StatRequest
-	(*StatResponse)(nil),          // 17: api.StatResponse
-	(*ListDiskTypesRequest)(nil),  // 18: api.ListDiskTypesRequest
-	(*ListDiskTypesResponse)(nil), // 19: api.ListDiskTypesResponse
-	(*DiskTypeInfo)(nil),          // 20: api.DiskTypeInfo
-	(*ConfigField)(nil),           // 21: api.ConfigField
-	(*ListMountsRequest)(nil),     // 22: api.ListMountsRequest
-	(*ListMountsResponse)(nil),    // 23: api.ListMountsResponse
-	(*MountInfo)(nil),             // 24: api.MountInfo
-	(*FileInfo)(nil),              // 25: api.FileInfo
-	(*MountRequest)(nil),          // 26: api.MountRequest
-	(*MountResponse)(nil),         // 27: api.MountResponse
-	(*CreateMountRequest)(nil),    // 28: api.CreateMountRequest
-	(*CreateMountResponse)(nil),   // 29: api.CreateMountResponse
-	(*DeleteMountRequest)(nil),    // 30: api.DeleteMountRequest
-	(*DeleteMountResponse)(nil),   // 31: api.DeleteMountResponse
-	(*UnmountRequest)(nil),        // 32: api.UnmountRequest
-	(*UnmountResponse)(nil),       // 33: api.UnmountResponse
-	(*ShutdownRequest)(nil),       // 34: api.ShutdownRequest
-	(*ShutdownResponse)(nil),      // 35: api.ShutdownResponse
-	(*MountStatusUpdate)(nil),     // 36: api.MountStatusUpdate
-	nil,                           // 37: api.MountInfo.ConfigEntry
-	nil,                           // 38: api.CreateMountRequest.ConfigEntry
+var file_diskjockey_backend_proto_backend_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_diskjockey_backend_proto_backend_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
+var file_diskjockey_backend_proto_backend_proto_goTypes = []any{
+	(MessageType)(0),              // 0: backend.MessageType
+	(MountStatus)(0),              // 1: backend.MountStatus
+	(ConnectRequest_Role)(0),      // 2: backend.ConnectRequest.Role
+	(*Message)(nil),               // 3: backend.Message
+	(*HandshakeRequest)(nil),      // 4: backend.HandshakeRequest
+	(*HandshakeResponse)(nil),     // 5: backend.HandshakeResponse
+	(*ListDirRequest)(nil),        // 6: backend.ListDirRequest
+	(*ListDirResponse)(nil),       // 7: backend.ListDirResponse
+	(*ReadFileRequest)(nil),       // 8: backend.ReadFileRequest
+	(*ReadFileResponse)(nil),      // 9: backend.ReadFileResponse
+	(*WriteFileRequest)(nil),      // 10: backend.WriteFileRequest
+	(*WriteFileResponse)(nil),     // 11: backend.WriteFileResponse
+	(*ConnectRequest)(nil),        // 12: backend.ConnectRequest
+	(*ConnectResponse)(nil),       // 13: backend.ConnectResponse
+	(*DeleteFileRequest)(nil),     // 14: backend.DeleteFileRequest
+	(*DeleteFileResponse)(nil),    // 15: backend.DeleteFileResponse
+	(*StatRequest)(nil),           // 16: backend.StatRequest
+	(*StatResponse)(nil),          // 17: backend.StatResponse
+	(*ListDiskTypesRequest)(nil),  // 18: backend.ListDiskTypesRequest
+	(*ListDiskTypesResponse)(nil), // 19: backend.ListDiskTypesResponse
+	(*DiskTypeInfo)(nil),          // 20: backend.DiskTypeInfo
+	(*ConfigField)(nil),           // 21: backend.ConfigField
+	(*ListMountsRequest)(nil),     // 22: backend.ListMountsRequest
+	(*ListMountsResponse)(nil),    // 23: backend.ListMountsResponse
+	(*MountInfo)(nil),             // 24: backend.MountInfo
+	(*FileInfo)(nil),              // 25: backend.FileInfo
+	(*MountRequest)(nil),          // 26: backend.MountRequest
+	(*MountResponse)(nil),         // 27: backend.MountResponse
+	(*CreateMountRequest)(nil),    // 28: backend.CreateMountRequest
+	(*CreateMountResponse)(nil),   // 29: backend.CreateMountResponse
+	(*DeleteMountRequest)(nil),    // 30: backend.DeleteMountRequest
+	(*DeleteMountResponse)(nil),   // 31: backend.DeleteMountResponse
+	(*UnmountRequest)(nil),        // 32: backend.UnmountRequest
+	(*UnmountResponse)(nil),       // 33: backend.UnmountResponse
+	(*ShutdownRequest)(nil),       // 34: backend.ShutdownRequest
+	(*ShutdownResponse)(nil),      // 35: backend.ShutdownResponse
+	(*MountStatusUpdate)(nil),     // 36: backend.MountStatusUpdate
+	nil,                           // 37: backend.MountInfo.ConfigEntry
+	nil,                           // 38: backend.CreateMountRequest.ConfigEntry
 }
-var file_diskjockey_backend_proto_protocol_definitions_proto_depIdxs = []int32{
-	0,  // 0: api.Message.type:type_name -> api.MessageType
-	25, // 1: api.ListDirResponse.files:type_name -> api.FileInfo
-	2,  // 2: api.ConnectRequest.role:type_name -> api.ConnectRequest.Role
-	25, // 3: api.StatResponse.info:type_name -> api.FileInfo
-	20, // 4: api.ListDiskTypesResponse.disk_types:type_name -> api.DiskTypeInfo
-	21, // 5: api.DiskTypeInfo.config_fields:type_name -> api.ConfigField
-	24, // 6: api.ListMountsResponse.mounts:type_name -> api.MountInfo
-	37, // 7: api.MountInfo.config:type_name -> api.MountInfo.ConfigEntry
-	38, // 8: api.CreateMountRequest.config:type_name -> api.CreateMountRequest.ConfigEntry
-	1,  // 9: api.MountStatusUpdate.status:type_name -> api.MountStatus
+var file_diskjockey_backend_proto_backend_proto_depIdxs = []int32{
+	0,  // 0: backend.Message.type:type_name -> backend.MessageType
+	25, // 1: backend.ListDirResponse.files:type_name -> backend.FileInfo
+	2,  // 2: backend.ConnectRequest.role:type_name -> backend.ConnectRequest.Role
+	25, // 3: backend.StatResponse.info:type_name -> backend.FileInfo
+	20, // 4: backend.ListDiskTypesResponse.disk_types:type_name -> backend.DiskTypeInfo
+	21, // 5: backend.DiskTypeInfo.config_fields:type_name -> backend.ConfigField
+	24, // 6: backend.ListMountsResponse.mounts:type_name -> backend.MountInfo
+	37, // 7: backend.MountInfo.config:type_name -> backend.MountInfo.ConfigEntry
+	38, // 8: backend.CreateMountRequest.config:type_name -> backend.CreateMountRequest.ConfigEntry
+	1,  // 9: backend.MountStatusUpdate.status:type_name -> backend.MountStatus
 	10, // [10:10] is the sub-list for method output_type
 	10, // [10:10] is the sub-list for method input_type
 	10, // [10:10] is the sub-list for extension type_name
@@ -2188,27 +2188,27 @@ var file_diskjockey_backend_proto_protocol_definitions_proto_depIdxs = []int32{
 	0,  // [0:10] is the sub-list for field type_name
 }
 
-func init() { file_diskjockey_backend_proto_protocol_definitions_proto_init() }
-func file_diskjockey_backend_proto_protocol_definitions_proto_init() {
-	if File_diskjockey_backend_proto_protocol_definitions_proto != nil {
+func init() { file_diskjockey_backend_proto_backend_proto_init() }
+func file_diskjockey_backend_proto_backend_proto_init() {
+	if File_diskjockey_backend_proto_backend_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_diskjockey_backend_proto_protocol_definitions_proto_rawDesc), len(file_diskjockey_backend_proto_protocol_definitions_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_diskjockey_backend_proto_backend_proto_rawDesc), len(file_diskjockey_backend_proto_backend_proto_rawDesc)),
 			NumEnums:      3,
 			NumMessages:   36,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_diskjockey_backend_proto_protocol_definitions_proto_goTypes,
-		DependencyIndexes: file_diskjockey_backend_proto_protocol_definitions_proto_depIdxs,
-		EnumInfos:         file_diskjockey_backend_proto_protocol_definitions_proto_enumTypes,
-		MessageInfos:      file_diskjockey_backend_proto_protocol_definitions_proto_msgTypes,
+		GoTypes:           file_diskjockey_backend_proto_backend_proto_goTypes,
+		DependencyIndexes: file_diskjockey_backend_proto_backend_proto_depIdxs,
+		EnumInfos:         file_diskjockey_backend_proto_backend_proto_enumTypes,
+		MessageInfos:      file_diskjockey_backend_proto_backend_proto_msgTypes,
 	}.Build()
-	File_diskjockey_backend_proto_protocol_definitions_proto = out.File
-	file_diskjockey_backend_proto_protocol_definitions_proto_goTypes = nil
-	file_diskjockey_backend_proto_protocol_definitions_proto_depIdxs = nil
+	File_diskjockey_backend_proto_backend_proto = out.File
+	file_diskjockey_backend_proto_backend_proto_goTypes = nil
+	file_diskjockey_backend_proto_backend_proto_depIdxs = nil
 }
