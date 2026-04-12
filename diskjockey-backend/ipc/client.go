@@ -2,6 +2,7 @@ package ipc
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -13,18 +14,25 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+const (
+	maxMessageSize = 100 * 1024 * 1024 // 100MB
+	readTimeout    = 30 * time.Second
+)
+
 type BackendClient struct {
 	conn            net.Conn
 	configService   *services.ConfigService
 	disktypeService *services.DiskTypeService
+	mountService    *services.MountService
 	handshakeDone   bool
 }
 
-func NewBackendClient(conn net.Conn, config *services.ConfigService, disktypes *services.DiskTypeService) *BackendClient {
+func NewBackendClient(conn net.Conn, config *services.ConfigService, disktypes *services.DiskTypeService, mounts *services.MountService) *BackendClient {
 	return &BackendClient{
 		conn:            conn,
 		configService:   config,
 		disktypeService: disktypes,
+		mountService:    mounts,
 	}
 }
 
@@ -56,11 +64,16 @@ func (c *BackendClient) SendMessage(conn net.Conn, msgType api.MessageType, pb p
 
 // ReceiveMessage reads an Api_Message envelope from the connection.
 func (c *BackendClient) ReceiveMessage(conn net.Conn) (api.MessageType, []byte, error) {
+	conn.SetReadDeadline(time.Now().Add(readTimeout))
+
 	var lenBuf [4]byte
 	if _, err := io.ReadFull(conn, lenBuf[:]); err != nil {
 		return 0, nil, fmt.Errorf("failed to read message length: %w", err)
 	}
 	msgLen := binary.BigEndian.Uint32(lenBuf[:])
+	if msgLen > maxMessageSize {
+		return 0, nil, fmt.Errorf("message too large: %d bytes (max %d)", msgLen, maxMessageSize)
+	}
 	msgBytes := make([]byte, msgLen)
 	if _, err := io.ReadFull(conn, msgBytes); err != nil {
 		return 0, nil, fmt.Errorf("failed to read Api_Message: %w", err)
@@ -79,14 +92,19 @@ func (c *BackendClient) Start() {
 	for {
 		msgType, msg, err := c.ReceiveMessage(c.conn)
 		if err != nil {
+			// Timeout errors are not fatal — the client may send another message
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() {
+				continue
+			}
 			if err != io.EOF {
 				fmt.Fprintf(os.Stderr, "[BackendClient] Error reading message: %v\n", err)
 			}
 			break
 		}
 		if err := c.handleMessage(msgType, msg); err != nil {
-			fmt.Fprintf(os.Stderr, "[BackendClient] Error handling message: %v\n", err)
-			break
+			// Handler errors are logged but don't kill the connection
+			fmt.Fprintf(os.Stderr, "[BackendClient] Error handling message type %v: %v\n", msgType, err)
 		}
 	}
 }
@@ -95,15 +113,16 @@ func (c *BackendClient) Start() {
 func (c *BackendClient) handleMessage(msgType api.MessageType, msg []byte) error {
 	switch msgType {
 	case api.MessageType_CONNECT:
-		var connectResp api.ConnectResponse
-		if err := proto.Unmarshal(msg, &connectResp); err != nil {
-			return fmt.Errorf("failed to unmarshal CONNECT resp: %w", err)
-		}
-		if connectResp.Error != "" {
-			return fmt.Errorf("CONNECT handshake failed: %s", connectResp.Error)
+		var connectReq api.ConnectRequest
+		if err := proto.Unmarshal(msg, &connectReq); err != nil {
+			return fmt.Errorf("failed to unmarshal ConnectRequest: %w", err)
 		}
 		c.handshakeDone = true
-		fmt.Println("[BackendClient] CONNECT handshake succeeded")
+		fmt.Printf("[BackendClient] CONNECT from role: %s\n", connectReq.Role.String())
+		resp := &api.ConnectResponse{}
+		if err := c.SendMessage(c.conn, api.MessageType_CONNECT, resp); err != nil {
+			return fmt.Errorf("failed to send ConnectResponse: %w", err)
+		}
 		return nil
 
 	case api.MessageType_LIST_DISK_TYPES_REQUEST:
@@ -146,18 +165,13 @@ func (c *BackendClient) handleMessage(msgType api.MessageType, msg []byte) error
 				if m.Username != "" {
 					config["username"] = m.Username
 				}
-				if m.Password != "" {
-					config["password"] = m.Password
-				}
 				if m.Path != "" {
 					config["path"] = m.Path
 				}
 				if m.Share != "" {
 					config["share"] = m.Share
 				}
-				if m.AccessToken != "" {
-					config["access_token"] = m.AccessToken
-				}
+				// Intentionally omit password and access_token from responses
 				resp.Mounts = append(resp.Mounts, &api.MountInfo{
 					Name:     m.Name,
 					DiskType: diskType,
@@ -216,18 +230,118 @@ func (c *BackendClient) handleMessage(msgType api.MessageType, msg []byte) error
 			fmt.Fprintf(os.Stderr, "[BackendClient] Failed to send shutdown response: %v\n", err)
 		}
 
-		// Close the connection
-		c.conn.Close()
-
-		// Exit the process after a short delay to allow the response to be sent
-		go func() {
-			time.Sleep(100 * time.Millisecond)
-			os.Exit(0)
-		}()
+		// Connection will be closed by the deferred c.conn.Close() in Start()
 
 		return nil
 
-	// Add other message types here
+	case api.MessageType_MOUNT_REQUEST:
+		var req api.MountRequest
+		if err := proto.Unmarshal(msg, &req); err != nil {
+			return fmt.Errorf("failed to unmarshal MountRequest: %w", err)
+		}
+		resp := &api.MountResponse{}
+		if err := c.mountService.Mount(req.MountId); err != nil {
+			resp.Error = err.Error()
+		}
+		if err := c.SendMessage(c.conn, api.MessageType_MOUNT_RESPONSE, resp); err != nil {
+			return fmt.Errorf("failed to send MountResponse: %w", err)
+		}
+		fmt.Printf("[BackendClient] MountResponse sent (mount_id=%d)\n", req.MountId)
+		return nil
+
+	case api.MessageType_UNMOUNT_REQUEST:
+		var req api.UnmountRequest
+		if err := proto.Unmarshal(msg, &req); err != nil {
+			return fmt.Errorf("failed to unmarshal UnmountRequest: %w", err)
+		}
+		resp := &api.UnmountResponse{}
+		if err := c.mountService.Unmount(req.MountId); err != nil {
+			resp.Error = err.Error()
+		}
+		if err := c.SendMessage(c.conn, api.MessageType_UNMOUNT_RESPONSE, resp); err != nil {
+			return fmt.Errorf("failed to send UnmountResponse: %w", err)
+		}
+		fmt.Printf("[BackendClient] UnmountResponse sent (mount_id=%d)\n", req.MountId)
+		return nil
+
+	case api.MessageType_DELETE_MOUNT_REQUEST:
+		var req api.DeleteMountRequest
+		if err := proto.Unmarshal(msg, &req); err != nil {
+			return fmt.Errorf("failed to unmarshal DeleteMountRequest: %w", err)
+		}
+		resp := &api.DeleteMountResponse{}
+		// Unmount first if active, ignore error if not mounted
+		_ = c.mountService.Unmount(req.MountId)
+		if err := c.configService.DeleteMount(req.MountId); err != nil {
+			resp.Error = err.Error()
+		}
+		if err := c.SendMessage(c.conn, api.MessageType_DELETE_MOUNT_RESPONSE, resp); err != nil {
+			return fmt.Errorf("failed to send DeleteMountResponse: %w", err)
+		}
+		fmt.Printf("[BackendClient] DeleteMountResponse sent (mount_id=%d)\n", req.MountId)
+		return nil
+
+	case api.MessageType_LIST_DIR_REQUEST:
+		var req api.ListDirRequest
+		if err := proto.Unmarshal(msg, &req); err != nil {
+			return fmt.Errorf("failed to unmarshal ListDirRequest: %w", err)
+		}
+		resp := &api.ListDirResponse{}
+		files, err := c.mountService.ListDir(req.MountId, req.Path)
+		if err != nil {
+			resp.Error = err.Error()
+		} else {
+			for _, f := range files {
+				resp.Files = append(resp.Files, &api.FileInfo{
+					Name:  f.Name,
+					Size:  f.Size,
+					IsDir: f.IsDir,
+				})
+			}
+		}
+		if err := c.SendMessage(c.conn, api.MessageType_LIST_DIR_RESPONSE, resp); err != nil {
+			return fmt.Errorf("failed to send ListDirResponse: %w", err)
+		}
+		return nil
+
+	case api.MessageType_READ_FILE_REQUEST:
+		var req api.ReadFileRequest
+		if err := proto.Unmarshal(msg, &req); err != nil {
+			return fmt.Errorf("failed to unmarshal ReadFileRequest: %w", err)
+		}
+		resp := &api.ReadFileResponse{}
+		data, err := c.mountService.ReadFile(req.MountId, req.Path)
+		if err != nil {
+			resp.Error = err.Error()
+		} else {
+			resp.Data = data
+		}
+		if err := c.SendMessage(c.conn, api.MessageType_READ_FILE_RESPONSE, resp); err != nil {
+			return fmt.Errorf("failed to send ReadFileResponse: %w", err)
+		}
+		return nil
+
+	case api.MessageType_STAT_REQUEST:
+		var req api.StatRequest
+		if err := proto.Unmarshal(msg, &req); err != nil {
+			return fmt.Errorf("failed to unmarshal StatRequest: %w", err)
+		}
+		resp := &api.StatResponse{}
+		info, err := c.mountService.StatFile(req.MountId, req.Path)
+		if err != nil {
+			resp.Error = err.Error()
+		} else {
+			resp.Info = &api.FileInfo{
+				Name:  info.Name,
+				Size:  info.Size,
+				IsDir: info.IsDir,
+			}
+		}
+		if err := c.SendMessage(c.conn, api.MessageType_STAT_RESPONSE, resp); err != nil {
+			return fmt.Errorf("failed to send StatResponse: %w", err)
+		}
+		return nil
+
 	default:
 		fmt.Printf("[BackendClient] Unknown or unhandled message type: %d\n", msgType)
 	}

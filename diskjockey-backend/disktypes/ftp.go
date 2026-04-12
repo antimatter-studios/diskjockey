@@ -130,6 +130,10 @@ func (b *FTPBackend) withReconnect(op func() error) error {
 	return err
 }
 
+func (b *FTPBackend) Stat(path string) (types.FileInfo, error) {
+	return types.FileInfo{}, fmt.Errorf("stat not implemented for ftp")
+}
+
 func (b *FTPBackend) List(path string) ([]types.FileInfo, error) {
 	var result []types.FileInfo
 	err := b.withReconnect(func() error {

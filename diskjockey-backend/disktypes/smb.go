@@ -94,11 +94,13 @@ func (b *SMBBackend) connect() error {
 
 	session, err := d.Dial(conn)
 	if err != nil {
+		conn.Close()
 		return fmt.Errorf("SMB dial failed: %w", err)
 	}
 
 	share, err := session.Mount(shareName)
 	if err != nil {
+		session.Logoff()
 		return fmt.Errorf("SMB mount failed: %w", err)
 	}
 
@@ -119,6 +121,10 @@ func (b *SMBBackend) Reconnect() error {
 	}
 
 	return b.connect()
+}
+
+func (b *SMBBackend) Stat(path string) (types.FileInfo, error) {
+	return types.FileInfo{}, fmt.Errorf("stat not implemented for smb")
 }
 
 func (b *SMBBackend) List(path string) ([]types.FileInfo, error) {

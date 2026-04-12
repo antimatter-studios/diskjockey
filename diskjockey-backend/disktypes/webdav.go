@@ -75,13 +75,13 @@ func (w WebDAVDiskType) ConfigTemplate() types.DiskTypeConfigTemplate {
 	}
 }
 
-func (b *WebDAVBackend) connect() error {
+func (b *WebDAVBackend) connect() (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Fprintf(os.Stderr, "[WebDAV][PANIC] %v\n%s\n", r, debug.Stack())
+			err = fmt.Errorf("panic in connect: %v", r)
 		}
 	}()
-	fmt.Printf("[WebDAV][DEBUG] Mount config: %+v\n", b.mount)
 
 	host := b.mount.Host
 	port := b.mount.Port
@@ -99,9 +99,6 @@ func (b *WebDAVBackend) connect() error {
 	}
 	url := fmt.Sprintf("%s://%s%s", scheme, host, portStr)
 	b.pathPrefix = path
-
-	fmt.Printf("[WebDAV][DEBUG] Connecting to URL: %s\n", url)
-	fmt.Printf("[WebDAV][DEBUG] Username: %s\n", username)
 
 	b.client = gowebdav.NewClient(url, username, password)
 	b.BaseURL = url
@@ -133,52 +130,26 @@ func (b *WebDAVBackend) fullPath(requested string) string {
 	return requested
 }
 
+func (b *WebDAVBackend) Stat(path string) (types.FileInfo, error) {
+	return types.FileInfo{}, fmt.Errorf("stat not implemented for webdav")
+}
+
 func (b *WebDAVBackend) List(path string) (infos []types.FileInfo, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Fprintf(os.Stderr, "[WebDAV][PANIC][List] %v\n%s\n", r, debug.Stack())
-			err = fmt.Errorf("panic: %v", r)
+			err = fmt.Errorf("panic in List: %v", r)
 			infos = nil
 		}
 	}()
 
-	defer func() {
-		if r := recover(); r != nil {
-			fmt.Fprintf(os.Stderr, "[WebDAV][PANIC][List] %v\n%s\n", r, debug.Stack())
-		}
-	}()
-
-	fmt.Printf("[WebDAV][DEBUG][List] Requested path: %s\n", path)
 	fullPath := b.fullPath(path)
-	fmt.Printf("[WebDAV][DEBUG][List] fullPath: %s\n", fullPath)
-	baseURL := b.BaseURL
-	fmt.Printf("[WebDAV][DEBUG][List] baseURL: %s\n", baseURL)
-	fmt.Printf("[WebDAV][DEBUG][List] Final URL: %s%s\n", baseURL, fullPath)
-
-	type readDirResult struct {
-		files []os.FileInfo
-		err   error
+	files, listErr := b.client.ReadDir(fullPath)
+	if listErr != nil {
+		return nil, listErr
 	}
 
-	resultCh := make(chan readDirResult, 1)
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Fprintf(os.Stderr, "[WebDAV][PANIC][ReadDir goroutine] %v\n%s\n", r, debug.Stack())
-				resultCh <- readDirResult{nil, fmt.Errorf("panic in ReadDir: %v", r)}
-			}
-		}()
-		files, err := b.client.ReadDir(fullPath)
-		resultCh <- readDirResult{files, err}
-	}()
-
-	res := <-resultCh
-	if res.err != nil {
-		fmt.Fprintf(os.Stderr, "[WebDAV][ERROR][List] ReadDir error: %v\n", res.err)
-		return nil, res.err
-	}
-
-	for _, f := range res.files {
+	for _, f := range files {
 		infos = append(infos, types.FileInfo{
 			Name:  f.Name(),
 			IsDir: f.IsDir(),
