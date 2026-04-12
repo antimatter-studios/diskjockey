@@ -116,20 +116,23 @@ class ServiceDelegate: NSObject, NSXPCListenerDelegate {
 
 NSLog("[DiskJockeyXPC] Starting mach service: %@", machServiceName)
 
-// Start the Go backend if it's not already running
-startBackendIfNeeded()
-
-// Connect to the backend
-if DiskJockeyXPC.sharedClient.connect() {
-    NSLog("[DiskJockeyXPC] Connected to Go backend")
-} else {
-    NSLog("[DiskJockeyXPC] Warning: could not connect to backend (will retry on first request)")
-}
-
+// Start the listener FIRST so macOS doesn't think we're hung
 let delegate = ServiceDelegate()
 let listener = NSXPCListener(machServiceName: machServiceName)
 listener.delegate = delegate
 listener.resume()
+NSLog("[DiskJockeyXPC] Mach service listener active")
 
-NSLog("[DiskJockeyXPC] Mach service listener active, entering run loop")
+// Start the Go backend in the background
+DispatchQueue.global().async {
+    startBackendIfNeeded()
+
+    if DiskJockeyXPC.sharedClient.connect() {
+        NSLog("[DiskJockeyXPC] Connected to Go backend")
+    } else {
+        NSLog("[DiskJockeyXPC] Warning: could not connect to backend (will retry on first request)")
+    }
+}
+
+NSLog("[DiskJockeyXPC] Entering run loop")
 RunLoop.current.run()
