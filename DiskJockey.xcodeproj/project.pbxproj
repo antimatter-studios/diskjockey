@@ -15,7 +15,6 @@
 		501F02A92E058EED009EBB59 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = 501F02A82E058EED009EBB59 /* SwiftProtobuf */; };
 		501F02AA2E059230009EBB59 /* DiskJockeyLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */; };
 		501F02AB2E059230009EBB59 /* DiskJockeyLibrary.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		501F02B02E059B20009EBB59 /* diskjockey-backend in Resources */ = {isa = PBXBuildFile; fileRef = 501F02AF2E059B20009EBB59 /* diskjockey-backend */; };
 		50FC4D0F2F8B11BD0091F9DF /* DiskJockeyXPC.xpc in Embed XPC Services */ = {isa = PBXBuildFile; fileRef = 50FC4D042F8B11BD0091F9DF /* DiskJockeyXPC.xpc */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		50FC4D1C2F8B11F10091F9DF /* DiskJockeyLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */; };
 		50FC4D1D2F8B11F10091F9DF /* DiskJockeyLibrary.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -181,6 +180,14 @@
 			);
 			target = 50FC4D032F8B11BD0091F9DF /* DiskJockeyXPC */;
 		};
+		50FC50DB2F8BD4CC0091F9DF /* Exceptions for "DiskJockeyApplication" folder in "DiskJockey" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Resources/com.antimatterstudios.diskjockey.backend.plist,
+				"Resources/com.antimatterstudios.diskjockey.xpc-bridge.plist",
+			);
+			target = 50A51F912E05892200AC6D10 /* DiskJockey */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
@@ -216,6 +223,7 @@
 		50A51F942E05892200AC6D10 /* DiskJockeyApplication */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
+				50FC50DB2F8BD4CC0091F9DF /* Exceptions for "DiskJockeyApplication" folder in "DiskJockey" target */,
 				50FC4D282F8B1F9E0091F9DF /* Exceptions for "DiskJockeyApplication" folder in "Copy Files" phase from "DiskJockey" target */,
 			);
 			path = DiskJockeyApplication;
@@ -434,6 +442,7 @@
 				501F02772E058C51009EBB59 /* Embed Frameworks */,
 				50FC4D102F8B11BD0091F9DF /* Embed XPC Services */,
 				50FC4D262F8B1F710091F9DF /* CopyFiles */,
+				50FC50DA2F8BC8970091F9DF /* Sign Go Backend */,
 			);
 			buildRules = (
 			);
@@ -612,7 +621,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				501F02B02E059B20009EBB59 /* diskjockey-backend in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -638,6 +646,28 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		50FC50DA2F8BC8970091F9DF /* Sign Go Backend */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Sign Go Backend";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "#!/bin/sh\n# Build and sign the Go backend binary\nGO=$(bash -lc \"which go\")\nif [ -z \"$GO\" ]; then\n    echo \"error: Go not found in PATH\"\n    exit 1\nfi\n\ncd \"${SRCROOT}/diskjockey-backend\"\n\"$GO\" build -o \"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Resources/diskjockey-backend\" . || exit 1\n\n/usr/bin/codesign --force --sign \"${CODE_SIGN_IDENTITY}\" \\\n    --options runtime \\\n    --identifier \"com.antimatterstudios.diskjockey.backend\" \\\n    \"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Resources/diskjockey-backend\" || exit 1\n\necho \"Built and signed Go backend\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		501F023F2E058BAF009EBB59 /* Sources */ = {
@@ -1047,6 +1077,7 @@
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Disk Jockey";
@@ -1083,6 +1114,7 @@
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Disk Jockey";

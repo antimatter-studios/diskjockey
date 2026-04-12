@@ -195,6 +195,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     do {
                         try await NSFileProviderManager.add(domain)
                         print("Registered FP domain: \(mount.name) (id: \(mountID))")
+
+                        // Signal the system to re-enumerate all content
+                        if let manager = NSFileProviderManager(for: domain) {
+                            manager.signalEnumerator(for: .rootContainer) { _ in }
+                            manager.signalEnumerator(for: .workingSet) { _ in }
+                        }
                     } catch {
                         print("Failed to register FP domain: \(error)")
                     }

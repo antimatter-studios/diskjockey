@@ -6,9 +6,16 @@
 	<string>com.antimatterstudios.diskjockey.backend</string>
 	<key>BundleProgram</key>
 	<string>Contents/Resources/diskjockey-backend</string>
-	<key>RunAtLoad</key>
-	<true/>
+	<key>ProgramArguments</key>
+	<array>
+		<string>diskjockey-backend</string>
+		<string>--no-timeout</string>
+	</array>
 	<key>KeepAlive</key>
 	<true/>
+	<key>StandardOutPath</key>
+	<string>/tmp/diskjockey-backend-stdout.log</string>
+	<key>StandardErrorPath</key>
+	<string>/tmp/diskjockey-backend-stderr.log</string>
 </dict>
 </plist>
