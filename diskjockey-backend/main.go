@@ -92,6 +92,20 @@ func main() {
 
 	mountService := services.NewMountService(configService, diskTypeService)
 
+	// Auto-activate mounts that were previously mounted
+	mounts, err := configService.ListMountpoints()
+	if err == nil {
+		for _, m := range mounts {
+			if m.IsMounted {
+				if err := mountService.Mount(uint32(m.ID)); err != nil {
+					fmt.Printf("Failed to auto-activate mount %d: %v\n", m.ID, err)
+				} else {
+					fmt.Printf("Auto-activated mount %d (%s)\n", m.ID, m.Name)
+				}
+			}
+		}
+	}
+
 	// Start backend server (listen for incoming connections)
 	server := ipc.NewBackendServer(configService, diskTypeService, mountService)
 	port, err := server.RunServer(!noTimeout)
