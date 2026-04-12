@@ -26,10 +26,10 @@ public final class BackendServiceManager: ObservableObject {
 
     // MARK: - LaunchAgent Registration
 
-    /// Register both the backend and XPC bridge as LaunchAgents.
+    /// Register the XPC bridge as a LaunchAgent.
+    /// The XPC bridge manages the Go backend lifecycle internally.
     public func register() {
         if #available(macOS 13.0, *) {
-            registerAgent(plistName: backendPlistName, description: "backend")
             registerAgent(plistName: xpcBridgePlistName, description: "XPC bridge")
         } else {
             log("SMAppService requires macOS 13+")
@@ -52,10 +52,9 @@ public final class BackendServiceManager: ObservableObject {
         }
     }
 
-    /// Unregister both LaunchAgents.
+    /// Unregister the XPC bridge LaunchAgent.
     public func unregister() {
         if #available(macOS 13.0, *) {
-            unregisterAgent(plistName: backendPlistName, description: "backend")
             unregisterAgent(plistName: xpcBridgePlistName, description: "XPC bridge")
             isRegistered = false
             port = nil
