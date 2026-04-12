@@ -90,6 +90,9 @@ func (b *WebDAVBackend) connect() (err error) {
 	path := b.mount.Path
 
 	scheme := "https"
+	if port == 80 || port == 8080 {
+		scheme = "http"
+	}
 	if host == "" {
 		return fmt.Errorf("webdav: missing required config 'host'")
 	}
