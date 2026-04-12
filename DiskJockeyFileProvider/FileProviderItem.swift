@@ -48,14 +48,13 @@ class FileProviderItem: NSObject, NSFileProviderItem {
     }
 
     var parentItemIdentifier: NSFileProviderItemIdentifier {
-        if parentPath == "/" {
+        if parentPath == "/" || parentPath.isEmpty {
             return .rootContainer
         }
-        // parent of /foo/bar is /foo
-        let comps = parentPath.split(separator: "/").filter { !$0.isEmpty }
-        if comps.isEmpty { return .rootContainer }
-        let parent = comps.dropLast().joined(separator: "/")
-        return NSFileProviderItemIdentifier("item-/" + parent)
+        // parentPath is the directory containing this item
+        // e.g. parentPath="/subdir" means parent is "item-/subdir"
+        let cleanPath = parentPath.hasPrefix("/") ? parentPath : "/" + parentPath
+        return NSFileProviderItemIdentifier("item-" + cleanPath)
     }
 
     var capabilities: NSFileProviderItemCapabilities {

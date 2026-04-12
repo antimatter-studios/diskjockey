@@ -21,13 +21,27 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
     func item(for identifier: NSFileProviderItemIdentifier, request: NSFileProviderRequest, completionHandler: @escaping (NSFileProviderItem?, Error?) -> Void) -> Progress {
         NSLog("[FileProviderExtension] item(for: %@)", identifier.rawValue)
 
-        // Root container is synthetic — no backend call needed
+        // System containers are synthetic — no backend call needed
         if identifier == .rootContainer {
             let rootItem = FileProviderItem(
                 info: DiskJockeyFileItem(name: "", size: 0, isDirectory: true),
                 parentPath: ""
             )
             completionHandler(rootItem, nil)
+            return Progress()
+        }
+
+        if identifier == .trashContainer {
+            let trashItem = FileProviderItem(
+                info: DiskJockeyFileItem(name: ".Trash", size: 0, isDirectory: true),
+                parentPath: "/"
+            )
+            completionHandler(trashItem, nil)
+            return Progress()
+        }
+
+        if identifier == .workingSet {
+            completionHandler(nil, NSFileProviderError(.noSuchItem))
             return Progress()
         }
 
@@ -117,7 +131,8 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
     }
 
     func modifyItem(_ item: NSFileProviderItem, baseVersion version: NSFileProviderItemVersion, changedFields: NSFileProviderItemFields, contents newContents: URL?, options: NSFileProviderModifyItemOptions = [], request: NSFileProviderRequest, completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void) -> Progress {
-        completionHandler(nil, [], false, NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError, userInfo: [:]))
+        // Read-only: return the item unchanged, no error
+        completionHandler(item, [], false, nil)
         return Progress()
     }
 
