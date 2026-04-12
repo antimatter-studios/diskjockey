@@ -135,24 +135,74 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func showError(_ error: Error) {
-        let alert = NSAlert()
-        alert.messageText = "An error occurred"
-        alert.informativeText = error.localizedDescription
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "OK")
-        
-        // Show the alert as a sheet if we have a window, otherwise as a modal
+        print("App error: \(error.localizedDescription)")
+        // Show alert non-modally as a sheet if window is available
         if let window = mainWindowController?.window {
+            let alert = NSAlert()
+            alert.messageText = "An error occurred"
+            alert.informativeText = error.localizedDescription
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
             alert.beginSheetModal(for: window) { _ in }
-        } else {
-            alert.runModal()
         }
     }
     
     // MARK: - File Provider
     
     private func registerFileProviderDomain() {
-        // TODO: Implement file provider domain registration
+        // Wait for backend connection, then register FP domains for all mounts
+        container.$connectionState
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                guard case .connected = state else { return }
+                self?.activateMountsAndRegisterDomains()
+            }
+            .store(in: &cancellables)
+    }
+
+    private func activateMountsAndRegisterDomains() {
+        Task {
+            do {
+                // Remove all existing domains first to clear stale cached data
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                    NSFileProviderManager.removeAllDomains { error in
+                        if let error = error {
+                            print("Failed to remove domains: \(error)")
+                        } else {
+                            print("Cleared all File Provider domains")
+                        }
+                        continuation.resume()
+                    }
+                }
+
+                let mounts = try await container.backendAPI.listMounts()
+                for mount in mounts {
+                    guard let mountIDStr = mount.metadata["mount_id"],
+                          let mountID = UInt32(mountIDStr) else { continue }
+
+                    // Activate the mount on the backend
+                    do {
+                        try await container.backendAPI.mount(id: mountID)
+                        print("Activated mount \(mountID): \(mount.name)")
+                    } catch {
+                        print("Failed to activate mount \(mountID): \(error)")
+                    }
+
+                    // Register File Provider domain
+                    let domainID = NSFileProviderDomainIdentifier(rawValue: String(mountID))
+                    let domain = NSFileProviderDomain(identifier: domainID, displayName: mount.name)
+
+                    do {
+                        try await NSFileProviderManager.add(domain)
+                        print("Registered FP domain: \(mount.name) (id: \(mountID))")
+                    } catch {
+                        print("Failed to register FP domain: \(error)")
+                    }
+                }
+            } catch {
+                print("Failed to list mounts: \(error)")
+            }
+        }
     }
 }
 
