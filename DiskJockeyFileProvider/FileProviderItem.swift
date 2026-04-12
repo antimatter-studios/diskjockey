@@ -25,9 +25,10 @@ class FileProviderItem: NSObject, NSFileProviderItem {
         }
     }
 
-    // For legacy/manual init - deprecated, use info-based init instead
+    // For legacy/manual init - used by fetchContents when we only have the identifier
     init(identifier: NSFileProviderItemIdentifier) {
-        let name = identifier.rawValue.replacingOccurrences(of: "item-", with: "")
+        let rawPath = identifier.rawValue.replacingOccurrences(of: "item-", with: "")
+        let name = (rawPath as NSString).lastPathComponent
         self.info = DiskJockeyFileItem(
             name: name,
             size: name.hasSuffix(".txt") ? 100 : 0,
@@ -39,8 +40,8 @@ class FileProviderItem: NSObject, NSFileProviderItem {
     }
 
     var itemIdentifier: NSFileProviderItemIdentifier {
-        // Root container is special
-        if info.name.isEmpty && identifierValue == NSFileProviderItemIdentifier.rootContainer.rawValue {
+        // Root container: empty name with empty or "/" parent
+        if info.name.isEmpty && (parentPath.isEmpty || parentPath == "/") {
             return .rootContainer
         }
         return NSFileProviderItemIdentifier(identifierValue)
@@ -75,11 +76,17 @@ class FileProviderItem: NSObject, NSFileProviderItem {
         return info.isDirectory
     }
     var fileSize: NSNumber? {
-        // Only files have a size
+        return info.isDirectory ? nil : NSNumber(value: info.size)
+    }
+    var documentSize: NSNumber? {
         return info.isDirectory ? nil : NSNumber(value: info.size)
     }
     var itemVersion: NSFileProviderItemVersion {
-        NSFileProviderItemVersion(contentVersion: "1".data(using: .utf8)!, metadataVersion: "1".data(using: .utf8)!)
+        let versionString = "\(info.name)-\(info.size)"
+        return NSFileProviderItemVersion(
+            contentVersion: versionString.data(using: .utf8)!,
+            metadataVersion: versionString.data(using: .utf8)!
+        )
     }
 }
 
