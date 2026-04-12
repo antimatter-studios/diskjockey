@@ -20,9 +20,10 @@ import (
 type SFTPDiskType struct{}
 
 type SFTPBackend struct {
-	mount  *models.Mount
-	client *sftp.Client
-	path   string // cached after connect
+	mount   *models.Mount
+	sshConn *ssh.Client
+	client  *sftp.Client
+	path    string // cached after connect
 }
 
 func (SFTPDiskType) New(mount *models.Mount) (types.Backend, error) {
@@ -88,7 +89,7 @@ func (b *SFTPBackend) connect() error {
 		return fmt.Errorf("missing required sftp config fields")
 	}
 
-	addr := host + ":" + string(port)
+	addr := fmt.Sprintf("%s:%d", host, port)
 	auths := []ssh.AuthMethod{}
 	if password != "" {
 		auths = append(auths, ssh.Password(password))
@@ -122,18 +123,22 @@ func (b *SFTPBackend) connect() error {
 
 	sftpClient, err := sftp.NewClient(sshConn)
 	if err != nil {
+		sshConn.Close()
 		return fmt.Errorf("sftp client failed: %w", err)
 	}
 
+	b.sshConn = sshConn
 	b.client = sftpClient
 
 	return nil
 }
 
+func (b *SFTPBackend) Stat(path string) (types.FileInfo, error) {
+	return types.FileInfo{}, fmt.Errorf("stat not implemented for sftp")
+}
+
 func (b *SFTPBackend) List(path string) ([]types.FileInfo, error) {
 	absPath := b.path + path
-	fmt.Println("SFTP List absPath:", absPath) // <-- Add this line
-
 	files, err := b.client.ReadDir(absPath)
 	if err != nil {
 		return nil, err
@@ -180,38 +185,29 @@ func (b *SFTPBackend) Delete(path string) error {
 }
 
 func (b *SFTPBackend) Close() error {
-	return b.client.Close()
+	var firstErr error
+	if b.client != nil {
+		if err := b.client.Close(); err != nil {
+			firstErr = err
+		}
+	}
+	if b.sshConn != nil {
+		if err := b.sshConn.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }
 
 func (b *SFTPBackend) Reconnect() error {
 	if b.client != nil {
 		b.client.Close()
 	}
-
-	auths := []ssh.AuthMethod{}
-	if len(auths) == 0 {
-		return fmt.Errorf("no authentication method provided (set password or use_ssh_agent)")
+	if b.sshConn != nil {
+		b.sshConn.Close()
 	}
+	b.client = nil
+	b.sshConn = nil
 
-	sshConfig := &ssh.ClientConfig{
-		User:            "", // USERNAME should be set from config in connect()
-		Auth:            auths,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // WARNING: for demo only
-		Timeout:         5 * time.Second,
-	}
-
-	addr := "" // ADDR should be set from config in connect()
-	sshConn, err := ssh.Dial("tcp", addr, sshConfig)
-	if err != nil {
-		return fmt.Errorf("ssh dial failed: %w", err)
-	}
-
-	sftpClient, err := sftp.NewClient(sshConn)
-	if err != nil {
-		return fmt.Errorf("sftp client failed: %w", err)
-	}
-
-	b.client = sftpClient
-
-	return nil
+	return b.connect()
 }

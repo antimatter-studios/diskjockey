@@ -63,6 +63,10 @@ func (b *DropboxBackend) connect() error {
 	return nil
 }
 
+func (b *DropboxBackend) Stat(path string) (types.FileInfo, error) {
+	return types.FileInfo{}, fmt.Errorf("stat not implemented for dropbox")
+}
+
 func (b *DropboxBackend) List(path string) ([]types.FileInfo, error) {
 	if path == "" {
 		path = "" // Dropbox root is ""

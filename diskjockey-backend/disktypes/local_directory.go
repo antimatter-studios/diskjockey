@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/christhomas/diskjockey/diskjockey-backend/models"
 	"github.com/christhomas/diskjockey/diskjockey-backend/types"
@@ -57,9 +58,45 @@ func (b *LocalDirectoryBackend) connect() error {
 	return nil
 }
 
+// safePath resolves the requested path within the root and ensures it doesn't escape.
+func (b *LocalDirectoryBackend) safePath(requested string) (string, error) {
+	joined := filepath.Join(b.Path, requested)
+	resolved, err := filepath.Abs(joined)
+	if err != nil {
+		return "", fmt.Errorf("invalid path: %w", err)
+	}
+	root, err := filepath.Abs(b.Path)
+	if err != nil {
+		return "", fmt.Errorf("invalid root path: %w", err)
+	}
+	if !strings.HasPrefix(resolved, root+string(filepath.Separator)) && resolved != root {
+		return "", fmt.Errorf("path traversal not allowed")
+	}
+	return resolved, nil
+}
+
+func (b *LocalDirectoryBackend) Stat(path string) (types.FileInfo, error) {
+	safe, err := b.safePath(path)
+	if err != nil {
+		return types.FileInfo{}, err
+	}
+	info, err := os.Stat(safe)
+	if err != nil {
+		return types.FileInfo{}, err
+	}
+	return types.FileInfo{
+		Name:  info.Name(),
+		Size:  info.Size(),
+		IsDir: info.IsDir(),
+	}, nil
+}
+
 // Backend interface implementation
 func (b *LocalDirectoryBackend) List(path string) ([]types.FileInfo, error) {
-	dir := filepath.Join(b.Path, path)
+	dir, err := b.safePath(path)
+	if err != nil {
+		return nil, err
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
@@ -82,21 +119,31 @@ func (b *LocalDirectoryBackend) List(path string) ([]types.FileInfo, error) {
 }
 
 func (b *LocalDirectoryBackend) Read(path string) ([]byte, error) {
-	return os.ReadFile(filepath.Join(b.Path, path))
+	safe, err := b.safePath(path)
+	if err != nil {
+		return nil, err
+	}
+	return os.ReadFile(safe)
 }
 
 func (b *LocalDirectoryBackend) Write(path string, data []byte) error {
-	fullPath := filepath.Join(b.Path, path)
-	dir := filepath.Dir(fullPath)
+	safe, err := b.safePath(path)
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(safe)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-
-	return os.WriteFile(fullPath, data, 0644)
+	return os.WriteFile(safe, data, 0644)
 }
 
 func (b *LocalDirectoryBackend) Delete(path string) error {
-	return os.Remove(filepath.Join(b.Path, path))
+	safe, err := b.safePath(path)
+	if err != nil {
+		return err
+	}
+	return os.Remove(safe)
 }
 
 func (b *LocalDirectoryBackend) Reconnect() error {

@@ -30,6 +30,7 @@ type FileInfo struct {
 // Backend defines the disk type instance interface (for a mount)
 type Backend interface {
 	List(path string) ([]FileInfo, error)
+	Stat(path string) (FileInfo, error)
 	Read(path string) ([]byte, error)
 	Write(path string, data []byte) error
 	Delete(path string) error

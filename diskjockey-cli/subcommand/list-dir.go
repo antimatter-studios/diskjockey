@@ -30,7 +30,7 @@ func ListDirCommand(client *ipc.Client, args []string) {
 		fmt.Println("Receive ListMountsResponse error:", err)
 		os.Exit(1)
 	}
-	if typeReceived != api.MessageType_LIST_MOUNTS_REQUEST {
+	if typeReceived != api.MessageType_LIST_MOUNTS_RESPONSE {
 		fmt.Printf("Unexpected resp type for ListMountsResponse: %v\n", typeReceived)
 		os.Exit(1)
 	}
@@ -69,7 +69,7 @@ func ListDirCommand(client *ipc.Client, args []string) {
 		fmt.Println("Receive ListDirResponse error:", err)
 		os.Exit(1)
 	}
-	if typeReceived != api.MessageType_LIST_DIR_REQUEST {
+	if typeReceived != api.MessageType_LIST_DIR_RESPONSE {
 		fmt.Printf("Unexpected resp type for ListDirResponse: %v\n", typeReceived)
 		os.Exit(1)
 	}

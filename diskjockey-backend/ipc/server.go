@@ -13,25 +13,35 @@ import (
 type BackendServer struct {
 	configService   *services.ConfigService
 	disktypeService *services.DiskTypeService
+	mountService    *services.MountService
 	shutdownChan    chan struct{} // Channel to signal shutdown
-	listener        net.Listener  // Store the listener for graceful shutdown
-	lastActivityMu  sync.Mutex    // Protects lastActivity
-	lastActivity    time.Time     // Last time of activity
+	doneChan        chan struct{} // Closed when server has fully stopped
+	listener        net.Listener // Store the listener for graceful shutdown
+	lastActivityMu  sync.Mutex   // Protects lastActivity
+	lastActivity    time.Time    // Last time of activity
+	shutdownOnce    sync.Once
 }
 
-func NewBackendServer(config *services.ConfigService, disktypes *services.DiskTypeService) *BackendServer {
+func NewBackendServer(config *services.ConfigService, disktypes *services.DiskTypeService, mounts *services.MountService) *BackendServer {
 	s := &BackendServer{
 		configService:   config,
 		disktypeService: disktypes,
+		mountService:    mounts,
 		shutdownChan:    make(chan struct{}),
+		doneChan:        make(chan struct{}),
 	}
 	s.lastActivity = time.Now()
 	return s
 }
 
+// Done returns a channel that is closed when the server has fully stopped.
+func (s *BackendServer) Done() <-chan struct{} {
+	return s.doneChan
+}
+
 // RunServer starts the backend server and returns the port it's listening on.
-// This function starts a goroutine that accepts connections indefinitely.
-func (s *BackendServer) RunServer() (int, error) {
+// If enableTimeout is true, the server will shut down after 5 minutes of inactivity.
+func (s *BackendServer) RunServer(enableTimeout bool) (int, error) {
 	var err error
 	s.listener, err = net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -41,8 +51,10 @@ func (s *BackendServer) RunServer() (int, error) {
 	addr := s.listener.Addr().(*net.TCPAddr)
 	port := addr.Port
 
-	// Start monitoring inactivity
-	go s.monitorInactivity(5 * time.Minute)
+	// Start monitoring inactivity (only if enabled)
+	if enableTimeout {
+		go s.monitorInactivity(5 * time.Minute)
+	}
 
 	// Start accepting connections in a goroutine
 	go func() {
@@ -63,7 +75,7 @@ func (s *BackendServer) RunServer() (int, error) {
 				}
 				continue
 			}
-			client := NewBackendClient(conn, s.configService, s.disktypeService)
+			client := NewBackendClient(conn, s.configService, s.disktypeService, s.mountService)
 			go client.Start()
 		}
 	}()
@@ -79,11 +91,15 @@ func (s *BackendServer) RunServer() (int, error) {
 
 // Shutdown gracefully shuts down the server
 func (s *BackendServer) Shutdown() error {
-	close(s.shutdownChan) // Signal all goroutines to stop
-	if s.listener != nil {
-		return s.listener.Close()
-	}
-	return nil
+	var err error
+	s.shutdownOnce.Do(func() {
+		close(s.shutdownChan) // Signal all goroutines to stop
+		if s.listener != nil {
+			err = s.listener.Close()
+		}
+		close(s.doneChan)
+	})
+	return err
 }
 
 // updateActivity records the current time as the last activity
@@ -105,7 +121,8 @@ func (s *BackendServer) monitorInactivity(timeout time.Duration) {
 			s.lastActivityMu.Unlock()
 			if idle > timeout {
 				fmt.Printf("No activity for %v, shutting down.\n", timeout)
-				os.Exit(0)
+				s.Shutdown()
+				return
 			}
 		case <-s.shutdownChan:
 			return
