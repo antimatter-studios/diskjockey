@@ -9,7 +9,7 @@
 //   3: WriteFileRequest / WriteFileResponse
 // These IDs are used in the daemon's socket protocol to identify message types.
 
-package backend
+package api
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
