@@ -1,4 +1,8 @@
 .DS_Store
 .build
+build/
 project.xcworkspace
-xcuserdatadiskjockey-backend/diskjockey-backend
+xcuserdata/
+*.profraw
+diskjockey-backend/diskjockey-backend
+diskjockey-cli/diskjockey-cli
