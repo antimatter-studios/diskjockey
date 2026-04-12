@@ -459,15 +459,17 @@ public class BackendAPI {
             )
 
             let mounts = response.mounts.map { apiMount in
-                Mount(
-                    id: UUID(),  // Generate a new UUID since we don't have one from the server
+                var metadata = apiMount.config
+                metadata["mount_id"] = String(apiMount.mountID)
+                return Mount(
+                    id: UUID(),
                     diskType: DiskTypeEnum(rawValue: apiMount.diskType.lowercased()) ?? .localdirectory,
                     name: apiMount.name,
-                    path: "",  // Not provided in MountInfo
-                    remotePath: "",  // Not provided in MountInfo
-                    isMounted: false,  // Default to false since we don't have this info
-                    lastAccessed: nil,  // Not provided in MountInfo
-                    metadata: apiMount.config  // Using config map as metadata
+                    path: metadata["path"] ?? "",
+                    remotePath: "",
+                    isMounted: false,
+                    lastAccessed: nil,
+                    metadata: metadata
                 )
             }
             self.log("Listed \(mounts.count) mounts")
