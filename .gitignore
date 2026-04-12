@@ -6,3 +6,8 @@ xcuserdata/
 *.profraw
 diskjockey-backend/diskjockey-backend
 diskjockey-cli/diskjockey-cli
+diskjockey-backend/test-mount/ftp-server/
+diskjockey-backend/test-mount/sftp-server/
+diskjockey-backend/test-mount/smb-server/
+diskjockey-backend/test-mount/webdav-server/
+diskjockey-backend/test-mount/mount*/
