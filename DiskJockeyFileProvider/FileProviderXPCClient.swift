@@ -2,57 +2,100 @@ import Foundation
 import DiskJockeyLibrary
 
 class FileProviderXPCClient {
-    private let connection: NSXPCConnection
+    private var connection: NSXPCConnection?
 
-    init() {
-        // The mach service name must match the helper/app's XPC registration
-        self.connection = NSXPCConnection(machServiceName: "com.antimatterstudios.diskjockey.xpc", options: [])
-        self.connection.remoteObjectInterface = NSXPCInterface(with: FileProviderXPCProtocol.self)
-        self.connection.resume()
+    private func getConnection() -> NSXPCConnection {
+        if let conn = connection { return conn }
+
+        // Connect to the mach service registered by the XPC bridge LaunchAgent
+        let conn = NSXPCConnection(machServiceName: "com.antimatterstudios.diskjockey.xpc-bridge")
+        conn.remoteObjectInterface = NSXPCInterface(with: FileProviderXPCProtocol.self)
+
+        conn.invalidationHandler = { [weak self] in
+            NSLog("[FileProviderXPCClient] Connection invalidated")
+            self?.connection = nil
+        }
+        conn.interruptionHandler = { [weak self] in
+            NSLog("[FileProviderXPCClient] Connection interrupted")
+            self?.connection = nil
+        }
+
+        conn.resume()
+        self.connection = conn
+        return conn
     }
 
-    func sendRequest(_ requestData: Data, completion: @escaping (Data?) -> Void) {
-        let proxy = connection.remoteObjectProxyWithErrorHandler { error in
-            print("XPC error: \(error)")
+    private func sendRequest(_ requestData: Data, completion: @escaping (Data?) -> Void) {
+        let conn = getConnection()
+        let proxy = conn.remoteObjectProxyWithErrorHandler { error in
+            NSLog("[FileProviderXPCClient] XPC error: %@", error.localizedDescription)
             completion(nil)
         } as? FileProviderXPCProtocol
+
         proxy?.handleRequest(requestData, withReply: { responseData in
             completion(responseData)
         })
     }
 
-    // Example: List directory for a given mount ID and path
-    func listDirectory(mountID: String, path: String, completion: @escaping ([String]) -> Void) {
-        // --- Begin generated code integration ---
-        // import DiskJockeyLibrary // for FileProviderRequest/Response (SwiftProtobuf)
-        // var req = FileProviderRequest()
-        // req.mountID = mountID
-        // req.list = ListRequest.with { $0.path = path }
-        // let data = try? req.serializedData()
-        // sendRequest(data ?? Data()) { responseData in
-        //     guard let responseData = responseData,
-        //           let response = try? FileProviderResponse(serializedData: responseData),
-        //           case .list(let listResp) = response.responseType else {
-        //         completion([])
-        //         return
-        //     }
-        //     let filenames = listResp.files.map { $0.name }
-        //     completion(filenames)
-        // }
-        // --- End generated code integration ---
-        // For now, decode the stubbed JSON response
-        struct StubFileInfo: Codable { let name: String; let isDirectory: Bool; let size: Int64; let mtime: Int64 }
-        sendRequest(Data()) { responseData in
+    // MARK: - Typed API
+
+    func listDirectory(mountID: String, path: String, completion: @escaping (Diskjockey_Fileprovider_FileProviderResponse?) -> Void) {
+        var req = Diskjockey_Fileprovider_FileProviderRequest()
+        req.mountID = mountID
+        req.list = Diskjockey_Fileprovider_ListRequest.with { $0.path = path }
+
+        guard let data = try? req.serializedData() else {
+            completion(nil)
+            return
+        }
+
+        sendRequest(data) { responseData in
             guard let responseData = responseData,
-                  let files = try? JSONDecoder().decode([StubFileInfo].self, from: responseData) else {
-                print("[XPCClient] Failed to decode directory listing")
-                completion([])
+                  let response = try? Diskjockey_Fileprovider_FileProviderResponse(serializedBytes: responseData) else {
+                completion(nil)
                 return
             }
-            let filenames = files.map { $0.name }
-            print("[XPCClient] Directory listing: \(filenames)")
-            completion(filenames)
+            completion(response)
+        }
+    }
+
+    func stat(mountID: String, path: String, completion: @escaping (Diskjockey_Fileprovider_FileProviderResponse?) -> Void) {
+        var req = Diskjockey_Fileprovider_FileProviderRequest()
+        req.mountID = mountID
+        req.stat = Diskjockey_Fileprovider_StatRequest.with { $0.path = path }
+
+        guard let data = try? req.serializedData() else {
+            completion(nil)
+            return
+        }
+
+        sendRequest(data) { responseData in
+            guard let responseData = responseData,
+                  let response = try? Diskjockey_Fileprovider_FileProviderResponse(serializedBytes: responseData) else {
+                completion(nil)
+                return
+            }
+            completion(response)
+        }
+    }
+
+    func readFile(mountID: String, path: String, completion: @escaping (Diskjockey_Fileprovider_FileProviderResponse?) -> Void) {
+        var req = Diskjockey_Fileprovider_FileProviderRequest()
+        req.mountID = mountID
+        req.read = Diskjockey_Fileprovider_ReadRequest.with { $0.path = path }
+
+        guard let data = try? req.serializedData() else {
+            completion(nil)
+            return
+        }
+
+        sendRequest(data) { responseData in
+            guard let responseData = responseData,
+                  let response = try? Diskjockey_Fileprovider_FileProviderResponse(serializedBytes: responseData) else {
+                completion(nil)
+                return
+            }
+            completion(response)
         }
     }
 }
-

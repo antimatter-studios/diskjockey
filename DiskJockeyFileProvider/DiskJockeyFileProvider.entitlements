@@ -10,5 +10,9 @@
 	<array>
 		<string>group.com.antimatterstudios.diskjockey</string>
 	</array>
+	<key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
+	<array>
+		<string>com.antimatterstudios.diskjockey.xpc-bridge</string>
+	</array>
 </dict>
 </plist>
