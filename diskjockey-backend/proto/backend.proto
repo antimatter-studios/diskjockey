@@ -6,7 +6,7 @@ syntax = "proto3";
 // These IDs are used in the daemon's socket protocol to identify message types.
 
 package backend;
-option go_package = "diskjockey-backend/proto/backend;backend";
+option go_package = "diskjockey-backend/proto/api;api";
 
 // Message wrapper that contains the actual message and its type
 message Message {
