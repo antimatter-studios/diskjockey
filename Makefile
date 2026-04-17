@@ -59,9 +59,9 @@ vendor-ext4rs:
 	@echo "\nBuilding ext4rs from $(EXT4RS_SRC)...\n"
 	@test -d "$(EXT4RS_SRC)" || (echo "EXT4RS_SRC=$(EXT4RS_SRC) does not exist. Clone github.com/christhomas/ext4-rust or override EXT4RS_SRC." >&2; exit 1)
 	cd "$(EXT4RS_SRC)" && ./build.sh
-	mkdir -p $(EXT4RS_VENDOR)
-	cp "$(EXT4RS_SRC)/dist/libext4rs.a" $(EXT4RS_VENDOR)/libext4rs.a
-	cp "$(EXT4RS_SRC)/dist/ext4rs.h"    $(EXT4RS_VENDOR)/ext4rs.h
+	mkdir -p $(EXT4RS_VENDOR)/include
+	cp "$(EXT4RS_SRC)/dist/libext4rs.a"    $(EXT4RS_VENDOR)/libext4rs.a
+	cp "$(EXT4RS_SRC)/dist/ext4rs.h"       $(EXT4RS_VENDOR)/include/ext4rs.h
 	cp -R "$(EXT4RS_SRC)/dist/ext4rs.xcframework" $(EXT4RS_VENDOR)/ext4rs.xcframework
 	@echo "ext4rs vendored into $(EXT4RS_VENDOR)/"
 	@lipo -info $(EXT4RS_VENDOR)/libext4rs.a
