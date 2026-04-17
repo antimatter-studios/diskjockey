@@ -19,109 +19,101 @@ class DiskJockeyApplication {
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
-    // MARK: - Properties
-    
-    /// The main dependency container for the application
     private let container = AppContainer()
-    
-    /// The main window controller
     private var mainWindowController: NSWindowController?
-    
-    /// Status bar item for the app
-    private var statusItem: NSStatusItem?
-    
-    /// Combine cancellables
     private var cancellables = Set<AnyCancellable>()
-    
-    /// The SwiftUI content view
+
     private var contentView: some View {
         ContentView(container: container)
             .environmentObject(container.appLogModel)
     }
-    
+
     // MARK: - Application Lifecycle
-    
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("Starting Disk Jockey...")
-
-        // Start the backend
+        setupMainMenu()
         container.startBackend()
-        
-        // Setup status bar item
-        setupStatusBarItem()
-        
-        // Show the main window
         showMainWindow()
-        
-        // Observe for errors
         setupErrorObservation()
-        
-        // Register file provider domain
         registerFileProviderDomain()
     }
-    
+
     func applicationWillTerminate(_ notification: Notification) {
-        // Clean up resources
-        // The backend process will be terminated by the system
+        // Backend keeps running as LaunchAgent — nothing to clean up
     }
-    
-    // MARK: - UI Setup
-    
-    private func setupStatusBarItem() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        
-        if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "externaldrive", accessibilityDescription: "DiskJockey")
-        }
-        
-        let statusMenu = NSMenu()
-        
-        let showWindowItem = NSMenuItem(
-            title: "Show DiskJockey",
-            action: #selector(showMainWindow),
-            keyEquivalent: ""
-        )
-        showWindowItem.target = self
-        statusMenu.addItem(showWindowItem)
-        
-        statusMenu.addItem(NSMenuItem.separator())
-        
-        let quitItem = NSMenuItem(
-            title: "Quit DiskJockey",
-            action: #selector(NSApplication.terminate(_:)),
-            keyEquivalent: "q"
-        )
-        statusMenu.addItem(quitItem)
-        
-        statusItem?.menu = statusMenu
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return false
     }
-    
+
+    // MARK: - Main Menu
+
+    private func setupMainMenu() {
+        let mainMenu = NSMenu()
+
+        // App menu
+        let appMenuItem = NSMenuItem()
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "About DiskJockey", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(withTitle: "Quit DiskJockey", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenuItem.submenu = appMenu
+        mainMenu.addItem(appMenuItem)
+
+        // Edit menu (required for copy/paste in SwiftUI text fields)
+        let editMenuItem = NSMenuItem()
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        editMenu.addItem(NSMenuItem.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editMenuItem.submenu = editMenu
+        mainMenu.addItem(editMenuItem)
+
+        // Window menu
+        let windowMenuItem = NSMenuItem()
+        let windowMenu = NSMenu(title: "Window")
+        windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.miniaturize(_:)), keyEquivalent: "m")
+        windowMenu.addItem(withTitle: "Zoom", action: #selector(NSWindow.zoom(_:)), keyEquivalent: "")
+        windowMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        windowMenuItem.submenu = windowMenu
+        mainMenu.addItem(windowMenuItem)
+
+        NSApp.mainMenu = mainMenu
+    }
+
+    // MARK: - Window
+
     @objc private func showMainWindow() {
-        // Create the main window if it doesn't exist
         if mainWindowController == nil {
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600),
+                contentRect: NSRect(x: 0, y: 0, width: 900, height: 560),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
             )
-            
+
             window.center()
             window.setFrameAutosaveName("Main Window")
             window.title = "DiskJockey"
+            window.titlebarAppearsTransparent = true
             window.contentView = NSHostingView(rootView: contentView)
-            
+
             let windowController = NSWindowController(window: window)
             self.mainWindowController = windowController
         }
-        
+
         mainWindowController?.showWindow(nil)
         mainWindowController?.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
-    
+
     // MARK: - Error Handling
-    
+
     @MainActor
     private func setupErrorObservation() {
         container.$error
@@ -133,10 +125,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
     }
-    
+
     private func showError(_ error: Error) {
         print("App error: \(error.localizedDescription)")
-        // Show alert non-modally as a sheet if window is available
         if let window = mainWindowController?.window {
             let alert = NSAlert()
             alert.messageText = "An error occurred"
@@ -146,11 +137,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             alert.beginSheetModal(for: window) { _ in }
         }
     }
-    
+
     // MARK: - File Provider
-    
+
     private func registerFileProviderDomain() {
-        // Wait for backend connection, then register FP domains for all mounts
         container.$connectionState
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
@@ -163,7 +153,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func activateMountsAndRegisterDomains() {
         Task {
             do {
-                // Remove all existing domains first to clear stale cached data
                 try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                     NSFileProviderManager.removeAllDomains { error in
                         if let error = error {
@@ -180,7 +169,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     guard let mountIDStr = mount.metadata["mount_id"],
                           let mountID = UInt32(mountIDStr) else { continue }
 
-                    // Activate the mount on the backend
                     do {
                         try await container.backendAPI.mount(id: mountID)
                         print("Activated mount \(mountID): \(mount.name)")
@@ -188,7 +176,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         print("Failed to activate mount \(mountID): \(error)")
                     }
 
-                    // Register File Provider domain
                     let domainID = NSFileProviderDomainIdentifier(rawValue: String(mountID))
                     let domain = NSFileProviderDomain(identifier: domainID, displayName: mount.name)
 
@@ -196,7 +183,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         try await NSFileProviderManager.add(domain)
                         print("Registered FP domain: \(mount.name) (id: \(mountID))")
 
-                        // Signal the system to re-enumerate all content
                         if let manager = NSFileProviderManager(for: domain) {
                             manager.signalEnumerator(for: .rootContainer) { _ in }
                             manager.signalEnumerator(for: .workingSet) { _ in }
@@ -211,5 +197,3 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 }
-
-
