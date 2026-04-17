@@ -124,22 +124,36 @@ public final class AppContainer: ObservableObject {
         }
         isConnecting = true
         defer { isConnecting = false }
-        NSLog("[AppContainer] connectToBackend called")
-        guard let port = await serviceManager.discoverPort() else {
-            NSLog("[AppContainer] Could not discover backend port")
-            self.error = NSError(domain: "AppContainer", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "Could not discover backend port. Is the backend running?"
-            ])
-            return
-        }
 
-        do {
-            NSLog("[AppContainer] Connecting to backend at 127.0.0.1:%d", port)
-            try await backendAPI.connect(host: "127.0.0.1", port: port)
-            NSLog("[AppContainer] Connected successfully")
-        } catch {
-            NSLog("[AppContainer] Connection failed: %@", error.localizedDescription)
-            self.error = error
+        let maxAttempts = 5
+        for attempt in 1...maxAttempts {
+            NSLog("[AppContainer] connectToBackend attempt %d/%d", attempt, maxAttempts)
+
+            guard let port = await serviceManager.discoverPort() else {
+                NSLog("[AppContainer] Could not discover backend port (attempt %d)", attempt)
+                if attempt < maxAttempts {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    continue
+                }
+                self.error = NSError(domain: "AppContainer", code: 2, userInfo: [
+                    NSLocalizedDescriptionKey: "Could not discover backend port. Is the backend running?"
+                ])
+                return
+            }
+
+            do {
+                NSLog("[AppContainer] Connecting to backend at 127.0.0.1:%d", port)
+                try await backendAPI.connect(host: "127.0.0.1", port: port)
+                NSLog("[AppContainer] Connected successfully")
+                return
+            } catch {
+                NSLog("[AppContainer] Connection failed (attempt %d): %@", attempt, error.localizedDescription)
+                if attempt == maxAttempts {
+                    self.error = error
+                } else {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                }
+            }
         }
     }
 
