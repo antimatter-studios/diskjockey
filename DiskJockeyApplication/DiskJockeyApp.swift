@@ -61,6 +61,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
 
+        // File menu
+        let fileMenuItem = NSMenuItem()
+        let fileMenu = NSMenu(title: "File")
+        let attachEXT4 = fileMenu.addItem(
+            withTitle: "Attach ext4 image…",
+            action: #selector(attachEXT4Image),
+            keyEquivalent: "e"
+        )
+        attachEXT4.keyEquivalentModifierMask = [.command, .shift]
+        attachEXT4.target = self
+        fileMenuItem.submenu = fileMenu
+        mainMenu.addItem(fileMenuItem)
+
         // Edit menu (required for copy/paste in SwiftUI text fields)
         let editMenuItem = NSMenuItem()
         let editMenu = NSMenu(title: "Edit")
@@ -87,6 +100,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: - Window
+
+    @objc private func attachEXT4Image() {
+        FSKitAttachController.promptAndAttach()
+    }
 
     @objc private func showMainWindow() {
         if mainWindowController == nil {
