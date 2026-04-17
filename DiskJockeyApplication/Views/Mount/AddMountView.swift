@@ -2,200 +2,201 @@ import SwiftUI
 import DiskJockeyLibrary
 
 struct AddMountView: View {
-    var onCancel: (() -> Void)? = nil
-    @EnvironmentObject private var diskTypeRepository: DiskTypeRepository
-    @EnvironmentObject private var mountRepository: MountRepository
+    @ObservedObject var diskTypeRepository: DiskTypeRepository
+    @ObservedObject var mountRepository: MountRepository
     @Environment(\.dismiss) private var dismiss
-    
-    // Local state for form
-    @State private var selectedDiskTypeIndex: Int = 0
+
+    @State private var selectedDiskType: DiskTypeEnum = .sftp
     @State private var name: String = ""
-    @State private var url: String = ""
+    @State private var host: String = ""
     @State private var port: String = ""
+    @State private var username: String = ""
+    @State private var password: String = ""
+    @State private var remotePath: String = ""
+    @State private var shareName: String = ""
+    @State private var localPath: String = ""
+
     @State private var isCreating = false
-    @State private var error: String? = nil
-    
+    @State private var errorMessage: String?
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            // Disk type dropdown
-            Picker("Mount Type", selection: $selectedDiskTypeIndex) {
-                ForEach(diskTypeRepository.diskTypes.indices, id: \ .self) { idx in
-                    Text(diskTypeRepository.diskTypes[idx].name).tag(idx)
+        VStack(spacing: 0) {
+            // Title bar
+            HStack {
+                Text("New Mount")
+                    .font(.headline)
+                Spacer()
+            }
+            .padding()
+
+            Divider()
+
+            // Form
+            Form {
+                // Mount type picker
+                Picker("Type", selection: $selectedDiskType) {
+                    ForEach(availableDiskTypes, id: \.self) { diskType in
+                        Label(diskType.displayName, systemImage: diskType.systemImage)
+                            .tag(diskType)
+                    }
+                }
+
+                TextField("Name", text: $name, prompt: Text("My Server"))
+
+                // Type-specific fields
+                switch selectedDiskType {
+                case .localdirectory:
+                    localDirectoryFields
+                case .sftp, .ftp, .webdav, .samba:
+                    networkFields
+                case .dropbox:
+                    networkFields
+                }
+
+                if let error = errorMessage {
+                    Text(error)
+                        .foregroundStyle(.red)
+                        .font(.callout)
                 }
             }
-            .pickerStyle(MenuPickerStyle())
-            .padding(.top)
-            
-            // Show form for selected type
-            Group {
-                if let diskType = DiskTypeEnum(rawValue: diskTypeRepository.diskTypes[safe: selectedDiskTypeIndex]?.name ?? "") {
-                    mountFormView(for: diskType)
-                }    
-            }
-            Spacer()
+            .formStyle(.grouped)
+
+            Divider()
+
+            // Buttons
             HStack {
                 Button("Cancel") {
-                    if let onCancel = onCancel {
-                        onCancel()
-                    } else {
-                        dismiss()
-                    }
+                    dismiss()
                 }
+                .keyboardShortcut(.cancelAction)
+
                 Spacer()
-                Button(action: {
-                    error = nil
-                    isCreating = true
-                    let diskTypeObj = diskTypeRepository.diskTypes[safe: selectedDiskTypeIndex]
-                    let diskType = diskTypeObj?.name ?? ""
-                    // Compose mount object (minimal for demo)
-                    let mount = Mount(
-                        id: UUID(),
-                        diskType: DiskTypeEnum(rawValue: diskType) ?? .localdirectory,
-                        name: name,
-                        path: url,
-                        remotePath: "",
-                        isMounted: false,
-                        lastAccessed: nil,
-                        metadata: [:]
-                    )
-                    Task {
-                        do {
-                            try await mountRepository.addMount(mount)
-                            isCreating = false
-                            if let onCancel = onCancel {
-                                onCancel()
-                            } else {
-                                dismiss()
-                            }
-                        } catch {
-                            self.error = error.localizedDescription
-                            isCreating = false
-                        }
-                    }
-                }) {
-                    HStack {
-                        if isCreating {
-                            ProgressView().scaleEffect(0.7)
-                        }
-                        Text("Create Mount")
+
+                Button(action: createMount) {
+                    if isCreating {
+                        ProgressView()
+                            .scaleEffect(0.6)
+                            .frame(width: 16, height: 16)
+                    } else {
+                        Text("Add Mount")
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(isCreating || name.isEmpty || url.isEmpty)
-            
+                .keyboardShortcut(.defaultAction)
+                .disabled(!isFormValid || isCreating)
             }
-            if let error = error {
-                Text(error)
-                    .foregroundColor(.red)
-                    .font(.caption)
-                    .padding(.top, 4)
-            }
+            .padding()
         }
-        .padding()
-        .navigationTitle("Add Mount")
     }
-    
+
+    // MARK: - Field groups
+
     @ViewBuilder
-    private func mountFormView(for diskType: DiskTypeEnum) -> some View {
-        switch diskType {
+    private var localDirectoryFields: some View {
+        TextField("Path", text: $localPath, prompt: Text("/Users/me/shared"))
+    }
+
+    @ViewBuilder
+    private var networkFields: some View {
+        TextField("Host", text: $host, prompt: Text(hostPlaceholder))
+
+        TextField("Port", text: $port, prompt: Text(defaultPortString))
+
+        if selectedDiskType == .samba {
+            TextField("Share Name", text: $shareName, prompt: Text("shared"))
+        }
+
+        TextField("Remote Path", text: $remotePath, prompt: Text("/"))
+
+        Section("Authentication") {
+            TextField("Username", text: $username, prompt: Text("user"))
+            SecureField("Password", text: $password, prompt: Text("password"))
+        }
+    }
+
+    // MARK: - Helpers
+
+    private var availableDiskTypes: [DiskTypeEnum] {
+        // Show types that the backend reports, falling back to known types
+        if diskTypeRepository.diskTypes.isEmpty {
+            return [.localdirectory, .sftp, .ftp, .webdav, .samba, .dropbox]
+        }
+        return diskTypeRepository.diskTypes.compactMap { DiskTypeEnum(rawValue: $0.name) }
+    }
+
+    private var hostPlaceholder: String {
+        switch selectedDiskType {
+        case .sftp: return "ssh.example.com"
+        case .ftp: return "ftp.example.com"
+        case .webdav: return "dav.example.com"
+        case .samba: return "nas.local"
+        case .dropbox: return "dropbox.com"
+        default: return "host.example.com"
+        }
+    }
+
+    private var defaultPortString: String {
+        switch selectedDiskType {
+        case .sftp: return "22"
+        case .ftp: return "21"
+        case .webdav: return "443"
+        case .samba: return "445"
+        default: return ""
+        }
+    }
+
+    private var isFormValid: Bool {
+        guard !name.isEmpty else { return false }
+
+        switch selectedDiskType {
         case .localdirectory:
-            LocalDirectoryMountForm(name: $name, url: $url, port: $port)
-        case .dropbox:
-            DropboxMountForm(name: $name, url: $url, port: $port)
-        case .webdav:
-            WebDAVMountForm(name: $name, url: $url, port: $port)
-        case .ftp:
-            FTPMountForm(name: $name, url: $url, port: $port)
-        case .sftp:
-            SFTPMountForm(name: $name, url: $url, port: $port)
-        case .samba:
-            SambaMountForm(name: $name, url: $url, port: $port)
+            return !localPath.isEmpty
+        default:
+            return !host.isEmpty
         }
     }
-}
 
-// MARK: - DiskType-specific forms (simple for now)
+    // MARK: - Create
 
-struct DropboxMountForm: View {
-    @Binding var name: String
-    @Binding var url: String
-    @Binding var port: String
-    var body: some View {
-        VStack(alignment: .leading) {
-            Text("Dropbox Mount").font(.headline)
-            TextField("Name", text: $name)
-            TextField("URL", text: $url)
-            TextField("Port", text: $port)
+    private func createMount() {
+        isCreating = true
+        errorMessage = nil
+
+        // Build path and config from form fields
+        var path = ""
+        var config: [String: String] = [:]
+
+        switch selectedDiskType {
+        case .localdirectory:
+            path = localPath
+        default:
+            let effectivePort = port.isEmpty ? defaultPortString : port
+            path = "\(host):\(effectivePort)"
+            if !username.isEmpty { config["username"] = username }
+            if !password.isEmpty { config["password"] = password }
+            if !remotePath.isEmpty { config["remotePath"] = remotePath }
+            if !shareName.isEmpty { config["shareName"] = shareName }
         }
-    }
-}
 
-struct WebDAVMountForm: View {
-    @Binding var name: String
-    @Binding var url: String
-    @Binding var port: String
-    var body: some View {
-        VStack(alignment: .leading) {
-            Text("WebDAV Mount").font(.headline)
-            TextField("Name", text: $name)
-            TextField("URL", text: $url)
-            TextField("Port", text: $port)
-        }
-    }
-}
+        let mount = Mount(
+            id: UUID(),
+            diskType: selectedDiskType,
+            name: name,
+            path: path,
+            remotePath: remotePath,
+            isMounted: false,
+            lastAccessed: nil,
+            metadata: config
+        )
 
-struct FTPMountForm: View {
-    @Binding var name: String
-    @Binding var url: String
-    @Binding var port: String
-    var body: some View {
-        VStack(alignment: .leading) {
-            Text("FTP Mount").font(.headline)
-            TextField("Name", text: $name)
-            TextField("URL", text: $url)
-            TextField("Port", text: $port)
-        }
-    }
-}
-
-struct SFTPMountForm: View {
-    @Binding var name: String
-    @Binding var url: String
-    @Binding var port: String
-    var body: some View {
-        VStack(alignment: .leading) {
-            Text("SFTP Mount").font(.headline)
-            TextField("Name", text: $name)
-            TextField("URL", text: $url)
-            TextField("Port", text: $port)
-        }
-    }
-}
-
-struct SambaMountForm: View {
-    @Binding var name: String
-    @Binding var url: String
-    @Binding var port: String
-    var body: some View {
-        VStack(alignment: .leading) {
-            Text("Samba Mount").font(.headline)
-            TextField("Name", text: $name)
-            TextField("URL", text: $url)
-            TextField("Port", text: $port)
-        }
-    }
-}
-
-struct LocalDirectoryMountForm: View {
-    @Binding var name: String
-    @Binding var url: String
-    @Binding var port: String
-    var body: some View {
-        VStack(alignment: .leading) {
-            Text("Local Directory Mount").font(.headline)
-            TextField("Name", text: $name)
-            TextField("URL", text: $url)
-            TextField("Port", text: $port)
+        Task {
+            do {
+                try await mountRepository.addMount(mount)
+                dismiss()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isCreating = false
         }
     }
 }
