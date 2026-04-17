@@ -11,3 +11,6 @@ diskjockey-backend/test-mount/sftp-server/
 diskjockey-backend/test-mount/smb-server/
 diskjockey-backend/test-mount/webdav-server/
 diskjockey-backend/test-mount/mount*/
+
+# Vendored third-party binaries (rebuilt via `make vendor-ext4rs`)
+vendor/ext4rs/
