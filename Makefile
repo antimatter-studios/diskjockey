@@ -8,15 +8,16 @@ BACKEND_PROTOCOL := backend
 FILEPROVIDER_PROTO_SRC=${DISKJOCKEY_LIB}/Protobuf/${FILEPROVIDER_PROTOCOL}.proto
 BACKEND_PROTO_SRC=${DISKJOCKEY_BACKEND}/proto/${BACKEND_PROTOCOL}.proto
 
-# ext4rs — pure-Rust ext4 driver vendored as prebuilt static lib + header.
-# Source of truth: github.com/christhomas/rust-ext4fs (via git submodule)
-EXT4RS_SRC := vendor/ext4rs-src
-EXT4RS_VENDOR := vendor/ext4rs
+# fs-ext4 — pure-Rust ext4 driver vendored as prebuilt static lib + header.
+# Source of truth: github.com/christhomas/rust-fs-ext4 (via git submodule)
+# pointing at vendor/rust-fs-ext4 (source) → vendor/fs_ext4 (built artifacts).
+EXT4_SRC := vendor/rust-fs-ext4
+EXT4_OUT := vendor/fs_ext4
 
 
-.PHONY: all proto djb djctl clean vendor-ext4rs vendor-ext4rs-clean
+.PHONY: all proto djb djctl clean vendor-fs-ext4 vendor-fs-ext4-force vendor-fs-ext4-clean
 
-all: vendor-ext4rs proto djb djctl
+all: vendor-fs-ext4 proto djb djctl
 
 proto: proto-backend proto-fileprovider
 
@@ -43,7 +44,7 @@ djctl:
 	cd ${DISKJOCKEY_CLI} && go mod tidy
 	GO111MODULE=on go build -o ./${DISKJOCKEY_CLI}/${DISKJOCKEY_CLI_BINARY} ./${DISKJOCKEY_CLI}
 
-clean: vendor-ext4rs-clean
+clean: vendor-fs-ext4-clean
 	@echo "\nCleaning up...\n"
 	rm -f ./${DISKJOCKEY_LIB}/Protobuf/${BACKEND_PROTOCOL}.pb.swift
 	rm -f ./${DISKJOCKEY_LIB}/Protobuf/${FILEPROVIDER_PROTOCOL}.pb.swift
@@ -51,28 +52,28 @@ clean: vendor-ext4rs-clean
 	rm -f ./${DISKJOCKEY_BACKEND}/${DISKJOCKEY_BACKEND_BINARY}
 	rm -f ./${DISKJOCKEY_CLI}/${DISKJOCKEY_CLI_BINARY}
 
-# ext4rs is built from vendored source via git submodule at vendor/ext4rs-src/.
-# The build is handled by scripts/build-ext4rs.sh which is called both by
+# fs-ext4 is built from vendored source via git submodule at vendor/rust-fs-ext4/.
+# The build is handled by scripts/build-fs-ext4.sh which is called both by
 # the Makefile (for manual/CI builds) and by Xcode build phases.
-# Output: vendor/ext4rs/ext4rs.xcframework (universal binary + headers)
+# Output: vendor/fs_ext4/fs_ext4.xcframework (universal binary + headers)
 # Xcode's DiskJockeyEXT4 target links the XCFramework via its bridging header.
 
-# Build ext4rs using the shared build script (used by both Makefile and Xcode)
-vendor-ext4rs:
-	@echo "\nBuilding ext4rs via scripts/build-ext4rs.sh...\n"
+# Build fs-ext4 using the shared build script (used by both Makefile and Xcode)
+vendor-fs-ext4:
+	@echo "\nBuilding fs-ext4 via scripts/build-fs-ext4.sh...\n"
 	@SRCROOT=. \
-		EXT4RS_SRC="$(EXT4RS_SRC)" \
-		EXT4RS_OUT="$(EXT4RS_VENDOR)" \
-		./scripts/build-ext4rs.sh
+		EXT4_SRC="$(EXT4_SRC)" \
+		EXT4_OUT="$(EXT4_OUT)" \
+		./scripts/build-fs-ext4.sh
 
 # Force rebuild even if sources haven't changed
-vendor-ext4rs-force:
-	@echo "\nForce rebuilding ext4rs...\n"
-	@rm -f $(EXT4RS_VENDOR)/.build-stamp
-	@$(MAKE) vendor-ext4rs
+vendor-fs-ext4-force:
+	@echo "\nForce rebuilding fs-ext4...\n"
+	@rm -f $(EXT4_OUT)/.build-stamp
+	@$(MAKE) vendor-fs-ext4
 
-vendor-ext4rs-clean:
-	rm -rf $(EXT4RS_VENDOR)
+vendor-fs-ext4-clean:
+	rm -rf $(EXT4_OUT)
 
 # Go network drivers (for FileProvider backends via cgo)
 GO_SRC := ./diskjockey-backend
@@ -109,7 +110,7 @@ vendor-gonetworkfs-add:
 	@DRIVERS="$(NFS_DRIVERS) $(DRIVER)" $(MAKE) vendor-gonetworkfs
 
 # Build all vendored dependencies
-vendor-all: vendor-ext4rs vendor-gonetworkfs
+vendor-all: vendor-fs-ext4 vendor-gonetworkfs
 
-clean-all: clean vendor-ext4rs-clean
+clean-all: clean vendor-fs-ext4-clean
 	@rm -rf $(NFS_OUT)
