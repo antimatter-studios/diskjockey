@@ -7,7 +7,7 @@ import FSKit
 import Foundation
 import os
 
-let logger = Logger(subsystem: "com.antimatterstudios.ext4-fskit", category: "filesystem")
+let logger = Logger(subsystem: "com.antimatterstudios.diskjockey.ext4", category: "filesystem")
 
 /// Wraps FSBlockDeviceResource for C callback access.
 /// FSBlockDeviceResource.read requires offset+length aligned to blockSize.

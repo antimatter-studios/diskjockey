@@ -27,9 +27,12 @@ final class EXT4Volume: FSVolume,
     /// Retains the BlockDeviceContext so it lives as long as the volume
     private var blockDeviceContext: UnsafeMutableRawPointer?
 
-    /// Track items by file ID for reclamation
-    private var items: [UInt64: EXT4Item] = [:]
-    private let itemsLock = NSLock()
+    /// Track items by file ID for reclamation. Guarded by `itemsLock` — an
+    /// `OSAllocatedUnfairLock` is used (rather than `NSLock`) so the class
+    /// is Sendable-safe under Swift 6 strict concurrency; holding an unfair
+    /// lock across an `await` is a compile-time error, which matches the
+    /// invariant we already rely on here.
+    private let itemsLock = OSAllocatedUnfairLock<[UInt64: EXT4Item]>(initialState: [:])
 
     init(volumeID: FSVolume.Identifier,
          volumeName: FSFileName,
@@ -43,16 +46,14 @@ final class EXT4Volume: FSVolume,
     // MARK: - Item management
 
     private func item(forID fileID: UInt64, path: String) -> EXT4Item {
-        itemsLock.lock()
-        defer { itemsLock.unlock() }
-
-        if let existing = items[fileID] {
-            return existing
+        itemsLock.withLock { items in
+            if let existing = items[fileID] {
+                return existing
+            }
+            let newItem = EXT4Item(inode: UInt32(fileID), path: path)
+            items[fileID] = newItem
+            return newItem
         }
-
-        let newItem = EXT4Item(inode: UInt32(fileID), path: path)
-        items[fileID] = newItem
-        return newItem
     }
 
     // MARK: - Volume capabilities
@@ -244,9 +245,9 @@ final class EXT4Volume: FSVolume,
     func reclaimItem(_ item: FSItem) async throws {
         if let ext4Item = item as? EXT4Item {
             let key = UInt64(ext4Item.inode)
-            itemsLock.lock()
-            items.removeValue(forKey: key)
-            itemsLock.unlock()
+            itemsLock.withLock { items in
+                items.removeValue(forKey: key)
+            }
         }
     }
 
