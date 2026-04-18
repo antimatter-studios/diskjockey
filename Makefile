@@ -9,9 +9,8 @@ FILEPROVIDER_PROTO_SRC=${DISKJOCKEY_LIB}/Protobuf/${FILEPROVIDER_PROTOCOL}.proto
 BACKEND_PROTO_SRC=${DISKJOCKEY_BACKEND}/proto/${BACKEND_PROTOCOL}.proto
 
 # ext4rs — pure-Rust ext4 driver vendored as prebuilt static lib + header.
-# Source of truth: github.com/christhomas/ext4-rust
-# For local iteration, build from a sibling checkout via EXT4RS_SRC.
-EXT4RS_SRC ?= /Volumes/sdcard256gb/projects/ext4-rust
+# Source of truth: github.com/christhomas/rust-ext4fs (via git submodule)
+EXT4RS_SRC := vendor/ext4rs-src
 EXT4RS_VENDOR := vendor/ext4rs
 
 
@@ -52,38 +51,65 @@ clean: vendor-ext4rs-clean
 	rm -f ./${DISKJOCKEY_BACKEND}/${DISKJOCKEY_BACKEND_BINARY}
 	rm -f ./${DISKJOCKEY_CLI}/${DISKJOCKEY_CLI_BINARY}
 
-# Build ext4rs from the sibling checkout and stage it under vendor/ext4rs/.
-# Xcode's DiskJockeyEXT4 target links vendor/ext4rs/libext4rs.a and imports
-# vendor/ext4rs/ext4rs.h via its bridging header.
-#
-# ext4-rust itself is platform-independent (no build.sh, no darwin
-# targets in rust-toolchain.toml); the macOS-specific lipo +
-# xcframework packaging lives here because it's DiskJockey-specific.
-EXT4RS_BUILD_DIR := $(EXT4RS_SRC)/target
-EXT4RS_LIB := libext4rs.a
+# ext4rs is built from vendored source via git submodule at vendor/ext4rs-src/.
+# The build is handled by scripts/build-ext4rs.sh which is called both by
+# the Makefile (for manual/CI builds) and by Xcode build phases.
+# Output: vendor/ext4rs/ext4rs.xcframework (universal binary + headers)
+# Xcode's DiskJockeyEXT4 target links the XCFramework via its bridging header.
+
+# Build ext4rs using the shared build script (used by both Makefile and Xcode)
 vendor-ext4rs:
-	@echo "\nBuilding ext4rs from $(EXT4RS_SRC)...\n"
-	@test -d "$(EXT4RS_SRC)" || (echo "EXT4RS_SRC=$(EXT4RS_SRC) does not exist. Clone github.com/christhomas/ext4-rust or override EXT4RS_SRC." >&2; exit 1)
-	@for target in aarch64-apple-darwin x86_64-apple-darwin; do \
-		if ! rustup target list --installed 2>/dev/null | grep -q "^$$target$$"; then \
-			rustup target add "$$target"; \
-		fi; \
-	done
-	cd "$(EXT4RS_SRC)" && cargo build --release --target aarch64-apple-darwin
-	cd "$(EXT4RS_SRC)" && cargo build --release --target x86_64-apple-darwin
-	mkdir -p $(EXT4RS_VENDOR)/include
-	lipo -create \
-		"$(EXT4RS_BUILD_DIR)/aarch64-apple-darwin/release/$(EXT4RS_LIB)" \
-		"$(EXT4RS_BUILD_DIR)/x86_64-apple-darwin/release/$(EXT4RS_LIB)" \
-		-output "$(EXT4RS_VENDOR)/$(EXT4RS_LIB)"
-	cp "$(EXT4RS_SRC)/include/ext4rs.h" $(EXT4RS_VENDOR)/include/ext4rs.h
-	rm -rf $(EXT4RS_VENDOR)/ext4rs.xcframework
-	xcodebuild -create-xcframework \
-		-library "$(EXT4RS_VENDOR)/$(EXT4RS_LIB)" \
-		-headers "$(EXT4RS_SRC)/include" \
-		-output "$(EXT4RS_VENDOR)/ext4rs.xcframework" >/dev/null
-	@echo "ext4rs vendored into $(EXT4RS_VENDOR)/"
-	@lipo -info $(EXT4RS_VENDOR)/$(EXT4RS_LIB)
+	@echo "\nBuilding ext4rs via scripts/build-ext4rs.sh...\n"
+	@SRCROOT=. \
+		EXT4RS_SRC="$(EXT4RS_SRC)" \
+		EXT4RS_OUT="$(EXT4RS_VENDOR)" \
+		./scripts/build-ext4rs.sh
+
+# Force rebuild even if sources haven't changed
+vendor-ext4rs-force:
+	@echo "\nForce rebuilding ext4rs...\n"
+	@rm -f $(EXT4RS_VENDOR)/.build-stamp
+	@$(MAKE) vendor-ext4rs
 
 vendor-ext4rs-clean:
 	rm -rf $(EXT4RS_VENDOR)
+
+# Go network drivers (for FileProvider backends via cgo)
+GO_SRC := ./diskjockey-backend
+GO_OUT := vendor/built
+
+vendor-godrivers:
+	@echo "\nBuilding Go drivers via scripts/build-godrivers.sh...\n"
+	@SRCROOT=. \
+		GO_SRC="$(GO_SRC)" \
+		GO_OUT="$(GO_OUT)" \
+		./scripts/build-godrivers.sh
+
+# go-networkfs — network filesystem drivers (separate minimal libraries)
+# Build individual drivers: ftp, sftp, smb, dropbox, webdav
+# Only link what you need - keeps binary size small
+NFS_SRC := ./vendor/go-networkfs
+NFS_OUT := vendor/built
+NFS_DRIVERS := ftp
+
+vendor-gonetworkfs:
+	@echo "\nBuilding go-networkfs drivers ($(NFS_DRIVERS))...\n"
+	@SRCROOT=. \
+		NFS_SRC="$(NFS_SRC)" \
+		NFS_OUT="$(NFS_OUT)" \
+		DRIVERS="$(NFS_DRIVERS)" \
+		./scripts/build-gonetworkfs.sh
+
+# Add specific driver (e.g., make vendor-gonetworkfs-add DRIVER=sftp)
+vendor-gonetworkfs-add:
+	@if [ -z "$(DRIVER)" ]; then \
+		echo "Usage: make vendor-gonetworkfs-add DRIVER=sftp"; \
+		exit 1; \
+	fi
+	@DRIVERS="$(NFS_DRIVERS) $(DRIVER)" $(MAKE) vendor-gonetworkfs
+
+# Build all vendored dependencies
+vendor-all: vendor-ext4rs vendor-gonetworkfs
+
+clean-all: clean vendor-ext4rs-clean
+	@rm -rf $(NFS_OUT)
