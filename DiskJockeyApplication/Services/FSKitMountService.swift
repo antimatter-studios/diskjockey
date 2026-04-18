@@ -21,6 +21,7 @@ final class FSKitMountService {
         case processFailed(exitCode: Int32, stderr: String)
         case mountPointInUse(String)
         case invalidMountName(String)
+        case authorizationDenied(stderr: String)
 
         var errorDescription: String? {
             switch self {
@@ -30,6 +31,8 @@ final class FSKitMountService {
                 return "mount point \(path) already has a volume attached"
             case .invalidMountName(let name):
                 return "invalid mount name \"\(name)\": must be non-empty and contain no slashes"
+            case .authorizationDenied(let stderr):
+                return "administrator authorization was denied or cancelled: \(stderr)"
             }
         }
     }
@@ -57,7 +60,7 @@ final class FSKitMountService {
         }
 
         logger.info("attach \(source, privacy: .public) -> \(mountPoint, privacy: .public)")
-        try await Self.run(
+        try await Self.runAsAdmin(
             executable: "/sbin/mount",
             arguments: ["-F", "-t", "ext4", source, mountPoint]
         )
@@ -70,7 +73,7 @@ final class FSKitMountService {
         try Self.validateMountName(name)
         let mountPoint = "/Volumes/\(name)"
         logger.info("detach \(mountPoint, privacy: .public)")
-        try await Self.run(
+        try await Self.runAsAdmin(
             executable: "/sbin/umount",
             arguments: [mountPoint]
         )
@@ -99,7 +102,7 @@ final class FSKitMountService {
                     continuation.resume()
                 } else {
                     let data = (try? stderrPipe.fileHandleForReading.readToEnd()) ?? Data()
-                    let msg = String(data: data ?? Data(), encoding: .utf8) ?? ""
+                    let msg = String(data: data, encoding: .utf8) ?? ""
                     continuation.resume(
                         throwing: FSKitError.processFailed(
                             exitCode: proc.terminationStatus,
@@ -115,6 +118,82 @@ final class FSKitMountService {
                 continuation.resume(throwing: error)
             }
         }
+    }
+
+    /// Run a privileged command via `osascript "do shell script ... with
+    /// administrator privileges"`. macOS presents the auth dialog; the
+    /// user's admin credential is cached for the session so subsequent
+    /// mounts within ~5 minutes skip the prompt.
+    ///
+    /// Chosen over NSAppleScript directly because osascript lives outside
+    /// the host app sandbox and handles the privilege escalation cleanly.
+    /// Eventual replacement: an SMAppService privileged helper (see
+    /// FB follow-up).
+    ///
+    /// `arguments` are quoted defensively. The caller is expected to pass
+    /// absolute paths only — `validateMountName` already rules out the
+    /// most dangerous shell metacharacters in the mount-name portion.
+    private static func runAsAdmin(executable: String, arguments: [String]) async throws {
+        // Build the shell command. Each argument is single-quoted with any
+        // embedded single-quotes escaped — the standard
+        // `'\''`-terminate-reopen pattern — so shell interpretation of the
+        // user-provided source path / mount name cannot inject flags or
+        // metacharacters. osascript receives that string inside a double-
+        // quoted AppleScript literal; its interpretation rules are also
+        // handled by escaping `\` and `"`.
+        let shellArgs = ([executable] + arguments).map { Self.shellQuote($0) }
+            .joined(separator: " ")
+        let appleScript = "do shell script \(Self.appleScriptQuote(shellArgs)) " +
+                          "with administrator privileges"
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+            process.arguments = ["-e", appleScript]
+
+            let stderrPipe = Pipe()
+            process.standardError = stderrPipe
+            process.standardOutput = Pipe()
+
+            process.terminationHandler = { proc in
+                if proc.terminationStatus == 0 {
+                    continuation.resume()
+                    return
+                }
+                let data = (try? stderrPipe.fileHandleForReading.readToEnd()) ?? Data()
+                let msg = (String(data: data, encoding: .utf8) ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                // Exit code 1 + "User canceled" is the cancelled-prompt signal.
+                // Map that to a dedicated error so the UI can distinguish
+                // "user cancelled" from "mount itself failed".
+                if msg.contains("User canceled") || msg.contains("(-128)") {
+                    continuation.resume(throwing: FSKitError.authorizationDenied(stderr: msg))
+                } else {
+                    continuation.resume(
+                        throwing: FSKitError.processFailed(
+                            exitCode: proc.terminationStatus,
+                            stderr: msg
+                        )
+                    )
+                }
+            }
+
+            do {
+                try process.run()
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+
+    private static func shellQuote(_ s: String) -> String {
+        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private static func appleScriptQuote(_ s: String) -> String {
+        "\"" + s
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 }
 
