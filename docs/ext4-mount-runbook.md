@@ -82,7 +82,8 @@ Expected log sequence in (1):
 ## Unmount
 
 ```sh
-# via UI: repeat attach flow with "Unmount" intent (TBD)
+# via UI: File > Detach volume… (⌘⇧U) — pick /Volumes/<name> in the
+#         open panel, enter admin password if prompt appears.
 # via CLI:
 sudo /sbin/umount /Volumes/ext4-test
 ```
