@@ -204,6 +204,34 @@ enum FSKitAttachController {
     /// Opens a file picker for an ext4 image then triggers `attach`.
     /// Meant to be called from a menu item; runs async, surfaces errors via
     /// `NSAlert`.
+    /// Prompt the user to pick an active mount under /Volumes and unmount it.
+    /// Uses the same privileged path as attach — osascript triggers the auth
+    /// prompt, which is cached for ~5min after a successful attach.
+    static func promptAndDetach() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose a volume to detach"
+        panel.directoryURL = URL(fileURLWithPath: "/Volumes")
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Pick the /Volumes/<name> entry to unmount."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        // /Volumes/<name> → just <name>.
+        let name = url.lastPathComponent
+        Task { @MainActor in
+            do {
+                try await FSKitMountService.shared.detach(name: name)
+                let ok = NSAlert()
+                ok.messageText = "Detached /Volumes/\(name)"
+                ok.runModal()
+            } catch {
+                let fail = NSAlert(error: error)
+                fail.runModal()
+            }
+        }
+    }
+
     static func promptAndAttach() {
         let panel = NSOpenPanel()
         panel.title = "Choose an ext4 image or device"
