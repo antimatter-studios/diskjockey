@@ -71,6 +71,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         attachEXT4.keyEquivalentModifierMask = [.command, .shift]
         attachEXT4.target = self
+        let detachEXT4 = fileMenu.addItem(
+            withTitle: "Detach volume…",
+            action: #selector(detachEXT4Volume),
+            keyEquivalent: "u"
+        )
+        detachEXT4.keyEquivalentModifierMask = [.command, .shift]
+        detachEXT4.target = self
         fileMenuItem.submenu = fileMenu
         mainMenu.addItem(fileMenuItem)
 
@@ -103,6 +110,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func attachEXT4Image() {
         FSKitAttachController.promptAndAttach()
+    }
+
+    @objc private func detachEXT4Volume() {
+        FSKitAttachController.promptAndDetach()
     }
 
     @objc private func showMainWindow() {
