@@ -55,16 +55,35 @@ clean: vendor-ext4rs-clean
 # Build ext4rs from the sibling checkout and stage it under vendor/ext4rs/.
 # Xcode's DiskJockeyEXT4 target links vendor/ext4rs/libext4rs.a and imports
 # vendor/ext4rs/ext4rs.h via its bridging header.
+#
+# ext4-rust itself is platform-independent (no build.sh, no darwin
+# targets in rust-toolchain.toml); the macOS-specific lipo +
+# xcframework packaging lives here because it's DiskJockey-specific.
+EXT4RS_BUILD_DIR := $(EXT4RS_SRC)/target
+EXT4RS_LIB := libext4rs.a
 vendor-ext4rs:
 	@echo "\nBuilding ext4rs from $(EXT4RS_SRC)...\n"
 	@test -d "$(EXT4RS_SRC)" || (echo "EXT4RS_SRC=$(EXT4RS_SRC) does not exist. Clone github.com/christhomas/ext4-rust or override EXT4RS_SRC." >&2; exit 1)
-	cd "$(EXT4RS_SRC)" && ./build.sh
+	@for target in aarch64-apple-darwin x86_64-apple-darwin; do \
+		if ! rustup target list --installed 2>/dev/null | grep -q "^$$target$$"; then \
+			rustup target add "$$target"; \
+		fi; \
+	done
+	cd "$(EXT4RS_SRC)" && cargo build --release --target aarch64-apple-darwin
+	cd "$(EXT4RS_SRC)" && cargo build --release --target x86_64-apple-darwin
 	mkdir -p $(EXT4RS_VENDOR)/include
-	cp "$(EXT4RS_SRC)/dist/libext4rs.a"    $(EXT4RS_VENDOR)/libext4rs.a
-	cp "$(EXT4RS_SRC)/dist/ext4rs.h"       $(EXT4RS_VENDOR)/include/ext4rs.h
-	cp -R "$(EXT4RS_SRC)/dist/ext4rs.xcframework" $(EXT4RS_VENDOR)/ext4rs.xcframework
+	lipo -create \
+		"$(EXT4RS_BUILD_DIR)/aarch64-apple-darwin/release/$(EXT4RS_LIB)" \
+		"$(EXT4RS_BUILD_DIR)/x86_64-apple-darwin/release/$(EXT4RS_LIB)" \
+		-output "$(EXT4RS_VENDOR)/$(EXT4RS_LIB)"
+	cp "$(EXT4RS_SRC)/include/ext4rs.h" $(EXT4RS_VENDOR)/include/ext4rs.h
+	rm -rf $(EXT4RS_VENDOR)/ext4rs.xcframework
+	xcodebuild -create-xcframework \
+		-library "$(EXT4RS_VENDOR)/$(EXT4RS_LIB)" \
+		-headers "$(EXT4RS_SRC)/include" \
+		-output "$(EXT4RS_VENDOR)/ext4rs.xcframework" >/dev/null
 	@echo "ext4rs vendored into $(EXT4RS_VENDOR)/"
-	@lipo -info $(EXT4RS_VENDOR)/libext4rs.a
+	@lipo -info $(EXT4RS_VENDOR)/$(EXT4RS_LIB)
 
 vendor-ext4rs-clean:
 	rm -rf $(EXT4RS_VENDOR)
