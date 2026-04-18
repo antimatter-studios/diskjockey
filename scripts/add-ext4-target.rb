@@ -7,7 +7,7 @@
 #   1. Adds file refs for DiskJockeyEXT4/{EXT4FileSystem,EXT4Volume,EXT4Item,
 #      EXT4Backend,FileSystemBackend}.swift, Info.plist, entitlements,
 #      and the bridging header.
-#   2. Adds file refs for vendor/ext4rs/libext4rs.a + ext4rs.h.
+#   2. Adds file refs for vendor/fs_ext4/libfs_ext4.a + fs_ext4.h.
 #   3. Creates a PBXNativeTarget "DiskJockeyEXT4" of type
 #      extensionkit-extension, mirroring DiskJockeyFileProvider's config.
 #   4. Sets build settings:
@@ -15,11 +15,11 @@
 #        - CODE_SIGN_ENTITLEMENTS = DiskJockeyEXT4/DiskJockeyEXT4.entitlements
 #        - INFOPLIST_FILE = DiskJockeyEXT4/Info.plist
 #        - SWIFT_OBJC_BRIDGING_HEADER = DiskJockeyEXT4/DiskJockeyEXT4-Bridging-Header.h
-#        - HEADER_SEARCH_PATHS += $(SRCROOT)/vendor/ext4rs/include
-#        - LIBRARY_SEARCH_PATHS += $(SRCROOT)/vendor/ext4rs
-#        - OTHER_LDFLAGS += -lext4rs
+#        - HEADER_SEARCH_PATHS += $(SRCROOT)/vendor/fs_ext4/include
+#        - LIBRARY_SEARCH_PATHS += $(SRCROOT)/vendor/fs_ext4
+#        - OTHER_LDFLAGS += -lfs_ext4
 #   5. Adds Sources, Frameworks, Resources phases.
-#   6. Links FSKit.framework + libext4rs.a.
+#   6. Links FSKit.framework + libfs_ext4.a.
 #   7. Adds embed-app-extensions phase on the main DiskJockey target so the
 #      .appex ships with the host app.
 #
@@ -72,8 +72,8 @@ ext4_group.set_path(TARGET_NAME)
 vendor_group  = root_group.find_subpath('vendor', true)
 vendor_group.set_source_tree('SOURCE_ROOT')
 vendor_group.set_path('vendor')
-ext4rs_group  = vendor_group.find_subpath('ext4rs', true)
-ext4rs_group.set_path('ext4rs')
+fs_ext4_group  = vendor_group.find_subpath('fs_ext4', true)
+fs_ext4_group.set_path('fs_ext4')
 
 # -----------------------------------------------------------------------------
 # 2. Add (or re-use) file references.
@@ -95,8 +95,8 @@ info_plist_ref    = find_or_create_file_ref(ext4_group, 'Info.plist')
 entitlements_ref  = find_or_create_file_ref(ext4_group, "#{TARGET_NAME}.entitlements")
 bridging_ref      = find_or_create_file_ref(ext4_group, "#{TARGET_NAME}-Bridging-Header.h")
 
-libext4rs_ref = find_or_create_file_ref(ext4rs_group, 'libext4rs.a')
-libext4rs_ref.last_known_file_type = 'archive.ar'
+libfs_ext4_ref = find_or_create_file_ref(fs_ext4_group, 'libfs_ext4.a')
+libfs_ext4_ref.last_known_file_type = 'archive.ar'
 
 # -----------------------------------------------------------------------------
 # 3. Create the native target.
@@ -160,9 +160,9 @@ common_settings = {
   'SWIFT_EMIT_LOC_STRINGS'      => 'YES',
   'SWIFT_VERSION'               => '5.0',
   'SWIFT_OBJC_BRIDGING_HEADER'  => "#{TARGET_NAME}/#{TARGET_NAME}-Bridging-Header.h",
-  'HEADER_SEARCH_PATHS'         => ['$(inherited)', '$(SRCROOT)/vendor/ext4rs/include'],
-  'LIBRARY_SEARCH_PATHS'        => ['$(inherited)', '$(SRCROOT)/vendor/ext4rs'],
-  'OTHER_LDFLAGS'               => ['$(inherited)', '-lext4rs'],
+  'HEADER_SEARCH_PATHS'         => ['$(inherited)', '$(SRCROOT)/vendor/fs_ext4/include'],
+  'LIBRARY_SEARCH_PATHS'        => ['$(inherited)', '$(SRCROOT)/vendor/fs_ext4'],
+  'OTHER_LDFLAGS'               => ['$(inherited)', '-lfs_ext4'],
   'MACOSX_DEPLOYMENT_TARGET'    => '15.0',
   'SDKROOT'                     => 'macosx',
   'ENABLE_USER_SCRIPT_SANDBOXING' => 'YES',
@@ -197,7 +197,7 @@ unless fskit_ref
   fskit_ref.source_tree = 'SDKROOT'
 end
 frameworks_phase.add_file_reference(fskit_ref)
-frameworks_phase.add_file_reference(libext4rs_ref)
+frameworks_phase.add_file_reference(libfs_ext4_ref)
 
 # -----------------------------------------------------------------------------
 # 6. Wire embed-into-main-app.
