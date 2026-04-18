@@ -20,7 +20,7 @@
 		50FC4D0F2F8B11BD0091F9DF /* DiskJockeyXPC.xpc in Embed XPC Services */ = {isa = PBXBuildFile; fileRef = 50FC4D042F8B11BD0091F9DF /* DiskJockeyXPC.xpc */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		50FC4D1C2F8B11F10091F9DF /* DiskJockeyLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */; };
 		50FC4D1D2F8B11F10091F9DF /* DiskJockeyLibrary.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		58E08BABF36530C918F48CD5 /* DiskJockeyEXT4.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0BC347BB938FDDB740155389 /* DiskJockeyEXT4.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		6D2C0FB64B3C7B7C72EA2DB8 /* DiskJockeyEXT4.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = 0BC347BB938FDDB740155389 /* DiskJockeyEXT4.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, CodeSignOnCopy, ); }; };
 		A087438ACC92F2AE3F3FAD36 /* EXT4Item.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EF0A5E5346E2B44B2F27957 /* EXT4Item.swift */; };
 		C23D7DA35F4FBB0AED7F74E5 /* libext4rs.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 198282EEFE5CE8718FB6299F /* libext4rs.a */; };
 		D9CECEF266A909EB810942A6 /* EXT4Backend.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0377D4332EFC4FF34689518 /* EXT4Backend.swift */; };
@@ -109,7 +109,6 @@
 			dstSubfolderSpec = 13;
 			files = (
 				501F02522E058BAF009EBB59 /* DiskJockeyFileProvider.appex in Embed Foundation Extensions */,
-				58E08BABF36530C918F48CD5 /* DiskJockeyEXT4.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -165,6 +164,17 @@
 			dstSubfolderSpec = 1;
 			files = (
 			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EC707CEC95F594A0FBA80A25 /* Embed ExtensionKit Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Extensions";
+			dstSubfolderSpec = 16;
+			files = (
+				6D2C0FB64B3C7B7C72EA2DB8 /* DiskJockeyEXT4.appex in Embed ExtensionKit Extensions */,
+			);
+			name = "Embed ExtensionKit Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -521,6 +531,7 @@
 				50FC4D102F8B11BD0091F9DF /* Embed XPC Services */,
 				50FC4D262F8B1F710091F9DF /* CopyFiles */,
 				50FC50DA2F8BC8970091F9DF /* Sign Go Backend */,
+				EC707CEC95F594A0FBA80A25 /* Embed ExtensionKit Extensions */,
 			);
 			buildRules = (
 			);
@@ -894,6 +905,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 43UMKXZ8P4;
+				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -921,7 +933,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.ext4;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				REGISTER_APP_GROUPS = YES;
+				REGISTER_APP_GROUPS = NO;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -1448,6 +1460,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 43UMKXZ8P4;
+				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -1475,7 +1488,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.ext4;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				REGISTER_APP_GROUPS = YES;
+				REGISTER_APP_GROUPS = NO;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
