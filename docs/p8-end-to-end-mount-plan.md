@@ -10,7 +10,7 @@ we debug.
 Current state (commits on `new-ui`):
 
 - `1159d8b` DiskJockeyEXT4 target registered in xcodeproj.
-- `8055cd7` Swift sources wired against the vendored ext4rs C ABI.
+- `8055cd7` Swift sources wired against the vendored fs_ext4 C ABI.
 - `917d5df` runbook in `docs/ext4-mount-runbook.md`.
 - `0022bfb` File menu → "Attach ext4 image…" + `FSKitMountService`.
 - `0a58253` Swift-6-clean `OSAllocatedUnfairLock` migration.
@@ -32,7 +32,7 @@ Every single one of these must succeed, in order, for a mount to land:
 | S5 | fskitd **spawns the extension process** (the `.appex` binary) | Yes — AMFI kills it silently if entitlements/signing diverge |
 | S6 | fskitd produces an `FSBlockDeviceResource` for the source path (image file OR `/dev/diskN`) | Unknown on macOS 26 for raw `.img` |
 | S7 | `EXT4FileSystem.probeResource` returns `.usable` (checks ext4 magic `0xEF53` at offset 1024) | Yes — returns `.notRecognized` on any read error |
-| S8 | `EXT4FileSystem.loadResource` calls `ext4rs_mount_with_callbacks` — succeeds, FSVolume activates | Yes — error lives in `ext4rs_last_error`, must be logged |
+| S8 | `EXT4FileSystem.loadResource` calls `fs_ext4_mount_with_callbacks` — succeeds, FSVolume activates | Yes — error lives in `fs_ext4_last_error`, must be logged |
 | S9 | FSKit / VFS attaches the returned volume at the mountpoint; `/Volumes/<name>` becomes a real mount | Sometimes — Finder cache lag |
 
 Silence at any stage looks identical to "still waiting." This is the
@@ -88,7 +88,7 @@ Procedure:
 ```sh
 # 1. bare attempt — per user hint, try /tmp first; easier cleanup
 MP=/tmp/dj-ext4-test
-IMG=/Volumes/sdcard256gb/projects/ext4-rust/test-disks/ext4-basic.img
+IMG=vendor/rust-fs-ext4/test-disks/ext4-basic.img
 mkdir -p "$MP"
 sudo /sbin/mount -F -t ext4 "$IMG" "$MP"
 ls "$MP"
@@ -271,7 +271,7 @@ W5 is needed. W6 is a nice-to-have; everything else is load-bearing.
 
   which catches the extension-launch lifecycle from outside our
   subsystem.
-- **Multi-level extent writes are known broken** in ext4rs v0.1 — but
+- **Multi-level extent writes are known broken** in fs-ext4 v0.1 — but
   our goal is read-only mount visibility, not writes. Read path should
   be fine.
 - **DiskArbitration caching.** If a prior failed mount left a stale
@@ -280,7 +280,7 @@ W5 is needed. W6 is a nice-to-have; everything else is load-bearing.
   `diskutil unmountDisk force /Volumes/foo` clears a stuck mount.
 - **"Works on my machine" drift.** Once we have a verified run, record
   `sw_vers`, `xcode-select -p`, and `ls -la
-  vendor/ext4rs/ext4rs.xcframework/` in the runbook. Makes
+  vendor/fs_ext4/fs_ext4.xcframework/` in the runbook. Makes
   regression-hunting tractable later.
 
 ## 6. Outcome

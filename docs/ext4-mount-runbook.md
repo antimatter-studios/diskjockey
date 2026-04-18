@@ -23,10 +23,10 @@ extension on macOS 26. Assumes the Swift side has built cleanly in Xcode
    `com.antimatterstudios.diskjockey.ext4`, then re-download the
    provisioning profile from Xcode > Settings > Accounts.
 
-4. **libext4rs vendored** under `vendor/ext4rs/`. Refresh with:
+4. **libfs_ext4 vendored** under `vendor/fs_ext4/`. Refresh with:
 
    ```sh
-   make vendor-ext4rs EXT4RS_SRC=/Volumes/sdcard256gb/projects/ext4-rust
+   make vendor-fs-ext4 EXT4_SRC=vendor/rust-fs-ext4
    ```
 
 ## First launch
@@ -88,22 +88,8 @@ Expected log sequence in (1):
 sudo /sbin/umount /Volumes/ext4-test
 ```
 
-## Test matrix
-
-Use the ext4 fixture images from `ext4-rust/test-disks/`:
-
-| Image | Exercises |
-|---|---|
-| `ext4-basic.img` | minimal extent + dir entries |
-| `ext4-htree.img` | hashed directory |
-| `ext4-inline.img` | inline_data feature |
-| `ext4-xattr.img` | xattr reads |
-| `ext4-deep-extents.img` | multi-extent files |
-| `ext4-csum-seed.img` | metadata_csum with csum_seed |
-
-For each: mount read-only via `/sbin/mount -F -t ext4`, verify `ls` /
-`cat` of the expected files, then `umount`. All test images are
-self-documenting in `<image>.meta.txt`.
+Test fixture images live under `vendor/rust-fs-ext4/test-disks/` — see
+`docs/TEST-DISKS.md` in that repo for what each exercises.
 
 ## Known issues / gotchas
 
@@ -115,8 +101,8 @@ self-documenting in `<image>.meta.txt`.
   is empty. Usually means `probe` refused the image (not ext4, or
   superblock magic mismatch). Check log stream.
 - **Multi-level extent write / sparse truncate**: not supported in
-  ext4rs v0.1. Reads always work; large / fragmented writes may fail
-  loudly. See ext4-rust/CHANGELOG.md.
+  fs-ext4 v0.1. Reads always work; large / fragmented writes may fail
+  loudly. See `vendor/rust-fs-ext4/CHANGELOG.md`.
 - **SwiftProtobuf CLI build error** unrelated to ext4; builds succeed
   from Xcode which resolves the package graph properly.
 
@@ -203,7 +189,7 @@ pluginkit -m -v -p com.apple.fskit.fsmodule | grep diskjockey.ext4
 
 # 2. /tmp stepping-stone mount (user's debug path)
 MP=/tmp/dj-ext4-test
-IMG=/Volumes/sdcard256gb/projects/ext4-rust/test-disks/ext4-basic.img
+IMG=vendor/rust-fs-ext4/test-disks/ext4-basic.img
 mkdir -p "$MP"
 log stream --predicate 'subsystem == "com.antimatterstudios.diskjockey.ext4"' --info &
 sudo /sbin/mount -F -t ext4 "$IMG" "$MP"
