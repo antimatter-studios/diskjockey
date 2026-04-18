@@ -154,10 +154,17 @@ $ security cms -D -i .../embedded.provisionprofile | grep fskit
   com.apple.developer.fskit.fsmodule=true         ← capability in profile
 ```
 
-So the P8 plan's W2 (capability on portal) is **already resolved** — the
-developer portal has the FSKit Module capability attached to App ID
-`com.antimatterstudios.diskjockey.ext4`, and the embedded profile
-carries it into the signed `.appex`.
+Initial read of this was "W2 is resolved" — that is **wrong**. The
+embedded provisioning profile carrying `fskit.fsmodule` only proves
+that Xcode's `.entitlements` file asks for the capability and
+automatic signing generated a profile claiming it. The **portal's
+bundle-id capability list for `com.antimatterstudios.diskjockey.ext4`
+is empty** (see the follow-up evidence below). At runtime the kernel
++ `taskgated-helper` validates the claimed entitlement against the
+portal's granted-capabilities list, not against the local
+profile; if the portal hasn't granted the capability, the extension
+process is killed at launch regardless of what the signed-in profile
+says.
 
 **pluginkit still refuses to register the appex:**
 
@@ -218,6 +225,77 @@ Until those commands run, U1 (loopback vs hdiutil) and U2 (/tmp mount
 acceptance) remain open. FSKitMountService already passes an image path
 straight to `mount -F` — if U1 reveals hdiutil-first is required, that
 wiring gets wrapped in a source-resolver (P8 plan W5).
+
+## W1 empirical probe — follow-up 2026-04-18 (post Developer Mode on)
+
+Developer Mode enabled by the user. Extension now registers with
+`pluginkit` once we use the trailing-slash path:
+
+```
+$ pluginkit -a /path/to/DiskJockeyEXT4.appex/
+$ pluginkit -e use -i com.antimatterstudios.diskjockey.ext4
+$ pluginkit -m -p com.apple.fskit.fsmodule | grep diskjockey.ext4
++    com.antimatterstudios.diskjockey.ext4(0.1.0)
+```
+
+First `mount -F` attempt:
+
+```
+$ osascript -e 'do shell script "/sbin/mount -F -t ext4 …img /tmp/dj-ext4-test" with administrator privileges'
+0:154: execution error: mount: Unable to invoke task (69)
+```
+
+`mount` exit 69 = `EAUTH` (authentication error) — produced by
+`fskitd` when it can't spawn the extension process. `log show`
+during the attempt:
+
+```
+fskit_agent: Launching process bundleID: com.antimatterstudios.diskjockey.ext4
+fskit_agent: Failed to create extensionProcess for extension
+    'com.antimatterstudios.diskjockey.ext4'
+    error: com.apple.extensionKit.errorDomain Code=2
+    NSUnderlyingError: NSCocoaErrorDomain Code=4099
+    "The connection to service with pid <X> was invalidated."
+```
+
+The extension host process started and was immediately killed. **No
+crash report** is produced — AMFI kills it before it can run user
+code. The Xcode ledger captured on the same timeline revealed the
+actual reason:
+
+```json
+"identifier": "com.antimatterstudios.diskjockey.ext4",
+"bundleIdCapabilities": { "meta": { "paging": { "total": 0 } } }
+```
+
+The Apple Developer portal has **zero** capabilities registered for
+the `diskjockey.ext4` App ID. Xcode automatic signing generated a
+profile claiming `com.apple.developer.fskit.fsmodule` anyway, because
+the target's `.entitlements` file requests it; but at runtime
+`taskgated-helper` validates the claimed entitlement against the
+portal's granted-capabilities list, finds the mismatch, and kills the
+extension before it can exec.
+
+**Next user action (cannot be done from an agent session):**
+
+1. developer.apple.com/account → Certificates, Identifiers & Profiles
+   → Identifiers.
+2. Find `com.antimatterstudios.diskjockey.ext4`.
+3. Enable the **FSKit Module** capability. Save.
+4. In Xcode, automatic signing will refresh the profile on the next
+   build (or force it: Settings → Accounts → team → Download Manual
+   Profiles).
+5. Rebuild the app:
+   ```sh
+   xcodebuild -project DiskJockey.xcodeproj -scheme DiskJockey \
+              -configuration Debug -destination "platform=macOS" build
+   ```
+6. Relaunch `DiskJockey.app`; `pluginkit -a <new-appex-path>/` again
+   if the DerivedData path changed.
+7. Re-attempt the `/tmp/dj-ext4-test` mount from the previous section.
+
+Once the extension can actually launch, we get to S6–S9 and learn U1
+(loopback vs hdiutil) empirically for real.
 
 ## Write path — cautions
 

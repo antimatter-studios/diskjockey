@@ -193,6 +193,58 @@ captured output from a real run (not hypothetical).
   honestly say "ext4 mounts work end-to-end on macOS 26 via
   DiskJockey."
 
+## 3a. W1 empirical follow-up (2026-04-18 post-midnight)
+
+After Developer Mode was enabled the registration story became:
+
+- `pluginkit -a <path-to-.appex>/` needs the **trailing slash** on
+  macOS 26; without it pluginkit replies `add: invalid plugin path`.
+  Runbook updated with the correct invocation.
+- `pluginkit -e use -i com.antimatterstudios.diskjockey.ext4` is
+  required after registration — by default dev-signed extensions stay
+  in the disabled (unprefixed) state. `+` prefix = enabled.
+
+The `mount -F` attempt that followed returned **error 69** = EAUTH.
+`log show` showed `fskit_agent` tried to launch the extension process;
+the XPC connection was invalidated immediately (ExtensionKit Code=2,
+NSCocoaErrorDomain Code=4099). No crash report produced — AMFI killed
+the extension host at process-start, before any user code ran.
+
+The Xcode ledger captured in the same log window gave the root cause:
+
+```json
+"identifier": "com.antimatterstudios.diskjockey.ext4",
+"bundleIdCapabilities": { "meta": { "paging": { "total": 0 } } }
+```
+
+**The Apple Developer portal has zero capabilities on the
+`diskjockey.ext4` App ID.** Xcode automatic signing generated a
+provisioning profile claiming `com.apple.developer.fskit.fsmodule`
+because the `.entitlements` file requested it, so the `.appex` looked
+correctly signed — but at runtime `taskgated-helper` validates the
+claimed entitlement against the **portal's** granted-capabilities
+list, not the profile's, and kills the process on the capability
+mismatch.
+
+W2 in the original plan assumed "signature + profile claim = done."
+That was wrong. The **portal-side capability grant** is the actual
+blocker, and it was never set for this App ID.
+
+## 3b. Updated W2 — real procedure
+
+W2 now is:
+
+1. developer.apple.com/account → Certificates, Identifiers & Profiles
+   → Identifiers → `com.antimatterstudios.diskjockey.ext4`.
+2. Enable the **FSKit Module** capability checkbox.
+3. Save.
+4. Xcode will refresh the team-managed profile on the next build;
+   optionally force it via Settings → Accounts → "Download Manual
+   Profiles".
+5. Rebuild the app + re-run the W1 mount sequence.
+
+No local-only workaround exists. The portal grant is authoritative.
+
 ## 4. Critical path
 
 ```
