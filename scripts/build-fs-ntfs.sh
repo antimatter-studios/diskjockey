@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build script for fs-ext4 (vendored pure-Rust ext4 filesystem driver)
+# Build script for fs-ntfs (vendored pure-Rust ntfs filesystem driver)
 # Called by both Xcode build phases and Makefile
 #
 # This script is SELF-HEALING:
@@ -10,19 +10,19 @@
 #
 # Environment variables (optional, have defaults):
 #   SRCROOT    - Project root (default: pwd)
-#   EXT4_SRC   - Path to Rust source (default: $SRCROOT/vendor/rust-fs-ext4)
-#   EXT4_OUT   - Path for build output (default: $SRCROOT/lib/fs_ext4)
+#   NTFS_SRC   - Path to Rust source (default: $SRCROOT/vendor/rust-fs-ntfs)
+#   NTFS_OUT   - Path for build output (default: $SRCROOT/lib/fs_ntfs)
 
 set -e
 
 # Configuration with defaults
 SRCROOT="${SRCROOT:-$(pwd)}"
 SRCROOT="$(cd "${SRCROOT}" && pwd)"
-EXT4_SRC="${EXT4_SRC:-${SRCROOT}/vendor/rust-fs-ext4}"
-EXT4_OUT="${EXT4_OUT:-${SRCROOT}/lib/fs_ext4}"
-case "$EXT4_SRC" in /*) ;; *) EXT4_SRC="${SRCROOT}/${EXT4_SRC}" ;; esac
-case "$EXT4_OUT" in /*) ;; *) EXT4_OUT="${SRCROOT}/${EXT4_OUT}" ;; esac
-STAMP_FILE="${EXT4_OUT}/.build-stamp"
+NTFS_SRC="${NTFS_SRC:-${SRCROOT}/vendor/rust-fs-ntfs}"
+NTFS_OUT="${NTFS_OUT:-${SRCROOT}/lib/fs_ntfs}"
+case "$NTFS_SRC" in /*) ;; *) NTFS_SRC="${SRCROOT}/${NTFS_SRC}" ;; esac
+case "$NTFS_OUT" in /*) ;; *) NTFS_OUT="${SRCROOT}/${NTFS_OUT}" ;; esac
+STAMP_FILE="${NTFS_OUT}/.build-stamp"
 
 # Colors for output
 RED='\033[0;31m'
@@ -34,8 +34,8 @@ NC='\033[0m' # No Color
 # Self-healing: Auto-initialize submodules
 # =============================================================================
 
-if [ ! -f "${EXT4_SRC}/Cargo.toml" ]; then
-    echo "${YELLOW}fs-ext4 submodule not found. Attempting to initialize...${NC}"
+if [ ! -f "${NTFS_SRC}/Cargo.toml" ]; then
+    echo "${YELLOW}fs-ntfs submodule not found. Attempting to initialize...${NC}"
 
     # Check if we're in a git repo
     if [ ! -d "${SRCROOT}/.git" ] && [ ! -f "${SRCROOT}/.git" ]; then
@@ -49,15 +49,15 @@ if [ ! -f "${EXT4_SRC}/Cargo.toml" ]; then
         echo "${YELLOW}Running: git submodule update --init --recursive${NC}"
         cd "$SRCROOT"
         if ! git submodule update --init --recursive 2>/dev/null; then
-            echo "${YELLOW}Trying alternative: git submodule update --init vendor/rust-fs-ext4${NC}"
-            git submodule update --init vendor/rust-fs-ext4 2>/dev/null || true
+            echo "${YELLOW}Trying alternative: git submodule update --init vendor/rust-fs-ntfs${NC}"
+            git submodule update --init vendor/rust-fs-ntfs 2>/dev/null || true
         fi
     fi
 
     # Check again
-    if [ ! -f "${EXT4_SRC}/Cargo.toml" ]; then
-        echo "${RED}ERROR: fs-ext4 submodule could not be initialized.${NC}"
-        echo "Manual fix: cd ${SRCROOT} && git submodule add https://github.com/christhomas/rust-fs-ext4 vendor/rust-fs-ext4"
+    if [ ! -f "${NTFS_SRC}/Cargo.toml" ]; then
+        echo "${RED}ERROR: fs-ntfs submodule could not be initialized.${NC}"
+        echo "Manual fix: cd ${SRCROOT} && git submodule add https://github.com/christhomas/rust-fs-ntfs vendor/rust-fs-ntfs"
         exit 1
     fi
 
@@ -90,21 +90,21 @@ needs_rebuild() {
 
     # Check if any Rust source files are newer than stamp
     local newest_source
-    newest_source=$(find "${EXT4_SRC}/src" -name "*.rs" -newer "$STAMP_FILE" 2>/dev/null | head -1)
+    newest_source=$(find "${NTFS_SRC}/src" -name "*.rs" -newer "$STAMP_FILE" 2>/dev/null | head -1)
     if [ -n "$newest_source" ]; then
-        echo "${YELLOW}fs-ext4: Source files changed, rebuilding...${NC}"
+        echo "${YELLOW}fs-ntfs: Source files changed, rebuilding...${NC}"
         return 0
     fi
 
     # Check if Cargo.toml changed
-    if [ "${EXT4_SRC}/Cargo.toml" -nt "$STAMP_FILE" ]; then
-        echo "${YELLOW}fs-ext4: Cargo.toml changed, rebuilding...${NC}"
+    if [ "${NTFS_SRC}/Cargo.toml" -nt "$STAMP_FILE" ]; then
+        echo "${YELLOW}fs-ntfs: Cargo.toml changed, rebuilding...${NC}"
         return 0
     fi
 
     # Check if output is missing
-    if [ ! -d "${EXT4_OUT}/fs_ext4.xcframework" ]; then
-        echo "${YELLOW}fs-ext4: XCFramework missing, rebuilding...${NC}"
+    if [ ! -d "${NTFS_OUT}/fs_ntfs.xcframework" ]; then
+        echo "${YELLOW}fs-ntfs: XCFramework missing, rebuilding...${NC}"
         return 0
     fi
 
@@ -113,16 +113,16 @@ needs_rebuild() {
 
 # Skip if up to date
 if ! needs_rebuild; then
-    echo "${GREEN}fs-ext4: Up to date${NC}"
+    echo "${GREEN}fs-ntfs: Up to date${NC}"
     exit 0
 fi
 
-echo "${YELLOW}Building fs-ext4 from ${EXT4_SRC}...${NC}"
+echo "${YELLOW}Building fs-ntfs from ${NTFS_SRC}...${NC}"
 
 # cd into the submodule first so rust-toolchain.toml overrides apply;
 # otherwise rustup target commands run against the wrong toolchain and
 # cargo later fails to find std/core for the missing target.
-cd "${EXT4_SRC}"
+cd "${NTFS_SRC}"
 
 # Ensure Rust targets are installed (for the toolchain pinned by the crate)
 for target in aarch64-apple-darwin x86_64-apple-darwin; do
@@ -140,25 +140,25 @@ echo "Building for x86_64..."
 cargo build --release --target x86_64-apple-darwin
 
 # Create output directories
-mkdir -p "${EXT4_OUT}/include"
+mkdir -p "${NTFS_OUT}/include"
 
 # Create universal binary with lipo
 echo "Creating universal binary..."
 lipo -create \
-    "${EXT4_SRC}/target/aarch64-apple-darwin/release/libfs_ext4.a" \
-    "${EXT4_SRC}/target/x86_64-apple-darwin/release/libfs_ext4.a" \
-    -output "${EXT4_OUT}/libfs_ext4.a"
+    "${NTFS_SRC}/target/aarch64-apple-darwin/release/libfs_ntfs.a" \
+    "${NTFS_SRC}/target/x86_64-apple-darwin/release/libfs_ntfs.a" \
+    -output "${NTFS_OUT}/libfs_ntfs.a"
 
 # Copy headers
-cp "${EXT4_SRC}/include/fs_ext4.h" "${EXT4_OUT}/include/fs_ext4.h"
+cp "${NTFS_SRC}/include/fs_ntfs.h" "${NTFS_OUT}/include/fs_ntfs.h"
 
 # Create XCFramework
 echo "Creating XCFramework..."
-rm -rf "${EXT4_OUT}/fs_ext4.xcframework"
+rm -rf "${NTFS_OUT}/fs_ntfs.xcframework"
 xcodebuild -create-xcframework \
-    -library "${EXT4_OUT}/libfs_ext4.a" \
-    -headers "${EXT4_OUT}/include" \
-    -output "${EXT4_OUT}/fs_ext4.xcframework" \
+    -library "${NTFS_OUT}/libfs_ntfs.a" \
+    -headers "${NTFS_OUT}/include" \
+    -output "${NTFS_OUT}/fs_ntfs.xcframework" \
     2>/dev/null
 
 # Emit VERSION.txt manifest describing the submodule commit that was built.
@@ -211,12 +211,12 @@ emit_version_manifest() {
     )
 }
 
-emit_version_manifest "fs_ext4" "${EXT4_SRC}" "${EXT4_OUT}/VERSION.txt"
+emit_version_manifest "fs_ntfs" "${NTFS_SRC}" "${NTFS_OUT}/VERSION.txt"
 
 # Update stamp file
 touch "$STAMP_FILE"
 
-echo "${GREEN}fs-ext4 build complete${NC}"
-echo "  XCFramework: ${EXT4_OUT}/fs_ext4.xcframework"
-echo "  Architectures: $(lipo -info "${EXT4_OUT}/libfs_ext4.a" | cut -d: -f3)"
-echo "  Manifest:     ${EXT4_OUT}/VERSION.txt"
+echo "${GREEN}fs-ntfs build complete${NC}"
+echo "  XCFramework: ${NTFS_OUT}/fs_ntfs.xcframework"
+echo "  Architectures: $(lipo -info "${NTFS_OUT}/libfs_ntfs.a" | cut -d: -f3)"
+echo "  Manifest:     ${NTFS_OUT}/VERSION.txt"

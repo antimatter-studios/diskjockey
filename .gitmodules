@@ -1,3 +1,9 @@
 [submodule "vendor/rust-fs-ext4"]
 	path = vendor/rust-fs-ext4
 	url = https://github.com/christhomas/rust-fs-ext4
+[submodule "vendor/rust-fs-ntfs"]
+	path = vendor/rust-fs-ntfs
+	url = https://github.com/christhomas/rust-fs-ntfs
+[submodule "vendor/go-networkfs"]
+	path = vendor/go-networkfs
+	url = https://github.com/christhomas/go-networkfs

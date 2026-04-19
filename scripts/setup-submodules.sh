@@ -55,6 +55,7 @@ check_and_init_submodule() {
 
 # Check all expected submodules
 check_and_init_submodule "vendor/rust-fs-ext4" "rust-fs-ext4" "https://github.com/christhomas/rust-fs-ext4"
-check_and_init_submodule "vendor/go-networkfs" "go-networkfs" "https://github.com/christhomas/go-networkfs.git"
+check_and_init_submodule "vendor/rust-fs-ntfs" "rust-fs-ntfs" "https://github.com/christhomas/rust-fs-ntfs"
+check_and_init_submodule "vendor/go-networkfs" "go-networkfs" "https://github.com/christhomas/go-networkfs"
 
 # Add more submodules here as they are added

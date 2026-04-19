@@ -12,8 +12,11 @@ set -e
 
 # Configuration with defaults
 SRCROOT="${SRCROOT:-$(pwd)}"
+SRCROOT="$(cd "${SRCROOT}" && pwd)"
 NFS_SRC="${NFS_SRC:-${SRCROOT}/vendor/go-networkfs}"
 NFS_OUT="${NFS_OUT:-${SRCROOT}/lib/go-networkfs}"
+case "$NFS_SRC" in /*) ;; *) NFS_SRC="${SRCROOT}/${NFS_SRC}" ;; esac
+case "$NFS_OUT" in /*) ;; *) NFS_OUT="${SRCROOT}/${NFS_OUT}" ;; esac
 
 # Colors for output
 RED='\033[0;31m'
@@ -45,7 +48,7 @@ if [ ! -f "${NFS_SRC}/go.mod" ]; then
     
     if [ ! -f "${NFS_SRC}/go.mod" ]; then
         echo "${RED}ERROR: go-networkfs submodule could not be initialized.${NC}"
-        echo "Manual fix: cd ${SRCROOT} && git submodule add https://github.com/christhomas/go-networkfs.git vendor/go-networkfs"
+        echo "Manual fix: cd ${SRCROOT} && git submodule add https://github.com/christhomas/go-networkfs vendor/go-networkfs"
         exit 1
     fi
     
@@ -109,9 +112,10 @@ for DRIVER in $DRIVERS; do
     fi
     
     echo "${YELLOW}Building lib${DRIVER}.a...${NC}"
-    
-    # Build driver as C-archive
-    CGO_ENABLED=1 GOOS=darwin go build \
+
+    # GOWORK=off so the outer go.work (diskjockey-backend + diskjockey-cli)
+    # doesn't complain that this submodule isn't a listed workspace member.
+    CGO_ENABLED=1 GOOS=darwin GOWORK=off go build \
         -buildmode=c-archive \
         -o "${NFS_OUT}/lib${DRIVER}.a" \
         "./${DRIVER}/cmd/${DRIVER}"
