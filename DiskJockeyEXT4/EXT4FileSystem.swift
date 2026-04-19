@@ -111,6 +111,30 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         }
         log.info("loadResource \(blockDevice.bsdName): blockSize=\(blockDevice.blockSize) blockCount=\(blockDevice.blockCount)")
 
+        // Peek the superblock's s_state field to emit a clean/dirty
+        // signal for the UI. Unlike NTFS, ext4 journal replay happens
+        // automatically inside fs_ext4_mount_with_callbacks, so we
+        // don't need a separate fsck pass — just visibility.
+        // Superblock starts at byte 1024; s_state is u16 LE at offset
+        // 0x3A. EXT4_VALID_FS=1 means cleanly unmounted.
+        let bsdName = blockDevice.bsdName
+        do {
+            var sbBuf = [UInt8](repeating: 0, count: 1024)
+            let bytesRead = try sbBuf.withUnsafeMutableBytes { rb in
+                try blockDevice.read(into: rb, startingAt: 1024, length: 1024)
+            }
+            if bytesRead >= 0x3C {
+                let state = UInt16(sbBuf[0x3A]) | (UInt16(sbBuf[0x3B]) << 8)
+                let clean = state == 1   // EXT4_VALID_FS
+                log.event(kind: clean ? "volume.clean" : "volume.dirty",
+                          fields: ["bsd": bsdName, "s_state": "0x\(String(state, radix: 16))"])
+            }
+        } catch {
+            log.event(kind: "dirty.check.failed",
+                      fields: ["bsd": bsdName, "error": error.localizedDescription],
+                      level: .warn)
+        }
+
         let context = BlockDeviceContext(resource: blockDevice)
         let contextPtr = Unmanaged.passRetained(context).toOpaque()
 

@@ -18,6 +18,15 @@ public final class AppContainer: ObservableObject {
     /// The log repository for managing logs
     public let logRepository: LogRepository
 
+    /// Tails NDJSON log files written by subprocesses (FSKit extensions,
+    /// backends) and pushes entries into `logRepository` so they render
+    /// in the UI Logs panel.
+    private var logTailService: LogTailService?
+
+    /// Enumerates system-mounted disks (ext4 etc) so the sidebar can show
+    /// them for visibility. Read-only — not user-configurable.
+    public let attachedDisks: AttachedDisksModel = AttachedDisksModel()
+
     /// Current backend connection state
     @Published public private(set) var connectionState: BackendAPI.ConnectionState = .disconnected
 
@@ -46,6 +55,24 @@ public final class AppContainer: ObservableObject {
 
         // Initialize logger
         self.appLogModel = AppLogModel(logRepository: self.logRepository)
+
+        // Start tailing subprocess NDJSON log files. Emits into
+        // logRepository → AppLogModel → LogView.
+        // Kind-tagged events (volume.dirty, fsck.start, fsck.progress,
+        // fsck.done, fsck.failed) are also routed to AttachedDisksModel
+        // so the per-disk detail pane reflects live status.
+        let tail = LogTailService(logRepository: self.logRepository)
+        let disks = self.attachedDisks
+        tail.onEvent = { kind, fields in
+            disks.applyFsckEvent(kind: kind, fields: fields)
+        }
+        tail.start()
+        self.logTailService = tail
+        AppLog.shared.info("DiskJockey launched — log tail started")
+
+        // Begin polling for system-mounted disks so the sidebar stays in
+        // sync with attach/detach events.
+        self.attachedDisks.start()
 
         // Initialize the service manager (LaunchAgent-based)
         self.serviceManager = BackendServiceManager(logger: self.logRepository)
