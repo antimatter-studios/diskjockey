@@ -19,7 +19,7 @@ public struct VendoredLibraryInfo: Identifiable, Hashable {
     public let shortCommit: String
     public let describe: String
     public let isDirty: Bool
-    public let builtAt: Date?       // parsed ISO8601
+    public let commitDate: Date?    // parsed ISO8601 — when the commit was made upstream
 
     public init(
         id: String,
@@ -31,7 +31,7 @@ public struct VendoredLibraryInfo: Identifiable, Hashable {
         shortCommit: String,
         describe: String,
         isDirty: Bool,
-        builtAt: Date?
+        commitDate: Date?
     ) {
         self.id = id
         self.name = name
@@ -42,7 +42,7 @@ public struct VendoredLibraryInfo: Identifiable, Hashable {
         self.shortCommit = shortCommit
         self.describe = describe
         self.isDirty = isDirty
-        self.builtAt = builtAt
+        self.commitDate = commitDate
     }
 
     // MARK: - Parsing
@@ -79,11 +79,14 @@ public struct VendoredLibraryInfo: Identifiable, Hashable {
         let ref = kv["ref"] ?? ""
         let source = kv["source"] ?? ""
 
-        var builtAt: Date? = nil
-        if let builtAtStr = kv["built_at"], !builtAtStr.isEmpty {
+        var commitDate: Date? = nil
+        // Accept either the current `commit_date` key or the legacy `built_at`
+        // key so stale manifests don't silently lose the date.
+        let dateStr = kv["commit_date"] ?? kv["built_at"] ?? ""
+        if !dateStr.isEmpty {
             let f = ISO8601DateFormatter()
             f.formatOptions = [.withInternetDateTime]
-            builtAt = f.date(from: builtAtStr)
+            commitDate = f.date(from: dateStr)
         }
 
         return VendoredLibraryInfo(
@@ -96,7 +99,7 @@ public struct VendoredLibraryInfo: Identifiable, Hashable {
             shortCommit: shortCommit,
             describe: describe,
             isDirty: isDirty,
-            builtAt: builtAt
+            commitDate: commitDate
         )
     }
 

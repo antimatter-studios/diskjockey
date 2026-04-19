@@ -21,9 +21,24 @@ struct AboutView: View {
         (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String) ?? "?"
     }
 
+    /// mtime of the app's main executable — Xcode re-signs/rewrites it on every
+    /// build, so this tracks the last compile time within ~seconds.
+    private var appBuildDate: Date? {
+        guard let exec = Bundle.main.executableURL else { return nil }
+        let attrs = try? FileManager.default.attributesOfItem(atPath: exec.path)
+        return attrs?[.modificationDate] as? Date
+    }
+
     private static let shortDateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
+        f.timeZone = TimeZone(identifier: "UTC")
+        return f
+    }()
+
+    private static let buildTimestampFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm 'UTC'"
         f.timeZone = TimeZone(identifier: "UTC")
         return f
     }()
@@ -45,6 +60,11 @@ struct AboutView: View {
                     Text("Version \(appVersion) (\(appBuild))")
                         .font(.callout)
                         .foregroundStyle(.secondary)
+                    if let built = appBuildDate {
+                        Text("Built \(Self.buildTimestampFormatter.string(from: built))")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
                 }
                 Spacer()
             }
@@ -108,10 +128,11 @@ struct AboutView: View {
 
             Spacer()
 
-            if let builtAt = lib.builtAt {
-                Text(Self.shortDateFormatter.string(from: builtAt))
+            if let committed = lib.commitDate {
+                Text(Self.shortDateFormatter.string(from: committed))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .help("Commit date")
             }
         }
     }
