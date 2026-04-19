@@ -77,13 +77,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         attachEXT4.keyEquivalentModifierMask = [.command, .shift]
         attachEXT4.target = self
-        let detachEXT4 = fileMenu.addItem(
+        let attachNTFS = fileMenu.addItem(
+            withTitle: "Attach NTFS image…",
+            action: #selector(attachNTFSImage),
+            keyEquivalent: "n"
+        )
+        attachNTFS.keyEquivalentModifierMask = [.command, .shift]
+        attachNTFS.target = self
+        let detachVolume = fileMenu.addItem(
             withTitle: "Detach volume…",
             action: #selector(detachEXT4Volume),
             keyEquivalent: "u"
         )
-        detachEXT4.keyEquivalentModifierMask = [.command, .shift]
-        detachEXT4.target = self
+        detachVolume.keyEquivalentModifierMask = [.command, .shift]
+        detachVolume.target = self
         fileMenuItem.submenu = fileMenu
         mainMenu.addItem(fileMenuItem)
 
@@ -115,11 +122,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Window
 
     @objc private func attachEXT4Image() {
-        FSKitAttachController.promptAndAttach()
+        FSKitAttachController.promptAndAttach(fsType: "ext4", logRepository: container.logRepository)
+    }
+
+    @objc private func attachNTFSImage() {
+        FSKitAttachController.promptAndAttach(fsType: "ntfs", logRepository: container.logRepository)
     }
 
     @objc private func detachEXT4Volume() {
-        FSKitAttachController.promptAndDetach()
+        FSKitAttachController.promptAndDetach(logRepository: container.logRepository)
     }
 
     @objc private func showMainWindow() {

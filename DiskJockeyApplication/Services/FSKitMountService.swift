@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import OSLog
+import DiskJockeyLibrary
 
 /// Mounts ext4 images / block devices via macOS 26's `mount -F` path, which
 /// routes to fskitd without the `com.apple.developer.fskit.fsclient`
@@ -39,11 +40,13 @@ final class FSKitMountService {
 
     // MARK: - Attach
 
-    /// Mount an ext4 image or block device at `/Volumes/<name>`.
+    /// Mount an image or block device at `/Volumes/<name>` via FSKit.
     /// - Parameters:
-    ///   - source: absolute path to an ext4 .img or /dev/diskN node.
+    ///   - source: absolute path to a filesystem image or /dev/diskN node.
     ///   - name: volume name — becomes the mount point under /Volumes.
-    func attach(imagePath source: String, name: String) async throws {
+    ///   - fsType: FSKit short name (e.g. `ext4`, `ntfs`). Must correspond to
+    ///     a registered FSModule the system can dispatch to.
+    func attach(imagePath source: String, name: String, fsType: String) async throws {
         try Self.validateMountName(name)
         let mountPoint = "/Volumes/\(name)"
 
@@ -59,10 +62,10 @@ final class FSKitMountService {
             )
         }
 
-        logger.info("attach \(source, privacy: .public) -> \(mountPoint, privacy: .public)")
+        logger.info("attach \(fsType, privacy: .public) \(source, privacy: .public) -> \(mountPoint, privacy: .public)")
         try await Self.runAsAdmin(
             executable: "/sbin/mount",
-            arguments: ["-F", "-t", "ext4", source, mountPoint]
+            arguments: ["-F", "-t", fsType, source, mountPoint]
         )
     }
 
@@ -207,7 +210,7 @@ enum FSKitAttachController {
     /// Prompt the user to pick an active mount under /Volumes and unmount it.
     /// Uses the same privileged path as attach — osascript triggers the auth
     /// prompt, which is cached for ~5min after a successful attach.
-    static func promptAndDetach() {
+    static func promptAndDetach(logRepository: LogRepository? = nil) {
         let panel = NSOpenPanel()
         panel.title = "Choose a volume to detach"
         panel.directoryURL = URL(fileURLWithPath: "/Volumes")
@@ -219,26 +222,32 @@ enum FSKitAttachController {
 
         // /Volumes/<name> → just <name>.
         let name = url.lastPathComponent
+        logRepository?.logFSKit("detach requested for /Volumes/\(name)", category: "info")
         Task { @MainActor in
             do {
                 try await FSKitMountService.shared.detach(name: name)
+                logRepository?.logFSKit("detached /Volumes/\(name)", category: "info")
                 let ok = NSAlert()
                 ok.messageText = "Detached /Volumes/\(name)"
                 ok.runModal()
             } catch {
+                logRepository?.logFSKit(
+                    "detach /Volumes/\(name) failed: \(error.localizedDescription)",
+                    category: "error")
                 let fail = NSAlert(error: error)
                 fail.runModal()
             }
         }
     }
 
-    static func promptAndAttach() {
+    static func promptAndAttach(fsType: String, logRepository: LogRepository? = nil) {
+        let display = fsType.uppercased()
         let panel = NSOpenPanel()
-        panel.title = "Choose an ext4 image or device"
+        panel.title = "Choose a \(display) image or device"
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
-        panel.message = "Pick a .img or block device to mount as ext4."
+        panel.message = "Pick a .img or block device to mount as \(fsType)."
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
         let fallbackName = url.deletingPathExtension().lastPathComponent
@@ -253,16 +262,39 @@ enum FSKitAttachController {
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
         let name = input.stringValue.trimmingCharacters(in: .whitespaces)
+        logRepository?.logFSKit(
+            "attach (\(fsType)) requested: \(url.path) -> /Volumes/\(name)", category: "info")
         Task { @MainActor in
             do {
-                try await FSKitMountService.shared.attach(imagePath: url.path, name: name)
+                try await FSKitMountService.shared.attach(
+                    imagePath: url.path, name: name, fsType: fsType)
+                logRepository?.logFSKit(
+                    "mounted /Volumes/\(name) from \(url.path) (\(fsType))", category: "info")
                 let ok = NSAlert()
                 ok.messageText = "Mounted at /Volumes/\(name)"
                 ok.runModal()
             } catch {
+                logRepository?.logFSKit(
+                    "mount /Volumes/\(name) failed: \(error.localizedDescription)",
+                    category: "error")
                 let fail = NSAlert(error: error)
                 fail.runModal()
             }
         }
+    }
+}
+
+// MARK: - LogRepository convenience
+
+extension LogRepository {
+    /// Append a user-visible log entry tagged with the FSKit source.
+    /// The Logs panel filters on `category`, so we keep "error" / "info" etc
+    /// for classification and stuff the subsystem context into `source`.
+    fileprivate func logFSKit(_ message: String, category: String) {
+        addLogEntry(LogEntry(
+            message: message,
+            category: category,
+            source: "FSKit"
+        ))
     }
 }

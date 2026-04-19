@@ -70,7 +70,7 @@ struct AboutView: View {
         }
         .padding(20)
         .textSelection(.enabled)
-        .frame(width: 440, minHeight: 360, alignment: .top)
+        .frame(minWidth: 440, maxWidth: 440, minHeight: 360, alignment: .top)
     }
 
     @ViewBuilder
