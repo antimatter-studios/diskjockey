@@ -171,7 +171,7 @@ emit_version_manifest() {
     (
         cd "$src_dir"
 
-        local source commit short_commit describe dirty ref ref_type built_at
+        local source commit short_commit describe dirty ref ref_type commit_date
 
         source=$(git config --get remote.origin.url 2>/dev/null || echo "unknown")
         commit=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
@@ -195,7 +195,9 @@ emit_version_manifest() {
             ref_type="detached"
         fi
 
-        built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        # Commit date (ISO 8601 with timezone) — identifies the source, not the
+        # local build time. Parseable by Swift's ISO8601DateFormatter.
+        commit_date=$(git log -1 --format=%cI 2>/dev/null || echo "unknown")
 
         {
             echo "lib=${lib_name}"
@@ -206,7 +208,7 @@ emit_version_manifest() {
             echo "short_commit=${short_commit}"
             echo "describe=${describe}"
             echo "dirty=${dirty}"
-            echo "built_at=${built_at}"
+            echo "commit_date=${commit_date}"
         } > "$out_file"
     )
 }
