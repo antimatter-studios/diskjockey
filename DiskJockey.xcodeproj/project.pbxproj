@@ -22,7 +22,7 @@
 		50FC4D1D2F8B11F10091F9DF /* DiskJockeyLibrary.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		6D2C0FB64B3C7B7C72EA2DB8 /* DiskJockeyEXT4.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = 0BC347BB938FDDB740155389 /* DiskJockeyEXT4.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, CodeSignOnCopy, ); }; };
 		A087438ACC92F2AE3F3FAD36 /* EXT4Item.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EF0A5E5346E2B44B2F27957 /* EXT4Item.swift */; };
-		C23D7DA35F4FBB0AED7F74E5 /* libext4rs.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 198282EEFE5CE8718FB6299F /* libext4rs.a */; };
+		C23D7DA35F4FBB0AED7F74E5 /* libfs_ext4.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 198282EEFE5CE8718FB6299F /* libfs_ext4.a */; };
 		D9CECEF266A909EB810942A6 /* EXT4Backend.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0377D4332EFC4FF34689518 /* EXT4Backend.swift */; };
 		F3B991C06CBEFBF2B3B657B4 /* FSKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EA52B7280D02F6F8D737A4DF /* FSKit.framework */; };
 		F6FF4AC950047E0FD59AE139 /* EXT4Volume.swift in Sources */ = {isa = PBXBuildFile; fileRef = F01E35D6B49C797E269EAC45 /* EXT4Volume.swift */; };
@@ -181,7 +181,7 @@
 
 /* Begin PBXFileReference section */
 		0BC347BB938FDDB740155389 /* DiskJockeyEXT4.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = DiskJockeyEXT4.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		198282EEFE5CE8718FB6299F /* libext4rs.a */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = archive.ar; path = libext4rs.a; sourceTree = "<group>"; };
+		198282EEFE5CE8718FB6299F /* libfs_ext4.a */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = archive.ar; path = libfs_ext4.a; sourceTree = "<group>"; };
 		45CFCF77C56D3305934A9BE2 /* EXT4FileSystem.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EXT4FileSystem.swift; sourceTree = "<group>"; };
 		501F02432E058BAF009EBB59 /* DiskJockeyFileProvider.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = DiskJockeyFileProvider.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		501F02452E058BAF009EBB59 /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
@@ -355,7 +355,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F3B991C06CBEFBF2B3B657B4 /* FSKit.framework in Frameworks */,
-				C23D7DA35F4FBB0AED7F74E5 /* libext4rs.a in Frameworks */,
+				C23D7DA35F4FBB0AED7F74E5 /* libfs_ext4.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -365,7 +365,7 @@
 		18FB8DCE049D0440E78E822B /* vendor */ = {
 			isa = PBXGroup;
 			children = (
-				9A419B819B466BD55F5BB631 /* ext4rs */,
+				9A419B819B466BD55F5BB631 /* fs_ext4 */,
 			);
 			name = vendor;
 			path = vendor;
@@ -429,13 +429,13 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		9A419B819B466BD55F5BB631 /* ext4rs */ = {
+		9A419B819B466BD55F5BB631 /* fs_ext4 */ = {
 			isa = PBXGroup;
 			children = (
-				198282EEFE5CE8718FB6299F /* libext4rs.a */,
+				198282EEFE5CE8718FB6299F /* libfs_ext4.a */,
 			);
-			name = ext4rs;
-			path = ext4rs;
+			name = fs_ext4;
+			path = fs_ext4;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -911,7 +911,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/vendor/ext4rs/include",
+					"$(SRCROOT)/vendor/fs_ext4/include",
 				);
 				INFOPLIST_FILE = DiskJockeyEXT4/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = DiskJockeyEXT4;
@@ -923,13 +923,13 @@
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/vendor/ext4rs",
+					"$(SRCROOT)/vendor/fs_ext4",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
-					"-lext4rs",
+					"-lfs_ext4",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.ext4;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1466,7 +1466,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/vendor/ext4rs/include",
+					"$(SRCROOT)/vendor/fs_ext4/include",
 				);
 				INFOPLIST_FILE = DiskJockeyEXT4/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = DiskJockeyEXT4;
@@ -1478,13 +1478,13 @@
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/vendor/ext4rs",
+					"$(SRCROOT)/vendor/fs_ext4",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
-					"-lext4rs",
+					"-lfs_ext4",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.ext4;
 				PRODUCT_NAME = "$(TARGET_NAME)";
