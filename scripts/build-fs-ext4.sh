@@ -157,9 +157,62 @@ xcodebuild -create-xcframework \
     -output "${EXT4_OUT}/fs_ext4.xcframework" \
     2>/dev/null
 
+# Emit VERSION.txt manifest describing the submodule commit that was built.
+# Done AFTER lipo/xcframework so a failed build doesn't leave a stale manifest.
+emit_version_manifest() {
+    local lib_name="$1"
+    local src_dir="$2"
+    local out_file="$3"
+
+    (
+        cd "$src_dir"
+
+        local source commit short_commit describe dirty ref ref_type built_at
+
+        source=$(git config --get remote.origin.url 2>/dev/null || echo "unknown")
+        commit=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+        short_commit=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        describe=$(git describe --always --long --dirty 2>/dev/null || echo "$short_commit")
+
+        if [ -z "$(git status --porcelain 2>/dev/null)" ]; then
+            dirty="false"
+        else
+            dirty="true"
+        fi
+
+        if tag=$(git describe --tags --exact-match 2>/dev/null); then
+            ref="$tag"
+            ref_type="tag"
+        elif branch=$(git symbolic-ref --short -q HEAD 2>/dev/null); then
+            ref="$branch"
+            ref_type="branch"
+        else
+            ref="HEAD"
+            ref_type="detached"
+        fi
+
+        built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+        {
+            echo "lib=${lib_name}"
+            echo "source=${source}"
+            echo "ref=${ref}"
+            echo "ref_type=${ref_type}"
+            echo "commit=${commit}"
+            echo "short_commit=${short_commit}"
+            echo "describe=${describe}"
+            echo "dirty=${dirty}"
+            echo "built_at=${built_at}"
+        } > "$out_file"
+    )
+}
+
+emit_version_manifest "fs_ext4" "${EXT4_SRC}" "${EXT4_OUT}/VERSION.txt"
+
 # Update stamp file
 touch "$STAMP_FILE"
 
 echo "${GREEN}fs-ext4 build complete${NC}"
 echo "  XCFramework: ${EXT4_OUT}/fs_ext4.xcframework"
 echo "  Architectures: $(lipo -info "${EXT4_OUT}/libfs_ext4.a" | cut -d: -f3)"
+echo "  Manifest:     ${EXT4_OUT}/VERSION.txt"
