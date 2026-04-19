@@ -10,9 +10,9 @@ BACKEND_PROTO_SRC=${DISKJOCKEY_BACKEND}/proto/${BACKEND_PROTOCOL}.proto
 
 # fs-ext4 — pure-Rust ext4 driver vendored as prebuilt static lib + header.
 # Source of truth: github.com/christhomas/rust-fs-ext4 (via git submodule)
-# pointing at vendor/rust-fs-ext4 (source) → vendor/fs_ext4 (built artifacts).
+# pointing at vendor/rust-fs-ext4 (source) → lib/fs_ext4 (built artifacts).
 EXT4_SRC := vendor/rust-fs-ext4
-EXT4_OUT := vendor/fs_ext4
+EXT4_OUT := lib/fs_ext4
 
 
 .PHONY: all proto djb djctl clean vendor-fs-ext4 vendor-fs-ext4-force vendor-fs-ext4-clean
@@ -55,7 +55,7 @@ clean: vendor-fs-ext4-clean
 # fs-ext4 is built from vendored source via git submodule at vendor/rust-fs-ext4/.
 # The build is handled by scripts/build-fs-ext4.sh which is called both by
 # the Makefile (for manual/CI builds) and by Xcode build phases.
-# Output: vendor/fs_ext4/fs_ext4.xcframework (universal binary + headers)
+# Output: lib/fs_ext4/fs_ext4.xcframework (universal binary + headers)
 # Xcode's DiskJockeyEXT4 target links the XCFramework via its bridging header.
 
 # Build fs-ext4 using the shared build script (used by both Makefile and Xcode)
@@ -77,7 +77,7 @@ vendor-fs-ext4-clean:
 
 # Go network drivers (for FileProvider backends via cgo)
 GO_SRC := ./diskjockey-backend
-GO_OUT := vendor/built
+GO_OUT := lib/go-networkfs
 
 vendor-godrivers:
 	@echo "\nBuilding Go drivers via scripts/build-godrivers.sh...\n"
@@ -90,7 +90,7 @@ vendor-godrivers:
 # Build individual drivers: ftp, sftp, smb, dropbox, webdav
 # Only link what you need - keeps binary size small
 NFS_SRC := ./vendor/go-networkfs
-NFS_OUT := vendor/built
+NFS_OUT := lib/go-networkfs
 NFS_DRIVERS := ftp
 
 vendor-gonetworkfs:

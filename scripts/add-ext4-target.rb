@@ -7,7 +7,7 @@
 #   1. Adds file refs for DiskJockeyEXT4/{EXT4FileSystem,EXT4Volume,EXT4Item,
 #      EXT4Backend,FileSystemBackend}.swift, Info.plist, entitlements,
 #      and the bridging header.
-#   2. Adds file refs for vendor/fs_ext4/libfs_ext4.a + fs_ext4.h.
+#   2. Adds file refs for lib/fs_ext4/libfs_ext4.a + fs_ext4.h.
 #   3. Creates a PBXNativeTarget "DiskJockeyEXT4" of type
 #      extensionkit-extension, mirroring DiskJockeyFileProvider's config.
 #   4. Sets build settings:
@@ -15,8 +15,8 @@
 #        - CODE_SIGN_ENTITLEMENTS = DiskJockeyEXT4/DiskJockeyEXT4.entitlements
 #        - INFOPLIST_FILE = DiskJockeyEXT4/Info.plist
 #        - SWIFT_OBJC_BRIDGING_HEADER = DiskJockeyEXT4/DiskJockeyEXT4-Bridging-Header.h
-#        - HEADER_SEARCH_PATHS += $(SRCROOT)/vendor/fs_ext4/include
-#        - LIBRARY_SEARCH_PATHS += $(SRCROOT)/vendor/fs_ext4
+#        - HEADER_SEARCH_PATHS += $(SRCROOT)/lib/fs_ext4/include
+#        - LIBRARY_SEARCH_PATHS += $(SRCROOT)/lib/fs_ext4
 #        - OTHER_LDFLAGS += -lfs_ext4
 #   5. Adds Sources, Frameworks, Resources phases.
 #   6. Links FSKit.framework + libfs_ext4.a.
@@ -69,10 +69,10 @@ ext4_group = root_group.find_subpath(TARGET_NAME, true)
 ext4_group.set_source_tree('SOURCE_ROOT')
 ext4_group.set_path(TARGET_NAME)
 
-vendor_group  = root_group.find_subpath('vendor', true)
-vendor_group.set_source_tree('SOURCE_ROOT')
-vendor_group.set_path('vendor')
-fs_ext4_group  = vendor_group.find_subpath('fs_ext4', true)
+lib_group  = root_group.find_subpath('lib', true)
+lib_group.set_source_tree('SOURCE_ROOT')
+lib_group.set_path('lib')
+fs_ext4_group  = lib_group.find_subpath('fs_ext4', true)
 fs_ext4_group.set_path('fs_ext4')
 
 # -----------------------------------------------------------------------------
@@ -160,8 +160,8 @@ common_settings = {
   'SWIFT_EMIT_LOC_STRINGS'      => 'YES',
   'SWIFT_VERSION'               => '5.0',
   'SWIFT_OBJC_BRIDGING_HEADER'  => "#{TARGET_NAME}/#{TARGET_NAME}-Bridging-Header.h",
-  'HEADER_SEARCH_PATHS'         => ['$(inherited)', '$(SRCROOT)/vendor/fs_ext4/include'],
-  'LIBRARY_SEARCH_PATHS'        => ['$(inherited)', '$(SRCROOT)/vendor/fs_ext4'],
+  'HEADER_SEARCH_PATHS'         => ['$(inherited)', '$(SRCROOT)/lib/fs_ext4/include'],
+  'LIBRARY_SEARCH_PATHS'        => ['$(inherited)', '$(SRCROOT)/lib/fs_ext4'],
   'OTHER_LDFLAGS'               => ['$(inherited)', '-lfs_ext4'],
   'MACOSX_DEPLOYMENT_TARGET'    => '15.0',
   'SDKROOT'                     => 'macosx',

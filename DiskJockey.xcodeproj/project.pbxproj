@@ -362,13 +362,13 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		18FB8DCE049D0440E78E822B /* vendor */ = {
+		18FB8DCE049D0440E78E822B /* lib */ = {
 			isa = PBXGroup;
 			children = (
 				9A419B819B466BD55F5BB631 /* fs_ext4 */,
 			);
-			name = vendor;
-			path = vendor;
+			name = lib;
+			path = lib;
 			sourceTree = SOURCE_ROOT;
 		};
 		4289E39725E15F6A794D4DEF /* DiskJockeyEXT4 */ = {
@@ -410,7 +410,7 @@
 				501F02442E058BAF009EBB59 /* Frameworks */,
 				50A51F932E05892200AC6D10 /* Products */,
 				4289E39725E15F6A794D4DEF /* DiskJockeyEXT4 */,
-				18FB8DCE049D0440E78E822B /* vendor */,
+				18FB8DCE049D0440E78E822B /* lib */,
 			);
 			sourceTree = "<group>";
 		};
@@ -773,7 +773,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "#!/bin/sh\n# Copy vendor VERSION.txt manifests into the app bundle so the About dialog\n# can display which vendored library commits were linked in.\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/vendor-versions\"\nmkdir -p \"$DEST\"\nrm -f \"$DEST\"/*.txt 2>/dev/null\nfor f in \"${SRCROOT}\"/vendor/*/VERSION*.txt; do\n    [ -f \"$f\" ] || continue\n    cp \"$f\" \"$DEST/\"\n    echo \"Copied $(basename \"$f\") to vendor-versions/\"\ndone\n";
+			shellScript = "#!/bin/sh\n# Copy vendored-library VERSION.txt manifests into the app bundle so the About\n# dialog can display which vendored-library commits were linked in.\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/vendor-versions\"\nmkdir -p \"$DEST\"\nrm -f \"$DEST\"/*.txt 2>/dev/null\nfor f in \"${SRCROOT}\"/lib/*/VERSION*.txt; do\n    [ -f \"$f\" ] || continue\n    cp \"$f\" \"$DEST/\"\n    echo \"Copied $(basename \"$f\") to vendor-versions/\"\ndone\n";
 		};
 		50FC50DA2F8BC8970091F9DF /* Sign Go Backend */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -931,7 +931,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/vendor/fs_ext4/include",
+					"$(SRCROOT)/lib/fs_ext4/include",
 				);
 				INFOPLIST_FILE = DiskJockeyEXT4/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = DiskJockeyEXT4;
@@ -943,7 +943,7 @@
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/vendor/fs_ext4",
+					"$(SRCROOT)/lib/fs_ext4",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
@@ -1486,7 +1486,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/vendor/fs_ext4/include",
+					"$(SRCROOT)/lib/fs_ext4/include",
 				);
 				INFOPLIST_FILE = DiskJockeyEXT4/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = DiskJockeyEXT4;
@@ -1498,7 +1498,7 @@
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/vendor/fs_ext4",
+					"$(SRCROOT)/lib/fs_ext4",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;

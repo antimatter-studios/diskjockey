@@ -12,10 +12,6 @@ diskjockey-backend/test-mount/smb-server/
 diskjockey-backend/test-mount/webdav-server/
 diskjockey-backend/test-mount/mount*/
 
-# Vendored third-party build outputs (rebuilt via make)
-# Note: Source directories (*-src/, diskjockey-backend/) ARE tracked
-# Only ignore the build output directories
-vendor/fs_ext4/*
-!vendor/fs_ext4/.gitkeep
-vendor/built/*
-!vendor/built/.gitkeep
+# Compiled artifacts from vendored sources — regenerated via `make vendor-*`.
+# Source submodules under vendor/ ARE tracked; only lib/ is ignored.
+lib/

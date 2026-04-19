@@ -11,7 +11,7 @@
 # Environment variables (optional, have defaults):
 #   SRCROOT    - Project root (default: pwd)
 #   EXT4_SRC   - Path to Rust source (default: $SRCROOT/vendor/rust-fs-ext4)
-#   EXT4_OUT   - Path for build output (default: $SRCROOT/vendor/fs_ext4)
+#   EXT4_OUT   - Path for build output (default: $SRCROOT/lib/fs_ext4)
 
 set -e
 
@@ -19,7 +19,7 @@ set -e
 SRCROOT="${SRCROOT:-$(pwd)}"
 SRCROOT="$(cd "${SRCROOT}" && pwd)"
 EXT4_SRC="${EXT4_SRC:-${SRCROOT}/vendor/rust-fs-ext4}"
-EXT4_OUT="${EXT4_OUT:-${SRCROOT}/vendor/fs_ext4}"
+EXT4_OUT="${EXT4_OUT:-${SRCROOT}/lib/fs_ext4}"
 case "$EXT4_SRC" in /*) ;; *) EXT4_SRC="${SRCROOT}/${EXT4_SRC}" ;; esac
 case "$EXT4_OUT" in /*) ;; *) EXT4_OUT="${SRCROOT}/${EXT4_OUT}" ;; esac
 STAMP_FILE="${EXT4_OUT}/.build-stamp"

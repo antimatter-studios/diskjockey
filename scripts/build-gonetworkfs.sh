@@ -13,7 +13,7 @@ set -e
 # Configuration with defaults
 SRCROOT="${SRCROOT:-$(pwd)}"
 NFS_SRC="${NFS_SRC:-${SRCROOT}/vendor/go-networkfs}"
-NFS_OUT="${NFS_OUT:-${SRCROOT}/vendor/built}"
+NFS_OUT="${NFS_OUT:-${SRCROOT}/lib/go-networkfs}"
 
 # Colors for output
 RED='\033[0;31m'
