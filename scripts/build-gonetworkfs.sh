@@ -123,7 +123,61 @@ for DRIVER in $DRIVERS; do
     echo "${GREEN}  lib${DRIVER}.a: Built ($(du -h ${NFS_OUT}/lib${DRIVER}.a | cut -f1))${NC}"
 done
 
+# Emit VERSION manifest describing the submodule commit that was built.
+# One manifest per submodule (not per driver) so filename identifies the source
+# repo — NFS_OUT is shared across drivers.
+emit_version_manifest() {
+    local lib_name="$1"
+    local src_dir="$2"
+    local out_file="$3"
+
+    (
+        cd "$src_dir"
+
+        local source commit short_commit describe dirty ref ref_type built_at
+
+        source=$(git config --get remote.origin.url 2>/dev/null || echo "unknown")
+        commit=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+        short_commit=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        describe=$(git describe --always --long --dirty 2>/dev/null || echo "$short_commit")
+
+        if [ -z "$(git status --porcelain 2>/dev/null)" ]; then
+            dirty="false"
+        else
+            dirty="true"
+        fi
+
+        if tag=$(git describe --tags --exact-match 2>/dev/null); then
+            ref="$tag"
+            ref_type="tag"
+        elif branch=$(git symbolic-ref --short -q HEAD 2>/dev/null); then
+            ref="$branch"
+            ref_type="branch"
+        else
+            ref="HEAD"
+            ref_type="detached"
+        fi
+
+        built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+        {
+            echo "lib=${lib_name}"
+            echo "source=${source}"
+            echo "ref=${ref}"
+            echo "ref_type=${ref_type}"
+            echo "commit=${commit}"
+            echo "short_commit=${short_commit}"
+            echo "describe=${describe}"
+            echo "dirty=${dirty}"
+            echo "built_at=${built_at}"
+        } > "$out_file"
+    )
+}
+
+emit_version_manifest "go-networkfs" "${NFS_SRC}" "${NFS_OUT}/VERSION-go-networkfs.txt"
+
 echo ""
 echo "${GREEN}go-networkfs build complete (${BUILT_COUNT} drivers built)${NC}"
-echo "  Output: ${NFS_OUT}/"
-echo "  Drivers: ${DRIVERS}"
+echo "  Output:   ${NFS_OUT}/"
+echo "  Drivers:  ${DRIVERS}"
+echo "  Manifest: ${NFS_OUT}/VERSION-go-networkfs.txt"

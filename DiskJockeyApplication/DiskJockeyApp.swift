@@ -21,6 +21,7 @@ class DiskJockeyApplication {
 class AppDelegate: NSObject, NSApplicationDelegate {
     private let container = AppContainer()
     private var mainWindowController: NSWindowController?
+    private var aboutWindowController: NSWindowController?
     private var cancellables = Set<AnyCancellable>()
 
     private var contentView: some View {
@@ -55,7 +56,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // App menu
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "About DiskJockey", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        let aboutItem = appMenu.addItem(
+            withTitle: "About DiskJockey",
+            action: #selector(showAboutWindow(_:)),
+            keyEquivalent: ""
+        )
+        aboutItem.target = self
         appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(withTitle: "Quit DiskJockey", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appMenuItem.submenu = appMenu
@@ -137,6 +143,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         mainWindowController?.showWindow(nil)
         mainWindowController?.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func showAboutWindow(_ sender: Any?) {
+        if aboutWindowController == nil {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 440, height: 360),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+
+            window.title = "About DiskJockey"
+            window.isReleasedWhenClosed = false
+            window.contentView = NSHostingView(rootView: AboutView())
+            window.center()
+
+            let windowController = NSWindowController(window: window)
+            self.aboutWindowController = windowController
+        }
+
+        aboutWindowController?.showWindow(nil)
+        aboutWindowController?.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 

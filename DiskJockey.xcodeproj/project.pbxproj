@@ -526,6 +526,7 @@
 				50A51F8E2E05892200AC6D10 /* Sources */,
 				50A51F8F2E05892200AC6D10 /* Frameworks */,
 				50A51F902E05892200AC6D10 /* Resources */,
+				50FC50DC2F8BC8A70091F9DF /* Copy Vendor Versions */,
 				501F02572E058BAF009EBB59 /* Embed Foundation Extensions */,
 				501F02772E058C51009EBB59 /* Embed Frameworks */,
 				50FC4D102F8B11BD0091F9DF /* Embed XPC Services */,
@@ -755,6 +756,25 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		50FC50DC2F8BC8A70091F9DF /* Copy Vendor Versions */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Copy Vendor Versions";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "#!/bin/sh\n# Copy vendor VERSION.txt manifests into the app bundle so the About dialog\n# can display which vendored library commits were linked in.\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/vendor-versions\"\nmkdir -p \"$DEST\"\nrm -f \"$DEST\"/*.txt 2>/dev/null\nfor f in \"${SRCROOT}\"/vendor/*/VERSION*.txt; do\n    [ -f \"$f\" ] || continue\n    cp \"$f\" \"$DEST/\"\n    echo \"Copied $(basename \"$f\") to vendor-versions/\"\ndone\n";
+		};
 		50FC50DA2F8BC8970091F9DF /* Sign Go Backend */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
