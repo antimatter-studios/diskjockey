@@ -26,6 +26,12 @@ final class LogTailService {
     /// progress → AttachedDisksModel).
     var onEvent: ((String, [String: String]) -> Void)?
 
+    /// Optional subscriber that receives every parsed log line. Used
+    /// by AttachedDisksModel to populate per-partition logs when a
+    /// `bsd` can be resolved from the line (either via structured
+    /// fields, or parsed out of the plain-text message).
+    var onLine: ((ParsedLogLine) -> Void)?
+
     init(logRepository: LogRepository) {
         self.logRepository = logRepository
         let fm = FileManager.default
@@ -74,19 +80,45 @@ final class LogTailService {
         guard let data = line.data(using: .utf8),
               let payload = try? JSONDecoder().decode(AppLogLine.self, from: data)
         else { return }
+        let ts = parseISO8601(payload.ts) ?? Date()
         let entry = LogEntry(
             message: payload.message,
             category: payload.level.lowercased(),
-            timestamp: parseISO8601(payload.ts) ?? Date(),
+            timestamp: ts,
             source: payload.source,
             metadata: ["pid": String(payload.pid)]
         )
+        let parsed = ParsedLogLine(
+            timestamp: ts,
+            level: payload.level,
+            source: payload.source,
+            message: payload.message,
+            bsd: Self.resolveBsd(fields: payload.fields, message: payload.message)
+        )
         Task { @MainActor in
             self.logRepository.addLogEntry(entry)
+            self.onLine?(parsed)
             if let kind = payload.kind {
                 self.onEvent?(kind, payload.fields ?? [:])
             }
         }
+    }
+
+    /// Find the BSD device this line is talking about. Preferred
+    /// source is `fields["bsd"]` (set by all structured events).
+    /// Falls back to scanning the plain-text message for common
+    /// patterns like "diskN" or "disk called" — extensions emit
+    /// lots of plain-text lines like "probe disk5: ..." that
+    /// should also show up in the per-partition log.
+    private static func resolveBsd(fields: [String: String]?, message: String) -> String? {
+        if let bsd = fields?["bsd"] { return bsd }
+        // "probe disk5: blockSize=..." / "loadResource disk5: ..."
+        // Grab the first "disk<digits>(s<digits>)?" token.
+        let pattern = #"\bdisk\d+(?:s\d+)?\b"#
+        if let range = message.range(of: pattern, options: .regularExpression) {
+            return String(message[range])
+        }
+        return nil
     }
 
     private func parseISO8601(_ s: String) -> Date? {

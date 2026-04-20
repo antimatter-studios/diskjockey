@@ -45,6 +45,8 @@ struct ContentView: View {
                 systemImage: "externaldrive.badge.plus",
                 description: Text("Click the + button to add a new mount")
             )
+        case .attachedDisk(let mountPath):
+            AttachedDiskDetailView(mountPath: mountPath, container: container)
         case nil:
             ContentUnavailableView(
                 "No Mount Selected",
@@ -63,12 +65,14 @@ private struct SidebarView: View {
     @Binding var showingAddMount: Bool
 
     @ObservedObject private var mountRepository: MountRepository
+    @ObservedObject private var attachedDisks: AttachedDisksModel
 
     init(container: AppContainer, sidebarModel: SidebarModel, showingAddMount: Binding<Bool>) {
         self.container = container
         self.sidebarModel = sidebarModel
         self._showingAddMount = showingAddMount
         self.mountRepository = container.mountRepository
+        self.attachedDisks = container.attachedDisks
     }
 
     var body: some View {
@@ -102,6 +106,15 @@ private struct SidebarView: View {
                             Text("Loading...")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                if !attachedDisks.disks.isEmpty {
+                    Section("Attached Disks") {
+                        ForEach(attachedDisks.disks) { disk in
+                            AttachedDiskSidebarRow(disk: disk)
+                                .tag(SidebarItem.attachedDisk(disk.mountPath))
                         }
                     }
                 }
@@ -164,6 +177,41 @@ private struct MountSidebarRow: View {
                     .frame(width: 7, height: 7)
                     .help("Mounted")
             }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+// MARK: - Attached Disk Sidebar Row
+//
+// A disk that was mounted by the system (either directly by our FSKit
+// extension via auto-probe, or by `mount -F` from the CLI / Attach menu).
+// Display-only; no configuration.
+private struct AttachedDiskSidebarRow: View {
+    let disk: AttachedDisk
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "externaldrive.fill")
+                .foregroundStyle(.secondary)
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(disk.name)
+                    .font(.body)
+                    .lineLimit(1)
+                Text("\(disk.fsType) · \(disk.devicePath)")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Circle()
+                .fill(.green)
+                .frame(width: 7, height: 7)
+                .help("Mounted at \(disk.mountPath)")
         }
         .padding(.vertical, 2)
     }

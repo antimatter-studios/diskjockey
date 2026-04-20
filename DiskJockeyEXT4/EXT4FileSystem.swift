@@ -86,7 +86,8 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             }
 
             let nameBytes = buf[120..<136]
-            let volumeName = String(bytes: nameBytes.prefix(while: { $0 != 0 }), encoding: .utf8) ?? "ext4"
+            let rawName = String(bytes: nameBytes.prefix(while: { $0 != 0 }), encoding: .utf8) ?? ""
+            let volumeName = rawName.isEmpty ? "ext4" : rawName
             let uuidBytes = Array(buf[104..<120])
             let containerID = FSContainerIdentifier(uuid: NSUUID(uuidBytes: uuidBytes) as UUID)
             log.info("probe: recognized ext4 volume \"\(volumeName)\"")
@@ -170,6 +171,20 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
 
         containerStatus = .ready
         log.info("volume ready: \"\(volInfo.name)\" blocks=\(volInfo.totalBlocks) free=\(volInfo.freeBlocks)")
+        // Emit one compact event with volume-identity + sizing so the host
+        // app can populate the detail pane without re-parsing the text log.
+        // bsd correlates it to the right AttachedDisk entry; remaining
+        // keys are FS-agnostic except where noted.
+        log.event(kind: "volume.info", fields: [
+            "bsd": bsdName,
+            "fs": "ext4",
+            "volume_name": volInfo.name,
+            "block_size": "\(volInfo.blockSize)",
+            "total_blocks": "\(volInfo.totalBlocks)",
+            "free_blocks": "\(volInfo.freeBlocks)",
+            "total_inodes": "\(volInfo.totalInodes)",
+            "free_inodes": "\(volInfo.freeInodes)",
+        ])
         replyHandler(volume, nil)
     }
 

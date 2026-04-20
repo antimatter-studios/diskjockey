@@ -84,23 +84,23 @@ final class EXT4Volume: FSVolume,
     // MARK: - Mount/unmount (async)
 
     func mount(options: FSTaskOptions) async throws {
-        logger.error("volume: mount")
+        log.error("volume: mount")
     }
 
     func unmount() async {
-        logger.error("volume: unmount")
+        log.error("volume: unmount")
         backend.shutdown()
     }
 
     // MARK: - Activate/Deactivate (async)
 
     func activate(options: FSTaskOptions) async throws -> FSItem {
-        logger.error("volume: activate")
+        log.error("volume: activate")
         return item(forID: 2, path: "/")
     }
 
     func deactivate(options: FSDeactivateOptions) async throws {
-        logger.error("volume: deactivate")
+        log.error("volume: deactivate")
         backend.shutdown()
         if let ctx = blockDeviceContext {
             Unmanaged<BlockDeviceContext>.fromOpaque(ctx).release()
@@ -177,7 +177,7 @@ final class EXT4Volume: FSVolume,
         guard let dirItem = directory as? EXT4Item else {
             throw POSIXError(.EBADF)
         }
-        logger.error("enumerateDirectory path=\(dirItem.path, privacy: .public) cookie=\(cookie.rawValue) attrsReq=\(attributes != nil)")
+        log.error("enumerateDirectory path=\(dirItem.path) cookie=\(cookie.rawValue) attrsReq=\(attributes != nil)")
 
         guard let entries = backend.readDirectory(path: dirItem.path) else {
             throw POSIXError(.EIO)
@@ -185,7 +185,7 @@ final class EXT4Volume: FSVolume,
 
         // Log all entries so we can inspect the data regardless of Finder's handling.
         for (i, e) in entries.enumerated() {
-            logger.error("  entry[\(i)] name=\(e.name, privacy: .public) fileID=\(e.fileID) fileType=\(String(describing: e.fileType), privacy: .public)")
+            log.error("  entry[\(i)] name=\(e.name) fileID=\(e.fileID) fileType=\(String(describing: e.fileType))")
         }
 
         let startCookie = cookie.rawValue
@@ -236,7 +236,7 @@ final class EXT4Volume: FSVolume,
             if packed { packedCount += 1 } else { stopped = true; break }
         }
 
-        logger.error("enumerateDirectory done: packed=\(packedCount) total=\(entries.count) stopped=\(stopped)")
+        log.error("enumerateDirectory done: packed=\(packedCount) total=\(entries.count) stopped=\(stopped)")
         return FSDirectoryVerifier(rawValue: UInt64(entries.count + 1))
     }
 
@@ -276,7 +276,7 @@ final class EXT4Volume: FSVolume,
         }
 
         if bytesRead < 0 {
-            logger.error("read(from: \(ext4Item.path, privacy: .public)): backend returned \(bytesRead)")
+            log.error("read(from: \(ext4Item.path)): backend returned \(bytesRead)")
             throw POSIXError(.EIO)
         }
         return Int(bytesRead)

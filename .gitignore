@@ -4,6 +4,7 @@ build/
 project.xcworkspace
 xcuserdata/
 *.profraw
+.history
 diskjockey-backend/diskjockey-backend
 diskjockey-cli/diskjockey-cli
 diskjockey-backend/test-mount/ftp-server/

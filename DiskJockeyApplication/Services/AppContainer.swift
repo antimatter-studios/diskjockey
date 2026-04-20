@@ -56,23 +56,32 @@ public final class AppContainer: ObservableObject {
         // Initialize logger
         self.appLogModel = AppLogModel(logRepository: self.logRepository)
 
-        // Start tailing subprocess NDJSON log files. Emits into
-        // logRepository → AppLogModel → LogView.
-        // Kind-tagged events (volume.dirty, fsck.start, fsck.progress,
-        // fsck.done, fsck.failed) are also routed to AttachedDisksModel
-        // so the per-disk detail pane reflects live status.
+        // Populate the sidebar BEFORE we start replaying ndjson events.
+        // Ordering matters: on launch the tail reads existing lines from
+        // each ndjson file; if the disk model hasn't polled mount(8) yet
+        // those events would match no disk and get dropped.
+        // (The model ALSO buffers unmatched events by BSD so events for
+        // not-yet-polled disks are replayed once they appear — belt and
+        // braces.)
+        self.attachedDisks.start()
+
+        // Tail subprocess NDJSON log files. Lines flow into the central
+        // logRepository; kind-tagged events (volume.clean/dirty,
+        // volume.info, fsck.start/progress/done/failed) plus generic
+        // per-bsd log lines also route to AttachedDisksModel so the
+        // per-disk detail pane shows live status, identity, and a
+        // partition-scoped log.
         let tail = LogTailService(logRepository: self.logRepository)
         let disks = self.attachedDisks
         tail.onEvent = { kind, fields in
-            disks.applyFsckEvent(kind: kind, fields: fields)
+            disks.applyExtensionEvent(kind: kind, fields: fields)
+        }
+        tail.onLine = { line in
+            disks.applyLogLine(line)
         }
         tail.start()
         self.logTailService = tail
         AppLog.shared.info("DiskJockey launched — log tail started")
-
-        // Begin polling for system-mounted disks so the sidebar stays in
-        // sync with attach/detach events.
-        self.attachedDisks.start()
 
         // Initialize the service manager (LaunchAgent-based)
         self.serviceManager = BackendServiceManager(logger: self.logRepository)

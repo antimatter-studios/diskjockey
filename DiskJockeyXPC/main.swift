@@ -39,13 +39,13 @@ func startBackendIfNeeded() {
 
     // Find the backend binary relative to our XPC bundle
     // We're at DiskJockey.app/Contents/XPCServices/DiskJockeyXPC.xpc/Contents/MacOS/DiskJockeyXPC
-    // Backend is at DiskJockey.app/Contents/Resources/diskjockey-backend
+    // Backend is at DiskJockey.app/Contents/MacOS/diskjockey-backend
     let xpcBundle = Bundle.main.bundlePath // .../DiskJockeyXPC.xpc
     let appContentsURL = URL(fileURLWithPath: xpcBundle)
         .deletingLastPathComponent() // .../XPCServices
         .deletingLastPathComponent() // .../Contents
     let backendURL = appContentsURL
-        .appendingPathComponent("Resources")
+        .appendingPathComponent("MacOS")
         .appendingPathComponent("diskjockey-backend")
     let resolvedPath = backendURL.path
 

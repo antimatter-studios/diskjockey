@@ -32,6 +32,46 @@ public struct AttachedDisk: Identifiable, Equatable, Hashable {
     /// by correlating `fields["bsd"]` (e.g. "disk5") with this disk's
     /// devicePath tail.
     public var fsckStatus: FsckStatus = .unknown
+    /// Volume identity/sizing emitted once by the FSKit extension at
+    /// mount time (kind="volume.info"). Keys are FS-specific — ext4 has
+    /// total_blocks / free_blocks / free_inodes; ntfs has total_clusters
+    /// / total_size / ntfs_version. Detail view just iterates + formats.
+    public var info: [String: String] = [:]
+    /// Recent log lines emitted by the extension for THIS volume (events
+    /// whose `fields["bsd"]` matches this disk's BSD). Capped at 500 to
+    /// keep memory bounded. Shown in the partition detail view.
+    public var partitionLog: [AttachedDiskLogLine] = []
+}
+
+/// One log line scoped to a specific partition. Subset of AppLogLine —
+/// only the fields the detail-view log strip needs.
+public struct AttachedDiskLogLine: Identifiable, Equatable, Hashable {
+    public let id = UUID()
+    public let timestamp: Date
+    public let level: String
+    public let message: String
+    public let source: String
+}
+
+/// NDJSON line in the form the model consumes: timestamp, level,
+/// message, source + optional `bsd` resolved from the structured
+/// `fields` block (or parsed from the plain-text message as a
+/// fallback for legacy lines). LogTailService builds one of these
+/// per line.
+public struct ParsedLogLine {
+    public let timestamp: Date
+    public let level: String
+    public let source: String
+    public let message: String
+    public let bsd: String?
+    public init(timestamp: Date, level: String, source: String,
+                message: String, bsd: String?) {
+        self.timestamp = timestamp
+        self.level = level
+        self.source = source
+        self.message = message
+        self.bsd = bsd
+    }
 }
 
 @MainActor
@@ -54,6 +94,15 @@ public final class AttachedDisksModel: ObservableObject {
 
     private var timer: Timer?
     private let pollInterval: TimeInterval
+    /// Events that arrived keyed on a BSD we hadn't yet seen in the
+    /// mount table (classic race: extension emits volume.info the
+    /// instant it mounts, our /sbin/mount poller picks up the mount
+    /// 0-3s later). Replayed in refresh() once the disk appears.
+    private var pendingEvents: [String: [(kind: String, fields: [String: String])]] = [:]
+    /// Same race but for plain log lines (no `kind` — just a message).
+    /// Accumulated by BSD until the disk is in `disks`.
+    private var pendingLogs: [String: [AttachedDiskLogLine]] = [:]
+    private static let logCap = 500
 
     public init(pollInterval: TimeInterval = 3.0) {
         self.pollInterval = pollInterval
@@ -75,14 +124,40 @@ public final class AttachedDisksModel: ObservableObject {
     public func refresh() {
         let fresh = Self.enumerate(fsTypesOfInterest: fsTypesOfInterest)
 
-        // Preserve per-disk fsck status across the mount-table re-poll,
-        // otherwise every 3-second poll wipes "running" back to "unknown".
+        // Preserve per-disk fsck status + info + per-partition log
+        // across the mount-table re-poll, otherwise every 3-second
+        // poll wipes "running" back to "unknown" and drops the
+        // volume.info fields we already captured.
         let oldStatus = Dictionary(uniqueKeysWithValues: disks.map { ($0.mountPath, $0.fsckStatus) })
-        let merged = fresh.map { d -> AttachedDisk in
+        let oldInfo = Dictionary(uniqueKeysWithValues: disks.map { ($0.mountPath, $0.info) })
+        let oldLog = Dictionary(uniqueKeysWithValues: disks.map { ($0.mountPath, $0.partitionLog) })
+        var merged = fresh.map { d -> AttachedDisk in
             var copy = d
             copy.fsckStatus = oldStatus[d.mountPath] ?? .unknown
+            copy.info = oldInfo[d.mountPath] ?? [:]
+            copy.partitionLog = oldLog[d.mountPath] ?? []
             return copy
         }
+
+        // Replay any events / log lines that arrived for a disk before
+        // it showed up in mount(8). This covers the launch-time race
+        // where LogTailService reads existing ndjson before the first
+        // mount-table poll completes.
+        for i in merged.indices {
+            let bsd = Self.bsdName(from: merged[i].devicePath)
+            if let queued = pendingEvents.removeValue(forKey: bsd) {
+                for ev in queued {
+                    Self.applyEventInPlace(kind: ev.kind, fields: ev.fields, to: &merged[i])
+                }
+            }
+            if let lines = pendingLogs.removeValue(forKey: bsd) {
+                merged[i].partitionLog.append(contentsOf: lines)
+                if merged[i].partitionLog.count > Self.logCap {
+                    merged[i].partitionLog.removeFirst(merged[i].partitionLog.count - Self.logCap)
+                }
+            }
+        }
+
         guard merged != disks else { return }
 
         let oldPaths = Set(disks.map { $0.mountPath })
@@ -96,16 +171,72 @@ public final class AttachedDisksModel: ObservableObject {
         disks = merged
     }
 
-    /// Apply a structured fsck event from the NDJSON tail. `bsd` is the
-    /// BSD device name (e.g. "disk6") the extension attached itself to;
-    /// we match by suffix of `devicePath` so both "/dev/disk6" and
-    /// "/dev/disk6s2" resolve to the right volume.
-    public func applyFsckEvent(kind: String, fields: [String: String]) {
+    /// Strip "/dev/" prefix off a devicePath. Uses prefix match so
+    /// "/dev/disk6s2" → "disk6s2"; callers comparing against event
+    /// `bsd` keys should match with hasPrefix.
+    private static func bsdName(from devicePath: String) -> String {
+        if devicePath.hasPrefix("/dev/") {
+            return String(devicePath.dropFirst("/dev/".count))
+        }
+        return devicePath
+    }
+
+    /// Apply a structured event emitted by an FSKit extension via the
+    /// NDJSON tail. `bsd` is the BSD device name (e.g. "disk6") the
+    /// extension attached itself to; we match by prefix of `devicePath`
+    /// so both "/dev/disk6" and "/dev/disk6s2" resolve to the right
+    /// volume. If the disk hasn't appeared in mount(8) yet, the event
+    /// is buffered and replayed on the next refresh(). Routes by kind
+    /// — dirty/fsck events update fsckStatus, volume.info populates
+    /// the info dict that the detail view renders.
+    public func applyExtensionEvent(kind: String, fields: [String: String]) {
         guard let bsd = fields["bsd"] else { return }
         let devSuffix = "/dev/" + bsd
         guard let idx = disks.firstIndex(where: { $0.devicePath.hasPrefix(devSuffix) }) else {
+            // Disk not yet in the model — buffer and replay on next refresh.
+            pendingEvents[bsd, default: []].append((kind: kind, fields: fields))
             return
         }
+        Self.applyEventInPlace(kind: kind, fields: fields, to: &disks[idx])
+    }
+
+    /// Apply a plain NDJSON log line to the matching disk's partition
+    /// log. Lines without an identifiable BSD are dropped (they belong
+    /// in the central app log, not a per-partition view). Lines for an
+    /// unknown BSD are buffered and flushed on refresh().
+    public func applyLogLine(_ line: ParsedLogLine) {
+        guard let bsd = line.bsd else { return }
+        let devSuffix = "/dev/" + bsd
+        let entry = AttachedDiskLogLine(
+            timestamp: line.timestamp,
+            level: line.level,
+            message: line.message,
+            source: line.source
+        )
+        guard let idx = disks.firstIndex(where: { $0.devicePath.hasPrefix(devSuffix) }) else {
+            pendingLogs[bsd, default: []].append(entry)
+            if pendingLogs[bsd]!.count > Self.logCap {
+                pendingLogs[bsd]!.removeFirst(pendingLogs[bsd]!.count - Self.logCap)
+            }
+            return
+        }
+        disks[idx].partitionLog.append(entry)
+        if disks[idx].partitionLog.count > Self.logCap {
+            disks[idx].partitionLog.removeFirst(disks[idx].partitionLog.count - Self.logCap)
+        }
+    }
+
+    /// Mutating event-apply logic extracted so `refresh()` can replay
+    /// buffered events directly into the merged array without going
+    /// through the published `disks` property.
+    private static func applyEventInPlace(kind: String, fields: [String: String], to disk: inout AttachedDisk) {
+        if kind == "volume.info" {
+            var info = fields
+            info.removeValue(forKey: "bsd")
+            disk.info = info
+            return
+        }
+
         let newStatus: FsckStatus
         switch kind {
         case "volume.clean":
@@ -128,7 +259,7 @@ public final class AttachedDisksModel: ObservableObject {
         default:
             return
         }
-        disks[idx].fsckStatus = newStatus
+        disk.fsckStatus = newStatus
     }
 
     /// Runs `/sbin/mount` and parses each line into an AttachedDisk.
