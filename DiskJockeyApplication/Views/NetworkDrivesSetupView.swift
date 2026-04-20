@@ -123,6 +123,11 @@ struct NetworkDrivesSetupView: View {
     }
 
     private var pickFolderButton: some View {
+        // `.borderedProminent` has a macOS SwiftUI quirk where the
+        // tinted background isn't painted until the window becomes
+        // key — looks like an invisible button on first render until
+        // you click the window. `.bordered` + `.tint(.accentColor)`
+        // renders reliably in both active and inactive window states.
         VStack(alignment: .leading, spacing: 10) {
             Button(action: pickFolder) {
                 HStack {
@@ -135,7 +140,8 @@ struct NetworkDrivesSetupView: View {
                 }
                 .frame(minWidth: 180)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.bordered)
+            .tint(.accentColor)
             .controlSize(.large)
             .disabled(isPicking)
 
