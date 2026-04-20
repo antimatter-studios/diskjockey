@@ -116,6 +116,30 @@ public final class DirectMountRegistry: ObservableObject {
         }
     }
 
+    /// Cross-check persisted mounts against NSFileProviderManager's
+    /// actual registered domains. Logs mismatches; the UI shows live
+    /// mount state via `isMounted(_:)` so we don't need to prune
+    /// persistence here — just surface the discrepancy for debugging.
+    /// Safe to call multiple times (e.g. on launch + on explicit refresh).
+    public func reconcile() async {
+        let domains: [NSFileProviderDomain] = await withCheckedContinuation { continuation in
+            NSFileProviderManager.getDomainsWithCompletionHandler { domains, _ in
+                continuation.resume(returning: domains)
+            }
+        }
+        let registeredIDs = Set(domains.map { $0.identifier.rawValue })
+        NSLog("[DirectMount] reconcile: NSFileProviderManager reports %d domains", domains.count)
+        for d in domains {
+            NSLog("[DirectMount]   registered: id=%@ displayName=%@",
+                  d.identifier.rawValue, d.displayName)
+        }
+        for m in mounts {
+            let state = registeredIDs.contains(m.domainID) ? "mounted" : "NOT mounted"
+            NSLog("[DirectMount] reconcile: %@ (%@) — %@",
+                  m.displayName, m.domainID, state)
+        }
+    }
+
     // MARK: - Public API
 
     /// Create a new direct FTP mount and register it with the system.
@@ -254,6 +278,71 @@ public final class DirectMountRegistry: ObservableObject {
     /// passes through when the user clicks a row).
     public func mount(withID id: UUID) -> DirectMount? {
         mounts.first { $0.id == id }
+    }
+
+    /// Query NSFileProviderManager for the list of registered domains
+    /// and check whether this mount's domain is among them. Authoritative
+    /// — doesn't trust local state.
+    public func isMounted(_ mount: DirectMount) async -> Bool {
+        let domains: [NSFileProviderDomain] = await withCheckedContinuation { continuation in
+            NSFileProviderManager.getDomainsWithCompletionHandler { domains, _ in
+                continuation.resume(returning: domains)
+            }
+        }
+        return domains.contains { $0.identifier.rawValue == mount.domainID }
+    }
+
+    /// Re-register a previously unmounted domain. Leaves the config
+    /// plist + keychain entry intact (they're what make "unmount" a
+    /// reversible action rather than "remove"). Re-creates the
+    /// `~/diskjockey/<name>` symlink best-effort.
+    public func mountDomain(_ mount: DirectMount) async throws {
+        NSLog("[DirectMount] mountDomain id=%@", mount.domainID)
+        let domain = NSFileProviderDomain(
+            identifier: NSFileProviderDomainIdentifier(rawValue: mount.domainID),
+            displayName: "DiskJockey - \(mount.displayName)"
+        )
+        do {
+            try await NSFileProviderManager.add(domain)
+            NSLog("[DirectMount] mountDomain: domain registered")
+        } catch {
+            NSLog("[DirectMount] mountDomain FAILED: %@", "\(error)")
+            throw DirectMountError.domainRegistrationFailed(underlying: error)
+        }
+
+        // Re-drop the symlink. Best-effort; non-fatal if the sandbox
+        // blocks it (same as the original create path).
+        if let manager = NSFileProviderManager(for: domain),
+           let visibleURL = try? await userVisibleURL(for: manager) {
+            do {
+                _ = try symlinks.createSymlink(name: mount.symlinkName, target: visibleURL)
+                NSLog("[DirectMount] mountDomain: symlink re-created")
+            } catch {
+                NSLog("[DirectMount] mountDomain: symlink failed (non-fatal): %@", "\(error)")
+            }
+        }
+    }
+
+    /// Unregister the FileProvider domain so Finder drops its entry.
+    /// Config + keychain are left in place so the user can re-mount
+    /// without re-entering credentials. Use `removeMount` for a full
+    /// deletion.
+    public func unmountDomain(_ mount: DirectMount) async throws {
+        NSLog("[DirectMount] unmountDomain id=%@", mount.domainID)
+        let domain = NSFileProviderDomain(
+            identifier: NSFileProviderDomainIdentifier(rawValue: mount.domainID),
+            displayName: "DiskJockey - \(mount.displayName)"
+        )
+        do {
+            try await NSFileProviderManager.remove(domain)
+            NSLog("[DirectMount] unmountDomain: domain removed")
+        } catch {
+            NSLog("[DirectMount] unmountDomain FAILED: %@", "\(error)")
+            throw error
+        }
+
+        // Drop the symlink — its target is about to go stale.
+        try? symlinks.removeSymlink(name: mount.symlinkName)
     }
 
     /// Resolve the system-visible URL for a direct mount, if its

@@ -3,9 +3,8 @@ import AppKit
 import DiskJockeyLibrary
 
 /// Detail view for a direct-linked mount. Parallel to `MountDetailView`
-/// but reads from `DirectMountRegistry` instead of `MountRepository`
-/// and offers Reveal / Remove (not Mount/Unmount — the FileProvider
-/// domain is always registered while the mount exists).
+/// but reads from `DirectMountRegistry` instead of `MountRepository`.
+/// Exposes Reveal / Mount / Unmount / Remove.
 struct DirectMountDetailView: View {
     let mountID: UUID
     let container: AppContainer
@@ -14,6 +13,9 @@ struct DirectMountDetailView: View {
     @State private var showDeleteConfirmation = false
     @State private var isPerformingAction = false
     @State private var actionError: String?
+    /// Live mount state — queried from NSFileProviderManager, not from
+    /// local persistence. `nil` while the first query is in flight.
+    @State private var isMounted: Bool? = nil
 
     init(mountID: UUID, container: AppContainer) {
         self.mountID = mountID
@@ -43,10 +45,28 @@ struct DirectMountDetailView: View {
             }
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
+                    // Mount/Unmount toggle. Disabled while the status
+                    // query is pending to avoid racing an action
+                    // against a stale view of the world.
+                    if let mounted = isMounted {
+                        Button(action: { toggleMount(mount, currentlyMounted: mounted) }) {
+                            Label(
+                                mounted ? "Unmount" : "Mount",
+                                systemImage: mounted ? "eject" : "externaldrive.badge.plus"
+                            )
+                        }
+                        .disabled(isPerformingAction)
+                    } else {
+                        Button(action: {}) {
+                            Label("Checking…", systemImage: "hourglass")
+                        }
+                        .disabled(true)
+                    }
+
                     Button(action: { revealInFinder(mount) }) {
                         Label("Reveal in Finder", systemImage: "folder")
                     }
-                    .disabled(isPerformingAction)
+                    .disabled(isPerformingAction || isMounted != true)
 
                     Button(action: { showDeleteConfirmation = true }) {
                         Label("Remove", systemImage: "trash")
@@ -54,13 +74,18 @@ struct DirectMountDetailView: View {
                     .disabled(isPerformingAction)
                 }
             }
+            .task(id: mount.id) {
+                // Refresh on appear and whenever the selected mount
+                // changes. Authoritative source is NSFileProviderManager.
+                await refreshMountState(for: mount)
+            }
             .alert("Remove Mount", isPresented: $showDeleteConfirmation) {
                 Button("Cancel", role: .cancel) {}
                 Button("Remove", role: .destructive) {
                     removeMount(mount)
                 }
             } message: {
-                Text("Remove direct mount \"\(mount.displayName)\"? The FileProvider domain, stored credentials and the `~/DiskJockey/\(mount.symlinkName)` symlink will all be deleted.")
+                Text("Remove direct mount \"\(mount.displayName)\"? The FileProvider domain, stored credentials and the `~/diskjockey/\(mount.symlinkName)` symlink will all be deleted.")
             }
         } else {
             ContentUnavailableView(
@@ -100,9 +125,9 @@ struct DirectMountDetailView: View {
 
                     HStack(spacing: 4) {
                         Circle()
-                            .fill(.green)
+                            .fill(statusColor)
                             .frame(width: 6, height: 6)
-                        Text("Registered")
+                        Text(statusLabel)
                             .font(.subheadline)
                             .foregroundStyle(.primary)
                     }
@@ -123,7 +148,7 @@ struct DirectMountDetailView: View {
             detailRow(label: "User", value: mount.config.user)
             detailRow(label: "Remote Path", value: mount.config.rootPath)
             detailRow(label: "FTPS", value: mount.config.ftps ? "Yes" : "No")
-            detailRow(label: "Symlink", value: "~/DiskJockey/\(mount.symlinkName)")
+            detailRow(label: "Symlink", value: "~/diskjockey/\(mount.symlinkName)")
             detailRow(label: "Domain ID", value: mount.domainID)
             detailRow(label: "Created", value: mount.createdAt.formatted(date: .abbreviated, time: .shortened))
         }
@@ -166,7 +191,50 @@ struct DirectMountDetailView: View {
         .padding(.horizontal, 24)
     }
 
+    // MARK: - Status rendering
+
+    private var statusColor: Color {
+        switch isMounted {
+        case .some(true):  return .green
+        case .some(false): return .gray
+        case .none:        return .yellow
+        }
+    }
+
+    private var statusLabel: String {
+        switch isMounted {
+        case .some(true):  return "Mounted"
+        case .some(false): return "Not Mounted"
+        case .none:        return "Checking…"
+        }
+    }
+
     // MARK: - Actions
+
+    private func refreshMountState(for mount: DirectMount) async {
+        let state = await registry.isMounted(mount)
+        isMounted = state
+    }
+
+    private func toggleMount(_ mount: DirectMount, currentlyMounted: Bool) {
+        isPerformingAction = true
+        actionError = nil
+        Task {
+            defer { isPerformingAction = false }
+            do {
+                if currentlyMounted {
+                    try await registry.unmountDomain(mount)
+                } else {
+                    try await registry.mountDomain(mount)
+                }
+                await refreshMountState(for: mount)
+            } catch {
+                actionError = error.localizedDescription
+                // Refresh anyway — state may have changed even on error.
+                await refreshMountState(for: mount)
+            }
+        }
+    }
 
     private func revealInFinder(_ mount: DirectMount) {
         isPerformingAction = true
