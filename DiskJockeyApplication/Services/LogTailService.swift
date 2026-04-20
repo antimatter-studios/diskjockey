@@ -93,7 +93,8 @@ final class LogTailService {
             level: payload.level,
             source: payload.source,
             message: payload.message,
-            bsd: Self.resolveBsd(fields: payload.fields, message: payload.message)
+            bsd: Self.resolveBsd(fields: payload.fields, message: payload.message),
+            mount: payload.fields?["mount"]
         )
         Task { @MainActor in
             self.logRepository.addLogEntry(entry)

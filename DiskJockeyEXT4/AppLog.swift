@@ -142,6 +142,71 @@ public final class AppLog: @unchecked Sendable {
     }
 }
 
+// MARK: - TaggedLogger
+//
+// Thin wrapper around `AppLog` that automatically attaches a fixed
+// dictionary of structured fields to every line it emits. Callers
+// build one per subject (mount, disk, task) once, then call
+// `.info` / `.warn` / `.error` / `.debug` the same way as plain
+// AppLog.
+//
+// The recipient is identical in shape on-wire — every message goes
+// out as `kind=<kind>` with `fields[...]` populated — so
+// LogTailService + LogRepository keep working without changes.
+// What we gain: consumers that want per-mount / per-disk filtering
+// can route on `fields["mount"]` or `fields["bsd"]` without every
+// call site having to remember to pass those fields.
+//
+// Example:
+//
+//     let mlog = TaggedLogger(log,
+//         fields: ["mount": domainID], kind: "fileprovider.mount")
+//     mlog.info("fetchContents for \(path)")
+//     // on-wire: {"kind":"fileprovider.mount","fields":{"mount":"UUID"},
+//     //           "level":"INFO","message":"fetchContents for /foo.txt",…}
+
+public final class TaggedLogger {
+    public let log: AppLog
+    public let fields: [String: String]
+    public let kind: String
+
+    public init(_ log: AppLog, fields: [String: String], kind: String) {
+        self.log = log
+        self.fields = fields
+        self.kind = kind
+    }
+
+    public func info(_ message: String) {
+        log.event(kind: kind, fields: fields, level: .info, message: message)
+    }
+
+    public func warn(_ message: String) {
+        log.event(kind: kind, fields: fields, level: .warn, message: message)
+    }
+
+    public func error(_ message: String) {
+        log.event(kind: kind, fields: fields, level: .error, message: message)
+    }
+
+    public func debug(_ message: String) {
+        log.event(kind: kind, fields: fields, level: .debug, message: message)
+    }
+
+    /// Emit a one-off event overriding `kind` and/or merging extra
+    /// fields into the logger's defaults. Handy for finer-grained
+    /// signals (e.g. `fsck.progress`) from inside a subject-scoped
+    /// logger.
+    public func event(kind: String? = nil,
+                      fields extra: [String: String] = [:],
+                      level: AppLogLevel = .info,
+                      message: String? = nil) {
+        var merged = self.fields
+        for (k, v) in extra { merged[k] = v }
+        log.event(kind: kind ?? self.kind, fields: merged,
+                  level: level, message: message)
+    }
+}
+
 // MARK: - Built-in sinks
 
 /// Appends NDJSON lines to `<group-container>/Logs/<source>.ndjson`.

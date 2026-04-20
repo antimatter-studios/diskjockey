@@ -110,8 +110,13 @@ public final class AppContainer: ObservableObject {
         tail.onEvent = { kind, fields in
             disks.applyExtensionEvent(kind: kind, fields: fields)
         }
+        let registryForLog = self.directMountRegistry
         tail.onLine = { line in
+            // Every line goes to both routers; each drops lines it
+            // doesn't own (AttachedDisksModel requires `bsd`,
+            // DirectMountRegistry requires `mount`).
             disks.applyLogLine(line)
+            registryForLog.applyLogLine(line)
         }
         tail.start()
         self.logTailService = tail
