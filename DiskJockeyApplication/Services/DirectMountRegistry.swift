@@ -341,12 +341,14 @@ public final class DirectMountRegistry: ObservableObject {
         mountLogs[mount] = bucket
     }
 
-    /// Read-only accessor for the log strip. Returns the last `tail`
-    /// lines for the given domain, oldest-first.
+    /// Read-only accessor for the log strip. Returns the most recent
+    /// `tail` lines for the given domain, **newest-first** — the
+    /// detail view renders them top-down so new events appear where
+    /// the eye lands first.
     public func logs(forDomainID id: String, tail: Int = 200) -> [AttachedDiskLogLine] {
         let all = mountLogs[id] ?? []
-        if all.count <= tail { return all }
-        return Array(all.suffix(tail))
+        let windowed = all.count <= tail ? all : Array(all.suffix(tail))
+        return windowed.reversed()
     }
 
     /// Query NSFileProviderManager for the list of registered domains
