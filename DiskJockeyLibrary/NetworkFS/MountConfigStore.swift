@@ -1,16 +1,19 @@
 //
-// MountConfigStore.swift — plist-backed persistence for DirectMountConfig
-// keyed by domain identifier. Lives in the shared app-group container
-// so the host app (writer) and the FileProvider extension (reader) see
-// the same files.
+// MountConfigStore.swift — plist-backed persistence for per-domain
+// StoredMountConfig records, keyed by NSFileProviderDomain identifier.
+// Lives in the shared app-group container so the host app (writer) and
+// the FileProvider extension (reader) read the same files.
 //
 // Layout on disk:
 //
 //   <group-container>/MountConfigs/<domain-id>.plist
 //
-// One file per mount. The filename is the NSFileProviderDomain identifier
-// string (usually a UUID). Stays trivially easy to enumerate / clean up
-// if mounts leak.
+// Each plist is a Codable-encoded StoredMountConfig (a discriminated
+// union — see NetworkFSPersonality.swift for the current case list).
+// The scheme is
+// implicit in the enum case key Swift writes at the plist root, so
+// adding new schemes does not break the on-disk layout as long as
+// each scheme's struct evolves additively (new optional fields only).
 //
 
 import Foundation
@@ -50,7 +53,7 @@ public struct MountConfigStore: Sendable {
         try configsDir().appendingPathComponent("\(domainID).plist")
     }
 
-    public func save(_ config: DirectMountConfig, domainID: String) throws {
+    public func save(_ config: StoredMountConfig, domainID: String) throws {
         let encoder = PropertyListEncoder()
         encoder.outputFormat = .binary
         let data: Data
@@ -62,7 +65,8 @@ public struct MountConfigStore: Sendable {
         let target = try url(for: domainID)
         do {
             try data.write(to: target, options: .atomic)
-            NSLog("[MountConfigStore] wrote %d bytes → %@", data.count, target.path)
+            NSLog("[MountConfigStore] wrote %d bytes (scheme=%@) → %@",
+                  data.count, config.scheme.rawValue, target.path)
         } catch {
             NSLog("[MountConfigStore] write FAILED path=%@ err=%@",
                   target.path, error.localizedDescription)
@@ -70,7 +74,7 @@ public struct MountConfigStore: Sendable {
         }
     }
 
-    public func load(domainID: String) throws -> DirectMountConfig {
+    public func load(domainID: String) throws -> StoredMountConfig {
         let url = try url(for: domainID)
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw MountConfigStoreError.notFound(domainID: domainID)
@@ -82,7 +86,7 @@ public struct MountConfigStore: Sendable {
             throw MountConfigStoreError.ioFailed(error.localizedDescription)
         }
         do {
-            return try PropertyListDecoder().decode(DirectMountConfig.self, from: data)
+            return try PropertyListDecoder().decode(StoredMountConfig.self, from: data)
         } catch {
             throw MountConfigStoreError.decodeFailed(error.localizedDescription)
         }

@@ -1094,7 +1094,7 @@
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
-					"-lftp",
+					"-lnetworkfs",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.fileprovider;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1135,7 +1135,7 @@
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
-					"-lftp",
+					"-lnetworkfs",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.fileprovider;
 				PRODUCT_NAME = "$(TARGET_NAME)";

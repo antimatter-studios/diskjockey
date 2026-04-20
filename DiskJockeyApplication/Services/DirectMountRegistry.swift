@@ -5,7 +5,7 @@
 //
 // Create:
 //   1. Allocate a domain UUID.
-//   2. Persist DirectMountConfig plist to the app-group container.
+//   2. Persist StoredMountConfig plist to the app-group container.
 //   3. Stash the password in the shared keychain access-group.
 //   4. Register an NSFileProviderDomain.
 //   5. Query the user-visible URL & drop a ~/DiskJockey/<name> symlink.
@@ -33,7 +33,7 @@ import DiskJockeyLibrary
 public struct DirectMount: Identifiable, Codable, Equatable, Hashable, Sendable {
     public let id: UUID
     public let displayName: String
-    public let config: DirectMountConfig
+    public let config: StoredMountConfig
     public let createdAt: Date
     /// Filename of the symlink actually placed under `~/DiskJockey/`.
     /// May differ from `displayName` if we had to dedupe for a
@@ -43,7 +43,7 @@ public struct DirectMount: Identifiable, Codable, Equatable, Hashable, Sendable 
     public init(
         id: UUID = UUID(),
         displayName: String,
-        config: DirectMountConfig,
+        config: StoredMountConfig,
         createdAt: Date = Date(),
         symlinkName: String
     ) {
@@ -59,7 +59,7 @@ public struct DirectMount: Identifiable, Codable, Equatable, Hashable, Sendable 
     public var domainID: String { id.uuidString }
 
     // Hashable — id alone is enough (UUIDs are unique across our
-    // registry). Spelled out manually because `DirectMountConfig`
+    // registry). Spelled out manually because `StoredMountConfig`
     // only conforms to `Equatable`, which blocks the synthesised
     // Hashable derivation.
     public func hash(into hasher: inout Hasher) {
@@ -123,7 +123,7 @@ public final class DirectMountRegistry: ObservableObject {
         self.mounts = Self.loadPersisted(from: self.defaults)
         AppLog.shared.info("registry init: loaded \(mounts.count) persisted mounts")
         for m in mounts {
-            AppLog.shared.info("persisted: id=\(m.domainID) name=\(m.displayName) host=\(m.config.host):\(m.config.port)")
+            AppLog.shared.info("persisted: id=\(m.domainID) name=\(m.displayName) scheme=\(m.config.scheme.rawValue) at=\(m.config.displayLocation)")
         }
     }
 
@@ -182,30 +182,19 @@ public final class DirectMountRegistry: ObservableObject {
 
     // MARK: - Public API
 
-    /// Create a new direct FTP mount and register it with the system.
-    /// Atomic-ish: we roll back in reverse if a late step fails.
-    public func createFTPMount(
+    /// Core create flow — protocol-agnostic. Every per-protocol
+    /// convenience method (`createFTPMount`, `createSFTPMount`, …)
+    /// builds a `StoredMountConfig` and hands it here. Atomic-ish: we
+    /// roll back in reverse if a late step fails.
+    public func createMount(
         name: String,
-        host: String,
-        port: Int,
-        user: String,
-        password: String,
-        rootPath: String = "/",
-        ftps: Bool = false
+        config: StoredMountConfig,
+        password: String
     ) async throws -> DirectMount {
         let id = UUID()
         let domainID = id.uuidString
-        let displayName = name.isEmpty ? "FTP Mount" : name
-        AppLog.shared.info("createFTPMount START id=\(domainID) host=\(host) port=\(port) user=\(user) name=\(displayName)")
-
-        let config = DirectMountConfig(
-            scheme: .ftp,
-            host: host,
-            port: port,
-            user: user,
-            rootPath: rootPath.isEmpty ? "/" : rootPath,
-            ftps: ftps
-        )
+        let displayName = name.isEmpty ? "\(config.scheme.displayName) Mount" : name
+        AppLog.shared.info("createMount START id=\(domainID) scheme=\(config.scheme.rawValue) at=\(config.displayLocation) name=\(displayName)")
 
         // 1a. Write config plist to the app-group container.
         AppLog.shared.info("step 1a: writing config plist")
@@ -217,11 +206,13 @@ public final class DirectMountRegistry: ObservableObject {
             throw error
         }
 
-        // 1b. Stash the password in the shared keychain access group.
-        AppLog.shared.info("step 1b: saving password to shared keychain")
+        // 1b. Stash the secret in the shared keychain access group.
+        // For Dropbox this is the OAuth access token (no password);
+        // for everything else it's the user-typed password.
+        AppLog.shared.info("step 1b: saving secret to shared keychain")
         do {
             try keychain.save(password: password, domainID: domainID)
-            AppLog.shared.info("step 1b: password saved")
+            AppLog.shared.info("step 1b: secret saved")
         } catch {
             AppLog.shared.error("step 1b FAILED (keychain save): \("\(error)")")
             try? configStore.delete(domainID: domainID)
@@ -277,8 +268,100 @@ public final class DirectMountRegistry: ObservableObject {
         )
         mounts.append(mount)
         persist()
-        AppLog.shared.info("createFTPMount DONE id=\(domainID) total-mounts=\(mounts.count)")
+        AppLog.shared.info("createMount DONE id=\(domainID) total-mounts=\(mounts.count)")
         return mount
+    }
+
+    /// Convenience factories per protocol. Each one just builds the
+    /// appropriate StoredMountConfig case and defers to createMount.
+    /// Keeps form view-models strongly typed without knowing the enum.
+
+    public func createFTPMount(
+        name: String, host: String, port: Int, user: String, password: String,
+        rootPath: String = "/", ftps: Bool = false
+    ) async throws -> DirectMount {
+        let inner = FTPMountConfig(
+            host: host, port: port, user: user,
+            rootPath: rootPath.isEmpty ? "/" : rootPath, ftps: ftps
+        )
+        return try await createMount(name: name, config: .ftp(inner), password: password)
+    }
+
+    public func createSFTPMount(
+        name: String, host: String, port: Int, user: String, password: String,
+        rootPath: String = "/", useSSHAgent: Bool = false
+    ) async throws -> DirectMount {
+        let inner = SFTPMountConfig(
+            host: host, port: port, user: user,
+            rootPath: rootPath.isEmpty ? "/" : rootPath, useSSHAgent: useSSHAgent
+        )
+        return try await createMount(name: name, config: .sftp(inner), password: password)
+    }
+
+    public func createSMBMount(
+        name: String, host: String, port: Int, share: String, user: String,
+        password: String, rootPath: String = "/"
+    ) async throws -> DirectMount {
+        let inner = SMBMountConfig(
+            host: host, port: port, share: share, user: user,
+            rootPath: rootPath.isEmpty ? "/" : rootPath
+        )
+        return try await createMount(name: name, config: .smb(inner), password: password)
+    }
+
+    public func createDropboxMount(
+        name: String, accessToken: String
+    ) async throws -> DirectMount {
+        // Dropbox token plays the role of "password" in our keychain.
+        return try await createMount(name: name, config: .dropbox(DropboxMountConfig()), password: accessToken)
+    }
+
+    public func createWebDAVMount(
+        name: String, url: String, user: String, password: String,
+        pathPrefix: String = "/"
+    ) async throws -> DirectMount {
+        let inner = WebDAVMountConfig(url: url, user: user, pathPrefix: pathPrefix)
+        return try await createMount(name: name, config: .webdav(inner), password: password)
+    }
+
+    public func createGDriveMount(
+        name: String, clientID: String, clientSecret: String,
+        refreshToken: String, cachedAccessToken: String = ""
+    ) async throws -> DirectMount {
+        let inner = GDriveMountConfig(
+            clientID: clientID, clientSecret: clientSecret,
+            cachedAccessToken: cachedAccessToken
+        )
+        // Refresh token plays the role of "password" in the keychain.
+        return try await createMount(name: name, config: .gdrive(inner), password: refreshToken)
+    }
+
+    public func createOneDriveMount(
+        name: String, clientID: String, clientSecret: String = "",
+        refreshToken: String, cachedAccessToken: String = ""
+    ) async throws -> DirectMount {
+        let inner = OneDriveMountConfig(
+            clientID: clientID, clientSecret: clientSecret,
+            cachedAccessToken: cachedAccessToken
+        )
+        return try await createMount(name: name, config: .onedrive(inner), password: refreshToken)
+    }
+
+    public func createS3Mount(
+        name: String, endpoint: String, bucket: String,
+        region: String = "us-east-1",
+        accessKeyID: String, secretAccessKey: String,
+        prefix: String = "", secure: Bool = true,
+        usePathStyle: Bool = false, sessionToken: String = ""
+    ) async throws -> DirectMount {
+        let inner = S3MountConfig(
+            endpoint: endpoint, bucket: bucket, region: region,
+            accessKeyID: accessKeyID, prefix: prefix,
+            secure: secure, usePathStyle: usePathStyle,
+            sessionToken: sessionToken
+        )
+        // Secret access key plays the role of "password" in the keychain.
+        return try await createMount(name: name, config: .s3(inner), password: secretAccessKey)
     }
 
     /// Remove a direct mount: drop the symlink, unregister the

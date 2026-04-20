@@ -25,7 +25,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Drivers to build (space-separated)
-DRIVERS="${DRIVERS:-ftp}"
+DRIVERS="${DRIVERS:-ftp sftp smb dropbox webdav gdrive s3}"
 
 # =============================================================================
 # Self-healing: Auto-initialize submodules
@@ -82,6 +82,24 @@ fi
 
 BUILT_COUNT=0
 
+# Shared build flags (used for both per-driver and combined libs).
+#
+# GOWORK=off so the outer go.work (diskjockey-backend + diskjockey-cli)
+# doesn't complain that this submodule isn't a listed workspace member.
+#
+# -ldflags="-s -w" strips the symbol table + DWARF debug info from the
+# c-archive (unused at runtime; the final .appex linker dead-strip would
+# drop them anyway, but keeping them out of the .a halves on-disk size).
+# -trimpath removes absolute build paths from the binary. Set
+# DJ_GO_DEBUG=1 to keep symbols for local debugging.
+GO_LDFLAGS="-s -w"
+GO_EXTRA_FLAGS="-trimpath"
+if [ "${DJ_GO_DEBUG:-}" = "1" ]; then
+    GO_LDFLAGS=""
+    GO_EXTRA_FLAGS=""
+    echo "${YELLOW}(DJ_GO_DEBUG=1 — symbols + DWARF preserved)${NC}"
+fi
+
 for DRIVER in $DRIVERS; do
     STAMP_FILE="${NFS_OUT}/.${DRIVER}-stamp"
     SOURCE_DIR="${NFS_SRC}/${DRIVER}/cmd/${DRIVER}"
@@ -113,22 +131,6 @@ for DRIVER in $DRIVERS; do
     
     echo "${YELLOW}Building lib${DRIVER}.a...${NC}"
 
-    # GOWORK=off so the outer go.work (diskjockey-backend + diskjockey-cli)
-    # doesn't complain that this submodule isn't a listed workspace member.
-    #
-    # -ldflags="-s -w" strips the symbol table + DWARF debug info from the
-    # c-archive (unused at runtime; the final .appex linker dead-strip would
-    # drop them anyway, but keeping them out of the .a halves on-disk size).
-    # -trimpath removes absolute build paths from the binary. Set
-    # DJ_GO_DEBUG=1 to keep symbols for local debugging.
-    GO_LDFLAGS="-s -w"
-    GO_EXTRA_FLAGS="-trimpath"
-    if [ "${DJ_GO_DEBUG:-}" = "1" ]; then
-        GO_LDFLAGS=""
-        GO_EXTRA_FLAGS=""
-        echo "${YELLOW}  (DJ_GO_DEBUG=1 — symbols + DWARF preserved)${NC}"
-    fi
-
     CGO_ENABLED=1 GOOS=darwin GOWORK=off go build \
         -buildmode=c-archive \
         $GO_EXTRA_FLAGS \
@@ -142,6 +144,53 @@ for DRIVER in $DRIVERS; do
     
     echo "${GREEN}  lib${DRIVER}.a: Built ($(du -h ${NFS_OUT}/lib${DRIVER}.a | cut -f1))${NC}"
 done
+
+# =============================================================================
+# Build combined libnetworkfs.a (all drivers, dispatched by driver_type)
+# =============================================================================
+#
+# Unlike the per-driver archives, this one blank-imports every registered
+# driver and exposes a unified networkfs_* C API that picks the backend at
+# mount time. Set BUILD_COMBINED=0 to skip.
+
+BUILD_COMBINED="${BUILD_COMBINED:-1}"
+if [ "$BUILD_COMBINED" = "1" ]; then
+    COMBINED_SRC="${NFS_SRC}/cmd/networkfs"
+    COMBINED_OUT="${NFS_OUT}/libnetworkfs.a"
+    COMBINED_STAMP="${NFS_OUT}/.networkfs-stamp"
+
+    if [ ! -d "$COMBINED_SRC" ]; then
+        echo "${YELLOW}Combined dispatcher not found at ${COMBINED_SRC}, skipping...${NC}"
+    else
+        NEEDS_REBUILD=0
+        if [ ! -f "$COMBINED_OUT" ]; then
+            NEEDS_REBUILD=1
+        elif [ -f "$COMBINED_STAMP" ]; then
+            # Combined lib depends on every driver's Go source, not just cmd/networkfs
+            NEWER=$(find "${NFS_SRC}" -name "*.go" -newer "$COMBINED_STAMP" 2>/dev/null | head -1)
+            if [ -n "$NEWER" ]; then
+                NEEDS_REBUILD=1
+            fi
+        else
+            NEEDS_REBUILD=1
+        fi
+
+        if [ $NEEDS_REBUILD -eq 0 ]; then
+            echo "${GREEN}  libnetworkfs.a: Up to date${NC}"
+        else
+            echo "${YELLOW}Building libnetworkfs.a (combined)...${NC}"
+            CGO_ENABLED=1 GOOS=darwin GOWORK=off go build \
+                -buildmode=c-archive \
+                $GO_EXTRA_FLAGS \
+                -ldflags="$GO_LDFLAGS" \
+                -o "$COMBINED_OUT" \
+                ./cmd/networkfs
+            touch "$COMBINED_STAMP"
+            BUILT_COUNT=$((BUILT_COUNT + 1))
+            echo "${GREEN}  libnetworkfs.a: Built ($(du -h ${COMBINED_OUT} | cut -f1))${NC}"
+        fi
+    fi
+fi
 
 # Emit VERSION manifest describing the submodule commit that was built.
 # One manifest per submodule (not per driver) so filename identifies the source
@@ -199,7 +248,10 @@ emit_version_manifest() {
 emit_version_manifest "go-networkfs" "${NFS_SRC}" "${NFS_OUT}/VERSION-go-networkfs.txt"
 
 echo ""
-echo "${GREEN}go-networkfs build complete (${BUILT_COUNT} drivers built)${NC}"
+echo "${GREEN}go-networkfs build complete (${BUILT_COUNT} archive(s) built)${NC}"
 echo "  Output:   ${NFS_OUT}/"
 echo "  Drivers:  ${DRIVERS}"
+if [ "$BUILD_COMBINED" = "1" ]; then
+    echo "  Combined: libnetworkfs.a"
+fi
 echo "  Manifest: ${NFS_OUT}/VERSION-go-networkfs.txt"

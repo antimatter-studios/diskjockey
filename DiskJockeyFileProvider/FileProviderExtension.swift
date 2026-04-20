@@ -15,10 +15,10 @@ let log = AppLog(source: "fileprovider",
 
 /// Principal class for the FileProvider extension.
 ///
-/// Routing model: every mount is *either* direct (libftp.a linked in
-/// process) or XPC-backed (forwards to the Go backend over
+/// Routing model: every mount is *either* direct (libnetworkfs.a
+/// linked in process) or XPC-backed (forwards to the Go backend over
 /// NSXPCConnection). We figure out which at init time by checking for
-/// a `DirectMountConfig` plist in the shared app group. If present →
+/// a `StoredMountConfig` plist in the shared app group. If present →
 /// direct client. If missing (or any load error) → fall back to the
 /// existing XPC client.
 ///
@@ -27,6 +27,15 @@ let log = AppLog(source: "fileprovider",
 /// working on the XPC path. Don't remove it.
 class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
     let mountID: String
+
+    /// Stashed so we can build an `NSFileProviderManager(for:)` in
+    /// `fetchContents` and resolve its `temporaryDirectoryURL()`. Writing
+    /// fetched bytes into the extension's own sandbox `/tmp` works but
+    /// `fileproviderd` (the system daemon that copies bytes to FP's
+    /// permanent storage) can't always read across that sandbox
+    /// boundary — result: eternal spinner in Finder. The per-domain
+    /// manager's temp dir is shared between both sides.
+    let domain: NSFileProviderDomain
 
     /// Per-mount tagged logger. Every line emitted through this logger
     /// carries `fields["mount"]=<mountID>`, so the host app's
@@ -39,7 +48,7 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
     /// direct-client init fails for any reason.
     let xpcClient = FileProviderXPCClient()
 
-    /// Present only when a DirectMountConfig + keychain entry exist for
+    /// Present only when a StoredMountConfig + keychain entry exist for
     /// this domain. Read-only after init — FileProvider may hand us
     /// concurrent op requests.
     let directClient: FileProviderDirectClient?
@@ -48,6 +57,7 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         // The domain identifier encodes either the backend mount ID
         // (legacy: "3") or a UUID (direct mounts). The value is opaque
         // to the routing layer — it's just a lookup key.
+        self.domain = domain
         self.mountID = domain.identifier.rawValue
         self.mlog = TaggedLogger(
             log,
@@ -74,10 +84,10 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
 
         super.init()
         self.mlog.info("Initialized")
-        // libftp smoke-test log stays for diagnostic parity with the
-        // Phase-1 wiring. Harmless when libftp isn't linked — returns
-        // "(unavailable)" instead of crashing.
-        self.mlog.info("libftp version: \(FTPDriver.libraryVersion())")
+        // libnetworkfs smoke-test log — confirms the combined archive
+        // was actually linked into the extension. Harmless on startup
+        // even when no direct mount exists.
+        self.mlog.info("libnetworkfs version: \(NetworkFSDriver.libraryVersion())")
     }
 
     func invalidate() {
@@ -116,7 +126,7 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
 
         let path = extractPath(from: identifier)
 
-        // Direct path: libftp stat.
+        // Direct path: libnetworkfs stat.
         if let direct = directClient {
             itemViaDirect(direct: direct, path: path, completionHandler: completionHandler)
             return Progress()
@@ -155,9 +165,9 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         return Progress()
     }
 
-    /// Direct-path implementation of `item(for:)`. libftp stat is
-    /// synchronous; we run it off the calling thread so we don't block
-    /// the FileProvider-owned queue.
+    /// Direct-path implementation of `item(for:)`. libnetworkfs stat
+    /// is synchronous; we run it off the calling thread so we don't
+    /// block the FileProvider-owned queue.
     private func itemViaDirect(direct: FileProviderDirectClient,
                                path: String,
                                completionHandler: @escaping (NSFileProviderItem?, Error?) -> Void) {
@@ -183,15 +193,62 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         if let direct = directClient {
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    // Hard-fail rule: the item we hand back to
-                    // FileProvider must carry REAL metadata (size,
-                    // isDirectory, name). Stat first, then fetch. If
-                    // stat fails we throw — no fabricated item ever
-                    // reaches FileProvider's metadata cache.
-                    let info = try direct.stat(path: path)
-                    let url = try direct.fetchFile(path: path)
+                    // Fetch first, then derive metadata from what we
+                    // already know. Earlier we did stat-then-fetch to
+                    // guarantee real metadata, but stat breaks on FTP
+                    // servers that don't implement MLST/MDTM (the
+                    // `jlaffaye/ftp` GetEntry path) — vsftpd returns
+                    // `502 Command not implemented` and the whole
+                    // fetch fails even though RETR would work. We can
+                    // still produce real metadata without the server
+                    // round-trip:
+                    //
+                    //   name        ← last component of the path
+                    //   size        ← size of the temp file on disk
+                    //                 after RETR completes
+                    //   isDirectory ← false (fetchContents is only
+                    //                 ever called on files)
+                    //
+                    // That's just as accurate as stat, doesn't
+                    // fabricate anything, and doesn't depend on
+                    // optional FTP commands.
+                    //
+                    // Write into NSFileProviderManager's temp dir (not
+                    // `FileManager.default.temporaryDirectory`, which
+                    // lives inside the extension's sandbox container
+                    // and isn't always readable from the fileproviderd
+                    // daemon — cause of the "file downloaded but
+                    // Finder stays spinning" bug). The FP-managed dir
+                    // is shared between the extension + daemon.
+                    let url: URL
+                    if let manager = NSFileProviderManager(for: self.domain) {
+                        let dir = try manager.temporaryDirectoryURL()
+                        url = dir.appendingPathComponent(UUID().uuidString)
+                    } else {
+                        // Fallback: shouldn't happen since the extension
+                        // IS running for this domain, but if FP can't
+                        // give us a manager, don't crash — use our own
+                        // sandbox temp and accept the spinner risk.
+                        url = FileManager.default.temporaryDirectory
+                            .appendingPathComponent(UUID().uuidString)
+                    }
+                    try direct.fetchFile(path: path, to: url)
                     let parentPath = (path as NSString).deletingLastPathComponent
-                    let item = FileProviderItem(info: info.toFileItem(), parentPath: parentPath)
+                    let name = (path as NSString).lastPathComponent
+                    let size: Int64
+                    if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                       let n = attrs[.size] as? Int64 {
+                        size = n
+                    } else if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                              let n = attrs[.size] as? NSNumber {
+                        size = n.int64Value
+                    } else {
+                        size = 0
+                    }
+                    let item = FileProviderItem(
+                        info: DiskJockeyFileItem(name: name, size: size, isDirectory: false),
+                        parentPath: parentPath
+                    )
                     completionHandler(url, item, nil)
                 } catch {
                     self.mlog.error("direct fetch(\(path)) failed: \("\(error)")")
@@ -316,21 +373,23 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             case .driver(let d):
                 return mapDriverError(d)
             }
-        case let d as FTPDriverError:
+        case let d as NetworkFSDriverError:
             return mapDriverError(d)
         default:
             return error
         }
     }
 
-    private static func mapDriverError(_ d: FTPDriverError) -> Error {
+    private static func mapDriverError(_ d: NetworkFSDriverError) -> Error {
         switch d {
         case .mountFailed, .unmountFailed:
             return NSFileProviderError(.serverUnreachable)
         case .operationFailed(_, _, _, let message):
-            // FTP "no such file" / "permission denied" both land here.
-            // Parse-free heuristic: anything containing "no such" or
-            // "not found" → noSuchItem; else generic unreachable.
+            // "no such file" / "permission denied" across every
+            // protocol land here with the underlying server's error
+            // text. Parse-free heuristic: anything mentioning
+            // "no such" / "not found" / "does not exist" →
+            // noSuchItem; else generic unreachable.
             let lower = message.lowercased()
             if lower.contains("no such") || lower.contains("not found") || lower.contains("does not exist") {
                 return NSFileProviderError(.noSuchItem)
