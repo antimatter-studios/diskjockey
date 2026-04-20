@@ -13,10 +13,10 @@ set -e
 # Configuration with defaults
 SRCROOT="${SRCROOT:-$(pwd)}"
 SRCROOT="$(cd "${SRCROOT}" && pwd)"
-NFS_SRC="${NFS_SRC:-${SRCROOT}/vendor/go-networkfs}"
-NFS_OUT="${NFS_OUT:-${SRCROOT}/lib/go-networkfs}"
-case "$NFS_SRC" in /*) ;; *) NFS_SRC="${SRCROOT}/${NFS_SRC}" ;; esac
-case "$NFS_OUT" in /*) ;; *) NFS_OUT="${SRCROOT}/${NFS_OUT}" ;; esac
+NETWORKFS_SRC="${NETWORKFS_SRC:-${SRCROOT}/vendor/go-networkfs}"
+NETWORKFS_OUT="${NETWORKFS_OUT:-${SRCROOT}/lib/go-networkfs}"
+case "$NETWORKFS_SRC" in /*) ;; *) NETWORKFS_SRC="${SRCROOT}/${NETWORKFS_SRC}" ;; esac
+case "$NETWORKFS_OUT" in /*) ;; *) NETWORKFS_OUT="${SRCROOT}/${NETWORKFS_OUT}" ;; esac
 
 # Colors for output
 RED='\033[0;31m'
@@ -25,13 +25,13 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Drivers to build (space-separated)
-DRIVERS="${DRIVERS:-ftp sftp smb dropbox webdav gdrive s3}"
+DRIVERS="${DRIVERS:-ftp sftp smb dropbox webdav gdrive s3 onedrive}"
 
 # =============================================================================
 # Self-healing: Auto-initialize submodules
 # =============================================================================
 
-if [ ! -f "${NFS_SRC}/go.mod" ]; then
+if [ ! -f "${NETWORKFS_SRC}/go.mod" ]; then
     echo "${YELLOW}go-networkfs submodule not found. Attempting to initialize...${NC}"
     
     if [ ! -d "${SRCROOT}/.git" ] && [ ! -f "${SRCROOT}/.git" ]; then
@@ -46,7 +46,7 @@ if [ ! -f "${NFS_SRC}/go.mod" ]; then
             git submodule update --init vendor/go-networkfs 2>/dev/null || true
     fi
     
-    if [ ! -f "${NFS_SRC}/go.mod" ]; then
+    if [ ! -f "${NETWORKFS_SRC}/go.mod" ]; then
         echo "${RED}ERROR: go-networkfs submodule could not be initialized.${NC}"
         echo "Manual fix: cd ${SRCROOT} && git submodule add https://github.com/christhomas/go-networkfs vendor/go-networkfs"
         exit 1
@@ -70,9 +70,9 @@ fi
 # =============================================================================
 
 # Create output directory
-mkdir -p "$NFS_OUT"
+mkdir -p "$NETWORKFS_OUT"
 
-cd "$NFS_SRC"
+cd "$NETWORKFS_SRC"
 
 # Check CGO is enabled
 if [ "${CGO_ENABLED:-}" = "0" ]; then
@@ -84,8 +84,9 @@ BUILT_COUNT=0
 
 # Shared build flags (used for both per-driver and combined libs).
 #
-# GOWORK=off so the outer go.work (diskjockey-backend + diskjockey-cli)
-# doesn't complain that this submodule isn't a listed workspace member.
+# GOWORK=off defensive — the project root has no go.work today, but
+# retain the flag so we aren't affected if a stray go.work appears in
+# a dev environment or submodule.
 #
 # -ldflags="-s -w" strips the symbol table + DWARF debug info from the
 # c-archive (unused at runtime; the final .appex linker dead-strip would
@@ -101,8 +102,8 @@ if [ "${DJ_GO_DEBUG:-}" = "1" ]; then
 fi
 
 for DRIVER in $DRIVERS; do
-    STAMP_FILE="${NFS_OUT}/.${DRIVER}-stamp"
-    SOURCE_DIR="${NFS_SRC}/${DRIVER}/cmd/${DRIVER}"
+    STAMP_FILE="${NETWORKFS_OUT}/.${DRIVER}-stamp"
+    SOURCE_DIR="${NETWORKFS_SRC}/${DRIVER}/cmd/${DRIVER}"
     
     # Check if driver exists
     if [ ! -d "$SOURCE_DIR" ]; then
@@ -112,11 +113,11 @@ for DRIVER in $DRIVERS; do
     
     # Check if rebuild needed
     NEEDS_REBUILD=0
-    if [ ! -f "${NFS_OUT}/lib${DRIVER}.a" ]; then
+    if [ ! -f "${NETWORKFS_OUT}/lib${DRIVER}.a" ]; then
         NEEDS_REBUILD=1
     elif [ -f "$STAMP_FILE" ]; then
         # Check if source changed
-        NEWER=$(find "${NFS_SRC}/${DRIVER}" -name "*.go" -newer "$STAMP_FILE" 2>/dev/null | head -1)
+        NEWER=$(find "${NETWORKFS_SRC}/${DRIVER}" -name "*.go" -newer "$STAMP_FILE" 2>/dev/null | head -1)
         if [ -n "$NEWER" ]; then
             NEEDS_REBUILD=1
         fi
@@ -135,14 +136,14 @@ for DRIVER in $DRIVERS; do
         -buildmode=c-archive \
         $GO_EXTRA_FLAGS \
         -ldflags="$GO_LDFLAGS" \
-        -o "${NFS_OUT}/lib${DRIVER}.a" \
+        -o "${NETWORKFS_OUT}/lib${DRIVER}.a" \
         "./${DRIVER}/cmd/${DRIVER}"
     
     # Update stamp
     touch "$STAMP_FILE"
     BUILT_COUNT=$((BUILT_COUNT + 1))
     
-    echo "${GREEN}  lib${DRIVER}.a: Built ($(du -h ${NFS_OUT}/lib${DRIVER}.a | cut -f1))${NC}"
+    echo "${GREEN}  lib${DRIVER}.a: Built ($(du -h ${NETWORKFS_OUT}/lib${DRIVER}.a | cut -f1))${NC}"
 done
 
 # =============================================================================
@@ -155,9 +156,9 @@ done
 
 BUILD_COMBINED="${BUILD_COMBINED:-1}"
 if [ "$BUILD_COMBINED" = "1" ]; then
-    COMBINED_SRC="${NFS_SRC}/cmd/networkfs"
-    COMBINED_OUT="${NFS_OUT}/libnetworkfs.a"
-    COMBINED_STAMP="${NFS_OUT}/.networkfs-stamp"
+    COMBINED_SRC="${NETWORKFS_SRC}/cmd/networkfs"
+    COMBINED_OUT="${NETWORKFS_OUT}/libnetworkfs.a"
+    COMBINED_STAMP="${NETWORKFS_OUT}/.networkfs-stamp"
 
     if [ ! -d "$COMBINED_SRC" ]; then
         echo "${YELLOW}Combined dispatcher not found at ${COMBINED_SRC}, skipping...${NC}"
@@ -167,7 +168,7 @@ if [ "$BUILD_COMBINED" = "1" ]; then
             NEEDS_REBUILD=1
         elif [ -f "$COMBINED_STAMP" ]; then
             # Combined lib depends on every driver's Go source, not just cmd/networkfs
-            NEWER=$(find "${NFS_SRC}" -name "*.go" -newer "$COMBINED_STAMP" 2>/dev/null | head -1)
+            NEWER=$(find "${NETWORKFS_SRC}" -name "*.go" -newer "$COMBINED_STAMP" 2>/dev/null | head -1)
             if [ -n "$NEWER" ]; then
                 NEEDS_REBUILD=1
             fi
@@ -194,7 +195,7 @@ fi
 
 # Emit VERSION manifest describing the submodule commit that was built.
 # One manifest per submodule (not per driver) so filename identifies the source
-# repo — NFS_OUT is shared across drivers.
+# repo — NETWORKFS_OUT is shared across drivers.
 emit_version_manifest() {
     local lib_name="$1"
     local src_dir="$2"
@@ -245,13 +246,13 @@ emit_version_manifest() {
     )
 }
 
-emit_version_manifest "go-networkfs" "${NFS_SRC}" "${NFS_OUT}/VERSION-go-networkfs.txt"
+emit_version_manifest "go-networkfs" "${NETWORKFS_SRC}" "${NETWORKFS_OUT}/VERSION-go-networkfs.txt"
 
 echo ""
 echo "${GREEN}go-networkfs build complete (${BUILT_COUNT} archive(s) built)${NC}"
-echo "  Output:   ${NFS_OUT}/"
+echo "  Output:   ${NETWORKFS_OUT}/"
 echo "  Drivers:  ${DRIVERS}"
 if [ "$BUILD_COMBINED" = "1" ]; then
     echo "  Combined: libnetworkfs.a"
 fi
-echo "  Manifest: ${NFS_OUT}/VERSION-go-networkfs.txt"
+echo "  Manifest: ${NETWORKFS_OUT}/VERSION-go-networkfs.txt"
