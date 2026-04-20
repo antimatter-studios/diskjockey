@@ -32,19 +32,15 @@ struct ContentView: View {
         .frame(minWidth: 800, minHeight: 500)
         .sheet(isPresented: $showingAddMount) {
             AddMountView(
-                diskTypeRepository: container.diskTypeRepository,
-                mountRepository: container.mountRepository,
                 directMountRegistry: container.directMountRegistry
             )
-            .frame(minWidth: 480, minHeight: 400)
+            .frame(minWidth: 520, minHeight: 460)
         }
     }
 
     @ViewBuilder
     private var detailView: some View {
         switch sidebarModel.selectedItem {
-        case .mount(let id):
-            MountDetailView(mountId: id, container: container)
         case .directMount(let id):
             DirectMountDetailView(mountID: id, container: container)
         case .logs:
@@ -88,7 +84,6 @@ private struct SidebarView: View {
     @ObservedObject var sidebarModel: SidebarModel
     @Binding var showingAddMount: Bool
 
-    @ObservedObject private var mountRepository: MountRepository
     @ObservedObject private var attachedDisks: AttachedDisksModel
     @ObservedObject private var directMountRegistry: DirectMountRegistry
 
@@ -96,59 +91,27 @@ private struct SidebarView: View {
         self.container = container
         self.sidebarModel = sidebarModel
         self._showingAddMount = showingAddMount
-        self.mountRepository = container.mountRepository
         self.attachedDisks = container.attachedDisks
         self.directMountRegistry = container.directMountRegistry
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Backend status at top
-            BackendStatusView(container: container)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-
-            Divider()
-
             // Mount list + logs
             List(selection: $sidebarModel.selectedItem) {
                 Section("Network Drives") {
-                    let hasBackendMounts = !mountRepository.mounts.isEmpty
-                    let hasDirectMounts = !directMountRegistry.mounts.isEmpty
-
-                    // Direct mounts always render — they don't depend on
-                    // the backend and live-render is essential for the
-                    // mount-status dot.
-                    ForEach(directMountRegistry.mounts, id: \.id) { mount in
-                        DirectMountSidebarRow(
-                            mount: mount,
-                            registry: directMountRegistry
-                        )
-                        .tag(SidebarItem.directMount(mount.id))
-                    }
-
-                    // Backend-routed mounts: only render once the
-                    // MountRepository has fetched from the backend.
-                    // Loading state applies ONLY to this subset — it
-                    // must not block direct mounts above from showing.
-                    ForEach(mountRepository.mounts, id: \.id) { mount in
-                        MountSidebarRow(mount: mount)
-                            .tag(SidebarItem.mount(mount.id))
-                    }
-
-                    if mountRepository.isLoading && !hasBackendMounts {
-                        HStack(spacing: 6) {
-                            ProgressView()
-                                .scaleEffect(0.5)
-                                .frame(width: 16, height: 16)
-                            Text("Loading backend mounts…")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    } else if !hasBackendMounts && !hasDirectMounts {
+                    if directMountRegistry.mounts.isEmpty {
                         Text("No mounts configured")
                             .foregroundStyle(.secondary)
                             .font(.caption)
+                    } else {
+                        ForEach(directMountRegistry.mounts, id: \.id) { mount in
+                            DirectMountSidebarRow(
+                                mount: mount,
+                                registry: directMountRegistry
+                            )
+                            .tag(SidebarItem.directMount(mount.id))
+                        }
                     }
                 }
 
@@ -174,53 +137,8 @@ private struct SidebarView: View {
                     }
                     .help("Add Mount")
                 }
-
-                ToolbarItem(placement: .automatic) {
-                    Button(action: refreshMounts) {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .help("Refresh")
-                    .disabled(mountRepository.isLoading)
-                }
             }
         }
-    }
-
-    private func refreshMounts() {
-        Task { await mountRepository.fetchMounts() }
-    }
-}
-
-// MARK: - Mount Sidebar Row
-
-private struct MountSidebarRow: View {
-    let mount: Mount
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: mount.diskType.systemImage)
-                .foregroundStyle(.secondary)
-                .frame(width: 20)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(mount.name)
-                    .font(.body)
-                    .lineLimit(1)
-                Text(mount.diskType.displayName)
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
-
-            Spacer()
-
-            if mount.isMounted {
-                Circle()
-                    .fill(.green)
-                    .frame(width: 7, height: 7)
-                    .help("Mounted")
-            }
-        }
-        .padding(.vertical, 2)
     }
 }
 
@@ -238,7 +156,7 @@ private struct DirectMountSidebarRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: DiskTypeEnum.ftpDirect.systemImage)
+            Image(systemName: systemImage(for: mount.config.scheme))
                 .foregroundStyle(.secondary)
                 .frame(width: 20)
 
@@ -246,7 +164,7 @@ private struct DirectMountSidebarRow: View {
                 Text(mount.displayName)
                     .font(.body)
                     .lineLimit(1)
-                Text(DiskTypeEnum.ftpDirect.displayName)
+                Text(mount.config.scheme.displayName)
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
@@ -279,6 +197,16 @@ private struct DirectMountSidebarRow: View {
         case .none:        return "Checking…"
         }
     }
+
+    private func systemImage(for scheme: DirectMountScheme) -> String {
+        switch scheme {
+        case .ftp, .sftp, .smb, .webdav: return "network"
+        case .dropbox:                   return "shippingbox"
+        case .gdrive:                    return "externaldrive.connected.to.line.below"
+        case .onedrive:                  return "cloud"
+        case .s3:                        return "cube.box"
+        }
+    }
 }
 
 // MARK: - Attached Disk Sidebar Row
@@ -308,10 +236,35 @@ private struct AttachedDiskSidebarRow: View {
             Spacer()
 
             Circle()
-                .fill(.green)
+                .fill(dotColor)
                 .frame(width: 7, height: 7)
-                .help("Mounted at \(disk.mountPath)")
+                .help(tooltip)
         }
         .padding(.vertical, 2)
+    }
+
+    private var dotColor: Color {
+        switch disk.fsckStatus {
+        case .unknown:       return .green
+        case .clean:         return .green
+        case .dirty:         return .orange
+        case .running:       return .orange
+        case .completed:     return .green
+        case .failed:        return .red
+        }
+    }
+
+    private var tooltip: String {
+        let base = "Mounted at \(disk.mountPath)"
+        switch disk.fsckStatus {
+        case .unknown, .clean, .completed:
+            return base
+        case .dirty:
+            return "\(base) — volume is dirty, fsck pending"
+        case .running(let phase, _, _):
+            return "\(base) — fsck running (\(phase))"
+        case .failed(let err):
+            return "\(base) — fsck failed: \(err)"
+        }
     }
 }
