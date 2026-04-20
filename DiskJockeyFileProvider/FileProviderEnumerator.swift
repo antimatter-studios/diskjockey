@@ -1,18 +1,32 @@
 import FileProvider
 import DiskJockeyLibrary
 
+/// Directory enumerator for a single container identifier.
+///
+/// Same routing model as FileProviderExtension: if a direct client is
+/// available we use libftp.listdir; otherwise fall back to the XPC
+/// client that talks to the Go backend. We take the directClient as an
+/// optional so the extension doesn't have to build two different
+/// enumerator classes.
 class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
     private let enumeratedItemIdentifier: NSFileProviderItemIdentifier
     private let mountID: String
     private let xpcClient: FileProviderXPCClient
+    private let directClient: FileProviderDirectClient?
     private let anchor = NSFileProviderSyncAnchor("an anchor".data(using: .utf8)!)
 
-    init(enumeratedItemIdentifier: NSFileProviderItemIdentifier, mountID: String, xpcClient: FileProviderXPCClient) {
+    init(enumeratedItemIdentifier: NSFileProviderItemIdentifier,
+         mountID: String,
+         xpcClient: FileProviderXPCClient,
+         directClient: FileProviderDirectClient? = nil) {
         self.enumeratedItemIdentifier = enumeratedItemIdentifier
         self.mountID = mountID
         self.xpcClient = xpcClient
+        self.directClient = directClient
         super.init()
-        NSLog("[FileProviderEnumerator] Init for %@ (mount %@)", enumeratedItemIdentifier.rawValue, mountID)
+        let route = directClient != nil ? "direct" : "xpc"
+        NSLog("[FileProviderEnumerator] Init for %@ (mount %@, route %@)",
+              enumeratedItemIdentifier.rawValue, mountID, route)
     }
 
     func invalidate() { }
@@ -29,6 +43,12 @@ class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
 
         NSLog("[FileProviderEnumerator] Listing path: %@ (mount %@)", path, mountID)
 
+        if let direct = directClient {
+            enumerateViaDirect(direct: direct, path: path, observer: observer)
+            return
+        }
+
+        // XPC fallback
         xpcClient.listDirectory(mountID: mountID, path: path) { response in
             guard let response = response else {
                 NSLog("[FileProviderEnumerator] No response from XPC bridge")
@@ -62,6 +82,29 @@ class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
             NSLog("[FileProviderEnumerator] Enumerated %d items", items.count)
             observer.didEnumerate(items)
             observer.finishEnumerating(upTo: nil)
+        }
+    }
+
+    /// Direct-path implementation. libftp.listdir is blocking, so hop
+    /// off the calling queue. The observer callbacks tolerate any queue.
+    private func enumerateViaDirect(direct: FileProviderDirectClient,
+                                    path: String,
+                                    observer: NSFileProviderEnumerationObserver) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let entries = try direct.listDir(path: path)
+                let items = entries.map { info in
+                    FileProviderItem(info: info.toFileItem(), parentPath: path)
+                }
+                NSLog("[FileProviderEnumerator] direct enumerated %d items at %@",
+                      items.count, path)
+                observer.didEnumerate(items)
+                observer.finishEnumerating(upTo: nil)
+            } catch {
+                NSLog("[FileProviderEnumerator] direct listDir(%@) failed: %@",
+                      path, "\(error)")
+                observer.finishEnumeratingWithError(FileProviderExtension.mapError(error))
+            }
         }
     }
 

@@ -4,6 +4,7 @@ import DiskJockeyLibrary
 struct AddMountView: View {
     @ObservedObject var diskTypeRepository: DiskTypeRepository
     @ObservedObject var mountRepository: MountRepository
+    @ObservedObject var directMountRegistry: DirectMountRegistry
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedDiskType: DiskTypeEnum = .sftp
@@ -15,6 +16,7 @@ struct AddMountView: View {
     @State private var remotePath: String = ""
     @State private var shareName: String = ""
     @State private var localPath: String = ""
+    @State private var ftps: Bool = false
 
     @State private var isCreating = false
     @State private var errorMessage: String?
@@ -47,6 +49,8 @@ struct AddMountView: View {
                 switch selectedDiskType {
                 case .localdirectory:
                     localDirectoryFields
+                case .ftpDirect:
+                    directFTPFields
                 case .sftp, .ftp, .webdav, .samba:
                     networkFields
                 case .dropbox:
@@ -114,20 +118,70 @@ struct AddMountView: View {
         }
     }
 
+    /// Form for the direct-linked FTP driver. Same fields as
+    /// `networkFields` but numeric port input and an FTPS toggle,
+    /// and submission routes through `DirectMountRegistry` instead of
+    /// the backend.
+    @ViewBuilder
+    private var directFTPFields: some View {
+        TextField("Host", text: $host, prompt: Text("ftp.example.com"))
+
+        TextField("Port", value: portBinding, format: .number.grouping(.never))
+            .help("Default 21")
+
+        TextField("Remote Path", text: $remotePath, prompt: Text("/"))
+
+        Toggle("Use FTPS (AUTH TLS)", isOn: $ftps)
+
+        Section("Authentication") {
+            TextField("Username", text: $username, prompt: Text("user"))
+            SecureField("Password", text: $password, prompt: Text("password"))
+        }
+    }
+
+    /// Binding that exposes the `port` string as an optional Int for
+    /// the numeric `TextField` — empty string becomes nil, which we
+    /// render as 21 at submit time.
+    private var portBinding: Binding<Int?> {
+        Binding(
+            get: { Int(port) },
+            set: { newValue in
+                if let v = newValue { port = String(v) } else { port = "" }
+            }
+        )
+    }
+
     // MARK: - Helpers
 
     private var availableDiskTypes: [DiskTypeEnum] {
-        // Show types that the backend reports, falling back to known types
+        // Always expose .ftpDirect — it doesn't need the backend to
+        // advertise it. Backend-routed types fall back to a known set
+        // when the backend hasn't reported yet.
+        var backendTypes: [DiskTypeEnum]
         if diskTypeRepository.diskTypes.isEmpty {
-            return [.localdirectory, .sftp, .ftp, .webdav, .samba, .dropbox]
+            backendTypes = [.localdirectory, .sftp, .ftp, .webdav, .samba, .dropbox]
+        } else {
+            backendTypes = diskTypeRepository.diskTypes.compactMap {
+                DiskTypeEnum(rawValue: $0.name)
+            }
         }
-        return diskTypeRepository.diskTypes.compactMap { DiskTypeEnum(rawValue: $0.name) }
+        // Insert .ftpDirect right after any existing .ftp entry so it
+        // reads naturally in the picker.
+        if !backendTypes.contains(.ftpDirect) {
+            if let ftpIdx = backendTypes.firstIndex(of: .ftp) {
+                backendTypes.insert(.ftpDirect, at: ftpIdx + 1)
+            } else {
+                backendTypes.append(.ftpDirect)
+            }
+        }
+        return backendTypes
     }
 
     private var hostPlaceholder: String {
         switch selectedDiskType {
         case .sftp: return "ssh.example.com"
         case .ftp: return "ftp.example.com"
+        case .ftpDirect: return "ftp.example.com"
         case .webdav: return "dav.example.com"
         case .samba: return "nas.local"
         case .dropbox: return "dropbox.com"
@@ -139,6 +193,7 @@ struct AddMountView: View {
         switch selectedDiskType {
         case .sftp: return "22"
         case .ftp: return "21"
+        case .ftpDirect: return "21"
         case .webdav: return "443"
         case .samba: return "445"
         default: return ""
@@ -151,6 +206,10 @@ struct AddMountView: View {
         switch selectedDiskType {
         case .localdirectory:
             return !localPath.isEmpty
+        case .ftpDirect:
+            // Host + user + password are required for direct FTP;
+            // port/path/ftps have sane defaults.
+            return !host.isEmpty && !username.isEmpty && !password.isEmpty
         default:
             return !host.isEmpty
         }
@@ -161,6 +220,11 @@ struct AddMountView: View {
     private func createMount() {
         isCreating = true
         errorMessage = nil
+
+        if selectedDiskType == .ftpDirect {
+            createDirectFTPMount()
+            return
+        }
 
         // Build path and config from form fields
         var path = ""
@@ -192,6 +256,36 @@ struct AddMountView: View {
         Task {
             do {
                 try await mountRepository.addMount(mount)
+                dismiss()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isCreating = false
+        }
+    }
+
+    /// Direct-FTP branch: goes through `DirectMountRegistry`, does NOT
+    /// require the backend to be connected.
+    private func createDirectFTPMount() {
+        let effectivePort = Int(port) ?? 21
+        let effectiveRoot = remotePath.isEmpty ? "/" : remotePath
+        let mountName = name
+        let hostValue = host
+        let userValue = username
+        let passValue = password
+        let ftpsValue = ftps
+
+        Task {
+            do {
+                _ = try await directMountRegistry.createFTPMount(
+                    name: mountName,
+                    host: hostValue,
+                    port: effectivePort,
+                    user: userValue,
+                    password: passValue,
+                    rootPath: effectiveRoot,
+                    ftps: ftpsValue
+                )
                 dismiss()
             } catch {
                 errorMessage = error.localizedDescription

@@ -27,6 +27,14 @@ public final class AppContainer: ObservableObject {
     /// them for visibility. Read-only — not user-configurable.
     public let attachedDisks: AttachedDisksModel = AttachedDisksModel()
 
+    /// Manages `~/DiskJockey/<name>` symlinks pointing at FileProvider
+    /// user-visible URLs. Shared by the direct-mount registry.
+    public let symlinkManager: SymlinkManager
+
+    /// Owns the lifecycle of direct-linked (backend-free) mounts. Peer
+    /// to `mountRepository` — routes NOT through BackendAPI.
+    public let directMountRegistry: DirectMountRegistry
+
     /// Current backend connection state
     @Published public private(set) var connectionState: BackendAPI.ConnectionState = .disconnected
 
@@ -55,6 +63,17 @@ public final class AppContainer: ObservableObject {
 
         // Initialize logger
         self.appLogModel = AppLogModel(logRepository: self.logRepository)
+
+        // Direct-mount subsystem: symlink manager first, then the
+        // registry which depends on it. Neither needs the backend to
+        // be up.
+        let symlinks = SymlinkManager()
+        self.symlinkManager = symlinks
+        self.directMountRegistry = DirectMountRegistry(symlinks: symlinks)
+        // Sweep stale `~/DiskJockey/<name>` symlinks whose targets no
+        // longer exist (domain was removed while the app was closed,
+        // extension died, etc.). Best-effort; sandbox may block.
+        symlinks.sweepDangling()
 
         // Populate the sidebar BEFORE we start replaying ndjson events.
         // Ordering matters: on launch the tail reads existing lines from
