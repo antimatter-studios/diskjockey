@@ -141,7 +141,7 @@ public final class DirectMountRegistry: ObservableObject {
         for mount in mounts {
             let domain = NSFileProviderDomain(
                 identifier: NSFileProviderDomainIdentifier(rawValue: mount.domainID),
-                displayName: "DiskJockey - \(mount.displayName)"
+                displayName: mount.displayName
             )
             guard let manager = NSFileProviderManager(for: domain) else {
                 AppLog.shared.info("backfill: no manager for \(mount.displayName); skipping")
@@ -219,12 +219,13 @@ public final class DirectMountRegistry: ObservableObject {
             throw error
         }
 
-        // 2. Register domain with FileProvider. Prefix the displayName
-        // with "DiskJockey - " so the Finder sidebar entry is obviously
-        // ours (and visually grouped if the user has multiple mounts).
+        // 2. Register domain with FileProvider. Pass just the user's
+        // chosen name; Finder prepends the provider app name on its own,
+        // so any "DiskJockey - " prefix here would render as
+        // "DiskJockey - DiskJockey - name".
         let domain = NSFileProviderDomain(
             identifier: NSFileProviderDomainIdentifier(rawValue: domainID),
-            displayName: "DiskJockey - \(displayName)"
+            displayName: displayName
         )
         AppLog.shared.info("step 2: NSFileProviderManager.add(domain)")
         do {
@@ -454,7 +455,7 @@ public final class DirectMountRegistry: ObservableObject {
         AppLog.shared.info("mountDomain id=\(mount.domainID)")
         let domain = NSFileProviderDomain(
             identifier: NSFileProviderDomainIdentifier(rawValue: mount.domainID),
-            displayName: "DiskJockey - \(mount.displayName)"
+            displayName: mount.displayName
         )
         do {
             try await NSFileProviderManager.add(domain)
@@ -485,7 +486,7 @@ public final class DirectMountRegistry: ObservableObject {
         AppLog.shared.info("unmountDomain id=\(mount.domainID)")
         let domain = NSFileProviderDomain(
             identifier: NSFileProviderDomainIdentifier(rawValue: mount.domainID),
-            displayName: "DiskJockey - \(mount.displayName)"
+            displayName: mount.displayName
         )
         do {
             try await NSFileProviderManager.remove(domain)
