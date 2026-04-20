@@ -6,7 +6,11 @@
 # - Auto-initializes submodules if missing
 # - Auto-installs Rust toolchain if needed
 # - Compiles universal binary (arm64 + x86_64)
-# - Creates XCFramework for Xcode linking
+#
+# Output: $NTFS_OUT/libfs_ntfs.a (universal .a) + include/fs_ntfs.h.
+# The Xcode project links the .a directly via LIBRARY_SEARCH_PATHS
+# + -lfs_ntfs. We no longer emit an .xcframework — it was an unused
+# artifact of an earlier Xcode-linking approach.
 #
 # Environment variables (optional, have defaults):
 #   SRCROOT    - Project root (default: pwd)
@@ -103,8 +107,8 @@ needs_rebuild() {
     fi
 
     # Check if output is missing
-    if [ ! -d "${NTFS_OUT}/fs_ntfs.xcframework" ]; then
-        echo "${YELLOW}fs-ntfs: XCFramework missing, rebuilding...${NC}"
+    if [ ! -f "${NTFS_OUT}/libfs_ntfs.a" ]; then
+        echo "${YELLOW}fs-ntfs: static lib missing, rebuilding...${NC}"
         return 0
     fi
 
@@ -152,17 +156,8 @@ lipo -create \
 # Copy headers
 cp "${NTFS_SRC}/include/fs_ntfs.h" "${NTFS_OUT}/include/fs_ntfs.h"
 
-# Create XCFramework
-echo "Creating XCFramework..."
-rm -rf "${NTFS_OUT}/fs_ntfs.xcframework"
-xcodebuild -create-xcframework \
-    -library "${NTFS_OUT}/libfs_ntfs.a" \
-    -headers "${NTFS_OUT}/include" \
-    -output "${NTFS_OUT}/fs_ntfs.xcframework" \
-    2>/dev/null
-
 # Emit VERSION.txt manifest describing the submodule commit that was built.
-# Done AFTER lipo/xcframework so a failed build doesn't leave a stale manifest.
+# Done AFTER lipo so a failed build doesn't leave a stale manifest.
 emit_version_manifest() {
     local lib_name="$1"
     local src_dir="$2"
@@ -219,6 +214,6 @@ emit_version_manifest "fs_ntfs" "${NTFS_SRC}" "${NTFS_OUT}/VERSION.txt"
 touch "$STAMP_FILE"
 
 echo "${GREEN}fs-ntfs build complete${NC}"
-echo "  XCFramework: ${NTFS_OUT}/fs_ntfs.xcframework"
+echo "  Static lib:    ${NTFS_OUT}/libfs_ntfs.a"
 echo "  Architectures: $(lipo -info "${NTFS_OUT}/libfs_ntfs.a" | cut -d: -f3)"
-echo "  Manifest:     ${NTFS_OUT}/VERSION.txt"
+echo "  Manifest:      ${NTFS_OUT}/VERSION.txt"
