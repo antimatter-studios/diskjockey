@@ -2,91 +2,65 @@ import Foundation
 import Combine
 import DiskJockeyLibrary
 
+/// Dependency container for the host app. Every service the UI needs
+/// is built once here and handed down via view init.
+///
+/// No backend coupling — all network-filesystem mounts go through
+/// `DirectMountRegistry`, which links `libnetworkfs.a` directly into
+/// the FileProvider extension. Subprocess logs are tailed from ndjson
+/// files in the shared app-group container.
 @MainActor
 public final class AppContainer: ObservableObject {
-    // MARK: - Logging
-    public let appLogModel: AppLogModel
-    public var appLogger: AppLogger { appLogModel as! AppLogger }
-    // MARK: - Public Properties
-
-    /// The disk type repository for managing diskTypes
-    public let diskTypeRepository: DiskTypeRepository
-
-    /// The mount repository for managing mounts
-    public let mountRepository: MountRepository
-
-    /// The log repository for managing logs
+    /// Ingest point for subprocess log lines (FileProvider extension,
+    /// FSKit extensions). Drives the Logs view.
     public let logRepository: LogRepository
 
-    /// Tails NDJSON log files written by subprocesses (FSKit extensions,
-    /// backends) and pushes entries into `logRepository` so they render
-    /// in the UI Logs panel.
-    private var logTailService: LogTailService?
-
-    /// Enumerates system-mounted disks (ext4 etc) so the sidebar can show
-    /// them for visibility. Read-only — not user-configurable.
-    public let attachedDisks: AttachedDisksModel = AttachedDisksModel()
+    /// Structured app-level log surface (AppLog wraps writes to the
+    /// shared ndjson file so our own lines appear in the same feed).
+    public let appLogModel: AppLogModel
+    public var appLogger: AppLogger { appLogModel as! AppLogger }
 
     /// Owns the security-scoped bookmark the user approves on first
     /// direct-mount creation — grants the sandboxed host app access
     /// to whatever folder they pick to hold mount symlinks.
     public let homeAccess: HomeAccessService
 
-    /// Manages `$HOME/<user-picked>/<name>` symlinks pointing at
-    /// FileProvider user-visible URLs. Shared by the direct-mount
-    /// registry.
+    /// Manages `$HOME/<picked>/<name>` symlinks pointing at
+    /// FileProvider user-visible URLs. Shared by `DirectMountRegistry`.
     public let symlinkManager: SymlinkManager
 
-    /// Owns the lifecycle of direct-linked (backend-free) mounts. Peer
-    /// to `mountRepository` — routes NOT through BackendAPI.
+    /// Authoritative store of direct-linked network mounts (ftp, sftp,
+    /// smb, dropbox, webdav, gdrive, s3, onedrive). Persisted under the
+    /// shared app-group container; every entry is self-contained (no
+    /// backend handshake).
     public let directMountRegistry: DirectMountRegistry
 
-    /// Current backend connection state
-    @Published public private(set) var connectionState: BackendAPI.ConnectionState = .disconnected
+    /// Enumerates system-mounted disks (ext4 / ntfs via our FSKit
+    /// extensions) so the sidebar can show them. Read-only.
+    public let attachedDisks: AttachedDisksModel = AttachedDisksModel()
 
-    /// Current error state, if any
+    /// Surfaced error for the UI to display as an alert.
     @Published public private(set) var error: Error?
 
-    // MARK: - Private Properties
-
-    private let serviceManager: BackendServiceManager
-    public let apiState: BackendAPIState
-    public let backendAPI: BackendAPI
-    private var cancellables = Set<AnyCancellable>()
-
-    // MARK: - Initialization
+    private var logTailService: LogTailService?
 
     public init() {
-        // Initialize state and API
-        self.apiState = BackendAPIState()
-        self.backendAPI = BackendAPI(state: self.apiState)
-        self.connectionState = .disconnected
-
-        // Initialize repositories with the API
-        self.diskTypeRepository = DiskTypeRepository(api: self.backendAPI)
-        self.mountRepository = MountRepository(api: self.backendAPI)
-        self.logRepository = LogRepository(api: self.backendAPI)
-
-        // Initialize logger
+        self.logRepository = LogRepository()
         self.appLogModel = AppLogModel(logRepository: self.logRepository)
 
-        // Direct-mount subsystem. HomeAccessService holds the
-        // security-scoped bookmark the user approves on first mount
-        // creation; SymlinkManager consumes it for every symlink op.
-        // Neither needs the backend to be up.
         let home = HomeAccessService()
         self.homeAccess = home
         let symlinks = SymlinkManager(access: home)
         self.symlinkManager = symlinks
         self.directMountRegistry = DirectMountRegistry(symlinks: symlinks)
+
         // Sweep stale `<picked>/<name>` symlinks whose targets no
-        // longer exist (domain was removed while the app was closed,
-        // extension died, etc.). Silently skips if the user hasn't
-        // picked a folder yet.
+        // longer exist (domain removed while app was closed, extension
+        // died, etc.). Silently skips if no folder picked yet.
         symlinks.sweepDangling()
-        // Dump FileProvider-domain vs persisted-mount state so we can
-        // debug "app says mounted but it's not" mismatches from
-        // Console.app without needing extra hooks.
+
+        // Log the FP-domain vs persisted-mount state so we can debug
+        // "app says mounted but it's not" mismatches from Console.app.
         let registry = self.directMountRegistry
         Task { await registry.reconcile() }
 
@@ -94,9 +68,6 @@ public final class AppContainer: ObservableObject {
         // Ordering matters: on launch the tail reads existing lines from
         // each ndjson file; if the disk model hasn't polled mount(8) yet
         // those events would match no disk and get dropped.
-        // (The model ALSO buffers unmatched events by BSD so events for
-        // not-yet-polled disks are replayed once they appear — belt and
-        // braces.)
         self.attachedDisks.start()
 
         // Tail subprocess NDJSON log files. Lines flow into the central
@@ -121,145 +92,5 @@ public final class AppContainer: ObservableObject {
         tail.start()
         self.logTailService = tail
         AppLog.shared.info("DiskJockey launched — log tail started")
-
-        // Initialize the service manager (LaunchAgent-based)
-        self.serviceManager = BackendServiceManager(logger: self.logRepository)
-
-        // Set reconnect handler for backendAPI
-        Task { await self.backendAPI.setReconnectHandler { [weak self] in
-            print("Backend disconnected, attempting to reconnect...")
-            await self?.connectToBackend()
-        }}
-
-        // Observe connection state changes from apiState
-        self.apiState.$connectionState
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] state in
-                self?.connectionState = state
-            }
-            .store(in: &cancellables)
-
-        setupAPIObservation()
-    }
-
-    // MARK: - Public Methods
-
-    /// Ensures the backend is connected, reconnecting if needed, then performs the given async action.
-    public func ensureBackendConnectedAndPerform(_ action: @escaping () async throws -> Void) {
-        Task {
-            if case .connected = self.connectionState {
-                try? await action()
-            } else {
-                print("Backend not connected, attempting to connect...")
-                await self.connectToBackend()
-                let connected = await waitForConnection(timeout: 10)
-                if connected {
-                    try? await action()
-                } else {
-                    self.error = NSError(domain: "AppContainer", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to connect to backend"])
-                }
-            }
-        }
-    }
-
-    /// Waits for the backend API to connect, up to the given timeout (in seconds).
-    private func waitForConnection(timeout: TimeInterval) async -> Bool {
-        let start = Date()
-        while Date().timeIntervalSince(start) < timeout {
-            if case .connected = self.connectionState {
-                return true
-            }
-            try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
-        }
-        return false
-    }
-
-    /// Register the LaunchAgent and connect to the backend.
-    public func startBackend() {
-        Task {
-            serviceManager.register()
-            await connectToBackend()
-        }
-    }
-
-    /// Do NOT stop the backend on app quit — it runs independently for the File Provider.
-    public func stopBackend() {
-        // Intentionally empty. The backend keeps running as a LaunchAgent.
-        // Call serviceManager.unregister() only if the user explicitly wants to stop it.
-    }
-
-    // MARK: - Private Methods
-
-    private var isConnecting = false
-
-    private func connectToBackend() async {
-        guard !isConnecting else {
-            AppLog.shared.info("connectToBackend already in progress, skipping")
-            return
-        }
-        isConnecting = true
-        defer { isConnecting = false }
-
-        let maxAttempts = 5
-        for attempt in 1...maxAttempts {
-            AppLog.shared.info("connectToBackend attempt \(attempt)/\(maxAttempts)")
-
-            guard let port = await serviceManager.discoverPort() else {
-                AppLog.shared.info("Could not discover backend port (attempt \(attempt))")
-                if attempt < maxAttempts {
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    continue
-                }
-                self.error = NSError(domain: "AppContainer", code: 2, userInfo: [
-                    NSLocalizedDescriptionKey: "Could not discover backend port. Is the backend running?"
-                ])
-                return
-            }
-
-            do {
-                AppLog.shared.info("Connecting to backend at 127.0.0.1:\(port)")
-                try await backendAPI.connect(host: "127.0.0.1", port: port)
-                AppLog.shared.info("Connected successfully")
-                return
-            } catch {
-                AppLog.shared.error("Connection failed (attempt \(attempt)): \(error.localizedDescription)")
-                if attempt == maxAttempts {
-                    self.error = error
-                } else {
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                }
-            }
-        }
-    }
-
-    private func setupAPIObservation() {
-        apiState.$connectionState
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] state in
-                self?.connectionState = state
-                if case .connected = state {
-                    Task { [weak self] in
-                        await self?.refreshRepositories()
-                    }
-                }
-            }
-            .store(in: &cancellables)
-    }
-
-    @MainActor
-    private func refreshRepositories() async {
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { [weak self] in
-                try? await self?.diskTypeRepository.refresh()
-            }
-            group.addTask { [weak self] in
-                try? await self?.mountRepository.refresh()
-            }
-            group.addTask { [weak self] in
-                try? await self?.logRepository.refresh()
-            }
-
-            for await _ in group {}
-        }
     }
 }

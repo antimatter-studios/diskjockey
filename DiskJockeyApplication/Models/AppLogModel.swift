@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import DiskJockeyLibrary
 
 public struct AppLogMessage: Identifiable {
@@ -13,8 +14,8 @@ public protocol AppLogger: AnyObject {
     func log(_ msg: String)
 }
 
-import Combine
-
+/// Thin view-model over `LogRepository`. Mirrors the repository's
+/// `$logs` publisher into a main-thread `@Published` for SwiftUI.
 public class AppLogModel: ObservableObject {
     @Published public var messages: [LogEntry] = []
     private var cancellables = Set<AnyCancellable>()
@@ -30,13 +31,7 @@ public class AppLogModel: ObservableObject {
     public func clearLogs() {
         logRepository.clearLogs()
     }
-    
-    public func refreshLogs() {
-        Task {
-            await logRepository.refresh()
-        }
-    }
-    
+
     public func exportLogs() {
         logRepository.exportLogs()
     }

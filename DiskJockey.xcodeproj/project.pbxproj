@@ -19,12 +19,8 @@
 		501F02682E058C51009EBB59 /* DiskJockeyLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */; };
 		501F02722E058C51009EBB59 /* DiskJockeyLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */; };
 		501F02732E058C51009EBB59 /* DiskJockeyLibrary.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		501F02A92E058EED009EBB59 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = 501F02A82E058EED009EBB59 /* SwiftProtobuf */; };
 		501F02AA2E059230009EBB59 /* DiskJockeyLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */; };
 		501F02AB2E059230009EBB59 /* DiskJockeyLibrary.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		50FC4D0F2F8B11BD0091F9DF /* DiskJockeyXPC.xpc in Embed XPC Services */ = {isa = PBXBuildFile; fileRef = 50FC4D042F8B11BD0091F9DF /* DiskJockeyXPC.xpc */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		50FC4D1C2F8B11F10091F9DF /* DiskJockeyLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */; };
-		50FC4D1D2F8B11F10091F9DF /* DiskJockeyLibrary.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		6D2C0FB64B3C7B7C72EA2DB8 /* DiskJockeyEXT4.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = 0BC347BB938FDDB740155389 /* DiskJockeyEXT4.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		80163389A6DD716C08F82168 /* FSKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EA52B7280D02F6F8D737A4DF /* FSKit.framework */; };
 		8478A9B3971742F0EFB0100B /* AppLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E9E57DD469BF4AF7C9443E2 /* AppLog.swift */; };
@@ -78,20 +74,6 @@
 			proxyType = 1;
 			remoteGlobalIDString = 50A51F912E05892200AC6D10;
 			remoteInfo = DiskJockeyApplication;
-		};
-		50FC4D0D2F8B11BD0091F9DF /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 50A51F8A2E05892200AC6D10 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 50FC4D032F8B11BD0091F9DF;
-			remoteInfo = DiskJockeyXPC;
-		};
-		50FC4D1E2F8B11F10091F9DF /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 50A51F8A2E05892200AC6D10 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 501F025C2E058C51009EBB59;
-			remoteInfo = DiskJockeyLibrary;
 		};
 		7F874B947056A01A6CED3C62 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -150,37 +132,6 @@
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		50FC4D102F8B11BD0091F9DF /* Embed XPC Services */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "$(CONTENTS_FOLDER_PATH)/XPCServices";
-			dstSubfolderSpec = 16;
-			files = (
-				50FC4D0F2F8B11BD0091F9DF /* DiskJockeyXPC.xpc in Embed XPC Services */,
-			);
-			name = "Embed XPC Services";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		50FC4D202F8B11F10091F9DF /* Embed Frameworks */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 10;
-			files = (
-				50FC4D1D2F8B11F10091F9DF /* DiskJockeyLibrary.framework in Embed Frameworks */,
-			);
-			name = "Embed Frameworks";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		50FC4D262F8B1F710091F9DF /* CopyFiles */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = Contents/Library/LaunchAgents;
-			dstSubfolderSpec = 1;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		EC707CEC95F594A0FBA80A25 /* Embed ExtensionKit Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -206,11 +157,9 @@
 		501F02452E058BAF009EBB59 /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
 		501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = DiskJockeyLibrary.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		501F02672E058C51009EBB59 /* DiskJockeyLibraryTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DiskJockeyLibraryTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		501F02AF2E059B20009EBB59 /* diskjockey-backend */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = "diskjockey-backend"; path = "diskjockey-backend/diskjockey-backend"; sourceTree = "<group>"; };
 		50A51F922E05892200AC6D10 /* DiskJockey.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DiskJockey.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		50A51FA02E05892400AC6D10 /* DiskJockeyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DiskJockeyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		50A51FAA2E05892400AC6D10 /* DiskJockeyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DiskJockeyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		50FC4D042F8B11BD0091F9DF /* DiskJockeyXPC.xpc */ = {isa = PBXFileReference; explicitFileType = "wrapper.xpc-service"; includeInIndex = 0; path = DiskJockeyXPC.xpc; sourceTree = BUILT_PRODUCTS_DIR; };
 		541A4DEFDFDD7491866E5B51 /* DiskJockeyNTFS-Bridging-Header.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = "DiskJockeyNTFS-Bridging-Header.h"; sourceTree = "<group>"; };
 		5A5467C93291C7DC2AED96E6 /* AppLog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppLog.swift; sourceTree = "<group>"; };
 		5B97F7050B209EAC37A411F7 /* DiskJockeyEXT4-Bridging-Header.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = "DiskJockeyEXT4-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -236,33 +185,7 @@
 			);
 			target = 501F02422E058BAF009EBB59 /* DiskJockeyFileProvider */;
 		};
-		50FC4D132F8B11BD0091F9DF /* Exceptions for "DiskJockeyXPC" folder in "DiskJockeyXPC" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = 50FC4D032F8B11BD0091F9DF /* DiskJockeyXPC */;
-		};
-		50FC50DB2F8BD4CC0091F9DF /* Exceptions for "DiskJockeyApplication" folder in "DiskJockey" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Resources/com.antimatterstudios.diskjockey.backend.plist,
-				"Resources/com.antimatterstudios.diskjockey.xpc-bridge.plist",
-			);
-			target = 50A51F912E05892200AC6D10 /* DiskJockey */;
-		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
-/* Begin PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
-		50FC4D282F8B1F9E0091F9DF /* Exceptions for "DiskJockeyApplication" folder in "" build phase */ = {
-			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
-			buildPhase = 50FC4D262F8B1F710091F9DF /* CopyFiles */;
-			membershipExceptions = (
-				Resources/com.antimatterstudios.diskjockey.backend.plist,
-				"Resources/com.antimatterstudios.diskjockey.xpc-bridge.plist",
-			);
-		};
-/* End PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		501F02472E058BAF009EBB59 /* DiskJockeyFileProvider */ = {
@@ -290,8 +213,6 @@
 		50A51F942E05892200AC6D10 /* DiskJockeyApplication */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				50FC50DB2F8BD4CC0091F9DF /* Exceptions for "DiskJockeyApplication" folder in "DiskJockey" target */,
-				50FC4D282F8B1F9E0091F9DF /* Exceptions for "DiskJockeyApplication" folder in "" build phase */,
 			);
 			path = DiskJockeyApplication;
 			sourceTree = "<group>";
@@ -310,14 +231,6 @@
 			path = DiskJockeyUITests;
 			sourceTree = "<group>";
 		};
-		50FC4D052F8B11BD0091F9DF /* DiskJockeyXPC */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				50FC4D132F8B11BD0091F9DF /* Exceptions for "DiskJockeyXPC" folder in "DiskJockeyXPC" target */,
-			);
-			path = DiskJockeyXPC;
-			sourceTree = "<group>";
-		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -334,7 +247,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				501F02A92E058EED009EBB59 /* SwiftProtobuf in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -365,14 +277,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		50FC4D012F8B11BD0091F9DF /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				50FC4D1C2F8B11F10091F9DF /* DiskJockeyLibrary.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -457,14 +361,12 @@
 		50A51F892E05892200AC6D10 = {
 			isa = PBXGroup;
 			children = (
-				501F02AF2E059B20009EBB59 /* diskjockey-backend */,
 				50A51F942E05892200AC6D10 /* DiskJockeyApplication */,
 				50A51FA32E05892400AC6D10 /* DiskJockeyTests */,
 				50A51FAD2E05892400AC6D10 /* DiskJockeyUITests */,
 				501F02472E058BAF009EBB59 /* DiskJockeyFileProvider */,
 				501F025E2E058C51009EBB59 /* DiskJockeyLibrary */,
 				501F026D2E058C51009EBB59 /* DiskJockeyLibraryTests */,
-				50FC4D052F8B11BD0091F9DF /* DiskJockeyXPC */,
 				501F02442E058BAF009EBB59 /* Frameworks */,
 				50A51F932E05892200AC6D10 /* Products */,
 				4289E39725E15F6A794D4DEF /* DiskJockeyEXT4 */,
@@ -482,7 +384,6 @@
 				501F02432E058BAF009EBB59 /* DiskJockeyFileProvider.appex */,
 				501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */,
 				501F02672E058C51009EBB59 /* DiskJockeyLibraryTests.xctest */,
-				50FC4D042F8B11BD0091F9DF /* DiskJockeyXPC.xpc */,
 				0BC347BB938FDDB740155389 /* DiskJockeyEXT4.appex */,
 				F8545E3C164E31A018E781C7 /* DiskJockeyNTFS.appex */,
 			);
@@ -549,9 +450,6 @@
 				501F025E2E058C51009EBB59 /* DiskJockeyLibrary */,
 			);
 			name = DiskJockeyLibrary;
-			packageProductDependencies = (
-				501F02A82E058EED009EBB59 /* SwiftProtobuf */,
-			);
 			productName = DiskJockeyLibrary;
 			productReference = 501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */;
 			productType = "com.apple.product-type.framework";
@@ -588,16 +486,12 @@
 				50FC50DC2F8BC8A70091F9DF /* Copy Vendor Versions */,
 				501F02572E058BAF009EBB59 /* Embed Foundation Extensions */,
 				501F02772E058C51009EBB59 /* Embed Frameworks */,
-				50FC4D102F8B11BD0091F9DF /* Embed XPC Services */,
-				50FC4D262F8B1F710091F9DF /* CopyFiles */,
-				50FC50DA2F8BC8970091F9DF /* Sign Go Backend */,
 				EC707CEC95F594A0FBA80A25 /* Embed ExtensionKit Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				501F02712E058C51009EBB59 /* PBXTargetDependency */,
-				50FC4D0E2F8B11BD0091F9DF /* PBXTargetDependency */,
 				1EDFD3AA2824FA2A29909A15 /* PBXTargetDependency */,
 				657D337EB92FA37F8B443E10 /* PBXTargetDependency */,
 				1996BE72C26966848BDD20AF /* PBXTargetDependency */,
@@ -651,28 +545,6 @@
 			productName = DiskJockeyUITests;
 			productReference = 50A51FAA2E05892400AC6D10 /* DiskJockeyUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
-		};
-		50FC4D032F8B11BD0091F9DF /* DiskJockeyXPC */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 50FC4D142F8B11BD0091F9DF /* Build configuration list for PBXNativeTarget "DiskJockeyXPC" */;
-			buildPhases = (
-				50FC4D002F8B11BD0091F9DF /* Sources */,
-				50FC4D012F8B11BD0091F9DF /* Frameworks */,
-				50FC4D022F8B11BD0091F9DF /* Resources */,
-				50FC4D202F8B11F10091F9DF /* Embed Frameworks */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				50FC4D1F2F8B11F10091F9DF /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				50FC4D052F8B11BD0091F9DF /* DiskJockeyXPC */,
-			);
-			name = DiskJockeyXPC;
-			productName = DiskJockeyXPC;
-			productReference = 50FC4D042F8B11BD0091F9DF /* DiskJockeyXPC.xpc */;
-			productType = "com.apple.product-type.xpc-service";
 		};
 		9C017035D21778726F5E1DF0 /* DiskJockeyEXT4 */ = {
 			isa = PBXNativeTarget;
@@ -739,9 +611,6 @@
 						CreatedOnToolsVersion = 16.4;
 						TestTargetID = 50A51F912E05892200AC6D10;
 					};
-					50FC4D032F8B11BD0091F9DF = {
-						CreatedOnToolsVersion = 26.2;
-					};
 				};
 			};
 			buildConfigurationList = 50A51F8D2E05892200AC6D10 /* Build configuration list for PBXProject "DiskJockey" */;
@@ -753,9 +622,6 @@
 			);
 			mainGroup = 50A51F892E05892200AC6D10;
 			minimizedProjectReferenceProxies = 1;
-			packageReferences = (
-				501F02A72E058EED009EBB59 /* XCRemoteSwiftPackageReference "swift-protobuf" */,
-			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 50A51F932E05892200AC6D10 /* Products */;
 			projectDirPath = "";
@@ -767,7 +633,6 @@
 				501F02422E058BAF009EBB59 /* DiskJockeyFileProvider */,
 				501F025C2E058C51009EBB59 /* DiskJockeyLibrary */,
 				501F02662E058C51009EBB59 /* DiskJockeyLibraryTests */,
-				50FC4D032F8B11BD0091F9DF /* DiskJockeyXPC */,
 				9C017035D21778726F5E1DF0 /* DiskJockeyEXT4 */,
 				CB73CCD381CDA3B886DE3658 /* DiskJockeyNTFS */,
 			);
@@ -824,13 +689,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		50FC4D022F8B11BD0091F9DF /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		AEF8C3C9D5F2F3EDF4086D31 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -859,25 +717,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "#!/bin/sh\n# Copy vendored-library VERSION.txt manifests into the app bundle so the About\n# dialog can display which vendored-library commits were linked in.\n# Prefix by parent dir name so multiple libs don't collide on the same name.\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/vendor-versions\"\nmkdir -p \"$DEST\"\nrm -f \"$DEST\"/*.txt 2>/dev/null\nfor f in \"${SRCROOT}\"/lib/*/VERSION*.txt; do\n    [ -f \"$f\" ] || continue\n    parent=$(basename \"$(dirname \"$f\")\")\n    dest=\"${parent}-$(basename \"$f\")\"\n    cp \"$f\" \"$DEST/$dest\"\n    echo \"Copied $dest to vendor-versions/\"\ndone\n";
-		};
-		50FC50DA2F8BC8970091F9DF /* Sign Go Backend */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Sign Go Backend";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "#!/bin/sh\n# Build and sign the Go backend binary\nGO=$(bash -lc \"which go\")\nif [ -z \"$GO\" ]; then\n    echo \"error: Go not found in PATH\"\n    exit 1\nfi\n\ncd \"${SRCROOT}/diskjockey-backend\"\n\"$GO\" build -o \"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Resources/diskjockey-backend\" . || exit 1\n\n/usr/bin/codesign --force --sign \"${CODE_SIGN_IDENTITY}\" \\\n    --options runtime \\\n    --identifier \"com.antimatterstudios.diskjockey.backend\" \\\n    \"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Resources/diskjockey-backend\" || exit 1\n\necho \"Built and signed Go backend\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -918,13 +757,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		50A51FA62E05892400AC6D10 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		50FC4D002F8B11BD0091F9DF /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -999,16 +831,6 @@
 			isa = PBXTargetDependency;
 			target = 50A51F912E05892200AC6D10 /* DiskJockey */;
 			targetProxy = 50A51FAB2E05892400AC6D10 /* PBXContainerItemProxy */;
-		};
-		50FC4D0E2F8B11BD0091F9DF /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 50FC4D032F8B11BD0091F9DF /* DiskJockeyXPC */;
-			targetProxy = 50FC4D0D2F8B11BD0091F9DF /* PBXContainerItemProxy */;
-		};
-		50FC4D1F2F8B11F10091F9DF /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 501F025C2E058C51009EBB59 /* DiskJockeyLibrary */;
-			targetProxy = 50FC4D1E2F8B11F10091F9DF /* PBXContainerItemProxy */;
 		};
 		657D337EB92FA37F8B443E10 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -1527,76 +1349,6 @@
 			};
 			name = Release;
 		};
-		50FC4D112F8B11BD0091F9DF /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = DiskJockeyXPC/DiskJockeyXPC.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
-				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
-				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = 43UMKXZ8P4;
-				ENABLE_APP_SANDBOX = YES;
-				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = DiskJockeyXPC/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = DiskJockeyXPC;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(LD_RUNPATH_SEARCH_PATHS_$(IS_MACCATALYST)_$(_BOOL_$(SKIP_INSTALL)))",
-					"@loader_path/../../../../Frameworks",
-				);
-				MACOSX_DEPLOYMENT_TARGET = 15.7;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.antimatterstudios.diskjockey.xpc-bridge.diskjockeyxpc";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				REGISTER_APP_GROUPS = YES;
-				SKIP_INSTALL = YES;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-			};
-			name = Debug;
-		};
-		50FC4D122F8B11BD0091F9DF /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = DiskJockeyXPC/DiskJockeyXPC.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
-				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
-				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = 43UMKXZ8P4;
-				ENABLE_APP_SANDBOX = YES;
-				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = DiskJockeyXPC/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = DiskJockeyXPC;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(LD_RUNPATH_SEARCH_PATHS_$(IS_MACCATALYST)_$(_BOOL_$(SKIP_INSTALL)))",
-					"@loader_path/../../../../Frameworks",
-				);
-				MACOSX_DEPLOYMENT_TARGET = 15.7;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.antimatterstudios.diskjockey.xpc-bridge.diskjockeyxpc";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				REGISTER_APP_GROUPS = YES;
-				SKIP_INSTALL = YES;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-			};
-			name = Release;
-		};
 		8C2417F5CA53673C87C1AF4D /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1801,15 +1553,6 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		50FC4D142F8B11BD0091F9DF /* Build configuration list for PBXNativeTarget "DiskJockeyXPC" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				50FC4D112F8B11BD0091F9DF /* Debug */,
-				50FC4D122F8B11BD0091F9DF /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		B105B97F612140D24DE85555 /* Build configuration list for PBXNativeTarget "DiskJockeyEXT4" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -1829,25 +1572,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		501F02A72E058EED009EBB59 /* XCRemoteSwiftPackageReference "swift-protobuf" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/apple/swift-protobuf.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.30.0;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		501F02A82E058EED009EBB59 /* SwiftProtobuf */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 501F02A72E058EED009EBB59 /* XCRemoteSwiftPackageReference "swift-protobuf" */;
-			productName = SwiftProtobuf;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 50A51F8A2E05892200AC6D10 /* Project object */;
 }

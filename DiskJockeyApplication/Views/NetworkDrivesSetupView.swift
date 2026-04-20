@@ -123,14 +123,15 @@ struct NetworkDrivesSetupView: View {
     }
 
     private var pickFolderButton: some View {
-        // `.borderedProminent` has a macOS SwiftUI quirk where the
-        // tinted background isn't painted until the window becomes
-        // key — looks like an invisible button on first render until
-        // you click the window. `.bordered` + `.tint(.accentColor)`
-        // renders reliably in both active and inactive window states.
+        // macOS' built-in tinted button styles (.borderedProminent,
+        // .bordered+.tint) desaturate the accent color aggressively
+        // when the window isn't key — enough that the button visually
+        // disappears against a light background. Custom style below
+        // paints the accent background unconditionally so the button
+        // stays visible whether DiskJockey has focus or not.
         VStack(alignment: .leading, spacing: 10) {
             Button(action: pickFolder) {
-                HStack {
+                HStack(spacing: 8) {
                     if isPicking {
                         ProgressView().scaleEffect(0.6).frame(width: 16, height: 16)
                     } else {
@@ -140,9 +141,7 @@ struct NetworkDrivesSetupView: View {
                 }
                 .frame(minWidth: 180)
             }
-            .buttonStyle(.bordered)
-            .tint(.accentColor)
-            .controlSize(.large)
+            .buttonStyle(ProminentActionButtonStyle())
             .disabled(isPicking)
 
             Text("You can skip this for now — DiskJockey will ask again the first time you create a network mount.")
@@ -193,6 +192,28 @@ struct NetworkDrivesSetupView: View {
 }
 
 // MARK: - Helpers
+
+/// Prominent action button that always paints an accent-coloured
+/// background — unlike the built-in `.borderedProminent` which
+/// desaturates so aggressively when the parent window isn't key
+/// that the button visually disappears against a light background.
+/// Same feel as `.borderedProminent` (rounded rect, tinted), no
+/// focus dependency.
+struct ProminentActionButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.body.weight(.medium))
+            .foregroundStyle(Color.white)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.accentColor)
+                    .opacity(configuration.isPressed ? 0.80 : 1.0)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
 
 private struct SetupStep: View {
     let number: String

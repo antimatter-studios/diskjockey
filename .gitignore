@@ -17,3 +17,6 @@ diskjockey-backend/test-mount/mount*/
 # Source submodules under vendor/ ARE tracked; only lib/ is ignored.
 lib/
 .wip/
+
+# Workgroup coordination state
+.claude/workgroup/

@@ -34,14 +34,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("Starting Disk Jockey...")
         setupMainMenu()
-        container.startBackend()
         showMainWindow()
         setupErrorObservation()
-        registerFileProviderDomain()
-    }
-
-    func applicationWillTerminate(_ notification: Notification) {
-        // Backend keeps running as LaunchAgent — nothing to clean up
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -203,65 +197,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             alert.alertStyle = .warning
             alert.addButton(withTitle: "OK")
             alert.beginSheetModal(for: window) { _ in }
-        }
-    }
-
-    // MARK: - File Provider
-
-    private func registerFileProviderDomain() {
-        container.$connectionState
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] state in
-                guard case .connected = state else { return }
-                self?.activateMountsAndRegisterDomains()
-            }
-            .store(in: &cancellables)
-    }
-
-    private func activateMountsAndRegisterDomains() {
-        Task {
-            do {
-                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                    NSFileProviderManager.removeAllDomains { error in
-                        if let error = error {
-                            print("Failed to remove domains: \(error)")
-                        } else {
-                            print("Cleared all File Provider domains")
-                        }
-                        continuation.resume()
-                    }
-                }
-
-                let mounts = try await container.backendAPI.listMounts()
-                for mount in mounts {
-                    guard let mountIDStr = mount.metadata["mount_id"],
-                          let mountID = UInt32(mountIDStr) else { continue }
-
-                    do {
-                        try await container.backendAPI.mount(id: mountID)
-                        print("Activated mount \(mountID): \(mount.name)")
-                    } catch {
-                        print("Failed to activate mount \(mountID): \(error)")
-                    }
-
-                    let domainID = NSFileProviderDomainIdentifier(rawValue: String(mountID))
-                    let domain = NSFileProviderDomain(identifier: domainID, displayName: mount.name)
-
-                    do {
-                        try await NSFileProviderManager.add(domain)
-                        print("Registered FP domain: \(mount.name) (id: \(mountID))")
-
-                        if let manager = NSFileProviderManager(for: domain) {
-                            manager.signalEnumerator(for: .rootContainer) { _ in }
-                            manager.signalEnumerator(for: .workingSet) { _ in }
-                        }
-                    } catch {
-                        print("Failed to register FP domain: \(error)")
-                    }
-                }
-            } catch {
-                print("Failed to list mounts: \(error)")
-            }
         }
     }
 }
