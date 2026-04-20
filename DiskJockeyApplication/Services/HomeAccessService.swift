@@ -46,17 +46,22 @@ public enum HomeAccessError: Error, LocalizedError {
 }
 
 @MainActor
-public final class HomeAccessService {
+public final class HomeAccessService: ObservableObject {
     private static let bookmarkKey = "DiskJockey.HomeBookmark.v1"
     /// Name we suggest for the directory in the open panel. The user
     /// is free to create a differently-named folder; the bookmark
     /// records whatever they pick.
     private static let suggestedFolderName = "diskjockey"
 
+    /// Observed by the welcome view so the UI flips out of the
+    /// "pick a folder" state the moment the user grants access.
+    @Published public private(set) var hasFolder: Bool
+
     private let defaults: UserDefaults
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        self.hasFolder = defaults.data(forKey: Self.bookmarkKey) != nil
     }
 
     /// Resolve (prompting if needed), start scoped access, invoke
@@ -72,16 +77,19 @@ public final class HomeAccessService {
         return try body(url)
     }
 
-    /// Non-throwing probe: true if we already have a (non-stale)
-    /// bookmark stored. Useful for UI — e.g. disable a "pick folder"
-    /// button when we already have one.
-    public func hasBookmark() -> Bool {
-        defaults.data(forKey: Self.bookmarkKey) != nil
-    }
-
     /// Forget the current bookmark so the next `withAccess` re-prompts.
     public func forget() {
         defaults.removeObject(forKey: Self.bookmarkKey)
+        hasFolder = false
+    }
+
+    /// Run the picker immediately, regardless of any existing bookmark.
+    /// Used by the welcome view's "Choose Folder" button so the user
+    /// opts in explicitly rather than on first symlink demand.
+    @discardableResult
+    public func pickFolder() throws -> URL {
+        let url = try promptUser()
+        return url
     }
 
     // MARK: - Private
@@ -142,8 +150,23 @@ public final class HomeAccessService {
                 relativeTo: nil
             )
             defaults.set(data, forKey: Self.bookmarkKey)
+            hasFolder = true
         } catch {
             throw HomeAccessError.ioFailed("could not encode bookmark: \(error.localizedDescription)")
         }
+    }
+
+    /// Resolved path to the user-picked folder (without starting
+    /// scoped access). For display purposes only — to actually read
+    /// or write there, go through `withAccess`.
+    public var resolvedPath: String? {
+        guard let data = defaults.data(forKey: Self.bookmarkKey) else { return nil }
+        var stale = false
+        return try? URL(
+            resolvingBookmarkData: data,
+            options: .withSecurityScope,
+            relativeTo: nil,
+            bookmarkDataIsStale: &stale
+        ).path
     }
 }
