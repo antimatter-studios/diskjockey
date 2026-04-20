@@ -1,6 +1,18 @@
 import FileProvider
 import DiskJockeyLibrary
 
+/// Structured-log surface for this extension. Every NSLog we previously
+/// called only showed up in os_log / Console.app; using AppLog instead
+/// funnels each line into `<app-group>/Logs/fileprovider.ndjson` which
+/// the host app's LogTailService + in-app Log View already pick up,
+/// alongside os_log for power users.
+///
+/// `internal` scope (no `private`) so the enumerator + direct-client
+/// files in the same target share the same `log` instance — matches
+/// the DiskJockeyEXT4 / DiskJockeyNTFS convention.
+let log = AppLog(source: "fileprovider",
+                 sinks: AppLog.defaultSinks(source: "fileprovider"))
+
 /// Principal class for the FileProvider extension.
 ///
 /// Routing model: every mount is *either* direct (libftp.a linked in
@@ -37,34 +49,33 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         if store.exists(domainID: mountID) {
             do {
                 self.directClient = try FileProviderDirectClient(domainID: mountID)
-                NSLog("[FileProviderExtension] direct client ready for %@", mountID)
+                log.info("direct client ready for \(mountID)")
             } catch {
-                NSLog("[FileProviderExtension] direct-client init failed for %@: %@; using XPC fallback",
-                      mountID, "\(error)")
+                log.error("direct-client init failed for \(mountID): \("\(error)"); using XPC fallback")
                 self.directClient = nil
             }
         } else {
             self.directClient = nil
-            NSLog("[FileProviderExtension] no direct config for %@; using XPC", mountID)
+            log.info("no direct config for \(mountID); using XPC")
         }
 
         super.init()
-        NSLog("[FileProviderExtension] Initialized for mount: %@", mountID)
+        log.info("Initialized for mount: \(mountID)")
         // libftp smoke-test log stays for diagnostic parity with the
         // Phase-1 wiring. Harmless when libftp isn't linked — returns
         // "(unavailable)" instead of crashing.
-        NSLog("[FileProviderExtension] libftp version: %@", FTPDriver.libraryVersion())
+        log.info("libftp version: \(FTPDriver.libraryVersion())")
     }
 
     func invalidate() {
-        NSLog("[FileProviderExtension] Invalidating extension for mount: %@", mountID)
+        log.info("Invalidating extension for mount: \(mountID)")
         directClient?.disconnect()
     }
 
     // MARK: - Item Resolution
 
     func item(for identifier: NSFileProviderItemIdentifier, request: NSFileProviderRequest, completionHandler: @escaping (NSFileProviderItem?, Error?) -> Void) -> Progress {
-        NSLog("[FileProviderExtension] item(for: %@)", identifier.rawValue)
+        log.info("item(for: \(identifier.rawValue))")
 
         // System containers are synthetic — no backend call needed
         if identifier == .rootContainer {
@@ -106,7 +117,7 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             }
 
             if case .error(let err) = response.responseType {
-                NSLog("[FileProviderExtension] stat error: %@", err.message)
+                log.error("stat error: \(err.message)")
                 completionHandler(nil, NSFileProviderError(.noSuchItem))
                 return
             }
@@ -144,7 +155,7 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                 let item = FileProviderItem(info: info.toFileItem(), parentPath: parentPath)
                 completionHandler(item, nil)
             } catch {
-                NSLog("[FileProviderExtension] direct stat(%@) failed: %@", path, "\(error)")
+                log.error("direct stat(\(path)) failed: \("\(error)")")
                 completionHandler(nil, Self.mapError(error))
             }
         }
@@ -154,7 +165,7 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
 
     func fetchContents(for itemIdentifier: NSFileProviderItemIdentifier, version requestedVersion: NSFileProviderItemVersion?, request: NSFileProviderRequest, completionHandler: @escaping (URL?, NSFileProviderItem?, Error?) -> Void) -> Progress {
         let path = extractPath(from: itemIdentifier)
-        NSLog("[FileProviderExtension] fetchContents for: %@", path)
+        log.info("fetchContents for: \(path)")
 
         if let direct = directClient {
             DispatchQueue.global(qos: .userInitiated).async {
@@ -170,7 +181,7 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                     let item = FileProviderItem(info: info.toFileItem(), parentPath: parentPath)
                     completionHandler(url, item, nil)
                 } catch {
-                    NSLog("[FileProviderExtension] direct fetch(%@) failed: %@", path, "\(error)")
+                    log.error("direct fetch(\(path)) failed: \("\(error)")")
                     completionHandler(nil, nil, Self.mapError(error))
                 }
             }
@@ -187,7 +198,7 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             }
 
             if case .error(let err) = response.responseType {
-                NSLog("[FileProviderExtension] read error: %@", err.message)
+                log.error("read error: \(err.message)")
                 completionHandler(nil, nil, NSFileProviderError(.noSuchItem))
                 return
             }
@@ -197,16 +208,16 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                 return
             }
 
-            NSLog("[FileProviderExtension] fetchContents received %d bytes for %@", readResp.data.count, path)
+            log.info("fetchContents received \(readResp.data.count) bytes for \(path)")
 
             // Write data to a temporary file
             let tempURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString)
             do {
                 try readResp.data.write(to: tempURL)
-                NSLog("[FileProviderExtension] Wrote %d bytes to %@", readResp.data.count, tempURL.path)
+                log.info("Wrote \(readResp.data.count) bytes to \(tempURL.path)")
             } catch {
-                NSLog("[FileProviderExtension] Failed to write temp file: %@", error.localizedDescription)
+                log.error("Failed to write temp file: \(error.localizedDescription)")
                 completionHandler(nil, nil, error)
                 return
             }
@@ -216,7 +227,7 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             self.xpcClient.stat(mountID: self.mountID, path: path) { statResp in
                 guard let statResp = statResp,
                       case .stat(let s) = statResp.responseType else {
-                    NSLog("[FileProviderExtension] post-fetch stat failed; hard-failing fetchContents")
+                    log.error("post-fetch stat failed; hard-failing fetchContents")
                     completionHandler(nil, nil, NSFileProviderError(.noSuchItem))
                     return
                 }
@@ -257,7 +268,7 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
     // MARK: - Enumeration
 
     func enumerator(for containerItemIdentifier: NSFileProviderItemIdentifier, request: NSFileProviderRequest) throws -> NSFileProviderEnumerator {
-        NSLog("[FileProviderExtension] Creating enumerator for: %@", containerItemIdentifier.rawValue)
+        log.info("Creating enumerator for: \(containerItemIdentifier.rawValue)")
         return FileProviderEnumerator(
             enumeratedItemIdentifier: containerItemIdentifier,
             mountID: mountID,
