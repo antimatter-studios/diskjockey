@@ -53,9 +53,11 @@ enum NetworkFSDriverError: Error, CustomStringConvertible {
     ///   rc=1 unknown driver type
     ///   rc=2 Go-side mount failed (credentials, network, DNS, TLS…)
     ///   rc=-1 invalid JSON reached the dispatcher
-    /// We can't recover the Go-side error text for rc=2 today — the
-    /// dispatcher doesn't surface it. Fix in go-networkfs if we need it.
-    case mountFailed(code: Int32, driverType: Int32)
+    /// `message` is the classified error text the Go side wrote into its
+    /// `outErr` out-param (e.g. `"cannot resolve host"`, `"authentication
+    /// failed"`, `"remote path does not exist"`). Empty if the Go side
+    /// didn't populate it.
+    case mountFailed(code: Int32, driverType: Int32, message: String)
     case unmountFailed(code: Int32)
     /// A path-based op (stat/listdir) returned non-zero. `message` is
     /// the text the Go side wrote into `*outJSON`.
@@ -73,8 +75,9 @@ enum NetworkFSDriverError: Error, CustomStringConvertible {
         switch self {
         case .invalidConfig(let msg):
             return "NetworkFSDriver: invalid config (\(msg))"
-        case .mountFailed(let code, let dt):
-            return "NetworkFSDriver: networkfs_mount failed (code=\(code) driver_type=\(dt))"
+        case .mountFailed(let code, let dt, let message):
+            let suffix = message.isEmpty ? "" : ": \(message)"
+            return "NetworkFSDriver: networkfs_mount failed (code=\(code) driver_type=\(dt))\(suffix)"
         case .unmountFailed(let code):
             return "NetworkFSDriver: networkfs_unmount failed (code=\(code))"
         case .operationFailed(let op, let path, let code, let message):
@@ -147,14 +150,24 @@ enum NetworkFSDriver {
     static func connect(mountID: Int32,
                         driverType: Int32,
                         configJSON: String) throws {
+        var outErr: UnsafeMutablePointer<CChar>? = nil
         let rc = configJSON.withCString { cjson -> Int32 in
             // networkfs_mount takes *mutable* char* (cgo export sig);
             // the Go side only reads it so the cast is safe.
             let mutableJSON = UnsafeMutablePointer<CChar>(mutating: cjson)
-            return networkfs_mount(mountID, driverType, mutableJSON)
+            return networkfs_mount(mountID, driverType, mutableJSON, &outErr)
+        }
+        let message: String
+        if let ptr = outErr {
+            message = String(cString: ptr)
+            networkfs_free(ptr)
+        } else {
+            message = ""
         }
         guard rc == 0 else {
-            throw NetworkFSDriverError.mountFailed(code: rc, driverType: driverType)
+            throw NetworkFSDriverError.mountFailed(
+                code: rc, driverType: driverType, message: message
+            )
         }
     }
 
