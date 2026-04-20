@@ -55,8 +55,6 @@ struct ContentView: View {
             )
         case .attachedDisk(let mountPath):
             AttachedDiskDetailView(mountPath: mountPath, container: container)
-        case .extensions:
-            ExtensionsView()
         case nil:
             // First-run case: no folder approved yet. Use the full
             // detail pane to explain what we're about to do before
@@ -127,8 +125,6 @@ private struct SidebarView: View {
                 }
 
                 Section("System") {
-                    Label("Extensions", systemImage: "puzzlepiece.extension")
-                        .tag(SidebarItem.extensions)
                     Label("Logs", systemImage: "terminal")
                         .tag(SidebarItem.logs)
                 }
