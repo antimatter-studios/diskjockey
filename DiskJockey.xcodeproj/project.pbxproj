@@ -13,6 +13,7 @@
 		2DC467E100DBCF6E33B90CA2 /* AppLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5467C93291C7DC2AED96E6 /* AppLog.swift */; };
 		34D8C92C0A23EF470069E4A8 /* DiskJockeyFileProvider.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 501F02432E058BAF009EBB59 /* DiskJockeyFileProvider.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		3A9B9B37285DFD6BA8C5FE18 /* NTFSFileSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE5CDCDA80309B6A4F073D2B /* NTFSFileSystem.swift */; };
+		453D191131E03B86BB578712 /* ExtensionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 396D5DA4191033FE808BBB87 /* ExtensionsView.swift */; };
 		4825EDF4EF8488D10202F7A6 /* DiskJockeyNTFS.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = F8545E3C164E31A018E781C7 /* DiskJockeyNTFS.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		4DAE78E7034E84C6B08A0B2B /* FileSystemBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB028A4796ABC3388189B043 /* FileSystemBackend.swift */; };
 		501F02462E058BAF009EBB59 /* UniformTypeIdentifiers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 501F02452E058BAF009EBB59 /* UniformTypeIdentifiers.framework */; };
@@ -27,6 +28,7 @@
 		97AD5CB9870B6709835166D3 /* NTFSItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14F83248DC1C5461BF1076E7 /* NTFSItem.swift */; };
 		A087438ACC92F2AE3F3FAD36 /* EXT4Item.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EF0A5E5346E2B44B2F27957 /* EXT4Item.swift */; };
 		C23D7DA35F4FBB0AED7F74E5 /* libfs_ext4.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 198282EEFE5CE8718FB6299F /* libfs_ext4.a */; };
+		D927F634033110369AE4BF57 /* ExtensionKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BEEFB3EF0866D7FE56D3267E /* ExtensionKit.framework */; };
 		D9CECEF266A909EB810942A6 /* EXT4Backend.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0377D4332EFC4FF34689518 /* EXT4Backend.swift */; };
 		F3B991C06CBEFBF2B3B657B4 /* FSKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EA52B7280D02F6F8D737A4DF /* FSKit.framework */; };
 		F6FF4AC950047E0FD59AE139 /* EXT4Volume.swift in Sources */ = {isa = PBXBuildFile; fileRef = F01E35D6B49C797E269EAC45 /* EXT4Volume.swift */; };
@@ -151,6 +153,7 @@
 		14F83248DC1C5461BF1076E7 /* NTFSItem.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NTFSItem.swift; sourceTree = "<group>"; };
 		198282EEFE5CE8718FB6299F /* libfs_ext4.a */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = archive.ar; name = libfs_ext4.a; path = libfs_ext4.a; sourceTree = "<group>"; };
 		1FAA4308D6EB33A49E406790 /* NTFSVolume.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NTFSVolume.swift; sourceTree = "<group>"; };
+		396D5DA4191033FE808BBB87 /* ExtensionsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ExtensionsView.swift; sourceTree = "<group>"; };
 		429A2D79E6781D9640B98F5E /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
 		45CFCF77C56D3305934A9BE2 /* EXT4FileSystem.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EXT4FileSystem.swift; sourceTree = "<group>"; };
 		501F02432E058BAF009EBB59 /* DiskJockeyFileProvider.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = DiskJockeyFileProvider.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -167,6 +170,7 @@
 		6345F2DEC89E3AA479220149 /* DiskJockeyNTFS.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = DiskJockeyNTFS.entitlements; sourceTree = "<group>"; };
 		8E9E57DD469BF4AF7C9443E2 /* AppLog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppLog.swift; sourceTree = "<group>"; };
 		A36068023A9CD2AD5B72E9E6 /* DiskJockeyEXT4.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = DiskJockeyEXT4.entitlements; sourceTree = "<group>"; };
+		BEEFB3EF0866D7FE56D3267E /* ExtensionKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ExtensionKit.framework; path = System/Library/Frameworks/ExtensionKit.framework; sourceTree = SDKROOT; };
 		C0377D4332EFC4FF34689518 /* EXT4Backend.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EXT4Backend.swift; sourceTree = "<group>"; };
 		CFCB573FDD5A59CC941462A5 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		EA52B7280D02F6F8D737A4DF /* FSKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FSKit.framework; path = System/Library/Frameworks/FSKit.framework; sourceTree = SDKROOT; };
@@ -263,6 +267,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				501F02722E058C51009EBB59 /* DiskJockeyLibrary.framework in Frameworks */,
+				D927F634033110369AE4BF57 /* ExtensionKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -324,6 +329,15 @@
 			name = "OS X";
 			sourceTree = "<group>";
 		};
+		14D0B0E323005F3284451966 /* DiskJockeyApplication */ = {
+			isa = PBXGroup;
+			children = (
+				F934E42BF096CB513BC1083C /* Views */,
+			);
+			name = DiskJockeyApplication;
+			path = DiskJockeyApplication;
+			sourceTree = "<group>";
+		};
 		18FB8DCE049D0440E78E822B /* lib */ = {
 			isa = PBXGroup;
 			children = (
@@ -354,6 +368,7 @@
 				501F02452E058BAF009EBB59 /* UniformTypeIdentifiers.framework */,
 				EA52B7280D02F6F8D737A4DF /* FSKit.framework */,
 				0FAE70A1AF62868CB3295544 /* OS X */,
+				BEEFB3EF0866D7FE56D3267E /* ExtensionKit.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -372,6 +387,7 @@
 				4289E39725E15F6A794D4DEF /* DiskJockeyEXT4 */,
 				18FB8DCE049D0440E78E822B /* lib */,
 				0EB438E9BA213FCCBE974E88 /* DiskJockeyNTFS */,
+				14D0B0E323005F3284451966 /* DiskJockeyApplication */,
 			);
 			sourceTree = "<group>";
 		};
@@ -396,6 +412,15 @@
 				198282EEFE5CE8718FB6299F /* libfs_ext4.a */,
 			);
 			path = fs_ext4;
+			sourceTree = "<group>";
+		};
+		F934E42BF096CB513BC1083C /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				396D5DA4191033FE808BBB87 /* ExtensionsView.swift */,
+			);
+			name = Views;
+			path = Views;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -746,6 +771,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				453D191131E03B86BB578712 /* ExtensionsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
