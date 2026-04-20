@@ -162,13 +162,28 @@ public final class NDJSONFileSink: AppLogSink {
         if !fm.fileExists(atPath: fileURL.path) {
             fm.createFile(atPath: fileURL.path, contents: nil)
         }
-        self.handle = try? FileHandle(forWritingTo: fileURL)
-        try? self.handle?.seekToEnd()
+        var opened: FileHandle? = nil
+        let path = fileURL.path
+        do {
+            opened = try FileHandle(forWritingTo: fileURL)
+            try opened?.seekToEnd()
+        } catch {
+            let err = error.localizedDescription
+            Logger(subsystem: AppLog.subsystem, category: "ndjson")
+                .error("NDJSONFileSink open failed for \(source, privacy: .public) at \(path, privacy: .public): \(err, privacy: .public)")
+            opened = nil
+        }
+        self.handle = opened
     }
 
     public func emit(_ line: AppLogLine) {
         guard let handle = handle, let data = try? JSONEncoder().encode(line) else { return }
-        queue.async {
+        // Synchronous write: short-lived extension processes (NTFS in
+        // particular — FSKit respawns a fresh extension per resource
+        // op) could exit before an async dispatch drained. AppLog's
+        // outer lock already serialises callers so we don't need the
+        // extra dispatch queue for ordering.
+        queue.sync {
             handle.write(data)
             handle.write(Data("\n".utf8))
         }
