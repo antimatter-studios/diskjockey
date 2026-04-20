@@ -274,10 +274,12 @@ struct AddMountView: View {
         let userValue = username
         let passValue = password
         let ftpsValue = ftps
+        NSLog("[AddMountView] direct-FTP submit name=%@ host=%@:%d user=%@ root=%@ ftps=%@",
+              mountName, hostValue, effectivePort, userValue, effectiveRoot, ftpsValue ? "yes" : "no")
 
         Task {
             do {
-                _ = try await directMountRegistry.createFTPMount(
+                let mount = try await directMountRegistry.createFTPMount(
                     name: mountName,
                     host: hostValue,
                     port: effectivePort,
@@ -286,8 +288,11 @@ struct AddMountView: View {
                     rootPath: effectiveRoot,
                     ftps: ftpsValue
                 )
+                NSLog("[AddMountView] direct-FTP created successfully id=%@; dismissing",
+                      mount.domainID)
                 dismiss()
             } catch {
+                NSLog("[AddMountView] direct-FTP FAILED: %@", "\(error)")
                 errorMessage = error.localizedDescription
             }
             isCreating = false

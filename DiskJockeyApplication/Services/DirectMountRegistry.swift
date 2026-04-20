@@ -109,6 +109,11 @@ public final class DirectMountRegistry: ObservableObject {
         // `.standard` if the suite isn't available (tests / tooling).
         self.defaults = UserDefaults(suiteName: Self.defaultsSuite) ?? .standard
         self.mounts = Self.loadPersisted(from: self.defaults)
+        NSLog("[DirectMount] registry init: loaded %d persisted mounts", mounts.count)
+        for m in mounts {
+            NSLog("[DirectMount]   persisted: id=%@ name=%@ host=%@:%d",
+                  m.domainID, m.displayName, m.config.host, m.config.port)
+        }
     }
 
     // MARK: - Public API
@@ -126,6 +131,10 @@ public final class DirectMountRegistry: ObservableObject {
     ) async throws -> DirectMount {
         let id = UUID()
         let domainID = id.uuidString
+        let displayName = name.isEmpty ? "FTP Mount" : name
+        NSLog("[DirectMount] createFTPMount START id=%@ host=%@ port=%d user=%@ name=%@",
+              domainID, host, port, user, displayName)
+
         let config = DirectMountConfig(
             scheme: .ftp,
             host: host,
@@ -135,25 +144,40 @@ public final class DirectMountRegistry: ObservableObject {
             ftps: ftps
         )
 
-        // 1. Write config + keychain BEFORE registering the domain, so
-        // the extension doesn't spin up and find nothing.
-        try configStore.save(config, domainID: domainID)
+        // 1a. Write config plist to the app-group container.
+        NSLog("[DirectMount] step 1a: writing config plist")
+        do {
+            try configStore.save(config, domainID: domainID)
+            NSLog("[DirectMount] step 1a: config plist saved")
+        } catch {
+            NSLog("[DirectMount] step 1a FAILED (config save): %@", "\(error)")
+            throw error
+        }
+
+        // 1b. Stash the password in the shared keychain access group.
+        NSLog("[DirectMount] step 1b: saving password to shared keychain")
         do {
             try keychain.save(password: password, domainID: domainID)
+            NSLog("[DirectMount] step 1b: password saved")
         } catch {
+            NSLog("[DirectMount] step 1b FAILED (keychain save): %@", "\(error)")
             try? configStore.delete(domainID: domainID)
             throw error
         }
 
-        // 2. Register domain.
-        let displayName = name.isEmpty ? "FTP Mount" : name
+        // 2. Register domain with FileProvider. Prefix the displayName
+        // with "DiskJockey - " so the Finder sidebar entry is obviously
+        // ours (and visually grouped if the user has multiple mounts).
         let domain = NSFileProviderDomain(
             identifier: NSFileProviderDomainIdentifier(rawValue: domainID),
-            displayName: displayName
+            displayName: "DiskJockey - \(displayName)"
         )
+        NSLog("[DirectMount] step 2: NSFileProviderManager.add(domain)")
         do {
             try await NSFileProviderManager.add(domain)
+            NSLog("[DirectMount] step 2: domain registered")
         } catch {
+            NSLog("[DirectMount] step 2 FAILED (domain register): %@", "\(error)")
             try? keychain.delete(domainID: domainID)
             try? configStore.delete(domainID: domainID)
             throw DirectMountError.domainRegistrationFailed(underlying: error)
@@ -163,17 +187,22 @@ public final class DirectMountRegistry: ObservableObject {
         // the sandbox blocks it we still keep the mount. Dedupe name
         // in-process to avoid clobbering an existing link.
         let symlinkName = symlinks.uniqueName(preferred: displayName)
+        NSLog("[DirectMount] step 3: symlink dedupe → %@", symlinkName)
         if let manager = NSFileProviderManager(for: domain) {
             if let visibleURL = try? await userVisibleURL(for: manager) {
+                NSLog("[DirectMount] step 3: user-visible URL = %@", visibleURL.path)
                 do {
                     _ = try symlinks.createSymlink(name: symlinkName, target: visibleURL)
+                    NSLog("[DirectMount] step 3: symlink created")
                 } catch {
-                    // Log but continue — the mount is otherwise valid.
-                    NSLog("[DirectMountRegistry] symlink failed: %@", error.localizedDescription)
+                    NSLog("[DirectMount] step 3: symlink failed (non-fatal): %@",
+                          "\(error)")
                 }
             } else {
-                NSLog("[DirectMountRegistry] user-visible URL unavailable; skipping symlink")
+                NSLog("[DirectMount] step 3: user-visible URL unavailable; skipping symlink")
             }
+        } else {
+            NSLog("[DirectMount] step 3: NSFileProviderManager(for:) nil; skipping symlink")
         }
 
         // 4. Record in the in-memory + persisted registry.
@@ -186,6 +215,8 @@ public final class DirectMountRegistry: ObservableObject {
         )
         mounts.append(mount)
         persist()
+        NSLog("[DirectMount] createFTPMount DONE id=%@ total-mounts=%d",
+              domainID, mounts.count)
         return mount
     }
 

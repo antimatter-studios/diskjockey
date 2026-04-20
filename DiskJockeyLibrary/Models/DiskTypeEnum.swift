@@ -17,7 +17,7 @@ public enum DiskTypeEnum: String, Codable {
         case .webdav: return "WebDAV"
         case .sftp: return "SFTP"
         case .ftp: return "FTP"
-        case .ftpDirect: return "FTP (Direct)"
+        case .ftpDirect: return "FTP (impl v2)"
         case .samba: return "Samba"
         }
     }

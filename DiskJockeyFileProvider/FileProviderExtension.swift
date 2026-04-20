@@ -159,8 +159,15 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         if let direct = directClient {
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
+                    // Hard-fail rule: the item we hand back to
+                    // FileProvider must carry REAL metadata (size,
+                    // isDirectory, name). Stat first, then fetch. If
+                    // stat fails we throw — no fabricated item ever
+                    // reaches FileProvider's metadata cache.
+                    let info = try direct.stat(path: path)
                     let url = try direct.fetchFile(path: path)
-                    let item = FileProviderItem(identifier: itemIdentifier)
+                    let parentPath = (path as NSString).deletingLastPathComponent
+                    let item = FileProviderItem(info: info.toFileItem(), parentPath: parentPath)
                     completionHandler(url, item, nil)
                 } catch {
                     NSLog("[FileProviderExtension] direct fetch(%@) failed: %@", path, "\(error)")
@@ -170,7 +177,9 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             return Progress()
         }
 
-        // XPC fallback
+        // XPC fallback — same hard-fail rule: stat before returning
+        // an item. Two round-trips is slower than one but correctness
+        // wins over speed on a filesystem driver.
         xpcClient.readFile(mountID: mountID, path: path) { response in
             guard let response = response else {
                 completionHandler(nil, nil, NSFileProviderError(.serverUnreachable))
@@ -202,8 +211,26 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                 return
             }
 
-            let item = FileProviderItem(identifier: itemIdentifier)
-            completionHandler(tempURL, item, nil)
+            // Stat the path so we can return an item with real
+            // metadata. Hard fail if stat fails.
+            self.xpcClient.stat(mountID: self.mountID, path: path) { statResp in
+                guard let statResp = statResp,
+                      case .stat(let s) = statResp.responseType else {
+                    NSLog("[FileProviderExtension] post-fetch stat failed; hard-failing fetchContents")
+                    completionHandler(nil, nil, NSFileProviderError(.noSuchItem))
+                    return
+                }
+                let parentPath = (path as NSString).deletingLastPathComponent
+                let item = FileProviderItem(
+                    info: DiskJockeyFileItem(
+                        name: s.file.name,
+                        size: s.file.size,
+                        isDirectory: s.file.isDirectory
+                    ),
+                    parentPath: parentPath
+                )
+                completionHandler(tempURL, item, nil)
+            }
         }
 
         return Progress()
