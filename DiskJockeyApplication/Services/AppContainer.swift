@@ -27,8 +27,14 @@ public final class AppContainer: ObservableObject {
     /// them for visibility. Read-only — not user-configurable.
     public let attachedDisks: AttachedDisksModel = AttachedDisksModel()
 
-    /// Manages `~/DiskJockey/<name>` symlinks pointing at FileProvider
-    /// user-visible URLs. Shared by the direct-mount registry.
+    /// Owns the security-scoped bookmark the user approves on first
+    /// direct-mount creation — grants the sandboxed host app access
+    /// to whatever folder they pick to hold mount symlinks.
+    public let homeAccess: HomeAccessService
+
+    /// Manages `$HOME/<user-picked>/<name>` symlinks pointing at
+    /// FileProvider user-visible URLs. Shared by the direct-mount
+    /// registry.
     public let symlinkManager: SymlinkManager
 
     /// Owns the lifecycle of direct-linked (backend-free) mounts. Peer
@@ -64,15 +70,19 @@ public final class AppContainer: ObservableObject {
         // Initialize logger
         self.appLogModel = AppLogModel(logRepository: self.logRepository)
 
-        // Direct-mount subsystem: symlink manager first, then the
-        // registry which depends on it. Neither needs the backend to
-        // be up.
-        let symlinks = SymlinkManager()
+        // Direct-mount subsystem. HomeAccessService holds the
+        // security-scoped bookmark the user approves on first mount
+        // creation; SymlinkManager consumes it for every symlink op.
+        // Neither needs the backend to be up.
+        let home = HomeAccessService()
+        self.homeAccess = home
+        let symlinks = SymlinkManager(access: home)
         self.symlinkManager = symlinks
         self.directMountRegistry = DirectMountRegistry(symlinks: symlinks)
-        // Sweep stale `~/diskjockey/<name>` symlinks whose targets no
+        // Sweep stale `<picked>/<name>` symlinks whose targets no
         // longer exist (domain was removed while the app was closed,
-        // extension died, etc.). Best-effort; sandbox may block.
+        // extension died, etc.). Silently skips if the user hasn't
+        // picked a folder yet.
         symlinks.sweepDangling()
         // Dump FileProvider-domain vs persisted-mount state so we can
         // debug "app says mounted but it's not" mismatches from

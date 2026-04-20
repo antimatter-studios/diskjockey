@@ -53,10 +53,12 @@ class FileProviderItem: NSObject, NSFileProviderItem {
 
     // MARK: - NSFileProviderItem Properties
     var filename: String {
-        // Root container reports an empty name; everyone else must
-        // have a real name. No placeholder strings — Finder caches
-        // whatever we return here as the user-visible path component,
-        // and a fake name ("mount1") poisons the metadata.
+        // Root container: return "/" rather than empty. Finder expects
+        // a non-empty filename even for the root item — an empty
+        // string causes `enumerator(for:)` to never be called after
+        // `item(for: rootContainer)`. "/" is a conventional root
+        // marker and matches what most FileProvider extensions use.
+        if info.name.isEmpty { return "/" }
         return info.name
     }
     var contentType: UTType {
