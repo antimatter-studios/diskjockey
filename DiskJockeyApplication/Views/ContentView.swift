@@ -7,6 +7,15 @@ struct ContentView: View {
     @StateObject private var sidebarModel = SidebarModel()
     @State private var showingAddMount = false
 
+    // Observed so the detail pane swaps out of the setup view the
+    // moment the user picks a folder.
+    @ObservedObject private var homeAccess: HomeAccessService
+
+    init(container: AppContainer) {
+        self.container = container
+        self.homeAccess = container.homeAccess
+    }
+
     var body: some View {
         NavigationSplitView {
             SidebarView(
@@ -51,11 +60,20 @@ struct ContentView: View {
         case .attachedDisk(let mountPath):
             AttachedDiskDetailView(mountPath: mountPath, container: container)
         case nil:
-            ContentUnavailableView(
-                "No Mount Selected",
-                systemImage: "externaldrive",
-                description: Text("Select a mount from the sidebar or add a new one")
-            )
+            // First-run case: no folder approved yet. Use the full
+            // detail pane to explain what we're about to do before
+            // the OS panel pops up. Once the user picks a folder,
+            // hasFolder flips and we fall through to the regular
+            // "select a mount" placeholder.
+            if !homeAccess.hasFolder {
+                NetworkDrivesSetupView(homeAccess: homeAccess)
+            } else {
+                ContentUnavailableView(
+                    "No Mount Selected",
+                    systemImage: "externaldrive",
+                    description: Text("Select a mount from the sidebar or add a new one")
+                )
+            }
         }
     }
 }
