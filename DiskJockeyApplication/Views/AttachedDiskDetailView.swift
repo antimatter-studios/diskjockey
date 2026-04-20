@@ -223,7 +223,11 @@ struct AttachedDiskDetailView: View {
                             .foregroundStyle(.tertiary)
                             .padding(8)
                     } else {
-                        ForEach(disk.partitionLog.suffix(200)) { line in
+                        // Newest-first so fresh events appear at the
+                        // top where the user's eye already is. We take
+                        // the tail 200 then reverse so order is
+                        // "most recent → oldest of the 200".
+                        ForEach(disk.partitionLog.suffix(200).reversed()) { line in
                             partitionLogRow(line)
                         }
                     }
