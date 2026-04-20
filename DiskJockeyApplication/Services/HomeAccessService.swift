@@ -136,9 +136,12 @@ public final class HomeAccessService: ObservableObject {
 
     private func promptUser() throws -> URL {
         let panel = NSOpenPanel()
-        panel.title = "Where should network drive mounts appear?"
-        panel.message = "DiskJockey will drop a shortcut for each network mount into the folder you choose. You can create a new one (e.g. “diskjockey”) or pick an existing folder — anywhere under your home directory that's convenient to reach from the terminal."
-        panel.prompt = "Use This Folder"
+        // NSOpenPanel's title bar has very limited space — long titles
+        // get truncated and make the window look ugly. Keep the title
+        // short; put the explanation in `message` where it has room.
+        panel.title = "Choose Shortcut Folder"
+        panel.message = "DiskJockey will place a shortcut for each network mount inside the folder you pick. Anywhere under your home directory works."
+        panel.prompt = "Choose"
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
