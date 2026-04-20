@@ -115,8 +115,24 @@ for DRIVER in $DRIVERS; do
 
     # GOWORK=off so the outer go.work (diskjockey-backend + diskjockey-cli)
     # doesn't complain that this submodule isn't a listed workspace member.
+    #
+    # -ldflags="-s -w" strips the symbol table + DWARF debug info from the
+    # c-archive (unused at runtime; the final .appex linker dead-strip would
+    # drop them anyway, but keeping them out of the .a halves on-disk size).
+    # -trimpath removes absolute build paths from the binary. Set
+    # DJ_GO_DEBUG=1 to keep symbols for local debugging.
+    GO_LDFLAGS="-s -w"
+    GO_EXTRA_FLAGS="-trimpath"
+    if [ "${DJ_GO_DEBUG:-}" = "1" ]; then
+        GO_LDFLAGS=""
+        GO_EXTRA_FLAGS=""
+        echo "${YELLOW}  (DJ_GO_DEBUG=1 — symbols + DWARF preserved)${NC}"
+    fi
+
     CGO_ENABLED=1 GOOS=darwin GOWORK=off go build \
         -buildmode=c-archive \
+        $GO_EXTRA_FLAGS \
+        -ldflags="$GO_LDFLAGS" \
         -o "${NFS_OUT}/lib${DRIVER}.a" \
         "./${DRIVER}/cmd/${DRIVER}"
     
