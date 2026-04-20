@@ -107,7 +107,7 @@ struct DirectMountDetailView: View {
     @ViewBuilder
     private func header(_ mount: DirectMount) -> some View {
         VStack(spacing: 12) {
-            Image(systemName: DiskTypeEnum.ftpDirect.systemImage)
+            Image(systemName: mount.config.scheme.systemImage)
                 .font(.system(size: 40))
                 .foregroundStyle(.tint)
                 .frame(width: 64, height: 64)
@@ -122,7 +122,7 @@ struct DirectMountDetailView: View {
                     .fontWeight(.semibold)
 
                 HStack(spacing: 6) {
-                    Text(DiskTypeEnum.ftpDirect.displayName)
+                    Text(mount.config.scheme.displayName)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
 

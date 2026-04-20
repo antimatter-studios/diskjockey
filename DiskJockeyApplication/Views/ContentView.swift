@@ -156,7 +156,7 @@ private struct DirectMountSidebarRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: systemImage(for: mount.config.scheme))
+            Image(systemName: mount.config.scheme.systemImage)
                 .foregroundStyle(.secondary)
                 .frame(width: 20)
 
@@ -198,15 +198,6 @@ private struct DirectMountSidebarRow: View {
         }
     }
 
-    private func systemImage(for scheme: DirectMountScheme) -> String {
-        switch scheme {
-        case .ftp, .sftp, .smb, .webdav: return "network"
-        case .dropbox:                   return "shippingbox"
-        case .gdrive:                    return "externaldrive.connected.to.line.below"
-        case .onedrive:                  return "cloud"
-        case .s3:                        return "cube.box"
-        }
-    }
 }
 
 // MARK: - Attached Disk Sidebar Row

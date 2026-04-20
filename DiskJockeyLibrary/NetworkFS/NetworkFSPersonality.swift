@@ -71,6 +71,19 @@ public enum DirectMountScheme: String, Codable, Sendable, CaseIterable {
         case .onedrive: return "OneDrive"
         }
     }
+
+    /// SF Symbol name for this scheme. Used by sidebar rows and detail
+    /// headers so icon selection lives in one place rather than a grab
+    /// bag of per-view helpers.
+    public var systemImage: String {
+        switch self {
+        case .ftp, .sftp, .smb, .webdav: return "network"
+        case .dropbox:                   return "shippingbox"
+        case .gdrive:                    return "externaldrive.connected.to.line.below"
+        case .onedrive:                  return "cloud"
+        case .s3:                        return "cube.box"
+        }
+    }
 }
 
 /// A personality is the "everything the Go driver needs, plus which
