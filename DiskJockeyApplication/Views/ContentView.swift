@@ -95,31 +95,39 @@ private struct SidebarView: View {
                     let hasBackendMounts = !mountRepository.mounts.isEmpty
                     let hasDirectMounts = !directMountRegistry.mounts.isEmpty
 
-                    if !hasBackendMounts && !hasDirectMounts && !mountRepository.isLoading {
-                        Text("No mounts configured")
-                            .foregroundStyle(.secondary)
-                            .font(.caption)
+                    // Direct mounts always render — they don't depend on
+                    // the backend and live-render is essential for the
+                    // mount-status dot.
+                    ForEach(directMountRegistry.mounts, id: \.id) { mount in
+                        DirectMountSidebarRow(
+                            mount: mount,
+                            registry: directMountRegistry
+                        )
+                        .tag(SidebarItem.directMount(mount.id))
                     }
 
+                    // Backend-routed mounts: only render once the
+                    // MountRepository has fetched from the backend.
+                    // Loading state applies ONLY to this subset — it
+                    // must not block direct mounts above from showing.
                     ForEach(mountRepository.mounts, id: \.id) { mount in
                         MountSidebarRow(mount: mount)
                             .tag(SidebarItem.mount(mount.id))
                     }
 
-                    ForEach(directMountRegistry.mounts, id: \.id) { mount in
-                        DirectMountSidebarRow(mount: mount)
-                            .tag(SidebarItem.directMount(mount.id))
-                    }
-
-                    if mountRepository.isLoading {
+                    if mountRepository.isLoading && !hasBackendMounts {
                         HStack(spacing: 6) {
                             ProgressView()
                                 .scaleEffect(0.5)
                                 .frame(width: 16, height: 16)
-                            Text("Loading...")
+                            Text("Loading backend mounts…")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
+                    } else if !hasBackendMounts && !hasDirectMounts {
+                        Text("No mounts configured")
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
                     }
                 }
 
@@ -199,6 +207,13 @@ private struct MountSidebarRow: View {
 
 private struct DirectMountSidebarRow: View {
     let mount: DirectMount
+    let registry: DirectMountRegistry
+
+    /// Live mount state. Queried off NSFileProviderManager at appear
+    /// time and after any mount/unmount action via observation of the
+    /// registry's @Published mounts array (changes to `mounts` fire
+    /// this `.task(id:)` re-run).
+    @State private var isMounted: Bool? = nil
 
     var body: some View {
         HStack(spacing: 8) {
@@ -216,8 +231,32 @@ private struct DirectMountSidebarRow: View {
             }
 
             Spacer()
+
+            Circle()
+                .fill(dotColor)
+                .frame(width: 8, height: 8)
+                .help(statusLabel)
         }
         .padding(.vertical, 2)
+        .task(id: mount.id) {
+            isMounted = await registry.isMounted(mount)
+        }
+    }
+
+    private var dotColor: Color {
+        switch isMounted {
+        case .some(true):  return .green
+        case .some(false): return .gray
+        case .none:        return .yellow
+        }
+    }
+
+    private var statusLabel: String {
+        switch isMounted {
+        case .some(true):  return "Mounted"
+        case .some(false): return "Not Mounted"
+        case .none:        return "Checking…"
+        }
     }
 }
 

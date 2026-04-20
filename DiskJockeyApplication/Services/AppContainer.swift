@@ -179,7 +179,7 @@ public final class AppContainer: ObservableObject {
 
     private func connectToBackend() async {
         guard !isConnecting else {
-            NSLog("[AppContainer] connectToBackend already in progress, skipping")
+            AppLog.shared.info("connectToBackend already in progress, skipping")
             return
         }
         isConnecting = true
@@ -187,10 +187,10 @@ public final class AppContainer: ObservableObject {
 
         let maxAttempts = 5
         for attempt in 1...maxAttempts {
-            NSLog("[AppContainer] connectToBackend attempt %d/%d", attempt, maxAttempts)
+            AppLog.shared.info("connectToBackend attempt \(attempt)/\(maxAttempts)")
 
             guard let port = await serviceManager.discoverPort() else {
-                NSLog("[AppContainer] Could not discover backend port (attempt %d)", attempt)
+                AppLog.shared.info("Could not discover backend port (attempt \(attempt))")
                 if attempt < maxAttempts {
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
                     continue
@@ -202,12 +202,12 @@ public final class AppContainer: ObservableObject {
             }
 
             do {
-                NSLog("[AppContainer] Connecting to backend at 127.0.0.1:%d", port)
+                AppLog.shared.info("Connecting to backend at 127.0.0.1:\(port)")
                 try await backendAPI.connect(host: "127.0.0.1", port: port)
-                NSLog("[AppContainer] Connected successfully")
+                AppLog.shared.info("Connected successfully")
                 return
             } catch {
-                NSLog("[AppContainer] Connection failed (attempt %d): %@", attempt, error.localizedDescription)
+                AppLog.shared.error("Connection failed (attempt \(attempt)): \(error.localizedDescription)")
                 if attempt == maxAttempts {
                     self.error = error
                 } else {

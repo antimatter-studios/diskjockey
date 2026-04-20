@@ -274,8 +274,7 @@ struct AddMountView: View {
         let userValue = username
         let passValue = password
         let ftpsValue = ftps
-        NSLog("[AddMountView] direct-FTP submit name=%@ host=%@:%d user=%@ root=%@ ftps=%@",
-              mountName, hostValue, effectivePort, userValue, effectiveRoot, ftpsValue ? "yes" : "no")
+        AppLog.shared.info("direct-FTP submit name=\(mountName) host=\(hostValue):\(effectivePort) user=\(userValue) root=\(effectiveRoot) ftps=\(ftpsValue ? "yes" : "no")")
 
         Task {
             do {
@@ -288,11 +287,10 @@ struct AddMountView: View {
                     rootPath: effectiveRoot,
                     ftps: ftpsValue
                 )
-                NSLog("[AddMountView] direct-FTP created successfully id=%@; dismissing",
-                      mount.domainID)
+                AppLog.shared.info("direct-FTP created successfully id=\(mount.domainID); dismissing")
                 dismiss()
             } catch {
-                NSLog("[AddMountView] direct-FTP FAILED: %@", "\(error)")
+                AppLog.shared.error("direct-FTP FAILED: \("\(error)")")
                 errorMessage = error.localizedDescription
             }
             isCreating = false
