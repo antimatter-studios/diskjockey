@@ -16,3 +16,4 @@ diskjockey-backend/test-mount/mount*/
 # Compiled artifacts from vendored sources — regenerated via `make vendor-*`.
 # Source submodules under vendor/ ARE tracked; only lib/ is ignored.
 lib/
+.wip/
