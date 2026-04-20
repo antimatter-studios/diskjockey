@@ -1,253 +1,317 @@
-# DiskJockey 
-## Project Summary
+# DiskJockey
 
 ![mainwindow](media/mainwindow.png)
 
-DiskJockey is a modular, virtual filesystem solution for macOS designed to unify, mount, and manage remote storage backends (cloud, network, etc.) in a seamless way. It leverages a robust Go backend for performance and disk types extensibility, a Swift/Xcode-based macOS GUI for user interaction, and a lightweight helper process to bridge all IPC and system integration. The project aims to provide a reliable, extensible, and user-friendly way to access and synchronize files from various sources, all presented as native Finder volumes.
+DiskJockey is a macOS application for mounting remote storage and disk images as native Finder volumes. It unifies three categories of filesystems — **network/cloud storage**, **block-device disk images**, and **local passthrough** — behind a consistent Finder experience, with a Go backend for protocol work, Rust libraries for block-device parsing, and a Swift/SwiftUI front-end.
 
-## Updates:
+---
 
-__21/06/2025:__ Mounts are working! I can select a Particular mount to mount or unmount and it will
-appear in the Finder sidebar as a new drive. So now I have a communication channel between the mac
-app and the file provider extension. With that, I will be able to process messages about file operations
+## Caveat
 
-![mount](media/mounts-are-working.gif)
+Because DiskJockey installs a File Provider extension and FSKit extensions, macOS requires the whole app bundle to be signed by a trusted Apple Developer identity. If you don't have an Apple Developer account, you can read the code but you can't run it end-to-end. Treat it as an educational reference in that case.
 
-__20/05/2025:__ Refactorings, Backend is now a server, started using localization, added locking around the tcp socket, disabled reconnection logic, added listing of mounts and disk types to the interface
+---
 
-![mounts](media/mount-view.png)
+## Supported Filesystems
 
-__18/05/2025:__ I was able to sort out how data can flow between the different parts of the app. I was able to get the app to output log messages to the app log model and display them in the app. I was also able to get the app to output log messages to the system log view
+### Network / Cloud (via File Provider extension)
 
-![systemlog](media/system-log.png)
+All network drivers live in the vendored `go-networkfs` library and share a common `Driver` interface. Mounts are persisted per user and surface as Finder volumes through the File Provider extension.
 
-__15/05/2025:__ I finally was able to launch a file provider and see actual finder volumes. The files were fake. But the file provider was working. I was able to see the volumes in finder and I was able to mount and unmount them. I also started to work on how one event can trigger another 
+| Driver        | Auth                          | List | Read | Write | Delete | Rename |
+|---------------|-------------------------------|:----:|:----:|:-----:|:------:|:------:|
+| FTP           | username / password           | ✅   | ✅   | ✅    | ✅     | ✅     |
+| SFTP          | password / SSH key            | ✅   | ✅   | ✅    | ✅     | ✅     |
+| SMB           | username / password           | ✅   | ✅   | ✅    | ✅     | ✅     |
+| WebDAV        | basic auth                    | ✅   | ✅   | ✅    | ✅     | ✅     |
+| S3            | access key / secret           | ✅   | ✅   | ✅    | ✅     | ✅     |
+| Dropbox       | OAuth2 (long-lived token)     | ✅   | ✅   | ✅    | ✅     | ✅     |
+| Google Drive  | OAuth2 refresh token          | ✅   | ✅   | ✅    | ✅     | ✅     |
+| OneDrive      | OAuth2 refresh token (PKCE)   | ✅   | ✅   | ✅    | ✅     | ✅     |
 
-![fileprovider](media/fileprovider.png)
+OAuth app-registration instructions for the cloud drivers are in [docs/](docs/):
+- [Dropbox](docs/dropbox-registration.md)
+- [Google Drive](docs/google-drive-registration.md)
+- [Microsoft OneDrive](docs/microsoft-onedrive-registration.md)
 
-__14/06/2025:__ I realise I need a developer account and I can't launch a file provider extension without one :( But on the positive side, I was able to improve the user interface a lot and I think it looks pretty nice so far!
+### Block-device disk images (via FSKit)
 
-![mainwindow](media/mounts.png)
+These mount a disk image (or partition) and expose its contents read-only through Finder via native FSKit extensions. The parsers are Rust libraries linked as XCFrameworks into the Swift extension targets.
 
-__12/06/2025:__ My architecture isn't working as I expect. I think I can't really use a helper application to mediate between the file provider and the backend. I need to find a different way to do this. Because I can't actually get the helper app to run. I think I need to use a different approach.
+| Filesystem | Target            | Status |
+|------------|-------------------|--------|
+| ext2/3/4   | `DiskJockeyEXT4/` | Probe + read-only traversal working against standard ext4 images |
+| NTFS       | `DiskJockeyNTFS/` | In development |
 
-## Caveats
+### Local passthrough
 
-I realise that this is an open source project and you can download all the code and use it. But you know what? Because apple don't let you run unsigned code in your Finder as
-the project requires you to, because you are going to need to run a File Provider extension. You need an Apple Developer Account to compile and run the project. If you don't have one, then all this code will be useful in an educational way. But you won't be able to actually run it. 
+A "local directory" disk type exists mostly as a test dummy — it mounts a chosen directory under the File Provider so the full Finder pipeline can be exercised without a real network round trip.
 
-## Motivation  
-- Simplify integration of multiple remote storage backends into Finder.
-- Provide a secure, auditable, and modular architecture.
-- Make it easy to add new backends (via disk types) and automate workflows (via CLI).
-- Decouple UI, backend logic, and system integration for maintainability and testability.
+---
 
-## Aims  
-- Support mounting/unmounting remote filesystems as native Finder volumes.
-- Provide a unified, extensible backend for file operations and sync.
-- Deliver a polished macOS GUI and CLI for users and power-users.
-- Ensure robust, secure IPC and logging throughout the stack.
+## Architecture
+
+DiskJockey is deliberately multi-process. Each process has one job, and the process boundaries are the trust / lifecycle boundaries.
+
+```
+                        ┌────────────────────┐
+                        │  DiskJockey.app    │    SwiftUI config UI.
+                        │  (GUI, optional)   │    NOT required at runtime.
+                        └──────────┬─────────┘
+                                   │ XPC
+                                   ▼
+  ┌─────────────────────┐    ┌──────────────────────┐    ┌────────────────────┐
+  │  File Provider Ext  │◄──►│   XPC Bridge         │◄──►│  Go backend        │
+  │  (per-network-mount)│XPC │   (LaunchAgent,      │TCP │  (disktypes, state,│
+  │                     │    │    mach service)     │    │   sqlite, mounts)  │
+  └─────────────────────┘    └──────────────────────┘    └────────────────────┘
+                                       ▲
+                                       │ XPC
+                             ┌─────────┴──────────┐
+                             │  djctl CLI         │
+                             │  (scripting)       │
+                             └────────────────────┘
+
+  ┌────────────────────────┐    ┌────────────────────────┐
+  │  DiskJockeyEXT4  (FSKit)│    │  DiskJockeyNTFS (FSKit) │
+  │  links libfs_ext4.a    │    │  links libfs_ntfs.a    │
+  └────────────────────────┘    └────────────────────────┘
+         (independent of the backend — direct block-device access)
+```
+
+### Components
+
+- **DiskJockeyApplication** — SwiftUI macOS GUI for configuring mounts. Optional at runtime: once a mount is configured and the backend is running, the File Provider keeps working whether or not the GUI app is open.
+
+- **DiskJockeyXPC** — A small executable installed as a **LaunchAgent** with a mach service (`com.antimatterstudios.diskjockey.xpc-bridge`). It is the central IPC hub. Every other Swift component (GUI app, File Provider extension, CLI helpers) connects to it as an XPC client; it fans requests out to the Go backend over TCP. This design exists because macOS XPC has significant restrictions on cross-bundle service discovery — a LaunchAgent with a registered mach service is the only reliable path.
+
+- **Go backend (`diskjockey-backend`)** — Independent long-running process that owns the mount list, sqlite config store, network driver lifecycle, and any streaming data. Speaks protobuf (see [`diskjockey-backend/proto/backend.proto`](diskjockey-backend/proto/backend.proto)) over TCP. The backend is the only component that knows how to talk to FTP/SFTP/SMB/WebDAV/S3/Dropbox/GDrive/OneDrive servers — that logic all lives in the vendored `go-networkfs` library.
+
+- **DiskJockeyFileProvider** — macOS File Provider extension that presents mounted network filesystems in Finder. It is stateless: every `enumerateItems` / `fetchContents` request goes through XPC → backend. The GUI app is not involved in the data path.
+
+- **DiskJockeyLibrary** — Swift framework shared by the app, extension, XPC bridge, and CLI. Holds the generated protobuf code, mount-config value types, keychain helpers, logging, and the File Provider XPC protocol definition.
+
+- **DiskJockeyEXT4 / DiskJockeyNTFS** — FSKit extensions (macOS 15+). These don't use the Go backend at all. They link a Rust library (`libfs_ext4.a` or `libfs_ntfs.a`) as an XCFramework through a bridging header and serve block-device reads directly. This is a separate path from the network-filesystem stack.
+
+- **diskjockey-cli (`djctl`)** — Command-line client for the same protobuf API the GUI uses. Useful for scripting, headless debugging, and test automation.
+
+### Why a LaunchAgent XPC bridge?
+
+When this project started, the desktop app mediated all IPC. That broke as soon as the app was closed: the File Provider extension couldn't talk to a dead GUI, and re-launching the GUI from an extension is not allowed. Running the bridge as a LaunchAgent with a system-registered mach service means:
+
+- The bridge is alive independent of the GUI.
+- Both the GUI and the File Provider extension connect to the *same* bridge.
+- Lifecycle is governed by `launchd`, not by the app's run state.
+- The Go backend (which has its own launch constraints — see below) runs under its own LaunchAgent, and the bridge just connects to it over TCP.
+
+### Why a separate FSKit path for ext4/NTFS?
+
+Block-device filesystems don't benefit from a server-in-the-middle: all reads come from a local file (the disk image) or a local block device. Sending those bytes across a TCP socket to a Go process and back would be pure overhead. FSKit is Apple's sanctioned way to implement a filesystem in user space and link native parsing code directly. The Rust libraries (`rust-fs-ext4`, `rust-fs-ntfs`) do the actual work; the Swift FSKit target is a thin shim that implements `FSVolume` / `FSItem` over them.
+
+---
+
+## Project Layout
+
+```
+.
+├── DiskJockey.xcodeproj/         # Xcode workspace with all Swift targets
+│
+├── DiskJockeyApplication/        # SwiftUI GUI app
+│   ├── App/, Views/, Components/, ViewModels/
+│   └── Repositories/             # mount store, backend connection repo, etc.
+│
+├── DiskJockeyFileProvider/       # File Provider extension (network mounts)
+│   ├── FileProviderExtension.swift
+│   ├── FileProviderEnumerator.swift
+│   ├── FileProviderItem.swift
+│   ├── FileProviderXPCClient.swift     # talks to the XPC bridge
+│   ├── FileProviderDirectClient.swift  # fallback direct-to-backend path
+│   └── NetworkFSDriver.swift
+│
+├── DiskJockeyXPC/                # LaunchAgent XPC bridge
+│   ├── DiskJockeyXPC.swift       # mach-service listener
+│   ├── BackendTCPClient.swift    # TCP client to Go backend
+│   └── main.swift
+│
+├── DiskJockeyEXT4/               # FSKit extension for ext2/3/4 images
+│   ├── EXT4FileSystem.swift, EXT4Volume.swift, EXT4Item.swift
+│   ├── EXT4Backend.swift         # calls into libfs_ext4.a
+│   └── DiskJockeyEXT4-Bridging-Header.h
+│
+├── DiskJockeyNTFS/               # FSKit extension for NTFS
+│
+├── DiskJockeyLibrary/            # Shared Swift framework
+│   ├── Models/                   # Mount, DiskType, etc.
+│   ├── NetworkFS/                # Per-driver mount config structs + keychain
+│   │   ├── FTPMountConfig.swift, SFTPMountConfig.swift, SMBMountConfig.swift
+│   │   ├── WebDAVMountConfig.swift, S3MountConfig.swift
+│   │   ├── DropboxMountConfig.swift, GDriveMountConfig.swift
+│   │   ├── OneDriveMountConfig.swift
+│   │   ├── MountConfigStore.swift, MountKeychain.swift
+│   │   └── NetworkFSPersonality.swift
+│   ├── FileProvider/             # XPC protocol definitions
+│   ├── Protobuf/                 # .proto sources + generated Swift
+│   └── Network/                  # shared networking helpers
+│
+├── diskjockey-backend/           # Go backend daemon
+│   ├── main.go
+│   ├── ipc/                      # protobuf server, connection handling
+│   ├── disktypes/                # per-driver adapters (thin wrappers around vendor/go-networkfs)
+│   │   ├── ftp.go, sftp.go, smb.go, webdav.go
+│   │   ├── dropbox.go, local_directory.go
+│   ├── services/                 # config_service, sqlite_service, disktype_service
+│   ├── models/                   # Mount, DiskType, Config
+│   ├── migrations/               # sqlite schema migrations
+│   ├── proto/                    # backend.proto + generated .pb.go
+│   ├── cmd/gofs/                 # auxiliary entrypoint
+│   ├── test-server/              # Docker compose with FTP/SFTP/WebDAV/SMB for testing
+│   └── docker-compose.yml
+│
+├── diskjockey-cli/               # `djctl` CLI client
+│   └── main.go
+│
+├── docs/                         # End-user and developer docs
+│   ├── dropbox-registration.md
+│   ├── google-drive-registration.md
+│   ├── microsoft-onedrive-registration.md
+│   ├── ext4-mount-runbook.md
+│   └── p8-end-to-end-mount-plan.md
+│
+├── scripts/                      # Build helpers
+│   ├── build-fs-ext4.sh          # builds libfs_ext4.a → lib/fs_ext4/*.xcframework
+│   ├── build-fs-ntfs.sh          # same for NTFS
+│   ├── build-gonetworkfs.sh      # builds the go-networkfs library
+│   ├── build-godrivers.sh        # builds per-driver Go CLIs
+│   └── setup-submodules.sh
+│
+├── lib/                          # Pre-built vendored artifacts
+│   ├── fs_ext4/                  # fs_ext4.xcframework (from rust-fs-ext4)
+│   ├── fs_ntfs/                  # fs_ntfs.xcframework (from rust-fs-ntfs)
+│   └── go-networkfs/             # libgonetworkfs.a (from vendor/go-networkfs)
+│
+└── vendor/                       # git submodules — source of truth for lib/
+    ├── rust-fs-ext4/
+    ├── rust-fs-ntfs/
+    └── go-networkfs/             # the 8-driver network filesystem library
+```
+
+---
+
+## Building
+
+### Prerequisites
+
+- macOS 15 (Sequoia) or later — FSKit requires it
+- Xcode 16+
+- Go 1.25+
+- Rust toolchain (for the ext4 / NTFS libraries)
+- `protoc` with `protoc-gen-go` and `protoc-gen-swift`
+- Apple Developer account (for code signing — required to run the File Provider and FSKit extensions)
+
+### One-time setup
+
+```bash
+git clone https://github.com/christhomas/diskjockey.git
+cd diskjockey
+git submodule update --init --recursive
+```
+
+### Build everything
+
+```bash
+make all
+```
+
+This runs, in order:
+
+1. `vendor-fs-ext4` — builds the Rust ext4 library into an XCFramework at `lib/fs_ext4/`.
+2. `vendor-fs-ntfs` — same for NTFS.
+3. `proto` — regenerates `.pb.go` and `.pb.swift` from the `.proto` sources.
+4. `djb` — builds the Go backend binary.
+5. `djctl` — builds the CLI.
+
+The Xcode build of the app and extensions is driven separately:
+
+```bash
+xcodebuild -scheme DiskJockey -allowProvisioningUpdates build
+```
+
+A Run Script phase inside Xcode invokes `bash -lc "which go"` and re-builds the Go binary on each Xcode build, then signs it with the hardened runtime. User Script Sandboxing must be **off** for the target (the script needs keychain access during signing).
+
+### Running
+
+The desktop app can be launched from Xcode or the built `.app`. Separately, the Go backend currently needs to run as a **user LaunchAgent** (`~/Library/LaunchAgents/`). The `SMAppService` approach gets killed by macOS with a Launch Constraint Violation — a manual plist is the workaround until that's resolved.
+
+Once the backend is running, `djctl` can drive it:
+
+```bash
+./diskjockey-cli/djctl list-mounts
+./diskjockey-cli/djctl list-disktypes
+```
+
+For local end-to-end testing of the network drivers, the backend ships a Docker Compose stack:
+
+```bash
+cd diskjockey-backend && docker compose up
+# SFTP  → localhost:2223
+# FTP   → localhost:2121
+# WebDAV→ localhost:8080
+# SMB   → localhost:4450
+```
 
 ---
 
 ## Project Status
 
-- ✅ Modular Go backend daemon with disk types system
-- ✅ Go-based CLI tool (`djctl`) for backend control and debugging
-- ✅ Swift/Xcode macOS GUI application
-- ✅ Background helper process for IPC and orchestration
-- ✅ Shared Swift framework for IPC, protobuf, and backend comms
-- ✅ File Provider extension for Finder integration
-- ✅ Unified IPC protocol using protobuf
-- ✅ Makefile and build automation for Go/Swift targets
-- ✅ Multi-process orchestration (main app, helper, backend)
-- ✅ Logging and event forwarding via helper
-- ✅ User-friendly GUI for mount management
-- ✅ Disk types system to add different filesystems
-- ⬜️ Robust error handling and user notifications
-- ⬜️ Comprehensive integration and unit tests
-- ⬜️ End-user documentation and onboarding
-- ⬜️ Production-ready code signing, packaging, and deployment
+### Working
+
+- Network-filesystem pipeline end-to-end for local-directory mounts: Finder → File Provider → XPC Bridge → Go backend → filesystem. Read + list verified.
+- All eight network drivers (FTP, SFTP, SMB, WebDAV, S3, Dropbox, Google Drive, OneDrive) verified against their respective servers through `djctl`. Finder exposure is being brought online driver by driver.
+- `DiskJockeyEXT4` FSKit extension probes ext4 images and serves read-only listings via the Rust `rust-fs-ext4` library.
+- XPC bridge running as LaunchAgent with mach service discovery.
+- Backend auto-activates previously configured mounts on startup.
+- Per-mount + per-partition tagged logging (`TaggedLogger`).
+
+### In progress / known issues
+
+- **Backend lifecycle.** Launching the Go binary as a child of the XPC bridge fails under macOS security (Launch Constraint Violation). Workaround: install a manual LaunchAgent for the backend. A proper fix — likely a notarized helper registered via `SMAppService` with the right code-signing provenance — is outstanding.
+- **Finder caching.** The system aggressively caches File Provider data. The current mitigation is `removeAllDomains` on startup, which is blunt. A targeted `signalEnumerator` strategy is the proper fix.
+- **Writes through Finder** are not yet wired for most drivers. The backend supports `CreateFile` / `Remove` / `Rename` for all eight, but the File Provider side needs completing.
+- **NTFS** FSKit extension is scaffolded, parsing work in progress.
+- **Cloud OAuth UIs** — the Swift-side OAuth flows for Dropbox / Google Drive / OneDrive are not yet implemented. The drivers accept refresh tokens today; end-user sign-in UI is the next step (see per-driver docs for the protocol).
+- **UI redesign** — a full SwiftUI redesign of the desktop app is on the backlog.
 
 ---
 
-## Disk Type Status
+## Development Notes
 
-CLI status means you can use the `djctl` tool to control the disk type. <br/>
-File Provider status means the disk type is exposed to Finder. <br/>
-
-Right now, nothing is working through finder, I am building the app up in stages
-and I have a rough file provider implementation done. But it's not working yet.
-
-- ✅ Local Directory (mostly useless test dummy disk type)
-    - ✅ List Directory (✅ CLI ❌ File Provider)
-    - ✅ Read File (✅ CLI ❌ File Provider)
-    - ⬜️ Write File 
-    - ⬜️ Delete File 
-- ✅ Dropbox
-    - ✅ List Directory (✅ CLI ❌ File Provider)
-    - ✅ Read File (✅ CLI ❌ File Provider)
-    - ⬜️ Write File 
-    - ⬜️ Delete File 
-- ✅ FTP
-    - ✅ List Directory (✅ CLI ❌ File Provider)
-    - ✅ Read File (✅ CLI ❌ File Provider)
-    - ⬜️ Write File 
-    - ⬜️ Delete File 
-- ✅ SFTP
-    - ✅ List Directory (✅ CLI ❌ File Provider)
-    - ✅ Read File (✅ CLI ❌ File Provider)
-    - ⬜️ Write File 
-    - ⬜️ Delete File 
-- ✅ SMB
-    - ✅ List Directory (✅ CLI ❌ File Provider)
-    - ✅ Read File (✅ CLI ❌ File Provider)
-    - ⬜️ Write File 
-    - ⬜️ Delete File 
-- ✅ WebDAV
-    - ✅ List Directory (✅ CLI ❌ File Provider)
-    - ✅ Read File (✅ CLI ❌ File Provider)
-    - ⬜️ Write File 
-    - ⬜️ Delete File 
+- **Adding a network driver.** Implement `api.Driver` in a new package under `vendor/go-networkfs/<name>/`, pick an unused `DriverTypeID`, register it in `init()`, blank-import it from `cmd/networkfs/main.go`. Then add a matching `<Name>MountConfig.swift` to `DiskJockeyLibrary/NetworkFS/` and wire it into `NetworkFSPersonality.swift` and the GUI mount form.
+- **Adding a block-device filesystem.** Create a new FSKit extension target that bridges to a Rust (or C) static library. See `DiskJockeyEXT4/` as the reference.
+- **Testing the backend in isolation.** `diskjockey-backend/test-server/` has Dockerfiles for each protocol; `make run-djb` starts the backend with `--config-dir=$PWD`. `djctl` then drives it over TCP.
+- **Licensing.** Only permissive licenses (MIT / BSD / Apache-2.0 / ISC) in the dependency tree. No GPL / LGPL / AGPL — this is a hard constraint for redistribution.
 
 ---
 
-# Architecture
+## Historical Updates
 
-## High-Level Overview
+__21/06/2025:__ Mounts are working! I can select a particular mount to mount or unmount and it will appear in the Finder sidebar as a new drive. So now I have a communication channel between the Mac app and the File Provider extension. With that, I will be able to process messages about file operations.
 
-- **Main Application**:
-  - Manages mounts, settings, and user interface
-  - Handles all communication with the backend server
-  - Manages the File Provider extension lifecycle
-  - Coordinates between the UI, File Provider, and backend
+![mount](media/mounts-are-working.gif)
 
-- **Backend Server**:
-  - Runs as a separate process managed by the main application
-  - Handles file operations, sync, and business logic
-  - Exposes a gRPC/HTTP API for communication
-  - Manages disk type system for different storage backends
-  - Returns port information for direct connections
+__20/05/2025:__ Refactorings. Backend is now a server, started using localization, added locking around the TCP socket, disabled reconnection logic, added listing of mounts and disk types to the interface.
 
-- **File Provider Extension**:
-  - Integrates with macOS Finder to present files
-  - Communicates directly with the main application
-  - Stateless - all state is managed by the main application
-  - Handles file operations initiated by the user in Finder
+![mounts](media/mount-view.png)
 
-### Message Flow
-| Action                | Initiator         | Flow                                 |
-|-----------------------|-------------------|--------------------------------------|
-| Mount/unmount         | App UI            | App → Backend                        |
-| File operations       | Finder (via FP)   | FileProvider → App → Backend         |
-| Backend notifications | Backend           | Backend → App → (UI/FileProvider)    |
-| DiskTypes management  | App UI            | App → Backend                        |
+__18/05/2025:__ I was able to sort out how data can flow between the different parts of the app. The app outputs log messages to the app log model and displays them in the app, and also to the system log view.
 
-### Benefits
-- Simplified architecture with fewer moving parts
-- Direct communication between components
-- Centralized state management in the main application
-- Easier debugging and maintenance
-- More reliable IPC through managed connections
+![systemlog](media/system-log.png)
 
-### Notes
-- The main application acts as the central coordinator
-- Backend server is managed by the main application
-- File Provider extension remains stateless
-- All persistent state is managed by the backend
-- The application handles connection management and retries
+__15/05/2025:__ I finally was able to launch a File Provider and see actual Finder volumes. The files were fake, but the File Provider was working. I could see the volumes in Finder and mount and unmount them. Started wiring one event to trigger another.
 
----
+![fileprovider](media/fileprovider.png)
 
-# Project Structure
+__14/06/2025:__ Realised I need a developer account — can't launch a File Provider extension without one. On the positive side, improved the user interface a lot.
 
-```
-.
-├── DiskJockeyApplication/        # Main Xcode project
-│   │   ├── App/                  # App entry point and setup
-│   │   ├── Views/                # Main UI components
-│   │   ├── ViewModels/           # View models
-│   │   └── Repositories/         # Data access layer
-│   │
-├── DiskJockeyFileProvider/       # File Provider extension
-│   │   ├── FileProviderItem.swift
-│   │   └── FileProviderExtension.swift
-│   │
-├── DiskJockeyLibrary/            # Shared library between app and extension
-│   ├── Models/                   # Shared data models
-│   └── Utilities/                # Shared utilities
-│
-├── diskjockey-backend/           # Go backend
-│   ├── ipc/                      # IPC server
-│   │   └── client.go
-│   │   └── server.go
-│   │
-│   ├── disk types/                  # DiskTypes system
-│   │   └── dropbox.go
-│   │   └── ftp.go
-│   │   └── sftp.go
-│   │   └── samba.go
-│   │   └── webdav.go
-│   │
-│   ├── services/                   # Services
-│   │   └── config_service.go
-│   │   └── sqlite_service.go
-│   │   └── disktype_service.go
-│   │
-│   ├── models/                      # gRPC/HTTP API
-│   │   └── mount.go
-│   │   └── disktype.go
-│   │   └── config.go
-│   │
-│   ├── migrations/                 # Database migrations
-│   │   └── migrations.go
-│   │   └── 20250608182000_create_mounts.go
-│   │   └── 20250608182001_create_disk types.go
-│   │   └── 20250608182002_create_configs.go
-│   │   └── ...etc
-│
-├── diskjockey-cli/                # Command-line interface
-│   └── main.go                    # djctl implementation
-```
+![mainwindow](media/mounts.png)
 
-## Component Descriptions
-
-- **DiskJockey** (Swift):
-  - Main macOS application managing the UI and user interactions
-  - Coordinates between the File Provider extension and backend
-  - Handles mount management and settings
-  - Contains shared code used by both the app and File Provider extension
-
-- **Backend** (Go):
-  - Handles all file operations, sync, and disk types management
-  - Exposes gRPC/HTTP API for communication
-  - Manages mount points and storage backends
-  - Runs as a separate process managed by the main app
-
-- **CLI** (Go):
-  - Command-line interface for advanced users and automation
-  - Uses the same gRPC API as the main app
-  - Useful for scripting and headless environments
-
-- **Protocol** (Protocol Buffers):
-  - Defines the gRPC service contracts
-  - Used to generate client and server code
-  - Ensures type-safe communication between components
-  - Reduces code duplication through generated client and server code
-
-## Building and Running
-
-### Prerequisites
-- Xcode 14+
-- Go 1.19+
-- Protocol Buffer compiler (protoc) with Swift and disk types
-
-### Running
-
-1. Start the DiskJockey app from Xcode or the built .app
-2. The app will automatically start the backend server
-3. Use the CLI for advanced operations:
-   ```bash
-   ./djctl list-mounts
-   ./djctl list-disk types
-   ```
+__12/06/2025:__ My architecture isn't working as I expected. I don't think I can really use a helper application to mediate between the File Provider and the backend. I need to find a different way to do this. *(Superseded: the current architecture uses a LaunchAgent XPC bridge with a mach service — see Architecture above.)*

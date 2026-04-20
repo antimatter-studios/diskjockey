@@ -15,16 +15,12 @@ let log = AppLog(source: "fileprovider",
 
 /// Principal class for the FileProvider extension.
 ///
-/// Routing model: every mount is *either* direct (libnetworkfs.a
-/// linked in process) or XPC-backed (forwards to the Go backend over
-/// NSXPCConnection). We figure out which at init time by checking for
-/// a `StoredMountConfig` plist in the shared app group. If present →
-/// direct client. If missing (or any load error) → fall back to the
-/// existing XPC client.
-///
-/// The fallback is *critical*. Old mounts predating direct-mount
-/// support won't have a config plist or keychain entry; they must keep
-/// working on the XPC path. Don't remove it.
+/// Every mount is direct: `libnetworkfs.a` is linked into this
+/// extension, and a `StoredMountConfig` plist (shared app-group
+/// container) + keychain entry identify what to mount. If the config
+/// or password is missing — e.g. the user removed the mount while
+/// Finder was still holding a reference — we return NSFileProviderError
+/// per-op rather than crashing.
 class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
     let mountID: String
 
@@ -44,19 +40,12 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
     /// still available for lines that aren't mount-specific.
     let mlog: TaggedLogger
 
-    /// Always present; used for legacy mounts + as a fallback when the
-    /// direct-client init fails for any reason.
-    let xpcClient = FileProviderXPCClient()
-
-    /// Present only when a StoredMountConfig + keychain entry exist for
-    /// this domain. Read-only after init — FileProvider may hand us
-    /// concurrent op requests.
+    /// Handle on `libnetworkfs`. `nil` when config/keychain was missing
+    /// at init — every operation then returns `.noSuchItem` so Finder
+    /// prunes the stale domain cleanly.
     let directClient: FileProviderDirectClient?
 
     required init(domain: NSFileProviderDomain) {
-        // The domain identifier encodes either the backend mount ID
-        // (legacy: "3") or a UUID (direct mounts). The value is opaque
-        // to the routing layer — it's just a lookup key.
         self.domain = domain
         self.mountID = domain.identifier.rawValue
         self.mlog = TaggedLogger(
@@ -65,28 +54,24 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             kind: "fileprovider.mount"
         )
 
-        // Try to build a direct client. If the config/keychain isn't
-        // there, this mount hasn't been migrated — fall back to XPC.
-        let store = MountConfigStore()
-        if store.exists(domainID: mountID) {
-            do {
-                self.directClient = try FileProviderDirectClient(domainID: mountID,
-                                                                 log: mlog)
-                self.mlog.info("direct client ready")
-            } catch {
-                self.mlog.error("direct-client init failed: \(error); using XPC fallback")
-                self.directClient = nil
-            }
-        } else {
+        do {
+            self.directClient = try FileProviderDirectClient(
+                domainID: mountID, log: mlog
+            )
+            self.mlog.info("direct client ready")
+        } catch {
+            // Config or keychain missing. This is not fatal — the
+            // per-op methods below check for `nil` and fail with
+            // noSuchItem. Finder will then prune the domain on its
+            // next refresh.
+            self.mlog.error("direct-client init failed: \(error)")
             self.directClient = nil
-            self.mlog.info("no direct config; using XPC")
         }
 
         super.init()
         self.mlog.info("Initialized")
         // libnetworkfs smoke-test log — confirms the combined archive
-        // was actually linked into the extension. Harmless on startup
-        // even when no direct mount exists.
+        // was actually linked into the extension.
         self.mlog.info("libnetworkfs version: \(NetworkFSDriver.libraryVersion())")
     }
 
@@ -100,7 +85,7 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
     func item(for identifier: NSFileProviderItemIdentifier, request: NSFileProviderRequest, completionHandler: @escaping (NSFileProviderItem?, Error?) -> Void) -> Progress {
         self.mlog.info("item(for: \(identifier.rawValue))")
 
-        // System containers are synthetic — no backend call needed
+        // System containers are synthetic — no network call needed.
         if identifier == .rootContainer {
             let rootItem = FileProviderItem(
                 info: DiskJockeyFileItem(name: "", size: 0, isDirectory: true),
@@ -124,53 +109,13 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             return Progress()
         }
 
-        let path = extractPath(from: identifier)
-
-        // Direct path: libnetworkfs stat.
-        if let direct = directClient {
-            itemViaDirect(direct: direct, path: path, completionHandler: completionHandler)
+        guard let direct = directClient else {
+            completionHandler(nil, NSFileProviderError(.noSuchItem))
             return Progress()
         }
 
-        // XPC fallback
-        xpcClient.stat(mountID: mountID, path: path) { response in
-            guard let response = response else {
-                completionHandler(nil, NSFileProviderError(.serverUnreachable))
-                return
-            }
+        let path = extractPath(from: identifier)
 
-            if case .error(let err) = response.responseType {
-                self.mlog.error("stat error: \(err.message)")
-                completionHandler(nil, NSFileProviderError(.noSuchItem))
-                return
-            }
-
-            guard case .stat(let statResp) = response.responseType else {
-                completionHandler(nil, NSFileProviderError(.serverUnreachable))
-                return
-            }
-
-            let parentPath = (path as NSString).deletingLastPathComponent
-            let item = FileProviderItem(
-                info: DiskJockeyFileItem(
-                    name: statResp.file.name,
-                    size: statResp.file.size,
-                    isDirectory: statResp.file.isDirectory
-                ),
-                parentPath: parentPath
-            )
-            completionHandler(item, nil)
-        }
-
-        return Progress()
-    }
-
-    /// Direct-path implementation of `item(for:)`. libnetworkfs stat
-    /// is synchronous; we run it off the calling thread so we don't
-    /// block the FileProvider-owned queue.
-    private func itemViaDirect(direct: FileProviderDirectClient,
-                               path: String,
-                               completionHandler: @escaping (NSFileProviderItem?, Error?) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 let info = try direct.stat(path: path)
@@ -182,6 +127,8 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                 completionHandler(nil, Self.mapError(error))
             }
         }
+
+        return Progress()
     }
 
     // MARK: - File Contents
@@ -190,127 +137,73 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         let path = extractPath(from: itemIdentifier)
         self.mlog.info("fetchContents for: \(path)")
 
-        if let direct = directClient {
-            DispatchQueue.global(qos: .userInitiated).async {
-                do {
-                    // Fetch first, then derive metadata from what we
-                    // already know. Earlier we did stat-then-fetch to
-                    // guarantee real metadata, but stat breaks on FTP
-                    // servers that don't implement MLST/MDTM (the
-                    // `jlaffaye/ftp` GetEntry path) — vsftpd returns
-                    // `502 Command not implemented` and the whole
-                    // fetch fails even though RETR would work. We can
-                    // still produce real metadata without the server
-                    // round-trip:
-                    //
-                    //   name        ← last component of the path
-                    //   size        ← size of the temp file on disk
-                    //                 after RETR completes
-                    //   isDirectory ← false (fetchContents is only
-                    //                 ever called on files)
-                    //
-                    // That's just as accurate as stat, doesn't
-                    // fabricate anything, and doesn't depend on
-                    // optional FTP commands.
-                    //
-                    // Write into NSFileProviderManager's temp dir (not
-                    // `FileManager.default.temporaryDirectory`, which
-                    // lives inside the extension's sandbox container
-                    // and isn't always readable from the fileproviderd
-                    // daemon — cause of the "file downloaded but
-                    // Finder stays spinning" bug). The FP-managed dir
-                    // is shared between the extension + daemon.
-                    let url: URL
-                    if let manager = NSFileProviderManager(for: self.domain) {
-                        let dir = try manager.temporaryDirectoryURL()
-                        url = dir.appendingPathComponent(UUID().uuidString)
-                    } else {
-                        // Fallback: shouldn't happen since the extension
-                        // IS running for this domain, but if FP can't
-                        // give us a manager, don't crash — use our own
-                        // sandbox temp and accept the spinner risk.
-                        url = FileManager.default.temporaryDirectory
-                            .appendingPathComponent(UUID().uuidString)
-                    }
-                    try direct.fetchFile(path: path, to: url)
-                    let parentPath = (path as NSString).deletingLastPathComponent
-                    let name = (path as NSString).lastPathComponent
-                    let size: Int64
-                    if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-                       let n = attrs[.size] as? Int64 {
-                        size = n
-                    } else if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-                              let n = attrs[.size] as? NSNumber {
-                        size = n.int64Value
-                    } else {
-                        size = 0
-                    }
-                    let item = FileProviderItem(
-                        info: DiskJockeyFileItem(name: name, size: size, isDirectory: false),
-                        parentPath: parentPath
-                    )
-                    completionHandler(url, item, nil)
-                } catch {
-                    self.mlog.error("direct fetch(\(path)) failed: \("\(error)")")
-                    completionHandler(nil, nil, Self.mapError(error))
-                }
-            }
+        guard let direct = directClient else {
+            completionHandler(nil, nil, NSFileProviderError(.noSuchItem))
             return Progress()
         }
 
-        // XPC fallback — same hard-fail rule: stat before returning
-        // an item. Two round-trips is slower than one but correctness
-        // wins over speed on a filesystem driver.
-        xpcClient.readFile(mountID: mountID, path: path) { response in
-            guard let response = response else {
-                completionHandler(nil, nil, NSFileProviderError(.serverUnreachable))
-                return
-            }
-
-            if case .error(let err) = response.responseType {
-                self.mlog.error("read error: \(err.message)")
-                completionHandler(nil, nil, NSFileProviderError(.noSuchItem))
-                return
-            }
-
-            guard case .read(let readResp) = response.responseType else {
-                completionHandler(nil, nil, NSFileProviderError(.serverUnreachable))
-                return
-            }
-
-            self.mlog.info("fetchContents received \(readResp.data.count) bytes for \(path)")
-
-            // Write data to a temporary file
-            let tempURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString)
+        DispatchQueue.global(qos: .userInitiated).async {
             do {
-                try readResp.data.write(to: tempURL)
-                self.mlog.info("Wrote \(readResp.data.count) bytes to \(tempURL.path)")
-            } catch {
-                self.mlog.error("Failed to write temp file: \(error.localizedDescription)")
-                completionHandler(nil, nil, error)
-                return
-            }
-
-            // Stat the path so we can return an item with real
-            // metadata. Hard fail if stat fails.
-            self.xpcClient.stat(mountID: self.mountID, path: path) { statResp in
-                guard let statResp = statResp,
-                      case .stat(let s) = statResp.responseType else {
-                    self.mlog.error("post-fetch stat failed; hard-failing fetchContents")
-                    completionHandler(nil, nil, NSFileProviderError(.noSuchItem))
-                    return
+                // Fetch first, then derive metadata from what we
+                // already know. Earlier we did stat-then-fetch to
+                // guarantee real metadata, but stat breaks on FTP
+                // servers that don't implement MLST/MDTM (the
+                // `jlaffaye/ftp` GetEntry path) — vsftpd returns
+                // `502 Command not implemented` and the whole
+                // fetch fails even though RETR would work. We can
+                // still produce real metadata without the server
+                // round-trip:
+                //
+                //   name        ← last component of the path
+                //   size        ← size of the temp file on disk
+                //                 after RETR completes
+                //   isDirectory ← false (fetchContents is only
+                //                 ever called on files)
+                //
+                // That's just as accurate as stat, doesn't
+                // fabricate anything, and doesn't depend on
+                // optional FTP commands.
+                //
+                // Write into NSFileProviderManager's temp dir (not
+                // `FileManager.default.temporaryDirectory`, which
+                // lives inside the extension's sandbox container
+                // and isn't always readable from the fileproviderd
+                // daemon — cause of the "file downloaded but
+                // Finder stays spinning" bug). The FP-managed dir
+                // is shared between the extension + daemon.
+                let url: URL
+                if let manager = NSFileProviderManager(for: self.domain) {
+                    let dir = try manager.temporaryDirectoryURL()
+                    url = dir.appendingPathComponent(UUID().uuidString)
+                } else {
+                    // Fallback: shouldn't happen since the extension
+                    // IS running for this domain, but if FP can't
+                    // give us a manager, don't crash — use our own
+                    // sandbox temp and accept the spinner risk.
+                    url = FileManager.default.temporaryDirectory
+                        .appendingPathComponent(UUID().uuidString)
                 }
+                try direct.fetchFile(path: path, to: url)
                 let parentPath = (path as NSString).deletingLastPathComponent
+                let name = (path as NSString).lastPathComponent
+                let size: Int64
+                if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                   let n = attrs[.size] as? Int64 {
+                    size = n
+                } else if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                          let n = attrs[.size] as? NSNumber {
+                    size = n.int64Value
+                } else {
+                    size = 0
+                }
                 let item = FileProviderItem(
-                    info: DiskJockeyFileItem(
-                        name: s.file.name,
-                        size: s.file.size,
-                        isDirectory: s.file.isDirectory
-                    ),
+                    info: DiskJockeyFileItem(name: name, size: size, isDirectory: false),
                     parentPath: parentPath
                 )
-                completionHandler(tempURL, item, nil)
+                completionHandler(url, item, nil)
+            } catch {
+                self.mlog.error("direct fetch(\(path)) failed: \("\(error)")")
+                completionHandler(nil, nil, Self.mapError(error))
             }
         }
 
@@ -342,7 +235,6 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         return FileProviderEnumerator(
             enumeratedItemIdentifier: containerItemIdentifier,
             mountID: mountID,
-            xpcClient: xpcClient,
             directClient: directClient,
             mlog: mlog
         )

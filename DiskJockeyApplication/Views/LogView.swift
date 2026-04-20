@@ -33,11 +33,6 @@ struct LogView: View {
                 }
                 .disabled(appLogModel.messages.isEmpty)
 
-                Button(action: refreshLogs) {
-                    Label("Refresh", systemImage: "arrow.clockwise")
-                }
-                .disabled(appLogModel.messages.isEmpty)
-
                 Button(action: exportLogs) {
                     Label("Export", systemImage: "square.and.arrow.up")
                 }
@@ -73,19 +68,12 @@ struct LogView: View {
             }
         }
         .navigationTitle("System Logs")
-        .onAppear {
-            refreshLogs()
-        }
     }
 
     // MARK: - Actions
 
     private func clearLogs() {
         appLogModel.clearLogs()
-    }
-
-    private func refreshLogs() {
-        appLogModel.refreshLogs()
     }
 
     private func exportLogs() {
