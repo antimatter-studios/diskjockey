@@ -9,6 +9,11 @@ public enum SidebarItem: Hashable {
     case directMount(UUID)
     case addMount
     case logs
+    /// In-app management UI for DiskJockey's bundled extensions (EXT4,
+    /// NTFS, FileProvider). Hosts `EXAppExtensionBrowserViewController`
+    /// so the user enables/disables + sees status for all DiskJockey
+    /// extensions without navigating to System Settings.
+    case extensions
     /// Read-only sidebar entry for a disk currently mounted by the system
     /// (e.g. an ext4 partition or image handled by our FSKit extension).
     /// No user configuration — just visibility. Identified by mount path.
