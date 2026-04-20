@@ -114,7 +114,10 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             replyHandler(.notRecognized, nil)
             return
         }
-        log.info("probe \(blockDevice.bsdName): blockSize=\(blockDevice.blockSize) blockCount=\(blockDevice.blockCount)")
+        let dlog = TaggedLogger(
+            log, fields: ["bsd": blockDevice.bsdName], kind: "ntfs.probe"
+        )
+        dlog.info("probe \(blockDevice.bsdName): blockSize=\(blockDevice.blockSize) blockCount=\(blockDevice.blockCount)")
 
         do {
             var buf = Data(count: 512)
@@ -123,14 +126,14 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             }
 
             guard bytesRead >= 12 else {
-                log.info("probe: read \(bytesRead) bytes (< 12) — not NTFS")
+                dlog.info("probe: read \(bytesRead) bytes (< 12) — not NTFS")
                 replyHandler(.notRecognized, nil)
                 return
             }
 
             let oemID = String(bytes: buf[3..<11], encoding: .ascii) ?? ""
             guard oemID == "NTFS    " else {
-                log.info("probe: OEM ID '\(oemID)' — not NTFS")
+                dlog.info("probe: OEM ID '\(oemID)' — not NTFS")
                 replyHandler(.notRecognized, nil)
                 return
             }
@@ -138,7 +141,7 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             let serial: UInt64 = buf.withUnsafeBytes { rawBuf in
                 rawBuf.load(fromByteOffset: 0x48, as: UInt64.self)
             }
-            log.info("probe: recognized NTFS volume (serial=0x\(String(serial, radix: 16)))")
+            dlog.info("probe: recognized NTFS volume (serial=0x\(String(serial, radix: 16)))")
 
             var uuidBytes = [UInt8](repeating: 0, count: 16)
             withUnsafeBytes(of: serial.bigEndian) { src in
@@ -182,13 +185,13 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
                 fs_ntfs_umount(probeFS)
             } else {
                 let err = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "(no error)"
-                log.warn("probe: volume label lookup failed — \(err); using fallback 'NTFS'")
+                dlog.warn("probe: volume label lookup failed — \(err); using fallback 'NTFS'")
             }
 
-            log.info("probe: label=\"\(label)\"")
+            dlog.info("probe: label=\"\(label)\"")
             replyHandler(.usable(name: label, containerID: containerID), nil)
         } catch {
-            log.error("probe: block-device read failed — \(error.localizedDescription)")
+            dlog.error("probe: block-device read failed — \(error.localizedDescription)")
             replyHandler(.notRecognized, nil)
         }
     }
@@ -206,7 +209,13 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             replyHandler(nil, POSIXError(.EINVAL))
             return
         }
-        log.info("loadResource \(blockDevice.bsdName): blockSize=\(blockDevice.blockSize) blockCount=\(blockDevice.blockCount)")
+        let bsdName = blockDevice.bsdName
+        // All subsequent log lines carry `fields["bsd"]` so the
+        // partition detail view's per-disk log strip picks them up.
+        let dlog = TaggedLogger(
+            log, fields: ["bsd": bsdName], kind: "ntfs.load"
+        )
+        dlog.info("loadResource \(bsdName): blockSize=\(blockDevice.blockSize) blockCount=\(blockDevice.blockCount)")
 
         let context = NTFSBlockDeviceContext(resource: blockDevice)
         let contextPtr = Unmanaged.passRetained(context).toOpaque()
@@ -229,12 +238,15 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         // (ColinFinck/ntfs) will happily parse a dirty volume read-only —
         // Windows would still insist on chkdsk next plug-in though, so
         // clear the dirty bit + reset $LogFile while we have the device.
-        let bsdName = blockDevice.bsdName
         switch fs_ntfs_is_dirty_with_callbacks(&cfg) {
         case 1:
-            log.event(kind: "volume.dirty", fields: ["bsd": bsdName])
-            log.event(kind: "fsck.start", fields: ["bsd": bsdName])
+            dlog.event(kind: "volume.dirty")
+            dlog.event(kind: "fsck.start")
 
+            // The C progress callback can't capture `dlog` (it's a
+            // @convention(c) function pointer). Stash the tagged
+            // logger's target tag in the progress context so the
+            // callback can rebuild an equivalent emission path.
             let progressCtx = FsckProgressContext(bsdName: bsdName)
             let progressCtxPtr = Unmanaged.passRetained(progressCtx).toOpaque()
             defer { Unmanaged<FsckProgressContext>.fromOpaque(progressCtxPtr).release() }
@@ -261,35 +273,34 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             )
 
             if rc == 0 {
-                log.event(kind: "fsck.done", fields: [
-                    "bsd": bsdName,
+                dlog.event(kind: "fsck.done", fields: [
                     "logfile_bytes": "\(logfileBytes)",
                     "dirty_cleared": dirtyCleared == 1 ? "true" : "false"
                 ])
             } else {
                 let err = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
-                log.event(kind: "fsck.failed", fields: ["bsd": bsdName, "error": err], level: .error)
+                dlog.event(kind: "fsck.failed", fields: ["error": err], level: .error)
                 // Fall through to mount attempt — the ntfs crate can still
                 // read-only-parse a dirty volume; reads will work. Clean
                 // shutdown will be incomplete though.
             }
         case 0:
-            log.event(kind: "volume.clean", fields: ["bsd": bsdName])
+            dlog.event(kind: "volume.clean")
         default:
             let err = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
-            log.event(kind: "dirty.check.failed", fields: ["bsd": bsdName, "error": err], level: .warn)
+            dlog.event(kind: "dirty.check.failed", fields: ["error": err], level: .warn)
         }
 
-        log.info("calling fs_ntfs_mount_with_callbacks size=\(cfg.size_bytes) blockSize=\(blockDevice.blockSize)")
+        dlog.info("calling fs_ntfs_mount_with_callbacks size=\(cfg.size_bytes) blockSize=\(blockDevice.blockSize)")
 
         guard let bridgeFS = fs_ntfs_mount_with_callbacks(&cfg) else {
             let err = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
-            log.error("fs_ntfs mount failed: \(err)")
+            dlog.error("fs_ntfs mount failed: \(err)")
             Unmanaged<NTFSBlockDeviceContext>.fromOpaque(contextPtr).release()
             replyHandler(nil, POSIXError(.EIO))
             return
         }
-        log.info("fs_ntfs mount succeeded")
+        dlog.info("fs_ntfs mount succeeded")
 
         var volInfo = fs_ntfs_volume_info_t()
         fs_ntfs_get_volume_info(bridgeFS, &volInfo)
@@ -312,11 +323,8 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         // the "load completed" signal and subsequent operations on the
         // resource fail with EAGAIN ("Resource temporarily unavailable").
         containerStatus = .ready
-        log.info("volume ready: \"\(resolvedName)\"")
-        // Emit one compact event with volume-identity + sizing so the host
-        // app can populate the detail pane without re-parsing the text log.
-        log.event(kind: "volume.info", fields: [
-            "bsd": bsdName,
+        dlog.info("volume ready: \"\(resolvedName)\"")
+        dlog.event(kind: "volume.info", fields: [
             "fs": "ntfs",
             "volume_name": resolvedName,
             "cluster_size": "\(volInfo.cluster_size)",
