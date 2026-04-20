@@ -115,6 +115,37 @@ public final class DirectMountRegistry: ObservableObject {
         }
     }
 
+    /// Backfill symlinks for every currently-mounted direct mount.
+    /// Called after the user picks a folder for the first time (or
+    /// re-picks a new one) so mounts that were registered before the
+    /// folder existed get their shortcuts retroactively.
+    ///
+    /// Idempotent: `createSymlink` replaces an existing link of the
+    /// same name, so calling this on a fully-populated folder
+    /// refreshes every symlink to its current target URL. Safe to
+    /// call more than once.
+    public func backfillSymlinks() async {
+        AppLog.shared.info("backfillSymlinks start count=\(mounts.count)")
+        for mount in mounts {
+            let domain = NSFileProviderDomain(
+                identifier: NSFileProviderDomainIdentifier(rawValue: mount.domainID),
+                displayName: "DiskJockey - \(mount.displayName)"
+            )
+            guard let manager = NSFileProviderManager(for: domain) else {
+                AppLog.shared.info("backfill: no manager for \(mount.displayName); skipping")
+                continue
+            }
+            do {
+                let visibleURL = try await userVisibleURL(for: manager)
+                _ = try symlinks.createSymlink(name: mount.symlinkName, target: visibleURL)
+                AppLog.shared.info("backfill: symlink created for \(mount.displayName) → \(visibleURL.path)")
+            } catch {
+                AppLog.shared.error("backfill: \(mount.displayName) failed — \(error)")
+            }
+        }
+        AppLog.shared.info("backfillSymlinks done")
+    }
+
     /// Cross-check persisted mounts against NSFileProviderManager's
     /// actual registered domains. Logs mismatches; the UI shows live
     /// mount state via `isMounted(_:)` so we don't need to prune

@@ -13,6 +13,7 @@ import DiskJockeyLibrary
 
 struct NetworkDrivesSetupView: View {
     @ObservedObject var homeAccess: HomeAccessService
+    let registry: DirectMountRegistry
 
     @State private var isPicking = false
     @State private var errorMessage: String?
@@ -171,6 +172,11 @@ struct NetworkDrivesSetupView: View {
         // ContentView swaps us out.
         do {
             _ = try homeAccess.pickFolder()
+            // Any mounts that were created before the folder was
+            // picked are now eligible for their own symlinks. Kick
+            // the backfill off asynchronously so we don't block the
+            // UI swap-out from the setup pane.
+            Task { await registry.backfillSymlinks() }
         } catch HomeAccessError.userCancelled {
             // Silent — user chose not to pick right now.
         } catch {
