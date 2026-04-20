@@ -136,11 +136,7 @@ public final class HomeAccessService: ObservableObject {
 
     private func promptUser() throws -> URL {
         let panel = NSOpenPanel()
-        // NSOpenPanel's title bar has very limited space — long titles
-        // get truncated and make the window look ugly. Keep the title
-        // short; put the explanation in `message` where it has room.
-        panel.title = "Choose Shortcut Folder"
-        panel.message = "DiskJockey will place a shortcut for each network mount inside the folder you pick. Anywhere under your home directory works."
+        panel.title = "Please choose shortcut folder"
         panel.prompt = "Choose"
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
