@@ -70,10 +70,15 @@ public final class AppContainer: ObservableObject {
         let symlinks = SymlinkManager()
         self.symlinkManager = symlinks
         self.directMountRegistry = DirectMountRegistry(symlinks: symlinks)
-        // Sweep stale `~/DiskJockey/<name>` symlinks whose targets no
+        // Sweep stale `~/diskjockey/<name>` symlinks whose targets no
         // longer exist (domain was removed while the app was closed,
         // extension died, etc.). Best-effort; sandbox may block.
         symlinks.sweepDangling()
+        // Dump FileProvider-domain vs persisted-mount state so we can
+        // debug "app says mounted but it's not" mismatches from
+        // Console.app without needing extra hooks.
+        let registry = self.directMountRegistry
+        Task { await registry.reconcile() }
 
         // Populate the sidebar BEFORE we start replaying ndjson events.
         // Ordering matters: on launch the tail reads existing lines from
