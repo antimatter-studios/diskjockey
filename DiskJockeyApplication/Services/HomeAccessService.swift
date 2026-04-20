@@ -26,6 +26,9 @@ import Foundation
 import AppKit
 
 public enum HomeAccessError: Error, LocalizedError {
+    /// No folder has been picked yet. Caller should surface the
+    /// getting-started view rather than silently prompting.
+    case noBookmark
     case userCancelled
     case bookmarkResolveFailed(Error?)
     case startAccessFailed
@@ -33,6 +36,8 @@ public enum HomeAccessError: Error, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
+        case .noBookmark:
+            return "No DiskJockey folder has been chosen yet. Use the 'Choose Folder…' button to pick one."
         case .userCancelled:
             return "You need to pick (or create) the DiskJockey folder to continue."
         case .bookmarkResolveFailed(let e):
@@ -64,12 +69,13 @@ public final class HomeAccessService: ObservableObject {
         self.hasFolder = defaults.data(forKey: Self.bookmarkKey) != nil
     }
 
-    /// Resolve (prompting if needed), start scoped access, invoke
-    /// `body` with the resolved URL, then stop access on return.
-    /// `body` gets a URL that's valid only for the duration of the
-    /// call — don't stash it.
+    /// Resolve the existing bookmark, start scoped access, invoke
+    /// `body` with the resolved URL, stop access on return.
+    /// Throws `.noBookmark` if the user hasn't picked a folder yet —
+    /// callers should not auto-prompt; that decision lives in the UI
+    /// (the Setup pane's explicit "Choose Folder" button).
     public func withAccess<T>(_ body: (URL) throws -> T) throws -> T {
-        let url = try resolveOrPrompt()
+        let url = try resolve()
         guard url.startAccessingSecurityScopedResource() else {
             throw HomeAccessError.startAccessFailed
         }
@@ -94,29 +100,38 @@ public final class HomeAccessService: ObservableObject {
 
     // MARK: - Private
 
-    private func resolveOrPrompt() throws -> URL {
-        if let data = defaults.data(forKey: Self.bookmarkKey) {
-            do {
-                var stale = false
-                let url = try URL(
-                    resolvingBookmarkData: data,
-                    options: .withSecurityScope,
-                    relativeTo: nil,
-                    bookmarkDataIsStale: &stale
-                )
-                if stale {
-                    try? saveBookmark(for: url)
-                }
-                // Validate the URL still exists; otherwise fall through
-                // to re-prompt.
-                if FileManager.default.fileExists(atPath: url.path) {
-                    return url
-                }
-            } catch {
-                // Fall through to re-prompt.
-            }
+    /// Resolve the stored bookmark. Throws `.noBookmark` if nothing
+    /// is stored, or if what's stored is stale / points at a missing
+    /// path — never prompts on its own. The UI is responsible for
+    /// recovering by calling `pickFolder()`.
+    private func resolve() throws -> URL {
+        guard let data = defaults.data(forKey: Self.bookmarkKey) else {
+            throw HomeAccessError.noBookmark
         }
-        return try promptUser()
+        var stale = false
+        let url: URL
+        do {
+            url = try URL(
+                resolvingBookmarkData: data,
+                options: .withSecurityScope,
+                relativeTo: nil,
+                bookmarkDataIsStale: &stale
+            )
+        } catch {
+            // Stored bookmark is corrupt — forget it so the UI drops
+            // back into the pick-folder state.
+            forget()
+            throw HomeAccessError.bookmarkResolveFailed(error)
+        }
+        if !FileManager.default.fileExists(atPath: url.path) {
+            // User moved / deleted the folder since last launch.
+            forget()
+            throw HomeAccessError.noBookmark
+        }
+        if stale {
+            try? saveBookmark(for: url)
+        }
+        return url
     }
 
     private func promptUser() throws -> URL {
