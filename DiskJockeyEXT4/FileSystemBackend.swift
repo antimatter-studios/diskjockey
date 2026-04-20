@@ -49,6 +49,11 @@ struct BackendVolumeInfo {
     var freeBlocks: UInt64
     var totalInodes: UInt32
     var freeInodes: UInt32
+    /// `true` if the filesystem was not cleanly unmounted last time it
+    /// was used — the host app surfaces this as a dirty badge and can
+    /// trigger fsck. Sourced from the driver's on-disk metadata (e.g.
+    /// ext4 `s_state`); no Swift-side on-disk parsing.
+    var mountedDirty: Bool
 }
 
 // MARK: - Protocol

@@ -31,7 +31,8 @@ final class EXT4Backend: FileSystemBackend {
             guard let fs = fs else {
                 return BackendVolumeInfo(name: "ext4", blockSize: 4096,
                                         totalBlocks: 0, freeBlocks: 0,
-                                        totalInodes: 0, freeInodes: 0)
+                                        totalInodes: 0, freeInodes: 0,
+                                        mountedDirty: false)
             }
 
             var info = fs_ext4_volume_info_t()
@@ -49,7 +50,8 @@ final class EXT4Backend: FileSystemBackend {
                 totalBlocks: info.total_blocks,
                 freeBlocks: info.free_blocks,
                 totalInodes: info.total_inodes,
-                freeInodes: info.free_inodes
+                freeInodes: info.free_inodes,
+                mountedDirty: info.mounted_dirty != 0
             )
         }
     }
