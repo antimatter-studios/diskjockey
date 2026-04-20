@@ -59,9 +59,13 @@ public struct MountConfigStore: Sendable {
         } catch {
             throw MountConfigStoreError.encodeFailed(error.localizedDescription)
         }
+        let target = try url(for: domainID)
         do {
-            try data.write(to: try url(for: domainID), options: .atomic)
+            try data.write(to: target, options: .atomic)
+            NSLog("[MountConfigStore] wrote %d bytes → %@", data.count, target.path)
         } catch {
+            NSLog("[MountConfigStore] write FAILED path=%@ err=%@",
+                  target.path, error.localizedDescription)
             throw MountConfigStoreError.ioFailed(error.localizedDescription)
         }
     }

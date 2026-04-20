@@ -37,8 +37,11 @@ public enum SymlinkError: Error, LocalizedError {
 @MainActor
 public final class SymlinkManager {
     /// Directory under `$HOME` that holds all DiskJockey symlinks.
-    /// Created lazily on first write.
-    public static let dirName = "DiskJockey"
+    /// Created lazily on first write. Lowercase by convention — the
+    /// symlink tree is primarily a shell-friendly affordance, and
+    /// $HOME/diskjockey/ reads + tabs more naturally than an
+    /// uppercased one.
+    public static let dirName = "diskjockey"
 
     public init() {}
 
@@ -162,21 +165,52 @@ public final class SymlinkManager {
     }
 
     /// Pick a symlink filename that doesn't collide with anything
-    /// already in `~/DiskJockey`. If "Work" is taken we try "Work-2",
-    /// "Work-3", ... TODO: This is in-process only — two separate
-    /// DiskJockey instances could race. Good enough for a POC.
+    /// already in `~/diskjockey`. If "my_mount" is taken we try
+    /// "my_mount_2", "my_mount_3", ... TODO: This is in-process only —
+    /// two separate DiskJockey instances could race. Good enough for
+    /// a POC.
+    ///
+    /// The input is ASCII-folded + snake-cased first so shell tools
+    /// don't need to deal with Unicode / spaces in the path.
     public func uniqueName(preferred: String) -> String {
         let root = rootDirectory
         let fm = FileManager.default
-        let base = preferred.isEmpty ? "Mount" : preferred
+        let base = Self.snakeCaseASCII(preferred)
         var candidate = base
         var n = 2
         while fm.fileExists(atPath: root.appendingPathComponent(candidate).path)
                 || symlinkExists(at: root.appendingPathComponent(candidate)) {
-            candidate = "\(base)-\(n)"
+            candidate = "\(base)_\(n)"
             n += 1
             if n > 999 { break } // don't spin forever
         }
         return candidate
+    }
+
+    /// Normalize a mount display name into a safe, shell-friendly
+    /// directory name: ASCII-fold Unicode (`Café` → `Cafe`), lowercase,
+    /// replace runs of non-alphanumerics with a single underscore,
+    /// trim leading/trailing underscores. Empty input → "mount".
+    static func snakeCaseASCII(_ s: String) -> String {
+        // ASCII-fold: Unicode NFD + strip non-ASCII code points. Keeps
+        // "Café" recognizable ("cafe") rather than erasing it entirely.
+        let folded = s.applyingTransform(.toLatin, reverse: false)
+            .flatMap { s in s.applyingTransform(.stripDiacritics, reverse: false) }
+            ?? s
+        let lower = folded.lowercased()
+
+        var out = ""
+        var lastWasSep = true // lead with no separator
+        for ch in lower {
+            if ch.isLetter || ch.isNumber {
+                out.append(ch)
+                lastWasSep = false
+            } else if !lastWasSep {
+                out.append("_")
+                lastWasSep = true
+            }
+        }
+        while out.hasSuffix("_") { out.removeLast() }
+        return out.isEmpty ? "mount" : out
     }
 }

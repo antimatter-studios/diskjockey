@@ -91,7 +91,7 @@ private struct SidebarView: View {
 
             // Mount list + logs
             List(selection: $sidebarModel.selectedItem) {
-                Section("Mounts") {
+                Section("Network Drives") {
                     let hasBackendMounts = !mountRepository.mounts.isEmpty
                     let hasDirectMounts = !directMountRegistry.mounts.isEmpty
 

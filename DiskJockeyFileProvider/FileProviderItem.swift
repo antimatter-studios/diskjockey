@@ -14,7 +14,10 @@ class FileProviderItem: NSObject, NSFileProviderItem {
     private let parentPath: String
     private let identifierValue: String
 
-    // Construct from DiskJockeyFileItem and parent path
+    /// Canonical initializer. Callers MUST pass real stat info — never
+    /// fabricated. Filesystem drivers that guess at size/isDirectory
+    /// from filename suffixes corrupt cached Finder metadata; we hard
+    /// require the caller to have done a stat first.
     init(info: DiskJockeyFileItem, parentPath: String) {
         self.info = info
         self.parentPath = parentPath
@@ -23,20 +26,6 @@ class FileProviderItem: NSObject, NSFileProviderItem {
         } else {
             self.identifierValue = "item-" + (parentPath.hasSuffix("/") ? parentPath : parentPath + "/") + info.name
         }
-    }
-
-    // For legacy/manual init - used by fetchContents when we only have the identifier
-    init(identifier: NSFileProviderItemIdentifier) {
-        let rawPath = identifier.rawValue.replacingOccurrences(of: "item-", with: "")
-        let name = (rawPath as NSString).lastPathComponent
-        self.info = DiskJockeyFileItem(
-            name: name,
-            size: name.hasSuffix(".txt") ? 100 : 0,
-            isDirectory: name.isEmpty || !name.contains(".")
-        )
-        self.parentPath = "/"
-        self.identifierValue = identifier.rawValue
-        NSLog("[FileProviderItem] Created item %@ as %@", name, info.isDirectory ? "directory" : "file")
     }
 
     var itemIdentifier: NSFileProviderItemIdentifier {
@@ -64,8 +53,11 @@ class FileProviderItem: NSObject, NSFileProviderItem {
 
     // MARK: - NSFileProviderItem Properties
     var filename: String {
-        // Use "mount1" as a fallback if name is empty
-        return info.name.isEmpty ? "mount1" : info.name
+        // Root container reports an empty name; everyone else must
+        // have a real name. No placeholder strings — Finder caches
+        // whatever we return here as the user-visible path component,
+        // and a fake name ("mount1") poisons the metadata.
+        return info.name
     }
     var contentType: UTType {
         // Use info.isDirectory for type

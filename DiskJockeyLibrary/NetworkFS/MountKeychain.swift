@@ -48,8 +48,12 @@ public struct MountKeychain: Sendable {
         ]
         let updateStatus = SecItemUpdate(updateQuery as CFDictionary,
                                          updateAttrs as CFDictionary)
-        if updateStatus == errSecSuccess { return }
+        if updateStatus == errSecSuccess {
+            NSLog("[MountKeychain] updated existing item for %@", domainID)
+            return
+        }
         if updateStatus != errSecItemNotFound {
+            NSLog("[MountKeychain] update FAILED status=%d for %@", updateStatus, domainID)
             throw MountKeychainError.osstatus(updateStatus, "update")
         }
 
@@ -59,8 +63,11 @@ public struct MountKeychain: Sendable {
         addQuery[kSecAttrSynchronizable as String] = kCFBooleanFalse
         let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
         if addStatus != errSecSuccess {
+            NSLog("[MountKeychain] add FAILED status=%d for %@ (access-group=%@)",
+                  addStatus, domainID, Self.accessGroup)
             throw MountKeychainError.osstatus(addStatus, "add")
         }
+        NSLog("[MountKeychain] added new item for %@", domainID)
     }
 
     public func load(domainID: String) throws -> String {
