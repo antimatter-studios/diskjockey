@@ -1,158 +1,140 @@
 //
-// SymlinkManager.swift — creates & removes `$HOME/DiskJockey/<name>`
+// SymlinkManager.swift — creates & removes `$HOME/diskjockey/<name>`
 // symlinks pointing at the user-visible URL of a FileProvider domain.
 // CLI tools (and Finder shortcuts) can then navigate to a stable path
 // without having to know the volatile CloudStorage location.
 //
-// Sandbox note: writing symlinks under `$HOME` from a sandboxed app is
-// NOT permitted by default. `com.apple.security.temporary-exception.
-// files.home-relative-path.read-write` or `user-selected.read-write`
-// can open the door, but the simplest path for a POC is to disable
-// sandboxing on this target (or rely on the user-selected bookmark
-// flow). For now we attempt `FileManager.createSymbolicLink` and
-// surface any failure so the caller can decide whether to keep going.
-// See `SymlinkError.sandboxBlocked` for the expected failure mode.
+// The host app is sandboxed (App Store requirement). We reach $HOME
+// via a one-time user-approved NSOpenPanel + security-scoped bookmark,
+// managed by `HomeAccessService`. Every file-system op in this class
+// runs inside `access.withAccess { url in … }` so the bookmark's
+// startAccessing/stopAccessing lifecycle is always balanced.
 //
 
 import Foundation
 import DiskJockeyLibrary
 
 public enum SymlinkError: Error, LocalizedError {
-    case homeUnavailable
-    case sandboxBlocked(underlying: Error)
+    case accessDenied(underlying: Error)
     case ioFailed(String)
+    case pathCollision(String)
 
     public var errorDescription: String? {
         switch self {
-        case .homeUnavailable:
-            return "Could not determine the user's home directory."
-        case .sandboxBlocked(let underlying):
-            return "The app sandbox blocked symlink creation: \(underlying.localizedDescription)"
+        case .accessDenied(let underlying):
+            return "Could not access the DiskJockey folder: \(underlying.localizedDescription)"
         case .ioFailed(let msg):
             return "Symlink I/O failed: \(msg)"
+        case .pathCollision(let msg):
+            return msg
         }
     }
 }
 
 @MainActor
 public final class SymlinkManager {
-    /// Directory under `$HOME` that holds all DiskJockey symlinks.
-    /// Created lazily on first write. Lowercase by convention — the
-    /// symlink tree is primarily a shell-friendly affordance, and
-    /// $HOME/diskjockey/ reads + tabs more naturally than an
-    /// uppercased one.
-    public static let dirName = "diskjockey"
+    private let access: HomeAccessService
 
-    public init() {}
-
-    /// The parent directory (`~/DiskJockey`). We resolve this via
-    /// `FileManager.default.homeDirectoryForCurrentUser` rather than
-    /// `NSHomeDirectory()` because the latter returns the sandbox
-    /// container inside an app-sandbox build — and we explicitly want
-    /// the real `$HOME` so CLI tools outside the sandbox can see the
-    /// symlinks.
-    public var rootDirectory: URL {
-        // `homeDirectoryForCurrentUser` returns the REAL home even
-        // inside a sandboxed process (though actually reading/writing
-        // it may still be blocked by the sandbox).
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        return home.appendingPathComponent(Self.dirName, isDirectory: true)
+    public init(access: HomeAccessService) {
+        self.access = access
     }
 
-    /// Ensure `~/DiskJockey` exists. Idempotent. Throws if `$HOME` is
-    /// not discoverable or the sandbox denies the write.
+    /// Ensure the user-selected DiskJockey folder exists and return its
+    /// path inside a security-scoped-resource block. Throws if the user
+    /// cancels the picker.
     @discardableResult
     public func ensureRootDirectory() throws -> URL {
-        let dir = rootDirectory
-        let fm = FileManager.default
-        var isDir: ObjCBool = false
-        if fm.fileExists(atPath: dir.path, isDirectory: &isDir) {
-            if isDir.boolValue { return dir }
-            throw SymlinkError.ioFailed("\(dir.path) exists but is not a directory")
+        return try access.withAccess { url in
+            let fm = FileManager.default
+            if !fm.fileExists(atPath: url.path) {
+                try fm.createDirectory(at: url, withIntermediateDirectories: true)
+            }
+            return url
         }
-        do {
-            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        } catch {
-            // Sandbox deny = "Operation not permitted" (EPERM) or
-            // NSCocoaErrorDomain 513 depending on the Cocoa layer.
-            throw SymlinkError.sandboxBlocked(underlying: error)
-        }
-        return dir
     }
 
-    /// Create (or replace) `~/DiskJockey/<name>` pointing at `target`.
-    /// If a symlink with that name already exists it is removed first.
-    /// Regular files/directories at that path are LEFT ALONE to avoid
-    /// clobbering user data — we throw instead.
+    /// Create (or replace) `$HOME/diskjockey/<name>` pointing at
+    /// `target`. If a symlink with that name already exists it is
+    /// removed first. Non-symlink files/directories at that path are
+    /// LEFT ALONE to avoid clobbering user data — we throw instead.
+    @discardableResult
     public func createSymlink(name: String, target: URL) throws -> URL {
-        let root = try ensureRootDirectory()
-        let linkURL = root.appendingPathComponent(name)
-        let fm = FileManager.default
-
-        // If there's something at the path already, allow replacing
-        // only if it's a symbolic link (our own prior placement).
-        if fm.fileExists(atPath: linkURL.path) || symlinkExists(at: linkURL) {
-            let attrs = try? fm.attributesOfItem(atPath: linkURL.path)
-            let type = attrs?[.type] as? FileAttributeType
-            if type == .typeSymbolicLink || symlinkExists(at: linkURL) {
-                try? fm.removeItem(at: linkURL)
-            } else {
-                throw SymlinkError.ioFailed(
-                    "Path \(linkURL.path) already exists and is not a symlink."
-                )
+        return try access.withAccess { root in
+            let fm = FileManager.default
+            if !fm.fileExists(atPath: root.path) {
+                try fm.createDirectory(at: root, withIntermediateDirectories: true)
             }
-        }
+            let linkURL = root.appendingPathComponent(name)
 
-        do {
-            try fm.createSymbolicLink(at: linkURL, withDestinationURL: target)
-        } catch {
-            throw SymlinkError.sandboxBlocked(underlying: error)
-        }
-        return linkURL
-    }
-
-    /// Remove `~/DiskJockey/<name>` if present. No-op if missing.
-    public func removeSymlink(name: String) throws {
-        let linkURL = rootDirectory.appendingPathComponent(name)
-        if symlinkExists(at: linkURL) {
+            if fm.fileExists(atPath: linkURL.path) || symlinkExists(at: linkURL) {
+                let attrs = try? fm.attributesOfItem(atPath: linkURL.path)
+                let type = attrs?[.type] as? FileAttributeType
+                if type == .typeSymbolicLink || symlinkExists(at: linkURL) {
+                    try? fm.removeItem(at: linkURL)
+                } else {
+                    throw SymlinkError.pathCollision(
+                        "Path \(linkURL.path) already exists and is not a symlink."
+                    )
+                }
+            }
             do {
-                try FileManager.default.removeItem(at: linkURL)
+                try fm.createSymbolicLink(at: linkURL, withDestinationURL: target)
             } catch {
-                throw SymlinkError.ioFailed(error.localizedDescription)
+                throw SymlinkError.accessDenied(underlying: error)
+            }
+            return linkURL
+        }
+    }
+
+    /// Remove `$HOME/diskjockey/<name>` if present. No-op if missing.
+    public func removeSymlink(name: String) throws {
+        try access.withAccess { root in
+            let linkURL = root.appendingPathComponent(name)
+            if symlinkExists(at: linkURL) {
+                do {
+                    try FileManager.default.removeItem(at: linkURL)
+                } catch {
+                    throw SymlinkError.ioFailed(error.localizedDescription)
+                }
             }
         }
     }
 
-    /// Walk `~/DiskJockey` and delete any symlinks whose targets no
-    /// longer resolve. Called on launch to clean up after killed
-    /// extensions / deleted domains.
+    /// Walk `$HOME/diskjockey` and delete any symlinks whose targets
+    /// no longer resolve. Swallows the user-cancelled-panel case —
+    /// on app launch we don't want to force a prompt before the user
+    /// has asked for anything.
     public func sweepDangling() {
-        let fm = FileManager.default
-        let dir = rootDirectory
-        guard fm.fileExists(atPath: dir.path) else { return }
-        guard let entries = try? fm.contentsOfDirectory(
-            at: dir,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ) else { return }
-
-        for entry in entries {
-            guard symlinkExists(at: entry) else { continue }
-            // Resolve the symlink and check its target.
-            guard let dest = try? fm.destinationOfSymbolicLink(atPath: entry.path) else {
-                try? fm.removeItem(at: entry)
-                continue
+        do {
+            try access.withAccess { root in
+                let fm = FileManager.default
+                guard fm.fileExists(atPath: root.path) else { return }
+                guard let entries = try? fm.contentsOfDirectory(
+                    at: root,
+                    includingPropertiesForKeys: nil,
+                    options: [.skipsHiddenFiles]
+                ) else { return }
+                for entry in entries {
+                    guard symlinkExists(at: entry) else { continue }
+                    guard let dest = try? fm.destinationOfSymbolicLink(atPath: entry.path) else {
+                        try? fm.removeItem(at: entry)
+                        continue
+                    }
+                    let destURL: URL
+                    if (dest as NSString).isAbsolutePath {
+                        destURL = URL(fileURLWithPath: dest)
+                    } else {
+                        destURL = entry.deletingLastPathComponent()
+                            .appendingPathComponent(dest)
+                    }
+                    if !fm.fileExists(atPath: destURL.path) {
+                        try? fm.removeItem(at: entry)
+                    }
+                }
             }
-            let destURL: URL
-            if (dest as NSString).isAbsolutePath {
-                destURL = URL(fileURLWithPath: dest)
-            } else {
-                destURL = entry.deletingLastPathComponent()
-                    .appendingPathComponent(dest)
-            }
-            if !fm.fileExists(atPath: destURL.path) {
-                try? fm.removeItem(at: entry)
-            }
+        } catch {
+            // User hasn't approved a folder yet (first launch, no
+            // direct mounts). That's fine — nothing to sweep.
         }
     }
 
@@ -165,24 +147,24 @@ public final class SymlinkManager {
     }
 
     /// Pick a symlink filename that doesn't collide with anything
-    /// already in `~/diskjockey`. If "my_mount" is taken we try
-    /// "my_mount_2", "my_mount_3", ... TODO: This is in-process only —
-    /// two separate DiskJockey instances could race. Good enough for
-    /// a POC.
-    ///
-    /// The input is ASCII-folded + snake-cased first so shell tools
-    /// don't need to deal with Unicode / spaces in the path.
+    /// already in `$HOME/diskjockey`. ASCII-folds + snake-cases so
+    /// shell tools don't need to deal with Unicode / spaces.
     public func uniqueName(preferred: String) -> String {
-        let root = rootDirectory
-        let fm = FileManager.default
         let base = Self.snakeCaseASCII(preferred)
+        // Try to resolve the folder; if the user hasn't picked it yet
+        // we still return a sensible name (collision check happens
+        // again at createSymlink time).
+        let existing: Set<String> = (try? access.withAccess { root in
+            let fm = FileManager.default
+            let entries = (try? fm.contentsOfDirectory(atPath: root.path)) ?? []
+            return Set(entries)
+        }) ?? []
         var candidate = base
         var n = 2
-        while fm.fileExists(atPath: root.appendingPathComponent(candidate).path)
-                || symlinkExists(at: root.appendingPathComponent(candidate)) {
+        while existing.contains(candidate) {
             candidate = "\(base)_\(n)"
             n += 1
-            if n > 999 { break } // don't spin forever
+            if n > 999 { break }
         }
         return candidate
     }
@@ -192,15 +174,13 @@ public final class SymlinkManager {
     /// replace runs of non-alphanumerics with a single underscore,
     /// trim leading/trailing underscores. Empty input → "mount".
     static func snakeCaseASCII(_ s: String) -> String {
-        // ASCII-fold: Unicode NFD + strip non-ASCII code points. Keeps
-        // "Café" recognizable ("cafe") rather than erasing it entirely.
         let folded = s.applyingTransform(.toLatin, reverse: false)
             .flatMap { s in s.applyingTransform(.stripDiacritics, reverse: false) }
             ?? s
         let lower = folded.lowercased()
 
         var out = ""
-        var lastWasSep = true // lead with no separator
+        var lastWasSep = true
         for ch in lower {
             if ch.isLetter || ch.isNumber {
                 out.append(ch)
