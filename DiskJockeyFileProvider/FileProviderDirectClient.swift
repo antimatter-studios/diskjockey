@@ -56,6 +56,11 @@ final class FileProviderDirectClient {
     let config: DirectMountConfig
     private let password: String
 
+    /// Per-mount logger — carries `fields["mount"]=<domainID>` on every
+    /// line. The FileProvider extension instantiates one per domain
+    /// and hands it in here so both sides log against the same tag.
+    private let mlog: TaggedLogger
+
     /// Swift-side "we've called ftp_mount successfully this process" flag.
     /// Not authoritative — libftp is the source of truth — but lets us
     /// skip repeat mount calls on the happy path.
@@ -66,10 +71,12 @@ final class FileProviderDirectClient {
     /// domainID. Throws if either read fails; callers should fall back
     /// to XPC on any error.
     init(domainID: String,
+         log: TaggedLogger,
          store: MountConfigStore = MountConfigStore(),
          keychain: MountKeychain = MountKeychain()) throws {
         self.domainID = domainID
         self.libftpID = Self.libftpID(for: domainID)
+        self.mlog = log
         do {
             self.config = try store.load(domainID: domainID)
         } catch {
@@ -161,7 +168,7 @@ final class FileProviderDirectClient {
         lock.unlock()
         guard wasMounted else { return }
         do { try FTPDriver.disconnect(mountID: libftpID) }
-        catch { NSLog("[FileProviderDirectClient] disconnect error: \(error)") }
+        catch { mlog.error("disconnect error: \(error)") }
     }
 
     // MARK: - Helpers

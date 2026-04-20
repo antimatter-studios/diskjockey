@@ -63,14 +63,22 @@ public struct ParsedLogLine {
     public let level: String
     public let source: String
     public let message: String
+    /// BSD device name (e.g. "disk6") if the event is tagged with one,
+    /// or if the message text obviously refers to one. Routes to
+    /// AttachedDisksModel's per-disk log strip.
     public let bsd: String?
+    /// FileProvider domain identifier (NSFileProviderDomain.rawValue)
+    /// if the event carries `fields["mount"]`. Routes to
+    /// DirectMountRegistry's per-mount log strip.
+    public let mount: String?
     public init(timestamp: Date, level: String, source: String,
-                message: String, bsd: String?) {
+                message: String, bsd: String?, mount: String? = nil) {
         self.timestamp = timestamp
         self.level = level
         self.source = source
         self.message = message
         self.bsd = bsd
+        self.mount = mount
     }
 }
 

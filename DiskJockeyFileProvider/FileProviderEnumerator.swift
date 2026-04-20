@@ -13,19 +13,22 @@ class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
     private let mountID: String
     private let xpcClient: FileProviderXPCClient
     private let directClient: FileProviderDirectClient?
+    private let mlog: TaggedLogger
     private let anchor = NSFileProviderSyncAnchor("an anchor".data(using: .utf8)!)
 
     init(enumeratedItemIdentifier: NSFileProviderItemIdentifier,
          mountID: String,
          xpcClient: FileProviderXPCClient,
-         directClient: FileProviderDirectClient? = nil) {
+         directClient: FileProviderDirectClient? = nil,
+         mlog: TaggedLogger) {
         self.enumeratedItemIdentifier = enumeratedItemIdentifier
         self.mountID = mountID
         self.xpcClient = xpcClient
         self.directClient = directClient
+        self.mlog = mlog
         super.init()
         let route = directClient != nil ? "direct" : "xpc"
-        log.info("Init for \(enumeratedItemIdentifier.rawValue) (mount \(mountID), route \(route))")
+        self.mlog.info("Enumerator init for \(enumeratedItemIdentifier.rawValue) (route \(route))")
     }
 
     func invalidate() { }
@@ -40,7 +43,7 @@ class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
             path = raw.hasPrefix("item-") ? String(raw.dropFirst("item-".count)) : "/"
         }
 
-        log.info("Listing path: \(path) (mount \(mountID))")
+        self.mlog.info("Listing path: \(path) (mount \(mountID))")
 
         if let direct = directClient {
             enumerateViaDirect(direct: direct, path: path, observer: observer)
@@ -50,19 +53,19 @@ class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
         // XPC fallback
         xpcClient.listDirectory(mountID: mountID, path: path) { response in
             guard let response = response else {
-                log.info("No response from XPC bridge")
+                self.mlog.info("No response from XPC bridge")
                 observer.finishEnumeratingWithError(NSFileProviderError(.serverUnreachable))
                 return
             }
 
             if case .error(let err) = response.responseType {
-                log.error("Error: \(err.message)")
+                self.mlog.error("Error: \(err.message)")
                 observer.finishEnumeratingWithError(NSFileProviderError(.serverUnreachable))
                 return
             }
 
             guard case .list(let listResp) = response.responseType else {
-                log.info("Unexpected response type")
+                self.mlog.info("Unexpected response type")
                 observer.finishEnumeratingWithError(NSFileProviderError(.serverUnreachable))
                 return
             }
@@ -78,7 +81,7 @@ class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
                 )
             }
 
-            log.info("Enumerated \(items.count) items")
+            self.mlog.info("Enumerated \(items.count) items")
             observer.didEnumerate(items)
             observer.finishEnumerating(upTo: nil)
         }
@@ -95,11 +98,11 @@ class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
                 let items = entries.map { info in
                     FileProviderItem(info: info.toFileItem(), parentPath: path)
                 }
-                log.info("direct enumerated \(items.count) items at \(path)")
+                self.mlog.info("direct enumerated \(items.count) items at \(path)")
                 observer.didEnumerate(items)
                 observer.finishEnumerating(upTo: nil)
             } catch {
-                log.error("direct listDir(\(path)) failed: \("\(error)")")
+                self.mlog.error("direct listDir(\(path)) failed: \("\(error)")")
                 observer.finishEnumeratingWithError(FileProviderExtension.mapError(error))
             }
         }

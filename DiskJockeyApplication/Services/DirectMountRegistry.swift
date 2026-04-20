@@ -89,6 +89,17 @@ public final class DirectMountRegistry: ObservableObject {
     /// Observed by the sidebar so it can show direct mounts live.
     @Published public private(set) var mounts: [DirectMount] = []
 
+    /// Per-mount log buffer keyed by domain identifier (same string as
+    /// `DirectMount.domainID` / `fields["mount"]` on every
+    /// FileProvider-extension log line). Populated by
+    /// `applyLogLine(_:)` from the LogTailService pipeline; read by
+    /// `DirectMountDetailView` to render a per-mount log strip.
+    ///
+    /// Capped per mount so a chatty FTP server doesn't blow up memory.
+    /// Ordered oldest-first within each bucket — the view renders a
+    /// tail slice so scrolling works naturally.
+    @Published public private(set) var mountLogs: [String: [AttachedDiskLogLine]] = [:]
+
     private let configStore: MountConfigStore
     private let keychain: MountKeychain
     private let symlinks: SymlinkManager
@@ -96,6 +107,7 @@ public final class DirectMountRegistry: ObservableObject {
 
     private static let defaultsKey = "DirectMountRegistry.mounts.v1"
     private static let defaultsSuite = "group.com.antimatterstudios.diskjockey"
+    private static let logCap = 500
 
     public init(
         configStore: MountConfigStore = MountConfigStore(),
@@ -303,6 +315,38 @@ public final class DirectMountRegistry: ObservableObject {
     /// passes through when the user clicks a row).
     public func mount(withID id: UUID) -> DirectMount? {
         mounts.first { $0.id == id }
+    }
+
+    /// Feed a parsed log line into the per-mount buffer if it's
+    /// tagged with a `mount` field matching one of our domains.
+    /// Lines with no `mount` tag or a tag we don't recognise are
+    /// dropped — the central log view still sees them via
+    /// logRepository; this router is for the detail view's
+    /// mount-scoped strip only.
+    public func applyLogLine(_ line: ParsedLogLine) {
+        guard let mount = line.mount else { return }
+        let knownIDs = Set(mounts.map { $0.domainID })
+        guard knownIDs.contains(mount) else { return }
+        let entry = AttachedDiskLogLine(
+            timestamp: line.timestamp,
+            level: line.level,
+            message: line.message,
+            source: line.source
+        )
+        var bucket = mountLogs[mount] ?? []
+        bucket.append(entry)
+        if bucket.count > Self.logCap {
+            bucket.removeFirst(bucket.count - Self.logCap)
+        }
+        mountLogs[mount] = bucket
+    }
+
+    /// Read-only accessor for the log strip. Returns the last `tail`
+    /// lines for the given domain, oldest-first.
+    public func logs(forDomainID id: String, tail: Int = 200) -> [AttachedDiskLogLine] {
+        let all = mountLogs[id] ?? []
+        if all.count <= tail { return all }
+        return Array(all.suffix(tail))
     }
 
     /// Query NSFileProviderManager for the list of registered domains

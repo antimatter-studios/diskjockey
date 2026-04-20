@@ -41,6 +41,12 @@ struct DirectMountDetailView: View {
                     if let error = actionError {
                         errorBanner(error)
                     }
+
+                    Divider()
+                        .padding(.horizontal, 24)
+                        .padding(.top, 8)
+
+                    logStrip(for: mount)
                 }
             }
             .toolbar {
@@ -154,6 +160,82 @@ struct DirectMountDetailView: View {
         }
         .padding(24)
     }
+
+    // MARK: - Per-mount log strip
+
+    @ViewBuilder
+    private func logStrip(for mount: DirectMount) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Log")
+                    .font(.headline)
+                Spacer()
+                let total = registry.mountLogs[mount.domainID]?.count ?? 0
+                Text("\(total) lines")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+
+            let lines = registry.logs(forDomainID: mount.domainID, tail: 200)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 1) {
+                    if lines.isEmpty {
+                        Text("No log events for this mount yet.")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            .padding(8)
+                    } else {
+                        ForEach(lines) { line in
+                            logRow(line)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(minHeight: 140, maxHeight: 320)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.secondary.opacity(0.06))
+            )
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 24)
+        .padding(.top, 12)
+    }
+
+    @ViewBuilder
+    private func logRow(_ line: AttachedDiskLogLine) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Text(Self.rowTimestampFormatter.string(from: line.timestamp))
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+            Text(line.level)
+                .font(.caption2.bold())
+                .foregroundStyle(logLevelColor(line.level))
+                .frame(width: 44, alignment: .leading)
+            Text(line.message)
+                .font(.caption.monospaced())
+                .foregroundStyle(.primary)
+                .textSelection(.enabled)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 1)
+    }
+
+    private func logLevelColor(_ level: String) -> Color {
+        switch level.uppercased() {
+        case "ERROR": return .red
+        case "WARN":  return .orange
+        case "DEBUG": return .gray
+        default:      return .secondary
+        }
+    }
+
+    private static let rowTimestampFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss.SSS"
+        return f
+    }()
 
     @ViewBuilder
     private func detailRow(label: String, value: String) -> some View {
