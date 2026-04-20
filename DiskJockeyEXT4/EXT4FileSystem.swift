@@ -134,29 +134,6 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         )
         dlog.info("loadResource \(bsdName): blockSize=\(blockDevice.blockSize) blockCount=\(blockDevice.blockCount)")
 
-        // Peek the superblock's s_state field to emit a clean/dirty
-        // signal for the UI. Unlike NTFS, ext4 journal replay happens
-        // automatically inside fs_ext4_mount_with_callbacks, so we
-        // don't need a separate fsck pass — just visibility.
-        // Superblock starts at byte 1024; s_state is u16 LE at offset
-        // 0x3A. EXT4_VALID_FS=1 means cleanly unmounted.
-        do {
-            var sbBuf = [UInt8](repeating: 0, count: 1024)
-            let bytesRead = try sbBuf.withUnsafeMutableBytes { rb in
-                try blockDevice.read(into: rb, startingAt: 1024, length: 1024)
-            }
-            if bytesRead >= 0x3C {
-                let state = UInt16(sbBuf[0x3A]) | (UInt16(sbBuf[0x3B]) << 8)
-                let clean = state == 1   // EXT4_VALID_FS
-                dlog.event(kind: clean ? "volume.clean" : "volume.dirty",
-                           fields: ["s_state": "0x\(String(state, radix: 16))"])
-            }
-        } catch {
-            dlog.event(kind: "dirty.check.failed",
-                       fields: ["error": error.localizedDescription],
-                       level: .warn)
-        }
-
         let context = BlockDeviceContext(resource: blockDevice, log: dlog)
         let contextPtr = Unmanaged.passRetained(context).toOpaque()
 
@@ -191,7 +168,7 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         )
 
         containerStatus = .ready
-        dlog.info("volume ready: \"\(volInfo.name)\" blocks=\(volInfo.totalBlocks) free=\(volInfo.freeBlocks)")
+        dlog.info("volume ready: \"\(volInfo.name)\" blocks=\(volInfo.totalBlocks) free=\(volInfo.freeBlocks) dirty=\(volInfo.mountedDirty)")
         // Emit one compact event with volume-identity + sizing so the host
         // app can populate the detail pane without re-parsing the text log.
         dlog.event(kind: "volume.info", fields: [
@@ -203,6 +180,12 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             "total_inodes": "\(volInfo.totalInodes)",
             "free_inodes": "\(volInfo.freeInodes)",
         ])
+        // Surface the clean/dirty signal read by the Rust driver (from
+        // s_state before any journal replay). ext4's journal replay is
+        // automatic inside fs_ext4_mount_with_callbacks, so the event is
+        // informational — no follow-up fsck required.
+        dlog.event(kind: volInfo.mountedDirty ? "volume.dirty" : "volume.clean",
+                   fields: [:])
         replyHandler(volume, nil)
     }
 
