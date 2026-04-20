@@ -175,29 +175,36 @@ enum FTPDriver {
     /// The URL's parent directory must exist.
     static func fetchFile(mountID: Int32, path: String, to url: URL) throws {
         var slice = ByteSlice(data: nil, len: 0)
+        log.info("fetchFile start mountID=\(mountID) path=\(path) → \(url.path)")
         let rc = withUnsafeMutablePointer(to: &slice) { slicePtr -> Int32 in
             path.withCString { cpath -> Int32 in
                 let mutablePath = UnsafeMutablePointer<CChar>(mutating: cpath)
                 return ftp_openfile(mountID, mutablePath, slicePtr)
             }
         }
-        guard rc == 0, let dataPtr = slice.data, slice.len >= 0 else {
-            // Defensive: if the Go side returned non-zero but still
-            // allocated a buffer, free it.
+        log.info("ftp_openfile returned rc=\(rc) slice.len=\(slice.len) data=\(slice.data == nil ? "nil" : "non-nil")")
+        guard rc == 0, slice.data != nil else {
             if let leaked = slice.data { ftp_free(leaked) }
             throw FTPDriverError.readFailed(path: path, code: rc)
         }
+        let dataPtr = slice.data!
         defer { ftp_free(dataPtr) }
 
-        // Copy the bytes out before the defer'd free. We can't hand
-        // the cgo pointer upward — ftp_free will pull the rug.
         let count = Int(slice.len)
-        let data = dataPtr.withMemoryRebound(to: UInt8.self, capacity: count) { bytes in
-            Data(bytes: bytes, count: count)
+        let data: Data
+        if count == 0 {
+            data = Data()
+        } else {
+            data = dataPtr.withMemoryRebound(to: UInt8.self, capacity: count) { bytes in
+                Data(bytes: bytes, count: count)
+            }
         }
+        log.info("fetchFile writing \(data.count) bytes → \(url.path)")
         do {
             try data.write(to: url, options: .atomic)
+            log.info("fetchFile wrote temp file; exists=\(FileManager.default.fileExists(atPath: url.path)) size=\((try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? -1)")
         } catch {
+            log.error("fetchFile write failed: \(error)")
             throw FTPDriverError.tempFileFailed(url, error)
         }
     }

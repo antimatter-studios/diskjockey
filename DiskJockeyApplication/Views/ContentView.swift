@@ -66,7 +66,10 @@ struct ContentView: View {
             // hasFolder flips and we fall through to the regular
             // "select a mount" placeholder.
             if !homeAccess.hasFolder {
-                NetworkDrivesSetupView(homeAccess: homeAccess)
+                NetworkDrivesSetupView(
+                    homeAccess: homeAccess,
+                    registry: container.directMountRegistry
+                )
             } else {
                 ContentUnavailableView(
                     "No Mount Selected",
