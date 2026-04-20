@@ -149,11 +149,53 @@ struct DirectMountDetailView: View {
     @ViewBuilder
     private func details(_ mount: DirectMount) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            detailRow(label: "Host", value: mount.config.host)
-            detailRow(label: "Port", value: String(mount.config.port))
-            detailRow(label: "User", value: mount.config.user)
-            detailRow(label: "Remote Path", value: mount.config.rootPath)
-            detailRow(label: "FTPS", value: mount.config.ftps ? "Yes" : "No")
+            detailRow(label: "Protocol", value: mount.config.scheme.displayName)
+            // Per-protocol fields — mounts can be any scheme, so we
+            // unpack the StoredMountConfig case rather than assuming
+            // FTP-shaped fields.
+            switch mount.config {
+            case .ftp(let c):
+                detailRow(label: "Host", value: c.host)
+                detailRow(label: "Port", value: String(c.port))
+                detailRow(label: "User", value: c.user)
+                detailRow(label: "Remote Path", value: c.rootPath)
+                detailRow(label: "FTPS", value: c.ftps ? "Yes" : "No")
+            case .sftp(let c):
+                detailRow(label: "Host", value: c.host)
+                detailRow(label: "Port", value: String(c.port))
+                detailRow(label: "User", value: c.user)
+                detailRow(label: "Remote Path", value: c.rootPath)
+                detailRow(label: "SSH Agent", value: c.useSSHAgent ? "Yes" : "No")
+            case .smb(let c):
+                detailRow(label: "Host", value: c.host)
+                detailRow(label: "Port", value: String(c.port))
+                detailRow(label: "Share", value: c.share)
+                detailRow(label: "User", value: c.user)
+                detailRow(label: "Remote Path", value: c.rootPath)
+            case .dropbox:
+                detailRow(label: "Account", value: "Stored in keychain")
+            case .webdav(let c):
+                detailRow(label: "URL", value: c.url)
+                detailRow(label: "User", value: c.user)
+                detailRow(label: "Path Prefix", value: c.pathPrefix)
+            case .gdrive(let c):
+                detailRow(label: "Client ID", value: c.clientID)
+                detailRow(label: "Refresh Token", value: "Stored in keychain")
+            case .s3(let c):
+                detailRow(label: "Endpoint", value: c.endpoint)
+                detailRow(label: "Bucket", value: c.bucket)
+                detailRow(label: "Region", value: c.region)
+                detailRow(label: "Access Key", value: c.accessKeyID)
+                if !c.prefix.isEmpty {
+                    detailRow(label: "Prefix", value: c.prefix)
+                }
+                detailRow(label: "TLS", value: c.secure ? "Yes" : "No")
+                detailRow(label: "Path Style", value: c.usePathStyle ? "Yes" : "No")
+                detailRow(label: "Secret Key", value: "Stored in keychain")
+            case .onedrive(let c):
+                detailRow(label: "Client ID", value: c.clientID)
+                detailRow(label: "Refresh Token", value: "Stored in keychain")
+            }
             detailRow(label: "Symlink", value: "~/diskjockey/\(mount.symlinkName)")
             detailRow(label: "Domain ID", value: mount.domainID)
             detailRow(label: "Created", value: mount.createdAt.formatted(date: .abbreviated, time: .shortened))

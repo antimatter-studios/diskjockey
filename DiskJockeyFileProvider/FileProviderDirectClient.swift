@@ -1,20 +1,22 @@
 //
-// FileProviderDirectClient.swift — per-domain handle around FTPDriver.
+// FileProviderDirectClient.swift — per-domain handle around
+// NetworkFSDriver, parameterised by a StoredMountConfig personality.
 //
 // One instance per NSFileProviderDomain. Owns:
 //
-//   • the stable Int32 mountID libftp uses as its global-map key
-//   • the DirectMountConfig + password pulled from
-//     MountConfigStore / MountKeychain at init time
-//   • lazy "have we called ftp_mount yet?" state
+//   • the stable Int32 mountID libnetworkfs uses as its MountManager key
+//   • the StoredMountConfig + password pulled from MountConfigStore /
+//     MountKeychain at init time
+//   • lazy "have we called networkfs_mount yet?" state
 //
 // The FileProvider extension is short-lived (FSKit can respawn it
 // between ops), so the Swift-side state here is recreated each spawn.
-// That's fine: libftp's global FTPDriver{} map persists as long as
-// libftp is loaded into the extension's address space, so a subsequent
-// client with the same mountID hops straight back to an already-mounted
-// session. We still call `ensureConnected()` before every op in case
-// libftp was freshly loaded (e.g. after a true process restart).
+// That's fine: libnetworkfs's global MountManager persists as long as
+// libnetworkfs is loaded into the extension's address space, so a
+// subsequent client with the same mountID hops straight back to an
+// already-mounted session. We still call `ensureConnected()` before
+// every op in case libnetworkfs was freshly loaded (e.g. after a true
+// process restart).
 //
 // On a transient failure the client drops its "mounted" flag and the
 // next op re-mounts. Kept dumb — no retry loops, no exponential backoff.
@@ -29,7 +31,7 @@ import DiskJockeyLibrary
 enum FileProviderDirectClientError: Error, CustomStringConvertible {
     case missingPassword(domainID: String, underlying: Error)
     case missingConfig(domainID: String, underlying: Error)
-    case driver(FTPDriverError)
+    case driver(NetworkFSDriverError)
 
     var description: String {
         switch self {
@@ -45,15 +47,16 @@ enum FileProviderDirectClientError: Error, CustomStringConvertible {
 
 final class FileProviderDirectClient {
     /// Human-readable domain identifier (what NSFileProviderDomain
-    /// carries). Kept for diagnostics only; libftp keys by `libftpID`.
+    /// carries). Kept for diagnostics only; libnetworkfs keys by `mountID`.
     let domainID: String
 
-    /// The Int32 libftp uses as its map key. Derived deterministically
-    /// from `domainID` — see `Self.libftpID(for:)`. Using a hash keeps
-    /// the domainID → Int mapping stable across extension respawns.
-    let libftpID: Int32
+    /// The Int32 libnetworkfs uses as its MountManager key. Derived
+    /// deterministically from `domainID` — see `Self.mountID(for:)`.
+    /// Using a hash keeps the domainID → Int mapping stable across
+    /// extension respawns.
+    let mountID: Int32
 
-    let config: DirectMountConfig
+    let config: StoredMountConfig
     private let password: String
 
     /// Per-mount logger — carries `fields["mount"]=<domainID>` on every
@@ -61,9 +64,9 @@ final class FileProviderDirectClient {
     /// and hands it in here so both sides log against the same tag.
     private let mlog: TaggedLogger
 
-    /// Swift-side "we've called ftp_mount successfully this process" flag.
-    /// Not authoritative — libftp is the source of truth — but lets us
-    /// skip repeat mount calls on the happy path.
+    /// Swift-side "we've called networkfs_mount successfully this
+    /// process" flag. Not authoritative — libnetworkfs is the source
+    /// of truth — but lets us skip repeat mount calls on the happy path.
     private var mounted = false
     private let lock = NSLock()
 
@@ -75,7 +78,7 @@ final class FileProviderDirectClient {
          store: MountConfigStore = MountConfigStore(),
          keychain: MountKeychain = MountKeychain()) throws {
         self.domainID = domainID
-        self.libftpID = Self.libftpID(for: domainID)
+        self.mountID = Self.mountID(for: domainID)
         self.mlog = log
         do {
             self.config = try store.load(domainID: domainID)
@@ -95,18 +98,19 @@ final class FileProviderDirectClient {
 
     // MARK: - Lazy mount
 
-    /// Idempotent: first call runs `ftp_mount`, later calls are no-ops
-    /// unless a prior op reset `mounted` (reconnect path).
+    /// Idempotent: first call runs `networkfs_mount`, later calls are
+    /// no-ops unless a prior op reset `mounted` (reconnect path).
     private func ensureConnected() throws {
         lock.lock()
         defer { lock.unlock() }
         if mounted { return }
+        let json = config.mountJSON(password: password)
         do {
-            try FTPDriver.connect(mountID: libftpID,
-                                  config: config,
-                                  password: password)
+            try NetworkFSDriver.connect(mountID: mountID,
+                                        driverType: config.driverType,
+                                        configJSON: json)
             mounted = true
-        } catch let e as FTPDriverError {
+        } catch let e as NetworkFSDriverError {
             throw FileProviderDirectClientError.driver(e)
         }
     }
@@ -119,15 +123,15 @@ final class FileProviderDirectClient {
         lock.unlock()
     }
 
-    // MARK: - Ops (all synchronous; libftp is already blocking under
-    //        the hood, and FileProvider callbacks can come in on any
-    //        queue — we don't add our own threading).
+    // MARK: - Ops (all synchronous; libnetworkfs is already blocking
+    //        under the hood, and FileProvider callbacks can come in on
+    //        any queue — we don't add our own threading).
 
     func stat(path: String) throws -> RemoteFileInfo {
         try ensureConnected()
         do {
-            return try FTPDriver.stat(mountID: libftpID, path: path)
-        } catch let e as FTPDriverError {
+            return try NetworkFSDriver.stat(mountID: mountID, path: path)
+        } catch let e as NetworkFSDriverError {
             if case .operationFailed = e { /* fine — data-layer error */ }
             else { markDisconnected() }
             throw FileProviderDirectClientError.driver(e)
@@ -137,25 +141,27 @@ final class FileProviderDirectClient {
     func listDir(path: String) throws -> [RemoteFileInfo] {
         try ensureConnected()
         do {
-            return try FTPDriver.listDir(mountID: libftpID, path: path)
-        } catch let e as FTPDriverError {
+            return try NetworkFSDriver.listDir(mountID: mountID, path: path)
+        } catch let e as NetworkFSDriverError {
             if case .operationFailed = e { /* data-layer, keep session */ }
             else { markDisconnected() }
             throw FileProviderDirectClientError.driver(e)
         }
     }
 
-    /// Download `path` into a freshly-created file under the extension's
-    /// working directory. Returns the URL of the temp file.
-    func fetchFile(path: String) throws -> URL {
+    /// Download `path` into a caller-provided URL. The caller is
+    /// responsible for picking a location that `fileproviderd` can
+    /// read — typically `NSFileProviderManager(for:).temporaryDirectoryURL()`.
+    /// We don't pick the URL ourselves because the appropriate temp
+    /// dir depends on the NSFileProviderDomain, which the client
+    /// doesn't carry.
+    func fetchFile(path: String, to url: URL) throws {
         try ensureConnected()
-        let url = workingFileURL()
         do {
-            try FTPDriver.fetchFile(mountID: libftpID, path: path, to: url)
-            return url
-        } catch let e as FTPDriverError {
+            try NetworkFSDriver.fetchFile(mountID: mountID, path: path, to: url)
+        } catch let e as NetworkFSDriverError {
             // Treat read failures as session-fatal only if the code is
-            // non-data. Today libftp doesn't distinguish — be safe.
+            // non-data. Today libnetworkfs doesn't distinguish — be safe.
             if case .readFailed = e { markDisconnected() }
             throw FileProviderDirectClientError.driver(e)
         }
@@ -167,38 +173,28 @@ final class FileProviderDirectClient {
         mounted = false
         lock.unlock()
         guard wasMounted else { return }
-        do { try FTPDriver.disconnect(mountID: libftpID) }
+        do { try NetworkFSDriver.disconnect(mountID: mountID) }
         catch { mlog.error("disconnect error: \(error)") }
     }
 
     // MARK: - Helpers
 
-    /// FileProvider extensions get a sandboxed temporary directory via
-    /// `FileManager.temporaryDirectory` that's writable without extra
-    /// entitlement. We use that for fetched file contents; the FP
-    /// framework copies the bytes into its own storage before returning
-    /// to Finder, so retention here is short.
-    private func workingFileURL() -> URL {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-    }
-
-    /// Map a domainID string → stable, nonzero Int32 libftp mountID.
+    /// Map a domainID string → stable, nonzero Int32 mountID for
+    /// libnetworkfs's MountManager.
     ///
     /// We hash with FNV-1a 32-bit (folded into positive 31 bits) so the
     /// result is:
     ///   • deterministic (same domain → same id across respawns)
-    ///   • fits in Int32 (libftp signature is `C.int`)
-    ///   • never zero (libftp uses zero as "no mount" sentinel in some
-    ///     drivers — avoid by biasing to at least 1)
-    ///   • never negative (sign bit clear; keeps the id readable in
-    ///     logs)
+    ///   • fits in Int32 (C-side signature is `C.int`)
+    ///   • never zero (MountManager uses zero as "no mount" sentinel in
+    ///     some drivers — avoid by biasing to at least 1)
+    ///   • never negative (sign bit clear; keeps the id readable in logs)
     ///
     /// Collisions between two unrelated domainIDs remain theoretically
     /// possible — if it ever happens in the wild, layer on a second
     /// step that opens mountID + 1, +2, … and tracks assignments in a
     /// static table. Not worth the complexity until we see it.
-    static func libftpID(for domainID: String) -> Int32 {
+    static func mountID(for domainID: String) -> Int32 {
         var hash: UInt32 = 0x811C9DC5        // FNV offset basis (32-bit)
         for byte in domainID.utf8 {
             hash ^= UInt32(byte)
