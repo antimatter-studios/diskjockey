@@ -106,7 +106,7 @@ public final class BackendProcess: ObservableObject {
         let fileManager = FileManager.default
         let appSupportDir = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         
-        if let backendURL = Bundle.main.url(forResource: "diskjockey-backend", withExtension: nil) {
+        if let backendURL = Bundle.main.url(forAuxiliaryExecutable: "diskjockey-backend") {
             self.configDir = appSupportDir.appendingPathComponent("DiskJockey").path
         }
 
@@ -130,7 +130,7 @@ public final class BackendProcess: ObservableObject {
         }
         
         // Ensure the backend executable exists
-        guard let backendURL = Bundle.main.url(forResource: "diskjockey-backend", withExtension: nil) else {
+        guard let backendURL = Bundle.main.url(forAuxiliaryExecutable: "diskjockey-backend") else {
             log("Backend executable not found in bundle, aborting start.")
             throw BackendProcessError.executableNotFound
         }

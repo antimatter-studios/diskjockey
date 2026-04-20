@@ -145,7 +145,48 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
                 for i in 0..<8 { uuidBytes[i] = src[i] }
             }
             let containerID = FSContainerIdentifier(uuid: NSUUID(uuidBytes: uuidBytes) as UUID)
-            replyHandler(.usable(name: "NTFS", containerID: containerID), nil)
+
+            // Retrieve the real volume label so macOS mounts us at
+            // /Volumes/<label> instead of the generic "/Volumes/NTFS".
+            // The label lives in MFT record #3 ($Volume) and can't be
+            // read from the boot sector alone, so we do a brief read-
+            // only mount via the callback ABI (no write callback —
+            // fs_ntfs_mount is read-only), query volume info, then
+            // unmount. Empty labels fall back to "NTFS".
+            let probeContext = NTFSBlockDeviceContext(resource: blockDevice)
+            let probeContextPtr = Unmanaged.passRetained(probeContext).toOpaque()
+            defer { Unmanaged<NTFSBlockDeviceContext>.fromOpaque(probeContextPtr).release() }
+
+            var probeCfg = fs_ntfs_blockdev_cfg_t()
+            probeCfg.read = { ctx, buf, offset, length in
+                guard let ctx = ctx, let buf = buf else { return EIO }
+                let context = Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                return context.read(into: buf, offset: off_t(offset), length: Int(length))
+            }
+            probeCfg.context = probeContextPtr
+            probeCfg.size_bytes = blockDevice.blockCount * blockDevice.blockSize
+
+            var label = "NTFS"
+            if let probeFS = fs_ntfs_mount_with_callbacks(&probeCfg) {
+                var volInfo = fs_ntfs_volume_info_t()
+                if fs_ntfs_get_volume_info(probeFS, &volInfo) == 0 {
+                    let parsed = withUnsafePointer(to: volInfo.volume_name) { ptr in
+                        ptr.withMemoryRebound(to: CChar.self, capacity: 128) { cstr in
+                            String(cString: cstr)
+                        }
+                    }
+                    if !parsed.isEmpty {
+                        label = parsed
+                    }
+                }
+                fs_ntfs_umount(probeFS)
+            } else {
+                let err = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "(no error)"
+                log.warn("probe: volume label lookup failed — \(err); using fallback 'NTFS'")
+            }
+
+            log.info("probe: label=\"\(label)\"")
+            replyHandler(.usable(name: label, containerID: containerID), nil)
         } catch {
             log.error("probe: block-device read failed — \(error.localizedDescription)")
             replyHandler(.notRecognized, nil)
@@ -272,6 +313,18 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         // resource fail with EAGAIN ("Resource temporarily unavailable").
         containerStatus = .ready
         log.info("volume ready: \"\(resolvedName)\"")
+        // Emit one compact event with volume-identity + sizing so the host
+        // app can populate the detail pane without re-parsing the text log.
+        log.event(kind: "volume.info", fields: [
+            "bsd": bsdName,
+            "fs": "ntfs",
+            "volume_name": resolvedName,
+            "cluster_size": "\(volInfo.cluster_size)",
+            "total_clusters": "\(volInfo.total_clusters)",
+            "total_size": "\(volInfo.total_size)",
+            "ntfs_version": "\(volInfo.ntfs_version_major).\(volInfo.ntfs_version_minor)",
+            "serial_number": "0x\(String(volInfo.serial_number, radix: 16))",
+        ])
         replyHandler(volume, nil)
     }
 
@@ -287,5 +340,24 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
     }
 
     func didFinishLoading() {
+    }
+}
+
+// fskitd calls `_checkResource:` on every mount (not just explicit fsck)
+// to decide whether to go down the check/repair path. Without this
+// conformance the call returns ENOTSUP (POSIX 45) and the system
+// refuses to mount. EXT4 has the same stub — keep them in sync.
+extension NTFSFileSystem: FSManageableResourceMaintenanceOperations {
+    func startCheck(task: FSTask, options: FSTaskOptions) throws -> Progress {
+        let progress = Progress(totalUnitCount: 100)
+        Task {
+            progress.completedUnitCount = 100
+            task.didComplete(error: nil)
+        }
+        return progress
+    }
+
+    func startFormat(task: FSTask, options: FSTaskOptions) throws -> Progress {
+        throw POSIXError(.ENOSYS)
     }
 }
