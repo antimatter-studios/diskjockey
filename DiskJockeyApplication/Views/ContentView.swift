@@ -24,7 +24,8 @@ struct ContentView: View {
         .sheet(isPresented: $showingAddMount) {
             AddMountView(
                 diskTypeRepository: container.diskTypeRepository,
-                mountRepository: container.mountRepository
+                mountRepository: container.mountRepository,
+                directMountRegistry: container.directMountRegistry
             )
             .frame(minWidth: 480, minHeight: 400)
         }
@@ -35,6 +36,8 @@ struct ContentView: View {
         switch sidebarModel.selectedItem {
         case .mount(let id):
             MountDetailView(mountId: id, container: container)
+        case .directMount(let id):
+            DirectMountDetailView(mountID: id, container: container)
         case .logs:
             LogView()
                 .environmentObject(container.appLogModel)
@@ -66,6 +69,7 @@ private struct SidebarView: View {
 
     @ObservedObject private var mountRepository: MountRepository
     @ObservedObject private var attachedDisks: AttachedDisksModel
+    @ObservedObject private var directMountRegistry: DirectMountRegistry
 
     init(container: AppContainer, sidebarModel: SidebarModel, showingAddMount: Binding<Bool>) {
         self.container = container
@@ -73,6 +77,7 @@ private struct SidebarView: View {
         self._showingAddMount = showingAddMount
         self.mountRepository = container.mountRepository
         self.attachedDisks = container.attachedDisks
+        self.directMountRegistry = container.directMountRegistry
     }
 
     var body: some View {
@@ -87,15 +92,23 @@ private struct SidebarView: View {
             // Mount list + logs
             List(selection: $sidebarModel.selectedItem) {
                 Section("Mounts") {
-                    if mountRepository.mounts.isEmpty && !mountRepository.isLoading {
+                    let hasBackendMounts = !mountRepository.mounts.isEmpty
+                    let hasDirectMounts = !directMountRegistry.mounts.isEmpty
+
+                    if !hasBackendMounts && !hasDirectMounts && !mountRepository.isLoading {
                         Text("No mounts configured")
                             .foregroundStyle(.secondary)
                             .font(.caption)
-                    } else {
-                        ForEach(mountRepository.mounts, id: \.id) { mount in
-                            MountSidebarRow(mount: mount)
-                                .tag(SidebarItem.mount(mount.id))
-                        }
+                    }
+
+                    ForEach(mountRepository.mounts, id: \.id) { mount in
+                        MountSidebarRow(mount: mount)
+                            .tag(SidebarItem.mount(mount.id))
+                    }
+
+                    ForEach(directMountRegistry.mounts, id: \.id) { mount in
+                        DirectMountSidebarRow(mount: mount)
+                            .tag(SidebarItem.directMount(mount.id))
                     }
 
                     if mountRepository.isLoading {
@@ -177,6 +190,32 @@ private struct MountSidebarRow: View {
                     .frame(width: 7, height: 7)
                     .help("Mounted")
             }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+// MARK: - Direct Mount Sidebar Row
+
+private struct DirectMountSidebarRow: View {
+    let mount: DirectMount
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: DiskTypeEnum.ftpDirect.systemImage)
+                .foregroundStyle(.secondary)
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(mount.displayName)
+                    .font(.body)
+                    .lineLimit(1)
+                Text(DiskTypeEnum.ftpDirect.displayName)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+
+            Spacer()
         }
         .padding(.vertical, 2)
     }
