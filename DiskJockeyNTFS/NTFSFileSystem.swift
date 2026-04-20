@@ -19,15 +19,27 @@ import Foundation
 /// by host app UI) via AppLog's configured sinks.
 let log = AppLog(source: "ntfs", sinks: AppLog.defaultSinks(source: "ntfs"))
 
-/// Wraps FSBlockDeviceResource for the C read callback. Handles block
-/// alignment — FSBlockDeviceResource.read requires offset+length
-/// aligned to blockSize, so we align + copy out the requested window.
+/// Wraps FSBlockDeviceResource for the C read + write callbacks.
+/// Handles block alignment — FSBlockDeviceResource requires aligned
+/// offset+length, so we align + copy out the requested window (for
+/// reads) or read-modify-write an aligned window (for sub-block
+/// writes).
+///
+/// The `log` property is a subject-tagged logger (carrying
+/// `fields["bsd"]=<disk>`) injected at construction time. The
+/// `@convention(c)` closures wired into `fs_ntfs_blockdev_cfg_t`
+/// can't capture Swift state, so they dispatch here via an
+/// `Unmanaged` pointer and this class does the real logging under
+/// normal Swift rules.
 final class NTFSBlockDeviceContext {
     let resource: FSBlockDeviceResource
     let blockSize: Int
-    init(resource: FSBlockDeviceResource) {
+    let log: TaggedLogger
+
+    init(resource: FSBlockDeviceResource, log: TaggedLogger) {
         self.resource = resource
         self.blockSize = Int(resource.blockSize)
+        self.log = log
     }
 
     func read(into buf: UnsafeMutableRawPointer, offset: off_t, length: Int) -> Int32 {
@@ -156,7 +168,7 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             // only mount via the callback ABI (no write callback —
             // fs_ntfs_mount is read-only), query volume info, then
             // unmount. Empty labels fall back to "NTFS".
-            let probeContext = NTFSBlockDeviceContext(resource: blockDevice)
+            let probeContext = NTFSBlockDeviceContext(resource: blockDevice, log: dlog)
             let probeContextPtr = Unmanaged.passRetained(probeContext).toOpaque()
             defer { Unmanaged<NTFSBlockDeviceContext>.fromOpaque(probeContextPtr).release() }
 
@@ -217,7 +229,7 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         )
         dlog.info("loadResource \(bsdName): blockSize=\(blockDevice.blockSize) blockCount=\(blockDevice.blockCount)")
 
-        let context = NTFSBlockDeviceContext(resource: blockDevice)
+        let context = NTFSBlockDeviceContext(resource: blockDevice, log: dlog)
         let contextPtr = Unmanaged.passRetained(context).toOpaque()
 
         var cfg = fs_ntfs_blockdev_cfg_t()

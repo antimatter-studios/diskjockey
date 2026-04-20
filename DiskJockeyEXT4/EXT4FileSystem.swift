@@ -13,12 +13,22 @@ let log = AppLog(source: "ext4", sinks: AppLog.defaultSinks(source: "ext4"))
 /// Wraps FSBlockDeviceResource for C callback access.
 /// FSBlockDeviceResource.read requires offset+length aligned to blockSize.
 /// We align to the block size and copy the requested window out of the read buffer.
+///
+/// The `log` property is a subject-tagged logger (carrying
+/// `fields["bsd"]=<disk>`) injected at construction time. The
+/// `@convention(c)` closure in `loadResource` can't capture Swift
+/// state, so it dispatches into this class via an `Unmanaged`
+/// pointer and we do the actual logging here — where regular Swift
+/// capture semantics apply.
 final class BlockDeviceContext {
     let resource: FSBlockDeviceResource
     let blockSize: Int
-    init(resource: FSBlockDeviceResource) {
+    let log: TaggedLogger
+
+    init(resource: FSBlockDeviceResource, log: TaggedLogger) {
         self.resource = resource
         self.blockSize = Int(resource.blockSize)
+        self.log = log
     }
 
     func read(into buf: UnsafeMutableRawPointer, offset: off_t, length: Int) -> Int32 {
@@ -147,7 +157,7 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
                        level: .warn)
         }
 
-        let context = BlockDeviceContext(resource: blockDevice)
+        let context = BlockDeviceContext(resource: blockDevice, log: dlog)
         let contextPtr = Unmanaged.passRetained(context).toOpaque()
 
         var cfg = fs_ext4_blockdev_cfg_t()
