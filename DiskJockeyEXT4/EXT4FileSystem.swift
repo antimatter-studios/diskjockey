@@ -64,7 +64,13 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             replyHandler(.notRecognized, nil)
             return
         }
-        log.info("probe \(blockDevice.bsdName): blockSize=\(blockDevice.blockSize) blockCount=\(blockDevice.blockCount)")
+        // All subsequent log lines in this probe carry `fields["bsd"]`
+        // so the host app routes them into the matching partition's
+        // per-disk log strip.
+        let dlog = TaggedLogger(
+            log, fields: ["bsd": blockDevice.bsdName], kind: "ext4.probe"
+        )
+        dlog.info("probe \(blockDevice.bsdName): blockSize=\(blockDevice.blockSize) blockCount=\(blockDevice.blockCount)")
 
         do {
             var buf = [UInt8](repeating: 0, count: 1024)
@@ -73,14 +79,14 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             }
 
             guard bytesRead >= 58 else {
-                log.info("probe: read \(bytesRead) bytes (< 58) — not ext4")
+                dlog.info("probe: read \(bytesRead) bytes (< 58) — not ext4")
                 replyHandler(.notRecognized, nil)
                 return
             }
 
             let magic = UInt16(buf[56]) | (UInt16(buf[57]) << 8)
             guard magic == 0xEF53 else {
-                log.info("probe: superblock magic mismatch (0x\(String(magic, radix: 16))) — not ext4")
+                dlog.info("probe: superblock magic mismatch (0x\(String(magic, radix: 16))) — not ext4")
                 replyHandler(.notRecognized, nil)
                 return
             }
@@ -90,11 +96,11 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             let volumeName = rawName.isEmpty ? "ext4" : rawName
             let uuidBytes = Array(buf[104..<120])
             let containerID = FSContainerIdentifier(uuid: NSUUID(uuidBytes: uuidBytes) as UUID)
-            log.info("probe: recognized ext4 volume \"\(volumeName)\"")
+            dlog.info("probe: recognized ext4 volume \"\(volumeName)\"")
 
             replyHandler(.usable(name: volumeName, containerID: containerID), nil)
         } catch {
-            log.error("probe: block-device read failed — \(error.localizedDescription)")
+            dlog.error("probe: block-device read failed — \(error.localizedDescription)")
             replyHandler(.notRecognized, nil)
         }
     }
@@ -110,7 +116,13 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             replyHandler(nil, POSIXError(.EINVAL))
             return
         }
-        log.info("loadResource \(blockDevice.bsdName): blockSize=\(blockDevice.blockSize) blockCount=\(blockDevice.blockCount)")
+        let bsdName = blockDevice.bsdName
+        // From here on every line carries `fields["bsd"]` — goes to the
+        // partition detail view's per-disk log strip + central log.
+        let dlog = TaggedLogger(
+            log, fields: ["bsd": bsdName], kind: "ext4.load"
+        )
+        dlog.info("loadResource \(bsdName): blockSize=\(blockDevice.blockSize) blockCount=\(blockDevice.blockCount)")
 
         // Peek the superblock's s_state field to emit a clean/dirty
         // signal for the UI. Unlike NTFS, ext4 journal replay happens
@@ -118,7 +130,6 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         // don't need a separate fsck pass — just visibility.
         // Superblock starts at byte 1024; s_state is u16 LE at offset
         // 0x3A. EXT4_VALID_FS=1 means cleanly unmounted.
-        let bsdName = blockDevice.bsdName
         do {
             var sbBuf = [UInt8](repeating: 0, count: 1024)
             let bytesRead = try sbBuf.withUnsafeMutableBytes { rb in
@@ -127,13 +138,13 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             if bytesRead >= 0x3C {
                 let state = UInt16(sbBuf[0x3A]) | (UInt16(sbBuf[0x3B]) << 8)
                 let clean = state == 1   // EXT4_VALID_FS
-                log.event(kind: clean ? "volume.clean" : "volume.dirty",
-                          fields: ["bsd": bsdName, "s_state": "0x\(String(state, radix: 16))"])
+                dlog.event(kind: clean ? "volume.clean" : "volume.dirty",
+                           fields: ["s_state": "0x\(String(state, radix: 16))"])
             }
         } catch {
-            log.event(kind: "dirty.check.failed",
-                      fields: ["bsd": bsdName, "error": error.localizedDescription],
-                      level: .warn)
+            dlog.event(kind: "dirty.check.failed",
+                       fields: ["error": error.localizedDescription],
+                       level: .warn)
         }
 
         let context = BlockDeviceContext(resource: blockDevice)
@@ -148,16 +159,16 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         cfg.context = contextPtr
         cfg.size_bytes = blockDevice.blockCount * blockDevice.blockSize
         cfg.block_size = UInt32(blockDevice.blockSize)
-        log.info("calling fs_ext4_mount_with_callbacks size=\(cfg.size_bytes) blocksize=\(cfg.block_size)")
+        dlog.info("calling fs_ext4_mount_with_callbacks size=\(cfg.size_bytes) blocksize=\(cfg.block_size)")
 
         guard let bridgeFS = fs_ext4_mount_with_callbacks(&cfg) else {
             let err = fs_ext4_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
-            log.error("mount failed in fs_ext4: \(err)")
+            dlog.error("mount failed in fs_ext4: \(err)")
             Unmanaged<BlockDeviceContext>.fromOpaque(contextPtr).release()
             replyHandler(nil, POSIXError(.EIO))
             return
         }
-        log.info("fs_ext4 mount succeeded")
+        dlog.info("fs_ext4 mount succeeded")
 
         let backend = EXT4Backend(bridgeFS: bridgeFS)
         let volInfo = backend.volumeInfo()
@@ -170,13 +181,10 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         )
 
         containerStatus = .ready
-        log.info("volume ready: \"\(volInfo.name)\" blocks=\(volInfo.totalBlocks) free=\(volInfo.freeBlocks)")
+        dlog.info("volume ready: \"\(volInfo.name)\" blocks=\(volInfo.totalBlocks) free=\(volInfo.freeBlocks)")
         // Emit one compact event with volume-identity + sizing so the host
         // app can populate the detail pane without re-parsing the text log.
-        // bsd correlates it to the right AttachedDisk entry; remaining
-        // keys are FS-agnostic except where noted.
-        log.event(kind: "volume.info", fields: [
-            "bsd": bsdName,
+        dlog.event(kind: "volume.info", fields: [
             "fs": "ext4",
             "volume_name": volInfo.name,
             "block_size": "\(volInfo.blockSize)",
