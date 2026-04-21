@@ -26,6 +26,13 @@
 #   logs-reset   — Truncate the group-container ndjson log files to zero
 #                  bytes. Useful when the historical log has grown large
 #                  enough to slow things down during diagnostics.
+#   reset-daemons — Kill pkd (per-user), fskit_agent (per-user), and fskitd
+#                  (system, needs sudo — will prompt once). launchd respawns
+#                  each automatically. Use when macOS is stuck on a stale
+#                  extension identity after a rebuild — symptoms are
+#                  `_EXExtensionIdentity: Code=5` in the system log or
+#                  `diskutil mount` failing without reaching our extension's
+#                  probe. Avoids the logout/reboot escape hatch.
 #   pluginkit-reload — Full deregister / reregister / user-enable / LaunchServices
 #                  refresh cycle for the bundled FSKit extensions. Run this
 #                  when a `rebuild` produces an extension binary that macOS
@@ -209,6 +216,35 @@ cmd_logs_reset() {
     fi
 }
 
+cmd_reset_daemons() {
+    # Three daemons cache extension identity + approval state and
+    # occasionally get stuck after a rebuild, producing
+    # `_EXExtensionIdentity: Code=5` or `ExtensionKit error 2` errors.
+    # Killing them is safe — launchd respawns each one automatically
+    # with fresh state. pkd and fskit_agent are per-user (no sudo);
+    # fskitd is system-wide so we need sudo (will prompt once).
+    #
+    # Avoids logout/reboot as long as the approval state hasn't been
+    # persisted to an on-disk store that survives these restarts.
+    yellow "Killing per-user pkd + fskit_agent…"
+    pkill -9 -x pkd 2>/dev/null || true
+    pkill -9 -x fskit_agent 2>/dev/null || true
+    sleep 1
+    if pgrep -x fskitd >/dev/null 2>&1; then
+        yellow "Killing system fskitd (sudo prompt)…"
+        sudo pkill -9 -x fskitd || red "fskitd kill failed (sudo denied?)"
+        sleep 2
+    fi
+    # Verify the respawn landed (launchd is normally <1s).
+    for svc in pkd fskit_agent fskitd; do
+        if pgrep -x "$svc" >/dev/null 2>&1; then
+            green "$svc respawned."
+        else
+            yellow "$svc not running yet — launchd may still be respawning."
+        fi
+    done
+}
+
 cmd_pluginkit_reload() {
     if [[ ! -d "$APP_BUNDLE" ]]; then
         red "No built app at $APP_BUNDLE — run 'scripts/dev.sh build' first."
@@ -331,6 +367,8 @@ main() {
                      cmd_logs_reset "$@" ;;
         pluginkit-reload|reload|plugins)
                      cmd_pluginkit_reload "$@" ;;
+        reset-daemons|kick-daemons|daemons)
+                     cmd_reset_daemons "$@" ;;
         status)      cmd_status "$@" ;;
         -h|--help|help) usage 0 ;;
         *)
