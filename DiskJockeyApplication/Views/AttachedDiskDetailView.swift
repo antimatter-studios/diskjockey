@@ -1,7 +1,6 @@
 //
-// AttachedDiskDetailView.swift — read-only detail pane for a system-mounted
-// disk. No configuration options; just visibility + a Reveal-in-Finder
-// shortcut.
+// AttachedDiskDetailView.swift — detail pane for a system-mounted disk.
+// Read-only information + Reveal-in-Finder + Unmount.
 //
 
 import SwiftUI
@@ -12,6 +11,14 @@ struct AttachedDiskDetailView: View {
     let container: AppContainer
 
     @ObservedObject private var attachedDisks: AttachedDisksModel
+
+    /// Spinner shown on the Unmount button while `diskutil unmount` is
+    /// in flight. Prevents a double-click from queuing a second unmount
+    /// before the first finishes + toggles the row out of the sidebar.
+    @State private var unmounting = false
+    /// Surfaced failure from the unmount attempt (e.g. "Resource busy"
+    /// when a Terminal has `cd`'d into the mountpoint).
+    @State private var unmountError: String? = nil
 
     init(mountPath: String, container: AppContainer) {
         self.mountPath = mountPath
@@ -73,7 +80,27 @@ struct AttachedDiskDetailView: View {
                             [URL(fileURLWithPath: disk.mountPath)]
                         )
                     }
+
+                    Button(action: { unmount(disk) }) {
+                        if unmounting {
+                            HStack(spacing: 4) {
+                                ProgressView().scaleEffect(0.5).frame(width: 14, height: 14)
+                                Text("Unmounting…")
+                            }
+                        } else {
+                            Label("Unmount", systemImage: "eject")
+                        }
+                    }
+                    .disabled(unmounting)
+
                     Spacer()
+                }
+
+                if let err = unmountError {
+                    Label(err, systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                        .padding(.vertical, 4)
                 }
 
                 partitionLogSection(for: disk)
@@ -87,6 +114,54 @@ struct AttachedDiskDetailView: View {
                 systemImage: "externaldrive.badge.minus",
                 description: Text("\(mountPath) is no longer mounted.")
             )
+        }
+    }
+
+    // MARK: - Unmount
+
+    /// Unmount via `diskutil unmount <mountPath>`. For FSKit-mounted
+    /// volumes (ext4 / ntfs via our extensions) this routes through
+    /// the fskitd / extension unloadResource path cleanly. No sudo
+    /// needed — unmount of a user-mounted volume is a user-privileged
+    /// operation. Errors (e.g. EBUSY when a shell has `cd`'d into the
+    /// volume) surface via the `unmountError` banner.
+    private func unmount(_ disk: AttachedDisk) {
+        unmounting = true
+        unmountError = nil
+        Task.detached {
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
+            task.arguments = ["unmount", disk.mountPath]
+            let stdoutPipe = Pipe()
+            let stderrPipe = Pipe()
+            task.standardOutput = stdoutPipe
+            task.standardError = stderrPipe
+            do {
+                try task.run()
+                task.waitUntilExit()
+                let rc = task.terminationStatus
+                let err: String?
+                if rc == 0 {
+                    err = nil
+                } else {
+                    // diskutil writes its failure reason to stdout, not
+                    // stderr (see "Unmount failed ..." lines), so merge
+                    // both streams and surface whatever came out.
+                    let out = (try? stdoutPipe.fileHandleForReading.readToEnd()).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                    let errText = (try? stderrPipe.fileHandleForReading.readToEnd()).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                    let combined = (out + errText).trimmingCharacters(in: .whitespacesAndNewlines)
+                    err = combined.isEmpty ? "diskutil unmount failed (rc=\(rc))" : combined
+                }
+                await MainActor.run {
+                    self.unmounting = false
+                    self.unmountError = err
+                }
+            } catch {
+                await MainActor.run {
+                    self.unmounting = false
+                    self.unmountError = "Could not run diskutil: \(error.localizedDescription)"
+                }
+            }
         }
     }
 
