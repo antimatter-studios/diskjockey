@@ -226,9 +226,15 @@ cmd_reset_daemons() {
     #
     # Avoids logout/reboot as long as the approval state hasn't been
     # persisted to an on-disk store that survives these restarts.
-    yellow "Killing per-user pkd + fskit_agent…"
+    yellow "Killing per-user pkd + fskit_agent + lsd…"
     pkill -9 -x pkd 2>/dev/null || true
     pkill -9 -x fskit_agent 2>/dev/null || true
+    # Per-user `lsd` owns the LaunchServices cache that `mount -t ext4`
+    # uses to find our bundle; without bouncing it the cache can stay
+    # stale even after pluginkit re-register. System-wide lsd (root)
+    # would need sudo — we only kill the per-user one here since that
+    # is enough for the mount-to-extension routing.
+    pkill -9 -u "$USER" -x lsd 2>/dev/null || true
     sleep 1
     if pgrep -x fskitd >/dev/null 2>&1; then
         yellow "Killing system fskitd (sudo prompt)…"
