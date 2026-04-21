@@ -142,7 +142,16 @@ public final class AttachedDisksModel: ObservableObject {
         var merged = fresh.map { d -> AttachedDisk in
             var copy = d
             copy.fsckStatus = oldStatus[d.mountPath] ?? .unknown
-            copy.info = oldInfo[d.mountPath] ?? [:]
+            // Fresh statvfs baseline (fs, volume_name, total_size, free_size)
+            // starts from `copy.info`; any prior extension-emitted keys
+            // (cluster_size, total_inodes, serial_number, ...) overlay on
+            // top. `total_size` from the extension overrides the statvfs
+            // value when present, which is correct — extensions get the
+            // bytes from the on-disk superblock, identical to but slightly
+            // richer than what statvfs reports.
+            for (k, v) in oldInfo[d.mountPath] ?? [:] {
+                copy.info[k] = v
+            }
             copy.partitionLog = oldLog[d.mountPath] ?? []
             return copy
         }
@@ -241,7 +250,13 @@ public final class AttachedDisksModel: ObservableObject {
         if kind == "volume.info" {
             var info = fields
             info.removeValue(forKey: "bsd")
-            disk.info = info
+            if let bytes = materializeTotalSize(from: info) {
+                info["total_size"] = String(bytes)
+            }
+            // Overlay onto existing (statvfs-populated) info rather than
+            // replacing — so free_size from `refresh()` survives alongside
+            // the fs-specific keys the extension emits.
+            for (k, v) in info { disk.info[k] = v }
             return
         }
 
@@ -304,13 +319,64 @@ public final class AttachedDisksModel: ObservableObject {
             guard fsTypesOfInterest.contains(fsType) else { continue }
 
             let name = (mountPath as NSString).lastPathComponent
-            results.append(AttachedDisk(
+            var disk = AttachedDisk(
                 mountPath: mountPath,
                 devicePath: devicePath,
                 fsType: fsType,
                 name: name
-            ))
+            )
+            disk.info = statvfsInfo(
+                mountPath: mountPath, fsType: fsType, volumeName: name
+            )
+            results.append(disk)
         }
         return results.sorted { $0.mountPath < $1.mountPath }
+    }
+
+    /// Compute the concrete `total_size` in bytes for a managed
+    /// filesystem's `volume.info` event. Dispatches by the `fs` field
+    /// the extension emits, so each case uses the exact fields it
+    /// knows it wrote — no "does this key exist" probing. Returns
+    /// `nil` for fs types we don't own (the statvfs baseline already
+    /// provided `total_size` for those at enumerate-time).
+    private static func materializeTotalSize(from fields: [String: String]) -> UInt64? {
+        switch fields["fs"] ?? "" {
+        case "ext4":
+            let blocks = UInt64(fields["total_blocks"] ?? "") ?? 0
+            let blockSize = UInt64(fields["block_size"] ?? "") ?? 0
+            let (product, overflow) = blocks.multipliedReportingOverflow(by: blockSize)
+            return overflow ? nil : product
+        case "ntfs":
+            return UInt64(fields["total_size"] ?? "")
+        default:
+            return nil
+        }
+    }
+
+    /// Cross-filesystem baseline info derived from `FileManager`'s wrapper
+    /// around `statvfs(2)`. Populated at enumerate-time for every mounted
+    /// partition — including msdos, exfat, apfs, hfs+, and other types
+    /// DiskJockey doesn't have an FSKit extension for — so the detail
+    /// view can show total / free size without waiting on a `volume.info`
+    /// event that will never come for non-DJ-managed filesystems. For
+    /// DJ-managed (ext4, ntfs), the richer event overlays fs-specific
+    /// keys (block_size, total_inodes, serial_number, …) on top of this
+    /// baseline in `refresh()`.
+    private static func statvfsInfo(
+        mountPath: String, fsType: String, volumeName: String
+    ) -> [String: String] {
+        var out: [String: String] = [
+            "fs": fsType,
+            "volume_name": volumeName,
+        ]
+        if let attrs = try? FileManager.default.attributesOfFileSystem(forPath: mountPath) {
+            if let total = attrs[.systemSize] as? NSNumber {
+                out["total_size"] = String(total.uint64Value)
+            }
+            if let free = attrs[.systemFreeSize] as? NSNumber {
+                out["free_size"] = String(free.uint64Value)
+            }
+        }
+        return out
     }
 }
