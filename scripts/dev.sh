@@ -152,7 +152,7 @@ cmd_kill() {
     local killed=0
     for name in "${targets[@]}"; do
         if pgrep -x "$name" >/dev/null 2>&1; then
-            yellow "Killing $name…"
+            yellow "Killing ${name}…"
             pkill -9 -x "$name" || true
             killed=1
         fi
