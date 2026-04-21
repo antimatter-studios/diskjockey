@@ -17,13 +17,29 @@
 #                  pluginkit dance.
 #   clean        — Remove lib/ build artifacts + Xcode's DerivedData for
 #                  this project. Does NOT touch vendor submodule sources.
-#   kill         — SIGKILL any running DiskJockey.app instance.
+#   kill, killall — SIGKILL the main DiskJockey.app AND every bundled
+#                  extension host (DiskJockeyEXT4, DiskJockeyNTFS,
+#                  DiskJockeyFileProvider). `killall` is an alias.
 #   start        — `open` the built app bundle (no rebuild).
 #   restart      — kill + start (no rebuild).
 #   rebuild      — kill + build + start.
 #   logs-reset   — Truncate the group-container ndjson log files to zero
 #                  bytes. Useful when the historical log has grown large
 #                  enough to slow things down during diagnostics.
+#   pluginkit-reload — Full deregister / reregister / user-enable / LaunchServices
+#                  refresh cycle for the bundled FSKit extensions. Run this
+#                  when a `rebuild` produces an extension binary that macOS
+#                  refuses to instantiate (`com.apple.extensionKit.errorDomain
+#                  error 2` at mount time, probes stop firing), which happens
+#                  sporadically when the code signature changes underneath an
+#                  already-registered bundle. Covered dance:
+#                    pluginkit -r <appex>        (deregister stale entry)
+#                    pluginkit -a <appex>        (re-register fresh binary)
+#                    pluginkit -e use -i <id>    (enable at pluginkit level)
+#                    lsregister -u / -f on app   (refresh LaunchServices)
+#                  Note: does NOT flip the per-user FSKit user-approval flag
+#                  (System Settings → File System Extensions); do that by hand
+#                  if mount still returns "Permission denied" after.
 #   status       — Show current app PID, build state, pluginkit registration.
 #
 # Exits non-zero on build failures so CI / Make can chain on it.
@@ -50,6 +66,16 @@ readonly APP_BUNDLE="$DERIVED_DATA/Build/Products/$CONFIGURATION/DiskJockey.app"
 # container name matches AppLog.groupIdentifier — keep them in sync.
 readonly APP_GROUP="group.com.antimatterstudios.diskjockey"
 readonly LOGS_DIR="$HOME/Library/Group Containers/$APP_GROUP/Logs"
+# Bundled FSKit extensions that need the pluginkit dance after rebuilds
+# that change their code signature. Pair of appex-relative-path and the
+# bundle id used for pluginkit -e commands. Add an entry per new
+# FSKit extension we ship (no entry needed for FileProvider — it's in
+# Contents/PlugIns and follows a different registration path).
+readonly FSKIT_EXTENSIONS=(
+    "Contents/Extensions/DiskJockeyEXT4.appex|com.antimatterstudios.diskjockey.ext4"
+    "Contents/Extensions/DiskJockeyNTFS.appex|com.antimatterstudios.diskjockey.ntfs"
+)
+readonly LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister"
 
 # Small color helpers — kept to a single tput so the script degrades to plain
 # output when stdout isn't a tty (e.g. invoked from CI).
@@ -91,13 +117,34 @@ cmd_build() {
 }
 
 cmd_kill() {
-    if pgrep -x DiskJockey >/dev/null 2>&1; then
-        yellow "Killing running DiskJockey…"
-        pkill -9 -x DiskJockey || true
-        # pkill returns immediately; give launchd a beat to reap the child.
-        sleep 1
+    # Main app + every bundled extension's host process. FSKit and
+    # FileProvider extensions run out-of-process under their own PIDs
+    # named after the appex's executable; a lingering extension host
+    # can hold cached state that survives a main-app restart and make
+    # the next launch behave oddly. `pkill -f` matches the full
+    # command line so we catch them even when a parent daemon launched
+    # them rather than `open`.
+    local targets=(
+        DiskJockey
+        DiskJockeyEXT4
+        DiskJockeyNTFS
+        DiskJockeyFileProvider
+    )
+    local killed=0
+    for name in "${targets[@]}"; do
+        if pgrep -x "$name" >/dev/null 2>&1; then
+            yellow "Killing $name…"
+            pkill -9 -x "$name" || true
+            killed=1
+        fi
+    done
+    if [[ $killed -eq 0 ]]; then
+        green "No running DiskJockey processes."
     else
-        green "No running DiskJockey process."
+        # Give fskitd / fileproviderd a beat to reap the child before
+        # a follow-up start/pluginkit-reload tries to talk to a fresh
+        # extension host.
+        sleep 1
     fi
 }
 
@@ -162,6 +209,81 @@ cmd_logs_reset() {
     fi
 }
 
+cmd_pluginkit_reload() {
+    if [[ ! -d "$APP_BUNDLE" ]]; then
+        red "No built app at $APP_BUNDLE — run 'scripts/dev.sh build' first."
+        return 1
+    fi
+
+    # Order matters. An earlier revision of this function did the
+    # pluginkit -r/-a first, then LaunchServices -u/-f, which undid
+    # the pluginkit registrations (lsregister -u nukes every entry
+    # for the bundle, including what -a just added). Correct order:
+    #
+    #   1. For each bundle id, discover every currently-registered
+    #      Path (including stale ones from /tmp/dj-build/ or the
+    #      project-local build/ dir) and deregister them. The -r
+    #      matches by path, not by bundle id, so we have to enumerate
+    #      first; otherwise stale entries linger and macOS loads the
+    #      wrong binary instead of our fresh one.
+    #   2. lsregister -u + -f on the parent bundle — tells
+    #      LaunchServices "this is the one true DiskJockey.app, for
+    #      every embedded extension too."
+    #   3. pluginkit -a + -e use on each extension's fresh DerivedData
+    #      path to make sure pluginkit + per-user enablement are set
+    #      after the LaunchServices shuffle.
+
+    yellow "Deregistering any stale path-based pluginkit entries…"
+    for entry in "${FSKIT_EXTENSIONS[@]}"; do
+        local bid="${entry##*|}"
+        # Each Path line in the verbose output is the path a currently-
+        # registered entry points at; sometimes multiple rows per bid
+        # if older builds left different paths.
+        while IFS= read -r stale_path; do
+            [[ -z "$stale_path" ]] && continue
+            printf '  %-64s  (was: %s)\n' "$bid" "$stale_path"
+            pluginkit -r "$stale_path" >/dev/null 2>&1 || true
+        done < <(
+            pluginkit -mAvvv -i "$bid" 2>/dev/null \
+                | awk -F'= ' '/^[[:space:]]*Path = / { print $2 }'
+        )
+    done
+
+    yellow "Refreshing LaunchServices for $APP_BUNDLE"
+    "$LSREGISTER" -u "$APP_BUNDLE" >/dev/null 2>&1 || true
+    "$LSREGISTER" -f "$APP_BUNDLE" >/dev/null 2>&1 || true
+
+    yellow "Registering fresh extension bundles + user-enabling them…"
+    for entry in "${FSKIT_EXTENSIONS[@]}"; do
+        local rel="${entry%%|*}"
+        local bid="${entry##*|}"
+        local appex="$APP_BUNDLE/$rel"
+        if [[ ! -d "$appex" ]]; then
+            yellow "  Skipping $bid — no bundle at $appex"
+            continue
+        fi
+        pluginkit -a "$appex" 2>&1 | sed 's/^/  /' || true
+        pluginkit -e use -i "$bid" 2>&1 | sed 's/^/  /' || true
+    done
+
+    green "pluginkit reload complete. Current state:"
+    for entry in "${FSKIT_EXTENSIONS[@]}"; do
+        local bid="${entry##*|}"
+        pluginkit -mAvvv -i "$bid" 2>&1 \
+            | grep -E "^\+|^[[:space:]]+Path |^[[:space:]]+UUID |^[[:space:]]+Timestamp " \
+            | sed 's/^/  /' \
+            || true
+    done
+
+    green ""
+    green "If mount still returns 'Permission denied' or error 2 after this,"
+    green "you likely need to:"
+    green "  a) toggle the extension in System Settings → Login Items &"
+    green "     Extensions → File System Extensions, OR"
+    green "  b) log out and back in (cycles per-user fskit_agent / pkd), OR"
+    green "  c) reboot (nukes the kernel extension trust cache)."
+}
+
 cmd_status() {
     if pgrep -x DiskJockey >/dev/null 2>&1; then
         local pid
@@ -199,13 +321,16 @@ main() {
     local sub="$1"; shift
     case "$sub" in
         build)       cmd_build "$@" ;;
-        kill|stop)   cmd_kill "$@" ;;
+        kill|killall|stop)
+                     cmd_kill "$@" ;;
         start)       cmd_start "$@" ;;
         restart)     cmd_restart "$@" ;;
         rebuild)     cmd_rebuild "$@" ;;
         clean)       cmd_clean "$@" ;;
         logs-reset|logs|reset-logs)
                      cmd_logs_reset "$@" ;;
+        pluginkit-reload|reload|plugins)
+                     cmd_pluginkit_reload "$@" ;;
         status)      cmd_status "$@" ;;
         -h|--help|help) usage 0 ;;
         *)
