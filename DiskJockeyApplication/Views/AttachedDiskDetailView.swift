@@ -153,11 +153,14 @@ struct AttachedDiskDetailView: View {
         let priority = [
             "fs",
             "volume_name",
+            // cross-fs (statvfs-derived in the data layer, so present
+            // for every mounted partition regardless of type)
+            "total_size", "free_size",
             // ext4
             "block_size", "total_blocks", "free_blocks",
             "total_inodes", "free_inodes",
             // ntfs
-            "cluster_size", "total_clusters", "total_size",
+            "cluster_size", "total_clusters",
             "ntfs_version", "serial_number",
         ]
         let known = priority.filter { info[$0] != nil }
@@ -177,6 +180,7 @@ struct AttachedDiskDetailView: View {
         case "cluster_size":    return "Cluster size"
         case "total_clusters":  return "Total clusters"
         case "total_size":      return "Total size"
+        case "free_size":       return "Free size"
         case "ntfs_version":    return "NTFS version"
         case "serial_number":   return "Serial number"
         default:                return key.replacingOccurrences(of: "_", with: " ").capitalized
@@ -186,8 +190,9 @@ struct AttachedDiskDetailView: View {
     /// Byte-valued fields become human readable ("12 GB"); counts keep
     /// thousands separators so big numbers are readable at a glance.
     private func formatInfoValue(key: String, value: String) -> String {
-        if key == "total_size", let bytes = UInt64(value) {
-            return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+        if ["total_size", "free_size", "block_size", "cluster_size"].contains(key),
+           let bytes = UInt64(value) {
+            return humanSize(bytes: bytes)
         }
         if ["total_blocks", "free_blocks", "total_clusters",
             "total_inodes", "free_inodes"].contains(key),
@@ -196,10 +201,32 @@ struct AttachedDiskDetailView: View {
             f.numberStyle = .decimal
             return f.string(from: NSNumber(value: n)) ?? value
         }
-        if ["block_size", "cluster_size"].contains(key), let bytes = UInt64(value) {
-            return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .binary)
-        }
         return value
+    }
+
+    /// Byte formatter with a 2× unit-switch rule: stay in the current
+    /// unit until the value hits 2048 of it, then step up one unit.
+    /// The [1×, 2×) band of the larger unit (`1.0`–`1.99` KB, MB, …) is
+    /// treated as an overlap zone — we stay in the smaller unit so the
+    /// reader gets integer precision (e.g. 1536 KB rather than 1.5 MB)
+    /// right across the unit boundary, which is where a single decimal
+    /// in the bigger unit loses the most useful precision.
+    ///
+    /// Labels are Finder-style (1024-based maths, "KB"/"MB"/"GB"/"TB"/"PB"
+    /// labels). KB is shown integer; MB and up get one decimal since a
+    /// bare integer in those units hides meaningful variation.
+    fileprivate func humanSize(bytes: UInt64) -> String {
+        let labels = ["B", "KB", "MB", "GB", "TB", "PB"]
+        var value = Double(bytes)
+        var idx = 0
+        while idx < labels.count - 1 && value >= 2048 {
+            value /= 1024
+            idx += 1
+        }
+        if idx <= 1 {
+            return "\(Int(value)) \(labels[idx])"
+        }
+        return String(format: "%.1f %@", value, labels[idx])
     }
 
     // MARK: - Per-partition log
