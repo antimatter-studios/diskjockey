@@ -145,8 +145,17 @@ private final class FileTail {
 
     func start() {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return }
+        // Skip the existing file contents — on launch the ndjson file
+        // contains every event from every prior session of every
+        // extension (ext4/ntfs can accumulate tens of MB of events
+        // across mount / unmount / fsck cycles). Replaying all of
+        // that on the main thread would freeze the app at the
+        // bouncing dock icon for long enough that it looks hung.
+        // The historical log is still on disk for forensics; this
+        // just means the in-app Logs panel starts empty and fills
+        // as new events arrive during this session.
+        try? handle.seekToEnd()
         self.fileHandle = handle
-        readAvailable()
         let src = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: handle.fileDescriptor,
             eventMask: [.write, .extend],
@@ -162,12 +171,23 @@ private final class FileTail {
         let data = handle.availableData
         guard !data.isEmpty else { return }
         buffer.append(data)
-        while let nl = buffer.firstIndex(of: 0x0A) {
-            let lineData = buffer.subdata(in: 0..<nl)
-            buffer.removeSubrange(0...nl)
-            if let line = String(data: lineData, encoding: .utf8), !line.isEmpty {
+        // Single forward pass emitting complete lines. The earlier
+        // `buffer.removeSubrange(0...nl)` on each iteration was O(n)
+        // per line — a burst of K lines in an M-byte buffer was
+        // O(M·K) memmove which pegged the main thread at 100% CPU.
+        var cursor = buffer.startIndex
+        while let nl = buffer[cursor...].firstIndex(of: 0x0A) {
+            if nl > cursor,
+               let line = String(data: buffer[cursor..<nl], encoding: .utf8),
+               !line.isEmpty {
                 onLine(line)
             }
+            cursor = buffer.index(after: nl)
+        }
+        if cursor == buffer.endIndex {
+            buffer.removeAll(keepingCapacity: true)
+        } else if cursor > buffer.startIndex {
+            buffer.removeSubrange(buffer.startIndex..<cursor)
         }
     }
 }
