@@ -116,7 +116,7 @@ private struct SidebarView: View {
                 }
 
                 if !attachedDisks.disks.isEmpty {
-                    Section("Attached Disks") {
+                    Section("Local Drives") {
                         ForEach(attachedDisks.disks) { disk in
                             AttachedDiskSidebarRow(disk: disk)
                                 .tag(SidebarItem.attachedDisk(disk.mountPath))
