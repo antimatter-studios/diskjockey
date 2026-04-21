@@ -26,13 +26,25 @@
 #   logs-reset   — Truncate the group-container ndjson log files to zero
 #                  bytes. Useful when the historical log has grown large
 #                  enough to slow things down during diagnostics.
-#   reset-daemons — Kill pkd (per-user), fskit_agent (per-user), and fskitd
-#                  (system, needs sudo — will prompt once). launchd respawns
+#   reset-daemons — Kill pkd (per-user), fskit_agent (per-user), fskitd
+#                  (system, needs sudo — will prompt once), and the
+#                  per-user lsd (LaunchServices daemon). launchd respawns
 #                  each automatically. Use when macOS is stuck on a stale
 #                  extension identity after a rebuild — symptoms are
 #                  `_EXExtensionIdentity: Code=5` in the system log or
 #                  `diskutil mount` failing without reaching our extension's
 #                  probe. Avoids the logout/reboot escape hatch.
+#   doctor       — Chained recovery when the FSKit extension won't mount
+#                  after a rebuild. Runs clean-stale-bundles →
+#                  pluginkit-reload → reset-daemons, then prints the final
+#                  step you MUST do by hand (physically eject + reinsert
+#                  the disk) and the critical testing rule (`mount -t ext4`
+#                  from CLI will stay broken even after doctor succeeds
+#                  because LaunchServices caches the fstype → bundle
+#                  lookup at a layer none of these resets flushes; the
+#                  DiskArbitration-on-reinsert path is a separate route
+#                  that does work). Use this in preference to manual
+#                  recovery dances.
 #   pluginkit-reload — Full deregister / reregister / user-enable / LaunchServices
 #                  refresh cycle for the bundled FSKit extensions. Run this
 #                  when a `rebuild` produces an extension binary that macOS
@@ -326,6 +338,77 @@ cmd_pluginkit_reload() {
     green "  c) reboot (nukes the kernel extension trust cache)."
 }
 
+cmd_clean_stale_bundles() {
+    # Sometimes an earlier `xcodebuild` run without -derivedDataPath
+    # lands a stale DiskJockey.app at /private/tmp/dj-build/ or at
+    # ./build/. pluginkit happily registers whichever copy it finds
+    # first, and `mount -t ext4` then routes to a path that's either
+    # missing or has drifted from the current source. Nuke both
+    # candidates up-front so pluginkit-reload has a single real
+    # bundle to register.
+    local removed=0
+    for p in /private/tmp/dj-build "$PROJECT_ROOT/build"; do
+        if [[ -d "$p" ]]; then
+            yellow "Removing stale bundle dir: $p"
+            # Best-effort pluginkit cleanup for anything registered at
+            # this path before the dir goes away.
+            for entry in "${FSKIT_EXTENSIONS[@]}"; do
+                local rel="${entry%%|*}"
+                pluginkit -r "$p/Debug/DiskJockey.app/$rel" >/dev/null 2>&1 || true
+            done
+            "$LSREGISTER" -u "$p/Debug/DiskJockey.app" >/dev/null 2>&1 || true
+            rm -rf "$p"
+            removed=1
+        fi
+    done
+    if [[ $removed -eq 0 ]]; then
+        green "No stale build bundles to clean."
+    fi
+}
+
+cmd_doctor() {
+    # The full recovery drill, encoding everything the team worked out
+    # the hard way on 2026-04-21:
+    #   1. Rebuilds leave stale app bundles at non-DerivedData paths;
+    #      pluginkit picks the wrong one and mount fails with
+    #      `com.apple.extensionKit.errorDomain error 2` (the bundle
+    #      macOS thinks is authoritative no longer exists or doesn't
+    #      match the registration metadata).
+    #   2. pluginkit + lsregister can re-register cleanly, but that
+    #      doesn't unstick an already-broken in-memory identity in
+    #      pkd; you get `_EXExtensionIdentity: Code=5` crashes at
+    #      extension-spawn time. Bouncing pkd + fskit_agent + fskitd
+    #      + lsd clears that.
+    #   3. Even after all that, `mount -t ext4 /dev/diskNsN` will STILL
+    #      return `Permission denied` because the fstype→bundle lookup
+    #      sits in a LaunchServices layer none of the above reset. The
+    #      DiskArbitration-on-physical-insert path is separate and
+    #      does work, so the user has to eject + reinsert the disk to
+    #      verify — `mount -t ext4` lying at the CLI is not
+    #      informative about whether the real flow is fixed.
+    yellow "doctor: running full FSKit recovery drill…"
+    echo
+    cmd_clean_stale_bundles
+    echo
+    cmd_pluginkit_reload
+    echo
+    cmd_reset_daemons
+    echo
+    green "=================================================================="
+    green "doctor: automated recovery done. FINAL STEP IS MANUAL:"
+    green ""
+    green "  Eject and physically reinsert the disk (USB / SD card / etc.)."
+    green "  DiskArbitration will re-probe through the freshly-respawned"
+    green "  fskitd and the extension will mount normally."
+    green ""
+    yellow "  Do NOT test with 'mount -t ext4 /dev/diskNsN /mnt'. That"
+    yellow "  command goes through a LaunchServices cache that survives"
+    yellow "  every daemon restart done here and will keep returning"
+    yellow "  'Permission denied' long after the real flow works. Use"
+    yellow "  the plug-in-disk flow, or 'diskutil eject diskN && reinsert'."
+    green "=================================================================="
+}
+
 cmd_status() {
     if pgrep -x DiskJockey >/dev/null 2>&1; then
         local pid
@@ -375,6 +458,10 @@ main() {
                      cmd_pluginkit_reload "$@" ;;
         reset-daemons|kick-daemons|daemons)
                      cmd_reset_daemons "$@" ;;
+        doctor|fix|recover)
+                     cmd_doctor "$@" ;;
+        clean-stale-bundles|clean-stale)
+                     cmd_clean_stale_bundles "$@" ;;
         status)      cmd_status "$@" ;;
         -h|--help|help) usage 0 ;;
         *)
