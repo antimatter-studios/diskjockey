@@ -156,9 +156,9 @@ private struct DirectMountSidebarRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: mount.config.scheme.systemImage)
+            PersonalityIconView(mount.config.scheme.icon)
                 .foregroundStyle(.secondary)
-                .frame(width: 20)
+                .frame(width: 20, height: 20)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(mount.displayName)
@@ -210,9 +210,9 @@ private struct AttachedDiskSidebarRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "externaldrive.fill")
+            PersonalityIconView(disk.icon)
                 .foregroundStyle(.secondary)
-                .frame(width: 20)
+                .frame(width: 20, height: 20)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(disk.name)

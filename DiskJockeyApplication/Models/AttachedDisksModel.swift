@@ -8,6 +8,7 @@
 
 import Foundation
 import Combine
+import DiskJockeyLibrary
 
 /// Live fsck status for a volume. Drives the detail-pane status row +
 /// progress bar. Updated in response to kind-tagged events emitted by
@@ -41,6 +42,23 @@ public struct AttachedDisk: Identifiable, Equatable, Hashable {
     /// whose `fields["bsd"]` matches this disk's BSD). Capped at 500 to
     /// keep memory bounded. Shown in the partition detail view.
     public var partitionLog: [AttachedDiskLogLine] = []
+
+    /// Sidebar + detail-header icon. Baseline is the generic external-
+    /// drive glyph; when `fsType` names a filesystem that only ships on
+    /// one OS family, we overlay an OS-flavored asset (ext* → Linux,
+    /// ntfs* → Windows). Keep this list narrow — cross-platform types
+    /// (msdos/exfat/apfs/hfs) stay on the baseline because they don't
+    /// identify an OS of origin.
+    public var icon: PersonalityIcon {
+        switch fsType.lowercased() {
+        case "ext2", "ext3", "ext4":
+            return .asset("LinuxDrive")
+        case "ntfs", "fsntfs", "ntfs-fskit":
+            return .asset("WindowsDrive")
+        default:
+            return .sfSymbol("externaldrive.fill")
+        }
+    }
 }
 
 /// One log line scoped to a specific partition. Subset of AppLogLine —

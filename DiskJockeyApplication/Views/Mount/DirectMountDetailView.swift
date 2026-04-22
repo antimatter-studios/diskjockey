@@ -107,10 +107,11 @@ struct DirectMountDetailView: View {
     @ViewBuilder
     private func header(_ mount: DirectMount) -> some View {
         VStack(spacing: 12) {
-            Image(systemName: mount.config.scheme.systemImage)
+            PersonalityIconView(mount.config.scheme.icon)
                 .font(.system(size: 40))
                 .foregroundStyle(.tint)
-                .frame(width: 64, height: 64)
+                .frame(width: 40, height: 40)
+                .padding(12)
                 .background(
                     RoundedRectangle(cornerRadius: 14)
                         .fill(Color.accentColor.opacity(0.1))
