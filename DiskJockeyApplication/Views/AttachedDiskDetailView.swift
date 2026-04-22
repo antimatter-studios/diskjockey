@@ -34,9 +34,10 @@ struct AttachedDiskDetailView: View {
         if let disk = disk {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 12) {
-                    Image(systemName: "externaldrive.fill")
+                    PersonalityIconView(disk.icon)
                         .font(.system(size: 36))
                         .foregroundStyle(.tint)
+                        .frame(width: 36, height: 36)
                     VStack(alignment: .leading) {
                         HStack(spacing: 6) {
                             Text(disk.name)

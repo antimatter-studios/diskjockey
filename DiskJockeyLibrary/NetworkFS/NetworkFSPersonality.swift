@@ -72,18 +72,32 @@ public enum DirectMountScheme: String, Codable, Sendable, CaseIterable {
         }
     }
 
-    /// SF Symbol name for this scheme. Used by sidebar rows and detail
-    /// headers so icon selection lives in one place rather than a grab
-    /// bag of per-view helpers.
-    public var systemImage: String {
+    /// Icon for this scheme. Used by sidebar rows and detail headers so
+    /// icon selection lives in one place rather than a grab bag of
+    /// per-view helpers. Network protocols don't carry an OS identity
+    /// (SMB runs on Samba, SFTP runs on Windows, etc.) so we stick with
+    /// protocol-level SF Symbols here — the OS-flavored overrides live
+    /// where a real OS *is* identifiable, at the fsType layer for
+    /// attached disks.
+    public var icon: PersonalityIcon {
         switch self {
-        case .ftp, .sftp, .smb, .webdav: return "network"
-        case .dropbox:                   return "shippingbox"
-        case .gdrive:                    return "externaldrive.connected.to.line.below"
-        case .onedrive:                  return "cloud"
-        case .s3:                        return "cube.box"
+        case .ftp, .sftp, .smb, .webdav: return .sfSymbol("network")
+        case .dropbox:                   return .sfSymbol("shippingbox")
+        case .gdrive:                    return .sfSymbol("externaldrive.connected.to.line.below")
+        case .onedrive:                  return .sfSymbol("cloud")
+        case .s3:                        return .sfSymbol("cube.box")
         }
     }
+}
+
+/// How an icon is sourced. SF Symbols for generic concepts,
+/// asset-catalog template images for brand-evocative glyphs SF Symbols
+/// refuses to ship (Windows tiles, Tux). Callers render via
+/// `PersonalityIconView` so the two cases pick up `.foregroundStyle`
+/// identically.
+public enum PersonalityIcon: Sendable, Equatable {
+    case sfSymbol(String)
+    case asset(String)
 }
 
 /// A personality is the "everything the Go driver needs, plus which
