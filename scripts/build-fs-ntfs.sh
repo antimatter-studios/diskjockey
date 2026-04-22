@@ -85,6 +85,63 @@ if ! command -v rustup &> /dev/null; then
     exit 1
 fi
 
+# Emit VERSION.txt manifest describing the submodule commit that was built.
+# Defined up here (not after the build) so the skip-if-up-to-date path can
+# ALSO re-emit the manifest: the `.a` may be current, but the submodule may
+# have been re-pointed or the working tree may have flipped clean↔dirty
+# since the last build, and `needs_rebuild` doesn't track either of those.
+# Always re-emitting keeps the manifest honest with no rebuild cost.
+emit_version_manifest() {
+    local lib_name="$1"
+    local src_dir="$2"
+    local out_file="$3"
+
+    (
+        cd "$src_dir"
+
+        local source commit short_commit describe dirty ref ref_type commit_date
+
+        source=$(git config --get remote.origin.url 2>/dev/null || echo "unknown")
+        commit=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+        short_commit=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        describe=$(git describe --always --long --dirty 2>/dev/null || echo "$short_commit")
+
+        if [ -z "$(git status --porcelain 2>/dev/null)" ]; then
+            dirty="false"
+        else
+            dirty="true"
+        fi
+
+        if tag=$(git describe --tags --exact-match 2>/dev/null); then
+            ref="$tag"
+            ref_type="tag"
+        elif branch=$(git symbolic-ref --short -q HEAD 2>/dev/null); then
+            ref="$branch"
+            ref_type="branch"
+        else
+            ref="HEAD"
+            ref_type="detached"
+        fi
+
+        # Commit date (ISO 8601 with timezone) — identifies the source, not the
+        # local build time. Parseable by Swift's ISO8601DateFormatter.
+        commit_date=$(git log -1 --format=%cI 2>/dev/null || echo "unknown")
+
+        mkdir -p "$(dirname "$out_file")"
+        {
+            echo "lib=${lib_name}"
+            echo "source=${source}"
+            echo "ref=${ref}"
+            echo "ref_type=${ref_type}"
+            echo "commit=${commit}"
+            echo "short_commit=${short_commit}"
+            echo "describe=${describe}"
+            echo "dirty=${dirty}"
+            echo "commit_date=${commit_date}"
+        } > "$out_file"
+    )
+}
+
 # Check if we need to rebuild
 needs_rebuild() {
     # No stamp file = never built
@@ -115,8 +172,10 @@ needs_rebuild() {
     return 1
 }
 
-# Skip if up to date
+# Skip compilation if up to date — but ALWAYS refresh the manifest so the
+# dirty flag / ref / commit stay current even when no .rs file changed.
 if ! needs_rebuild; then
+    emit_version_manifest "fs_ntfs" "${NTFS_SRC}" "${NTFS_OUT}/VERSION.txt"
     echo "${GREEN}fs-ntfs: Up to date${NC}"
     exit 0
 fi
@@ -155,58 +214,6 @@ lipo -create \
 
 # Copy headers
 cp "${NTFS_SRC}/include/fs_ntfs.h" "${NTFS_OUT}/include/fs_ntfs.h"
-
-# Emit VERSION.txt manifest describing the submodule commit that was built.
-# Done AFTER lipo so a failed build doesn't leave a stale manifest.
-emit_version_manifest() {
-    local lib_name="$1"
-    local src_dir="$2"
-    local out_file="$3"
-
-    (
-        cd "$src_dir"
-
-        local source commit short_commit describe dirty ref ref_type commit_date
-
-        source=$(git config --get remote.origin.url 2>/dev/null || echo "unknown")
-        commit=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
-        short_commit=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-        describe=$(git describe --always --long --dirty 2>/dev/null || echo "$short_commit")
-
-        if [ -z "$(git status --porcelain 2>/dev/null)" ]; then
-            dirty="false"
-        else
-            dirty="true"
-        fi
-
-        if tag=$(git describe --tags --exact-match 2>/dev/null); then
-            ref="$tag"
-            ref_type="tag"
-        elif branch=$(git symbolic-ref --short -q HEAD 2>/dev/null); then
-            ref="$branch"
-            ref_type="branch"
-        else
-            ref="HEAD"
-            ref_type="detached"
-        fi
-
-        # Commit date (ISO 8601 with timezone) — identifies the source, not the
-        # local build time. Parseable by Swift's ISO8601DateFormatter.
-        commit_date=$(git log -1 --format=%cI 2>/dev/null || echo "unknown")
-
-        {
-            echo "lib=${lib_name}"
-            echo "source=${source}"
-            echo "ref=${ref}"
-            echo "ref_type=${ref_type}"
-            echo "commit=${commit}"
-            echo "short_commit=${short_commit}"
-            echo "describe=${describe}"
-            echo "dirty=${dirty}"
-            echo "commit_date=${commit_date}"
-        } > "$out_file"
-    )
-}
 
 emit_version_manifest "fs_ntfs" "${NTFS_SRC}" "${NTFS_OUT}/VERSION.txt"
 
