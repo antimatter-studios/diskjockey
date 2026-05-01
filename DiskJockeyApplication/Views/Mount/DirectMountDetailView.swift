@@ -202,8 +202,12 @@ struct DirectMountDetailView: View {
                 detailRow(label: "Share", value: c.share)
                 detailRow(label: "User", value: c.user)
                 detailRow(label: "Remote Path", value: c.rootPath)
-            case .dropbox:
-                detailRow(label: "Account", value: "Stored in keychain")
+            case .dropbox(let c):
+                detailRow(label: "App Key", value: c.appKey.isEmpty ? "(legacy long-lived token)" : c.appKey)
+                if !c.accountLabel.isEmpty {
+                    detailRow(label: "Account", value: c.accountLabel)
+                }
+                detailRow(label: "Refresh Token", value: "Stored in keychain")
             case .webdav(let c):
                 detailRow(label: "URL", value: c.url)
                 detailRow(label: "User", value: c.user)
@@ -224,11 +228,19 @@ struct DirectMountDetailView: View {
                 detailRow(label: "Secret Key", value: "Stored in keychain")
             case .onedrive(let c):
                 detailRow(label: "Client ID", value: c.clientID)
+                if !c.accountLabel.isEmpty {
+                    detailRow(label: "Account", value: c.accountLabel)
+                }
                 detailRow(label: "Refresh Token", value: "Stored in keychain")
             }
             detailRow(label: "Symlink", value: "~/diskjockey/\(mount.symlinkName)")
             detailRow(label: "Domain ID", value: mount.domainID)
             detailRow(label: "Created", value: mount.createdAt.formatted(date: .abbreviated, time: .shortened))
+
+            detailRow(label: "Fetch Thumbnails",
+                      value: mount.policy.fetchThumbnails ? "On" : "Off")
+            detailRow(label: "Background Fetch",
+                      value: mount.policy.backgroundFetch ? "On" : "Off")
 
             // Live I/O activity panel — pulls the current snapshot
             // straight from the registry every render so SwiftUI's
