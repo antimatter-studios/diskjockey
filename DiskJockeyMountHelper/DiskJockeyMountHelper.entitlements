@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Helper does NOT sandbox: it needs raw block-device access to
+      issue mount syscalls, which the App Sandbox forbids. The main
+      app stays sandboxed; the XPC channel between app + helper is
+      where security is enforced (via audit-token code-signing
+      requirement check, TODO in the spike).
+    -->
+</dict>
+</plist>

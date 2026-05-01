@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import ServiceManagement
 import DiskJockeyLibrary
 
 /// Dependency container for the host app. Every service the UI needs
@@ -125,5 +126,60 @@ public final class AppContainer: ObservableObject {
         self.diskArbitration = DiskArbitrationService(attachedDisks: self.attachedDisks)
 
         AppLog.shared.info("DiskJockey launched — log tail started")
+
+        // Spike: register privileged mount helper + ping it. Logs the
+        // pid/uid/euid the helper reports back so we can confirm
+        // launchd actually spawned it as root and that the binary
+        // wasn't rejected by Launch Constraint Validation. If
+        // registration fails or ping times out, the user has to
+        // approve "DiskJockey" in System Settings → Login Items &
+        // Extensions → Background.
+        Self.registerAndPingMountHelper()
+    }
+
+    private static func registerAndPingMountHelper() {
+        // Agent (user context, unsandboxed) — NOT daemon (root context,
+        // sandboxed apps can't register). The agent calls DADiskMount on
+        // our behalf, bypassing the sandbox veto on
+        // `system.volume.removable.mount` that authd raises against the
+        // host app's direct DA call.
+        let plistName = "com.antimatterstudios.diskjockey.mounthelper.plist"
+        let helper = SMAppService.agent(plistName: plistName)
+
+        // SMAppService is idempotent — register() on an already-registered
+        // service just re-validates. Errors are usually "approval required"
+        // (status .requiresApproval), which is informational, not fatal.
+        do {
+            try helper.register()
+            AppLog.shared.info(
+                "MountHelper: register OK — status=\(helper.status.rawValue)")
+        } catch {
+            AppLog.shared.warn(
+                "MountHelper: register failed — \(error.localizedDescription) "
+                + "status=\(helper.status.rawValue) "
+                + "(check System Settings → Login Items & Extensions → Background)")
+            return
+        }
+
+        // Try a ping. Will fail until the user approves the helper.
+        let conn = NSXPCConnection(
+            machServiceName: mountHelperMachServiceName,
+            options: .privileged)
+        conn.remoteObjectInterface = NSXPCInterface(with: MountHelperProtocol.self)
+        conn.invalidationHandler = {
+            AppLog.shared.warn("MountHelper: XPC connection invalidated")
+        }
+        conn.interruptionHandler = {
+            AppLog.shared.warn("MountHelper: XPC connection interrupted")
+        }
+        conn.resume()
+
+        let proxy = conn.remoteObjectProxyWithErrorHandler { err in
+            AppLog.shared.error("MountHelper: XPC proxy error — \(err.localizedDescription)")
+        } as? MountHelperProtocol
+
+        proxy?.ping { reply in
+            AppLog.shared.info("MountHelper: ping → \(reply)")
+        }
     }
 }
