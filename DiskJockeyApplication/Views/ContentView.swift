@@ -53,8 +53,8 @@ struct ContentView: View {
                 systemImage: "externaldrive.badge.plus",
                 description: Text("Click the + button to add a new mount")
             )
-        case .attachedDisk(let mountPath):
-            AttachedDiskDetailView(mountPath: mountPath, container: container)
+        case .attachedDisk(let diskID):
+            AttachedDiskDetailView(diskID: diskID, container: container)
         case nil:
             // First-run case: no folder approved yet. Use the full
             // detail pane to explain what we're about to do before
@@ -119,7 +119,7 @@ private struct SidebarView: View {
                     Section("Local Drives") {
                         ForEach(attachedDisks.disks) { disk in
                             AttachedDiskSidebarRow(disk: disk)
-                                .tag(SidebarItem.attachedDisk(disk.mountPath))
+                                .tag(SidebarItem.attachedDisk(disk.id))
                         }
                     }
                 }
@@ -270,6 +270,8 @@ private struct AttachedDiskSidebarRow: View {
 
     private var secondaryLine: String {
         switch disk.status {
+        case .mounting:
+            return "\(disk.fsType) · mounting…"
         case .live:
             return "\(disk.fsType) · \(disk.devicePath)"
         case .offline(let since):
@@ -277,9 +279,12 @@ private struct AttachedDiskSidebarRow: View {
         }
     }
 
-    /// Transient status line. nil → not shown. Currently surfaces fsck
-    /// progress; future stages will add detecting / mounting states for
-    /// disks that haven't reached mount(8) yet.
+    /// Transient status line. nil → not shown. Surfaces in-progress
+    /// states the user wants visibility into:
+    ///   - active fsck (highest priority — show progress %)
+    ///   - .mounting preview (the disk has been detected but mount(8)
+    ///     hasn't reported it yet — typically inside the fsck/load
+    ///     window)
     private var transientLine: String? {
         if isOffline { return nil }
         if case .running(let phase, let done, let total) = disk.fsckStatus {
@@ -288,6 +293,9 @@ private struct AttachedDiskSidebarRow: View {
                 return "Verifying · \(phase) \(pct)%"
             }
             return "Verifying · \(phase)…"
+        }
+        if case .mounting = disk.status {
+            return "Mounting · waiting for system to attach"
         }
         return nil
     }
@@ -315,6 +323,8 @@ private struct AttachedDiskSidebarRow: View {
 
     private var tooltip: String {
         switch disk.status {
+        case .mounting:
+            return "Mounting at \(disk.mountPath)…"
         case .offline(let since):
             return "Offline (was at \(disk.mountPath)) — last seen \(since.formatted(date: .abbreviated, time: .shortened))"
         case .live:

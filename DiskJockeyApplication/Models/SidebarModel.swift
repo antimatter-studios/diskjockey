@@ -9,10 +9,12 @@ public enum SidebarItem: Hashable {
     case directMount(UUID)
     case addMount
     case logs
-    /// Read-only sidebar entry for a disk currently mounted by the system
-    /// (e.g. an ext4 partition or image handled by our FSKit extension).
-    /// No user configuration — just visibility. Identified by mount path.
-    case attachedDisk(String)
+    /// Read-only sidebar entry for a disk currently or previously
+    /// mounted by the system (e.g. an ext4 partition or image handled
+    /// by our FSKit extension). Identified by `AttachedDisk.id` — a
+    /// stable handle that survives mount/unmount/replug cycles when
+    /// `stableIdentity` is known.
+    case attachedDisk(_ diskID: String)
 }
 
 /// Manages the state of the sidebar and navigation.

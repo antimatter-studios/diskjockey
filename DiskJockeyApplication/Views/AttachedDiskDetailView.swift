@@ -7,7 +7,11 @@ import SwiftUI
 import AppKit
 
 struct AttachedDiskDetailView: View {
-    let mountPath: String
+    /// `AttachedDisk.id` — stable handle that survives mount/unmount/replug
+    /// when `stableIdentity` is known. Routed in via the SidebarItem
+    /// `.attachedDisk` case so the detail view sticks with one disk
+    /// across status transitions (live → offline → live).
+    let diskID: String
     let container: AppContainer
 
     @ObservedObject private var attachedDisks: AttachedDisksModel
@@ -47,14 +51,14 @@ struct AttachedDiskDetailView: View {
     )
     private var verboseEnumerateLog = false
 
-    init(mountPath: String, container: AppContainer) {
-        self.mountPath = mountPath
+    init(diskID: String, container: AppContainer) {
+        self.diskID = diskID
         self.container = container
         self.attachedDisks = container.attachedDisks
     }
 
     private var disk: AttachedDisk? {
-        attachedDisks.disks.first { $0.mountPath == mountPath }
+        attachedDisks.disks.first { $0.id == diskID }
     }
 
     var body: some View {
@@ -83,7 +87,7 @@ struct AttachedDiskDetailView: View {
                     // Useful once the user has finished investigating an
                     // offline disk; live rows can be forgotten too but
                     // the next mount-table poll will resurrect them.
-                    Button(role: .destructive, action: { attachedDisks.forget(mountPath: disk.mountPath) }) {
+                    Button(role: .destructive, action: { attachedDisks.forget(id: disk.id) }) {
                         Label("Forget", systemImage: "minus.circle")
                     }
                     .help("Remove this disk from the sidebar")
@@ -198,9 +202,9 @@ struct AttachedDiskDetailView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         } else {
             ContentUnavailableView(
-                "Disk Unmounted",
+                "Disk Forgotten",
                 systemImage: "externaldrive.badge.minus",
-                description: Text("\(mountPath) is no longer mounted.")
+                description: Text("This disk is no longer tracked. It will reappear in the sidebar if it's reattached.")
             )
         }
     }

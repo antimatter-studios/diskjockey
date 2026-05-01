@@ -24,32 +24,63 @@ public enum FsckStatus: Equatable, Hashable {
 }
 
 /// Where this disk sits in its lifecycle. Drives sidebar visual + the
-/// conditional third line ("Verifying disk…", "Offline since …"). Stays
-/// `.live` while `/sbin/mount` reports the path; flips to `.offline`
-/// when it disappears so the user can still inspect why it went away
-/// (partition log, last fsck status) without us silently dropping the
-/// row.
+/// conditional third line ("Verifying disk…", "Offline since …").
+///
+///   - `.mounting` — created from extension events (probe / loadResource /
+///     fsck.start) but not yet visible in `/sbin/mount`. The preview-row
+///     state. macOS auto-probe → loadResource → fsck → mount; the entry
+///     gets created on probe so the user sees "something is happening"
+///     during the multi-minute fsck window before the path appears.
+///   - `.live` — currently in `/sbin/mount`.
+///   - `.offline(since:)` — was live, has dropped out. Kept in the
+///     sidebar so the user can read the partition log to investigate
+///     why a disk disappeared.
 public enum AttachedDiskStatus: Equatable, Hashable {
+    case mounting
     case live
     case offline(since: Date)
 }
 
 public struct AttachedDisk: Identifiable, Equatable, Hashable {
-    public var id: String { mountPath }
-    public let mountPath: String             // e.g. "/Volumes/inline-vol"
-    public let devicePath: String            // e.g. "/dev/disk5"
-    public let fsType: String                // e.g. "ext4"
-    public let name: String                  // user-visible label
+    /// Stable handle for the lifetime of this row, set once at creation
+    /// and never changes. Priority at creation:
+    ///   1. `stableIdentity` (UUID/serial from volume.info) — survives
+    ///      mount/unmount/replug/restart, so the same physical disk
+    ///      coalesces back onto the same row.
+    ///   2. `"bsd:\(name)"` — survives mount/unmount within a session
+    ///      (BSD names are stable until reboot or replug).
+    ///   3. `"path:\(mountPath)"` — last-resort fallback for rows
+    ///      created from a mount(8) line we can't correlate to a bsd.
+    public let id: String
+    /// Strongest known identity for this disk. Filled in when a
+    /// `volume.info` event arrives carrying `volume_uuid` (ext4) or
+    /// `serial_number` (ntfs). Promotes the row to coalesce-by-identity
+    /// across replug + app-restart cycles.
+    public var stableIdentity: String?
+    /// Current BSD name (e.g. "disk5s1"). Filled in from probe/load
+    /// events or derived from `devicePath`. May change across replug
+    /// cycles for the same physical disk — `stableIdentity` is what
+    /// guarantees row continuity in that case.
+    public var bsd: String?
+    /// e.g. "/Volumes/inline-vol". Empty for `.mounting` preview rows
+    /// that haven't reached mount(8) yet, and for `.offline` rows
+    /// where we keep the last known path in `lastMountPath` instead.
+    public var mountPath: String
+    public var devicePath: String            // e.g. "/dev/disk5"
+    public var fsType: String                // e.g. "ext4"
+    public var name: String                  // user-visible label
     /// Whether the volume is mounted read-write. Derived at parse time
     /// from `/sbin/mount`'s flag list — macOS emits `read-only` (with
     /// hyphen) for RO mounts; some older releases emit the bare token
     /// `ro`, so we accept both. RW is the unsurprising default.
-    public let isWritable: Bool
-    /// Lifecycle state. `.live` while currently in `/sbin/mount`;
-    /// flipped to `.offline(since:)` when the entry drops out. Kept
-    /// in the sidebar either way so the user can read the partition
-    /// log to investigate why a disk disappeared.
+    public var isWritable: Bool
+    /// Lifecycle state. See `AttachedDiskStatus`.
     public var status: AttachedDiskStatus = .live
+    /// Last `mountPath` we saw this disk at. Survives the transition to
+    /// `.offline` (where `mountPath` is cleared) and across app
+    /// restarts via the persistence cache. Lets the detail view show
+    /// "was at /Volumes/Foo" for offline rows.
+    public var lastMountPath: String?
     /// Latest dirty/fsck status for this volume. Keyed into the model
     /// by correlating `fields["bsd"]` (e.g. "disk5") with this disk's
     /// devicePath tail.
@@ -86,6 +117,45 @@ public struct AttachedDisk: Identifiable, Equatable, Hashable {
         default:
             return .sfSymbol("externaldrive.fill")
         }
+    }
+
+    /// Derive the stable id at row-creation time. Priority documented
+    /// on `id`. Caller passes whatever it knows; we pick the strongest
+    /// and freeze it.
+    public static func makeID(stableIdentity: String?, bsd: String?, mountPath: String) -> String {
+        if let s = stableIdentity, !s.isEmpty { return "id:\(s)" }
+        if let b = bsd, !b.isEmpty { return "bsd:\(b)" }
+        return "path:\(mountPath)"
+    }
+
+    public init(id: String? = nil,
+                stableIdentity: String? = nil,
+                bsd: String? = nil,
+                mountPath: String,
+                devicePath: String,
+                fsType: String,
+                name: String,
+                isWritable: Bool,
+                status: AttachedDiskStatus = .live,
+                lastMountPath: String? = nil,
+                fsckStatus: FsckStatus = .unknown,
+                info: [String: String] = [:],
+                partitionLog: [AttachedDiskLogLine] = [],
+                ioStats: IOStats = IOStats()) {
+        self.id = id ?? Self.makeID(stableIdentity: stableIdentity, bsd: bsd, mountPath: mountPath)
+        self.stableIdentity = stableIdentity
+        self.bsd = bsd
+        self.mountPath = mountPath
+        self.devicePath = devicePath
+        self.fsType = fsType
+        self.name = name
+        self.isWritable = isWritable
+        self.status = status
+        self.lastMountPath = lastMountPath ?? (mountPath.isEmpty ? nil : mountPath)
+        self.fsckStatus = fsckStatus
+        self.info = info
+        self.partitionLog = partitionLog
+        self.ioStats = ioStats
     }
 }
 
@@ -146,8 +216,19 @@ public struct ParsedLogLine {
 
 @MainActor
 public final class AttachedDisksModel: ObservableObject {
-    /// Currently mounted disks filtered to the fstypes we care about.
-    @Published public private(set) var disks: [AttachedDisk] = []
+    /// Disks the model is tracking. Includes:
+    ///   - currently in mount(8) (status = .live)
+    ///   - extension events have arrived for the BSD but mount(8)
+    ///     hasn't caught up (status = .mounting)
+    ///   - was live earlier this session, has dropped out
+    ///     (status = .offline)
+    ///   - was live in a previous session and persisted via UserDefaults
+    ///     (status = .offline, restored from disk on init)
+    /// Any mutation triggers `persist()` via didSet so the offline
+    /// roster survives an app restart.
+    @Published public private(set) var disks: [AttachedDisk] = [] {
+        didSet { persist() }
+    }
 
     /// Scopes the per-mount detail-view log hides. Empty by default —
     /// the per-mount pane is the right place to see the full picture
@@ -181,8 +262,18 @@ public final class AttachedDisksModel: ObservableObject {
     private var pendingLogs: [String: [AttachedDiskLogLine]] = [:]
     private static let logCap = 500
 
+    /// UserDefaults key holding the persisted history of disks we've
+    /// seen with a `stableIdentity`. Restored at launch as `.offline`
+    /// rows so the user can investigate a disk that was unmounted
+    /// before the app was last quit. Rows without `stableIdentity`
+    /// (e.g. ext4 disks where we can't read the UUID) are NOT
+    /// persisted — their identity wouldn't survive a reboot anyway.
+    private static let persistenceKey = "AttachedDisksHistory.v1"
+    private static let persistenceDefaults = UserDefaults.standard
+
     public init(pollInterval: TimeInterval = 3.0) {
         self.pollInterval = pollInterval
+        self.disks = Self.loadPersisted()
     }
 
     public func start() {
@@ -198,57 +289,133 @@ public final class AttachedDisksModel: ObservableObject {
         timer = nil
     }
 
+    // MARK: - Persistence
+
+    /// Snapshot of the bare-minimum fields needed to recreate a disk's
+    /// sidebar row across an app restart. Deliberately doesn't include
+    /// partitionLog / ioStats / fsckStatus — those are session-scoped
+    /// and would be misleading if rendered from a previous run.
+    private struct PersistedRow: Codable {
+        let stableIdentity: String
+        let lastBsd: String?
+        let lastMountPath: String?
+        let lastDevicePath: String
+        let fsType: String
+        let name: String
+        let lastSeenAt: Date
+        let info: [String: String]
+    }
+
+    private static func loadPersisted() -> [AttachedDisk] {
+        guard let data = persistenceDefaults.data(forKey: persistenceKey),
+              let rows = try? JSONDecoder().decode([PersistedRow].self, from: data)
+        else { return [] }
+        return rows.map { row in
+            AttachedDisk(
+                stableIdentity: row.stableIdentity,
+                bsd: row.lastBsd,
+                mountPath: "",
+                devicePath: row.lastDevicePath,
+                fsType: row.fsType,
+                name: row.name,
+                isWritable: true,
+                status: .offline(since: row.lastSeenAt),
+                lastMountPath: row.lastMountPath,
+                info: row.info
+            )
+        }
+    }
+
+    /// Snapshot the current `disks` to UserDefaults. Called from didSet
+    /// of `disks` so any mutation that goes through the published
+    /// property (refresh, applyEvent, applyLogLine, forget) gets saved.
+    /// Rows without `stableIdentity` are skipped — the BSD they're
+    /// keyed on is meaningless next session.
+    private func persist() {
+        let rows: [PersistedRow] = disks.compactMap { d in
+            guard let stable = d.stableIdentity, !stable.isEmpty else { return nil }
+            let lastSeen: Date
+            switch d.status {
+            case .offline(let since): lastSeen = since
+            case .live, .mounting:    lastSeen = Date()
+            }
+            return PersistedRow(
+                stableIdentity: stable,
+                lastBsd: d.bsd,
+                lastMountPath: d.lastMountPath ?? (d.mountPath.isEmpty ? nil : d.mountPath),
+                lastDevicePath: d.devicePath,
+                fsType: d.fsType,
+                name: d.name,
+                lastSeenAt: lastSeen,
+                info: d.info
+            )
+        }
+        guard let data = try? JSONEncoder().encode(rows) else { return }
+        Self.persistenceDefaults.set(data, forKey: Self.persistenceKey)
+    }
+
     public func refresh() {
         let fresh = Self.enumerate(fsTypesOfInterest: fsTypesOfInterest)
-        let freshPaths = Set(fresh.map { $0.mountPath })
-        let oldByPath = Dictionary(uniqueKeysWithValues: disks.map { ($0.mountPath, $0) })
-        let oldPaths = Set(disks.map { $0.mountPath })
-
-        // Build the merged list as the union of:
-        //   (a) every entry currently in /sbin/mount (status=.live, with
-        //       prior partition log + info + ioStats + fsck preserved), and
-        //   (b) every prior entry we've seen this session that's no
-        //       longer in mount(8) (status=.offline). Keeping the offline
-        //       rows is the whole point of this model — the partition
-        //       log explaining why a disk vanished is useless if the
-        //       row vanishes with it.
-        var merged: [AttachedDisk] = fresh.map { d in
-            var copy = d
-            if let prior = oldByPath[d.mountPath] {
-                copy.fsckStatus = prior.fsckStatus
-                // Carry over extension-emitted info (cluster_size,
-                // total_inodes, serial_number, ...) on top of the
-                // statvfs baseline already on `copy.info`.
-                for (k, v) in prior.info { copy.info[k] = v }
-                copy.partitionLog = prior.partitionLog
-                copy.ioStats = prior.ioStats
-            }
-            copy.status = .live
-            return copy
-        }
+        var merged: [AttachedDisk] = []
+        var consumedIndices: Set<Int> = []  // indices into `disks` we've already merged
         let now = Date()
-        for prior in disks where !freshPaths.contains(prior.mountPath) {
-            // Was here before, gone from mount(8) now → keep it but
-            // mark offline. Only stamp `since` on the transition; if it
-            // was already offline, preserve the original timestamp.
+
+        // For each fresh mount(8) entry, find the best-matching existing
+        // row and merge state forward (or create a new live row).
+        // Cascade: stableIdentity → bsd → mountPath. The first match
+        // wins and that prior index is consumed so it isn't carried
+        // again as a stale offline entry. This is what lets a disk
+        // unplugged + replugged with a different BSD coalesce back
+        // onto its original sidebar row.
+        for f in fresh {
+            if let idx = matchPriorIndex(for: f, in: disks, excluding: consumedIndices) {
+                consumedIndices.insert(idx)
+                var copy = disks[idx]
+                copy.bsd = f.bsd ?? copy.bsd
+                copy.mountPath = f.mountPath
+                copy.devicePath = f.devicePath
+                copy.fsType = f.fsType
+                copy.name = f.name
+                copy.isWritable = f.isWritable
+                copy.lastMountPath = f.mountPath
+                copy.status = .live
+                // Overlay statvfs-baseline info onto whatever the
+                // extension previously published — extension keys win
+                // on conflicts (their values are more authoritative).
+                var fresh_info = f.info
+                for (k, v) in copy.info { fresh_info[k] = v }
+                copy.info = fresh_info
+                merged.append(copy)
+            } else {
+                // First time we've seen this disk this session.
+                merged.append(f)
+            }
+        }
+
+        // Anything that didn't get consumed wasn't in mount(8): either
+        // a `.mounting` preview that hasn't reached mount-table yet
+        // (keep as-is), or a previously-`.live` row that just dropped
+        // out (flip to `.offline`).
+        for (i, prior) in disks.enumerated() where !consumedIndices.contains(i) {
             var carried = prior
             switch prior.status {
-            case .offline:
-                break
             case .live:
                 carried.status = .offline(since: now)
+                carried.mountPath = ""  // no longer mounted there
+            case .mounting, .offline:
+                break  // preserve as-is
             }
             merged.append(carried)
         }
 
-        // Replay any events / log lines that arrived for a disk before
-        // it showed up in mount(8). This covers the launch-time race
-        // where LogTailService reads existing ndjson before the first
-        // mount-table poll completes. Only target live rows — offline
-        // rows shouldn't absorb new events for a disk that no longer
-        // exists at that BSD.
-        for i in merged.indices where merged[i].status == .live {
-            let bsd = Self.bsdName(from: merged[i].devicePath)
+        // Replay queued events / log lines for any row whose bsd is now
+        // present. `pendingEvents`/`pendingLogs` cover the launch-time
+        // race where LogTailService sees ndjson lines before refresh()
+        // builds the disk list. With preview rows we usually catch the
+        // events on the live path instead — but the queue is still the
+        // safety net.
+        for i in merged.indices {
+            guard let bsd = merged[i].bsd else { continue }
             if let queued = pendingEvents.removeValue(forKey: bsd) {
                 for ev in queued {
                     Self.applyEventInPlace(kind: ev.kind, fields: ev.fields, to: &merged[i])
@@ -264,29 +431,60 @@ public final class AttachedDisksModel: ObservableObject {
 
         guard merged != disks else { return }
 
-        for added in fresh where !oldPaths.contains(added.mountPath) {
+        let oldIDs = Set(disks.map { $0.id })
+        let newIDs = Set(merged.map { $0.id })
+        for added in merged where !oldIDs.contains(added.id) && added.status == .live {
             AppLog.shared.info("attached: \(added.fsType) at \(added.mountPath) (\(added.devicePath))")
         }
-        for prior in disks where !freshPaths.contains(prior.mountPath) && prior.status == .live {
-            AppLog.shared.info("detached: \(prior.mountPath) (kept in sidebar as offline)")
+        for (i, prior) in disks.enumerated() where !consumedIndices.contains(i) && prior.status == .live && newIDs.contains(prior.id) {
+            AppLog.shared.info("detached: \(prior.lastMountPath ?? prior.mountPath) (kept in sidebar as offline)")
         }
         disks = merged
+    }
+
+    /// Find the strongest match for a fresh mount(8) row in the existing
+    /// `prior` list. Returns the index whose row should absorb `f`.
+    /// `excluded` skips indices already claimed by another fresh row in
+    /// this same refresh() pass (rare but possible if two fresh rows
+    /// hash to the same prior somehow).
+    private func matchPriorIndex(for f: AttachedDisk, in prior: [AttachedDisk], excluding excluded: Set<Int>) -> Int? {
+        // 1. stable identity (UUID/serial). Strongest signal.
+        if let s = f.stableIdentity, !s.isEmpty {
+            for (i, p) in prior.enumerated() where !excluded.contains(i) {
+                if p.stableIdentity == s { return i }
+            }
+        }
+        // 2. BSD. Survives mount/unmount within a session.
+        if let b = f.bsd, !b.isEmpty {
+            for (i, p) in prior.enumerated() where !excluded.contains(i) {
+                if p.bsd == b { return i }
+            }
+        }
+        // 3. mountPath, for rows that have no bsd (rare — e.g. an
+        // extension we didn't probe). Only matches against rows where
+        // mountPath is currently set; offline rows clear it.
+        if !f.mountPath.isEmpty {
+            for (i, p) in prior.enumerated() where !excluded.contains(i) {
+                if p.mountPath == f.mountPath && !p.mountPath.isEmpty { return i }
+            }
+        }
+        return nil
     }
 
     /// Drop a disk row entirely. Triggered by the user's "Forget" action
     /// in the detail view — typically used on offline rows once the
     /// user has finished investigating, but allowed on live rows too
     /// (the next refresh() will resurrect a live row anyway).
-    public func forget(mountPath: String) {
-        guard let idx = disks.firstIndex(where: { $0.mountPath == mountPath }) else { return }
+    public func forget(id: String) {
+        guard let idx = disks.firstIndex(where: { $0.id == id }) else { return }
         let removed = disks.remove(at: idx)
-        AppLog.shared.info("forgot: \(removed.mountPath)")
+        AppLog.shared.info("forgot: \(removed.lastMountPath ?? removed.mountPath) (id=\(removed.id))")
     }
 
     /// Strip "/dev/" prefix off a devicePath. Uses prefix match so
     /// "/dev/disk6s2" → "disk6s2"; callers comparing against event
     /// `bsd` keys should match with hasPrefix.
-    private static func bsdName(from devicePath: String) -> String {
+    nonisolated private static func bsdName(from devicePath: String) -> String {
         if devicePath.hasPrefix("/dev/") {
             return String(devicePath.dropFirst("/dev/".count))
         }
@@ -294,31 +492,45 @@ public final class AttachedDisksModel: ObservableObject {
     }
 
     /// Apply a structured event emitted by an FSKit extension via the
-    /// NDJSON tail. `bsd` is the BSD device name (e.g. "disk6") the
-    /// extension attached itself to; we match by prefix of `devicePath`
-    /// so both "/dev/disk6" and "/dev/disk6s2" resolve to the right
-    /// volume. If the disk hasn't appeared in mount(8) yet, the event
-    /// is buffered and replayed on the next refresh(). Routes by kind
-    /// — dirty/fsck events update fsckStatus, volume.info populates
-    /// the info dict that the detail view renders.
+    /// NDJSON tail. Match strategy: by `disk.bsd == fields["bsd"]`.
+    /// If no row exists for this BSD, create a preview row with
+    /// status=.mounting so the user sees the disk in the sidebar
+    /// during the multi-minute fsck/mount window before mount(8)
+    /// catches up. Routes by kind — dirty/fsck events update
+    /// fsckStatus, volume.info populates the info dict that the
+    /// detail view renders.
     public func applyExtensionEvent(kind: String, fields: [String: String]) {
         guard let bsd = fields["bsd"] else { return }
-        let devSuffix = "/dev/" + bsd
-        guard let idx = disks.firstIndex(where: { $0.devicePath.hasPrefix(devSuffix) }) else {
-            // Disk not yet in the model — buffer and replay on next refresh.
-            pendingEvents[bsd, default: []].append((kind: kind, fields: fields))
-            return
+        let idx: Int
+        if let existing = disks.firstIndex(where: { $0.bsd == bsd }) {
+            idx = existing
+        } else {
+            // No row yet — create a preview. fsType comes from the
+            // event kind prefix ("ext4.probe", "ntfs.load", …) when
+            // available, otherwise blank until volume.info arrives.
+            let fsType = Self.fsTypeFromEventKind(kind) ?? ""
+            let preview = AttachedDisk(
+                bsd: bsd,
+                mountPath: "",
+                devicePath: "/dev/\(bsd)",
+                fsType: fsType,
+                name: bsd,
+                isWritable: true,  // assumed writable; corrected on first refresh()
+                status: .mounting
+            )
+            disks.append(preview)
+            idx = disks.count - 1
+            AppLog.shared.info("preview row added for \(bsd) (\(fsType.isEmpty ? "fs unknown" : fsType))")
         }
         Self.applyEventInPlace(kind: kind, fields: fields, to: &disks[idx])
     }
 
     /// Apply a plain NDJSON log line to the matching disk's partition
-    /// log. Lines without an identifiable BSD are dropped (they belong
-    /// in the central app log, not a per-partition view). Lines for an
-    /// unknown BSD are buffered and flushed on refresh().
+    /// log. Same matching as `applyExtensionEvent`: lines for an
+    /// unknown BSD create a preview row so the partition-log strip is
+    /// populated from the moment the extension starts emitting.
     public func applyLogLine(_ line: ParsedLogLine) {
         guard let bsd = line.bsd else { return }
-        let devSuffix = "/dev/" + bsd
         let entry = AttachedDiskLogLine(
             timestamp: line.timestamp,
             level: line.level,
@@ -326,17 +538,41 @@ public final class AttachedDisksModel: ObservableObject {
             source: line.source,
             scope: line.scope
         )
-        guard let idx = disks.firstIndex(where: { $0.devicePath.hasPrefix(devSuffix) }) else {
-            pendingLogs[bsd, default: []].append(entry)
-            if pendingLogs[bsd]!.count > Self.logCap {
-                pendingLogs[bsd]!.removeFirst(pendingLogs[bsd]!.count - Self.logCap)
-            }
-            return
+        let idx: Int
+        if let existing = disks.firstIndex(where: { $0.bsd == bsd }) {
+            idx = existing
+        } else {
+            // Create a preview keyed on this bsd. Plain log lines
+            // don't carry a kind, so we can't infer fsType yet —
+            // leave it blank and let the next structured event fill
+            // it in.
+            let preview = AttachedDisk(
+                bsd: bsd,
+                mountPath: "",
+                devicePath: "/dev/\(bsd)",
+                fsType: "",
+                name: bsd,
+                isWritable: true,
+                status: .mounting
+            )
+            disks.append(preview)
+            idx = disks.count - 1
         }
         disks[idx].partitionLog.append(entry)
         if disks[idx].partitionLog.count > Self.logCap {
             disks[idx].partitionLog.removeFirst(disks[idx].partitionLog.count - Self.logCap)
         }
+    }
+
+    /// Map a structured-event `kind` (e.g. `"ext4.probe"`, `"ntfs.load"`)
+    /// to the fsType the model should render in the sidebar. Returns
+    /// nil for kinds that aren't fs-specific (`"fsck.progress"`,
+    /// `"io.stats"`, `"volume.info"` — the latter has the fs name in
+    /// `fields["fs"]` so callers can pull from there).
+    private static func fsTypeFromEventKind(_ kind: String) -> String? {
+        if kind.hasPrefix("ext4.") { return "ext4" }
+        if kind.hasPrefix("ntfs.") { return "ntfs" }
+        return nil
     }
 
     /// Mutating event-apply logic extracted so `refresh()` can replay
@@ -353,6 +589,33 @@ public final class AttachedDisksModel: ObservableObject {
             // replacing — so free_size from `refresh()` survives alongside
             // the fs-specific keys the extension emits.
             for (k, v) in info { disk.info[k] = v }
+            // Promote preview rows: fill in fsType + display name + the
+            // stable identity for cross-session/replug coalescing.
+            if let fs = info["fs"], !fs.isEmpty {
+                disk.fsType = fs
+            }
+            if let volName = info["volume_name"], !volName.isEmpty,
+               (disk.name == disk.bsd || disk.name.isEmpty) {
+                // Only adopt volume_name if the row is still showing
+                // the BSD as a placeholder. Once mount(8) gives us a
+                // real /Volumes path, that's what the user knows the
+                // disk by — don't clobber it with the on-disk label.
+                disk.name = volName
+            }
+            // Strongest identity wins. NTFS emits `serial_number` in
+            // volume.info → survives replug+restart, sidebar row
+            // coalesces back. Ext4 doesn't currently emit its UUID
+            // (the rust FFI struct doesn't expose s_uuid yet) so ext4
+            // disks fall back to BSD-as-identity, which is stable for
+            // a session but not across replug. Prefix-tag so two
+            // filesystems can't collide on the same string.
+            if disk.stableIdentity == nil {
+                if let u = info["volume_uuid"], !u.isEmpty {
+                    disk.stableIdentity = "ext4-uuid:\(u)"
+                } else if let s = info["serial_number"], !s.isEmpty {
+                    disk.stableIdentity = "ntfs-serial:\(s)"
+                }
+            }
             return
         }
 
@@ -445,7 +708,9 @@ public final class AttachedDisksModel: ObservableObject {
         let isWritable = !flags.contains("read-only") && !flags.contains("ro")
 
         let name = (mountPath as NSString).lastPathComponent
+        let bsd = Self.bsdName(from: devicePath)
         return AttachedDisk(
+            bsd: bsd,
             mountPath: mountPath,
             devicePath: devicePath,
             fsType: fsType,
