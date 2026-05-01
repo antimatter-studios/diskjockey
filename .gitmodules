@@ -7,3 +7,6 @@
 [submodule "vendor/go-networkfs"]
 	path = vendor/go-networkfs
 	url = https://github.com/christhomas/go-networkfs
+[submodule "vendor/tabler-icons"]
+	path = vendor/tabler-icons
+	url = https://github.com/tabler/tabler-icons.git
