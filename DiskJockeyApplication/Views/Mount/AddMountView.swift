@@ -3,11 +3,9 @@
 // for any of the eight supported network protocols. Every submission
 // hands off to `DirectMountRegistry`; no backend involvement.
 //
-// For OAuth-based providers (Google Drive, OneDrive, Dropbox) the form
-// currently asks the user to paste a pre-obtained refresh token. The
-// browser-based OAuth dance is planned — see
-// `docs/oauth-flow-plan.md` — and will replace those TextFields with a
-// "Sign in" button when implemented.
+// Dropbox, Google Drive, and OneDrive use the in-app browser OAuth
+// flow — the AddMount form shows a "Sign in" button that hands off to
+// `OAuthCoordinator`.
 //
 
 import SwiftUI
@@ -43,13 +41,41 @@ struct AddMountView: View {
     @State private var webdavURL: String = ""
     @State private var webdavPathPrefix: String = "/"
 
-    // OAuth-based (gdrive, onedrive)
-    @State private var oauthClientID: String = ""
-    @State private var oauthClientSecret: String = ""
-    @State private var oauthRefreshToken: String = ""
+    // OneDrive — populated by `OAuthCoordinator.authorizeOneDrive()`.
+    // `clientID` is snapshotted from `OAuthClientConfig.onedrive` so
+    // re-keying the app later doesn't strand existing mounts.
+    // `clientSecret` stays empty (PKCE public client). Refresh token
+    // goes to the keychain.
+    @State private var onedriveClientID: String = ""
+    @State private var onedriveRefreshToken: String = ""
+    @State private var onedriveIsSigningIn: Bool = false
+    @State private var onedriveSignInError: String?
 
-    // Dropbox (long-lived access token for now)
-    @State private var dropboxAccessToken: String = ""
+    // Dropbox — populated by `OAuthCoordinator.authorizeDropbox()`
+    // when the user clicks "Sign in to Dropbox". `appKey` is sourced
+    // from the bundled OAuthClients.json; we copy it onto the mount
+    // at create-time so re-keying the app down the road doesn't
+    // strand existing mounts. `refreshToken` is the actually-secret
+    // bit; it goes to the keychain via `MountKeychain`.
+    @State private var dropboxAppKey: String = ""
+    @State private var dropboxRefreshToken: String = ""
+    @State private var dropboxIsSigningIn: Bool = false
+    @State private var dropboxSignInError: String?
+    // Protocol-agnostic mount policy — the same toggles apply to
+    // every connector since `MountPolicyStore` keys them by domainID,
+    // not by protocol. See `MountPolicy` in DiskJockeyLibrary.
+    @State private var policyFetchThumbnails: Bool = true
+    @State private var policyBackgroundFetch: Bool = true
+
+    // Google Drive — populated by `OAuthCoordinator.authorizeGDrive()`.
+    // `clientID` and `clientSecret` are snapshotted from
+    // `OAuthClientConfig.gdrive` so re-keying the app later doesn't
+    // strand existing mounts. Refresh token goes to the keychain.
+    @State private var gdriveClientID: String = ""
+    @State private var gdriveClientSecret: String = ""
+    @State private var gdriveRefreshToken: String = ""
+    @State private var gdriveIsSigningIn: Bool = false
+    @State private var gdriveSignInError: String?
 
     // S3
     @State private var s3Endpoint: String = ""
@@ -85,6 +111,8 @@ struct AddMountView: View {
                 TextField("Name", text: $name, prompt: Text("My Server"))
 
                 schemeFields
+
+                commonPolicyFields
 
                 if let error = errorMessage {
                     Text(error)
@@ -132,6 +160,15 @@ struct AddMountView: View {
         case .gdrive:   gdriveFields
         case .onedrive: onedriveFields
         case .s3:       s3Fields
+        }
+    }
+
+    @ViewBuilder
+    private var commonPolicyFields: some View {
+        Section("Background fetching") {
+            Toggle("Fetch thumbnails", isOn: $policyFetchThumbnails)
+            Toggle("Background metadata fetching", isOn: $policyBackgroundFetch)
+                .disabled(!policyFetchThumbnails)
         }
     }
 
@@ -185,44 +222,201 @@ struct AddMountView: View {
     @ViewBuilder
     private var dropboxFields: some View {
         Section {
-            SecureField("Access Token", text: $dropboxAccessToken,
-                        prompt: Text("sl.B…"))
+            if dropboxRefreshToken.isEmpty {
+                Button {
+                    Task { await runDropboxSignIn() }
+                } label: {
+                    if dropboxIsSigningIn {
+                        HStack(spacing: 8) {
+                            ProgressView().scaleEffect(0.6)
+                            Text("Waiting for browser…")
+                        }
+                    } else {
+                        Text("Sign in to Dropbox…")
+                    }
+                }
+                .disabled(dropboxIsSigningIn)
+            } else {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text("Signed in to Dropbox")
+                    Spacer()
+                    Button("Sign in again") {
+                        dropboxRefreshToken = ""
+                        dropboxAppKey = ""
+                        dropboxSignInError = nil
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+            if let err = dropboxSignInError {
+                Text(err)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         } footer: {
-            Text("Generate a long-lived token at https://www.dropbox.com/developers/apps. OAuth sign-in is coming — see docs/oauth-flow-plan.md.")
+            Text("DiskJockey opens your browser to dropbox.com, then captures the redirect on a local loopback port. The refresh token returned is stored in the macOS keychain.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Drive the OAuth flow on the main actor. `OAuthCoordinator`
+    /// owns the loopback listener + browser open + token exchange;
+    /// here we just translate its result into local @State.
+    @MainActor
+    private func runDropboxSignIn() async {
+        dropboxIsSigningIn = true
+        dropboxSignInError = nil
+        defer { dropboxIsSigningIn = false }
+        do {
+            let tokens = try await OAuthCoordinator.shared.authorizeDropbox()
+            // Snapshot the App Key from the bundled config so the
+            // mount we create carries the same key the OAuth flow
+            // used — important if the JSON is later edited.
+            dropboxAppKey = OAuthClientConfig.dropbox?.appKey ?? ""
+            dropboxRefreshToken = tokens.refreshToken
+        } catch {
+            dropboxSignInError = error.localizedDescription
+            AppLog.shared.error("Dropbox sign-in failed: \(error)")
         }
     }
 
     @ViewBuilder
     private var gdriveFields: some View {
         Section {
-            TextField("Client ID", text: $oauthClientID,
-                      prompt: Text("xxx.apps.googleusercontent.com"))
-            TextField("Client Secret", text: $oauthClientSecret,
-                      prompt: Text("GOCSPX-…"))
-            SecureField("Refresh Token", text: $oauthRefreshToken,
-                        prompt: Text("1//0e…"))
+            if gdriveRefreshToken.isEmpty {
+                Button {
+                    Task { await runGDriveSignIn() }
+                } label: {
+                    if gdriveIsSigningIn {
+                        HStack(spacing: 8) {
+                            ProgressView().scaleEffect(0.6)
+                            Text("Waiting for browser…")
+                        }
+                    } else {
+                        Text("Sign in to Google Drive…")
+                    }
+                }
+                .disabled(gdriveIsSigningIn)
+            } else {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text("Signed in to Google Drive")
+                    Spacer()
+                    Button("Sign in again") {
+                        gdriveRefreshToken = ""
+                        gdriveClientID = ""
+                        gdriveClientSecret = ""
+                        gdriveSignInError = nil
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+            if let err = gdriveSignInError {
+                Text(err)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         } footer: {
-            Text("Obtain credentials per docs/google-drive-registration.md. Browser OAuth flow is planned — see docs/oauth-flow-plan.md.")
+            Text("DiskJockey opens your browser to accounts.google.com, then captures the redirect on a local loopback port. The refresh token returned is stored in the macOS keychain. Until the app's Google verification completes, only test users listed in the Google Cloud Console can sign in (see docs/google-drive-registration.md §7).")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Drive the Google OAuth flow on the main actor. Mirrors
+    /// `runDropboxSignIn` — `OAuthCoordinator` owns the loopback +
+    /// browser open + token exchange; we just translate its result
+    /// into local @State.
+    @MainActor
+    private func runGDriveSignIn() async {
+        gdriveIsSigningIn = true
+        gdriveSignInError = nil
+        defer { gdriveIsSigningIn = false }
+        do {
+            let tokens = try await OAuthCoordinator.shared.authorizeGDrive()
+            // Snapshot the developer credentials from the bundled
+            // config so the mount we create carries the same values
+            // the OAuth flow used — important if the JSON is later
+            // edited.
+            gdriveClientID = OAuthClientConfig.gdrive?.clientID ?? ""
+            gdriveClientSecret = OAuthClientConfig.gdrive?.clientSecret ?? ""
+            gdriveRefreshToken = tokens.refreshToken
+        } catch {
+            gdriveSignInError = error.localizedDescription
+            AppLog.shared.error("Google Drive sign-in failed: \(error)")
         }
     }
 
     @ViewBuilder
     private var onedriveFields: some View {
         Section {
-            TextField("Client ID", text: $oauthClientID,
-                      prompt: Text("Azure app registration ID"))
-            SecureField("Client Secret (optional)", text: $oauthClientSecret,
-                        prompt: Text("leave empty for PKCE public client"))
-            SecureField("Refresh Token", text: $oauthRefreshToken,
-                        prompt: Text("M.R3_BAY.CX…"))
+            if onedriveRefreshToken.isEmpty {
+                Button {
+                    Task { await runOneDriveSignIn() }
+                } label: {
+                    if onedriveIsSigningIn {
+                        HStack(spacing: 8) {
+                            ProgressView().scaleEffect(0.6)
+                            Text("Waiting for browser…")
+                        }
+                    } else {
+                        Text("Sign in to OneDrive…")
+                    }
+                }
+                .disabled(onedriveIsSigningIn)
+            } else {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text("Signed in to OneDrive")
+                    Spacer()
+                    Button("Sign in again") {
+                        onedriveRefreshToken = ""
+                        onedriveClientID = ""
+                        onedriveSignInError = nil
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+            if let err = onedriveSignInError {
+                Text(err)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         } footer: {
-            Text("Obtain credentials per docs/microsoft-onedrive-registration.md. Browser OAuth flow is planned — see docs/oauth-flow-plan.md.")
+            Text("DiskJockey opens your browser to login.microsoftonline.com, then captures the redirect on a local loopback port. The refresh token returned is stored in the macOS keychain. Work/school tenants may show an \"unverified app\" warning until publisher verification completes (see docs/microsoft-onedrive-registration.md §5).")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Drive the Microsoft OAuth flow on the main actor. Mirrors
+    /// `runDropboxSignIn` / `runGDriveSignIn` — `OAuthCoordinator` owns
+    /// the loopback + browser open + token exchange; we just translate
+    /// its result into local @State.
+    @MainActor
+    private func runOneDriveSignIn() async {
+        onedriveIsSigningIn = true
+        onedriveSignInError = nil
+        defer { onedriveIsSigningIn = false }
+        do {
+            let tokens = try await OAuthCoordinator.shared.authorizeOneDrive()
+            // Snapshot the developer client_id from the bundled
+            // config so the mount we create carries the same value
+            // the OAuth flow used — important if the JSON is later
+            // edited.
+            onedriveClientID = OAuthClientConfig.onedrive?.clientID ?? ""
+            onedriveRefreshToken = tokens.refreshToken
+        } catch {
+            onedriveSignInError = error.localizedDescription
+            AppLog.shared.error("OneDrive sign-in failed: \(error)")
         }
     }
 
@@ -252,7 +446,10 @@ struct AddMountView: View {
     // MARK: - Validation
 
     private var isFormValid: Bool {
-        guard !name.isEmpty else { return false }
+        // Name is optional — `DirectMountRegistry.createMount`
+        // auto-generates "<Protocol> Mount" when blank. Requiring it
+        // here surprised users who'd successfully signed in but
+        // couldn't see why "Add Mount" was disabled.
         switch scheme {
         case .ftp:
             return !host.isEmpty && !user.isEmpty && !password.isEmpty
@@ -265,12 +462,13 @@ struct AddMountView: View {
         case .webdav:
             return !webdavURL.isEmpty && !user.isEmpty && !password.isEmpty
         case .dropbox:
-            return !dropboxAccessToken.isEmpty
+            return !dropboxRefreshToken.isEmpty && !dropboxAppKey.isEmpty
         case .gdrive:
-            return !oauthClientID.isEmpty && !oauthClientSecret.isEmpty
-                && !oauthRefreshToken.isEmpty
+            return !gdriveRefreshToken.isEmpty
+                && !gdriveClientID.isEmpty
+                && !gdriveClientSecret.isEmpty
         case .onedrive:
-            return !oauthClientID.isEmpty && !oauthRefreshToken.isEmpty
+            return !onedriveRefreshToken.isEmpty && !onedriveClientID.isEmpty
         case .s3:
             return !s3Endpoint.isEmpty && !s3Bucket.isEmpty
                 && !s3AccessKeyID.isEmpty && !s3SecretKey.isEmpty
@@ -289,6 +487,10 @@ struct AddMountView: View {
 
         Task {
             do {
+                let policySnapshot = MountPolicy(
+                    fetchThumbnails: policyFetchThumbnails,
+                    backgroundFetch: policyBackgroundFetch
+                )
                 let mount: DirectMount
                 switch schemeSnapshot {
                 case .ftp:
@@ -299,7 +501,8 @@ struct AddMountView: View {
                         user: user,
                         password: password,
                         rootPath: trimmedRoot,
-                        ftps: ftps
+                        ftps: ftps,
+                        policy: policySnapshot
                     )
                 case .sftp:
                     mount = try await directMountRegistry.createSFTPMount(
@@ -309,7 +512,8 @@ struct AddMountView: View {
                         user: user,
                         password: password,
                         rootPath: trimmedRoot,
-                        useSSHAgent: sftpUseAgent
+                        useSSHAgent: sftpUseAgent,
+                        policy: policySnapshot
                     )
                 case .smb:
                     mount = try await directMountRegistry.createSMBMount(
@@ -319,7 +523,8 @@ struct AddMountView: View {
                         share: smbShare,
                         user: user,
                         password: password,
-                        rootPath: trimmedRoot
+                        rootPath: trimmedRoot,
+                        policy: policySnapshot
                     )
                 case .webdav:
                     mount = try await directMountRegistry.createWebDAVMount(
@@ -327,26 +532,30 @@ struct AddMountView: View {
                         url: webdavURL,
                         user: user,
                         password: password,
-                        pathPrefix: webdavPathPrefix.isEmpty ? "/" : webdavPathPrefix
+                        pathPrefix: webdavPathPrefix.isEmpty ? "/" : webdavPathPrefix,
+                        policy: policySnapshot
                     )
                 case .dropbox:
                     mount = try await directMountRegistry.createDropboxMount(
                         name: nameSnapshot,
-                        accessToken: dropboxAccessToken
+                        appKey: dropboxAppKey,
+                        refreshToken: dropboxRefreshToken,
+                        policy: policySnapshot
                     )
                 case .gdrive:
                     mount = try await directMountRegistry.createGDriveMount(
                         name: nameSnapshot,
-                        clientID: oauthClientID,
-                        clientSecret: oauthClientSecret,
-                        refreshToken: oauthRefreshToken
+                        clientID: gdriveClientID,
+                        clientSecret: gdriveClientSecret,
+                        refreshToken: gdriveRefreshToken,
+                        policy: policySnapshot
                     )
                 case .onedrive:
                     mount = try await directMountRegistry.createOneDriveMount(
                         name: nameSnapshot,
-                        clientID: oauthClientID,
-                        clientSecret: oauthClientSecret,
-                        refreshToken: oauthRefreshToken
+                        clientID: onedriveClientID,
+                        refreshToken: onedriveRefreshToken,
+                        policy: policySnapshot
                     )
                 case .s3:
                     mount = try await directMountRegistry.createS3Mount(
@@ -358,7 +567,8 @@ struct AddMountView: View {
                         secretAccessKey: s3SecretKey,
                         prefix: s3Prefix,
                         secure: s3Secure,
-                        usePathStyle: s3PathStyle
+                        usePathStyle: s3PathStyle,
+                        policy: policySnapshot
                     )
                 }
                 AppLog.shared.info("add-mount created id=\(mount.domainID) scheme=\(mount.config.scheme.rawValue)")

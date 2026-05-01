@@ -20,3 +20,10 @@ lib/
 
 # Workgroup coordination state
 .claude/workgroup/
+
+# OAuth client credentials — bundle resource read at runtime by
+# OAuthClientConfig. The .example.json template IS tracked; the live
+# file with real keys is not. Per RFC 8252 / PKCE the values are
+# semi-public, but we keep them out of the repo so a fork/clone
+# doesn't inherit our app registrations.
+DiskJockeyApplication/Resources/OAuthClients.json

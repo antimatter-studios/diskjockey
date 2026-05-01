@@ -28,11 +28,30 @@ public struct GDriveMountConfig: NetworkFSPersonality {
     /// Optional short-lived token. Leave empty and the Go driver will
     /// refresh on first use.
     public let cachedAccessToken: String
+    /// Optional cached account label (e.g. "user@example.com") for
+    /// the detail view. Filled at sign-in time from
+    /// `userinfo.email`. Empty when we never grabbed it.
+    public let accountLabel: String
 
-    public init(clientID: String, clientSecret: String, cachedAccessToken: String = "") {
+    public init(clientID: String, clientSecret: String, cachedAccessToken: String = "", accountLabel: String = "") {
         self.clientID = clientID
         self.clientSecret = clientSecret
         self.cachedAccessToken = cachedAccessToken
+        self.accountLabel = accountLabel
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case clientID, clientSecret, cachedAccessToken, accountLabel
+    }
+
+    /// Custom decode so plists written before `accountLabel` existed
+    /// still load — the missing field defaults to empty.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.clientID = (try? c.decode(String.self, forKey: .clientID)) ?? ""
+        self.clientSecret = (try? c.decode(String.self, forKey: .clientSecret)) ?? ""
+        self.cachedAccessToken = (try? c.decode(String.self, forKey: .cachedAccessToken)) ?? ""
+        self.accountLabel = (try? c.decode(String.self, forKey: .accountLabel)) ?? ""
     }
 
     public func mountJSON(password: String) -> String {

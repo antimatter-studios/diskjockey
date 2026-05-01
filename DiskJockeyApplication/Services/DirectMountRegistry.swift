@@ -39,19 +39,45 @@ public struct DirectMount: Identifiable, Codable, Equatable, Hashable, Sendable 
     /// May differ from `displayName` if we had to dedupe for a
     /// collision ("Work" → "Work-2").
     public let symlinkName: String
+    /// Per-mount policy (thumbnails, background fetch, …). Authoritative
+    /// copy lives in `MountPolicyStore`; this field is the in-memory
+    /// mirror so the UI doesn't have to round-trip the plist on every
+    /// render. Defaults to `.default` so legacy persisted entries that
+    /// pre-date this field decode cleanly (see `init(from:)`).
+    public let policy: MountPolicy
 
     public init(
         id: UUID = UUID(),
         displayName: String,
         config: StoredMountConfig,
         createdAt: Date = Date(),
-        symlinkName: String
+        symlinkName: String,
+        policy: MountPolicy = .default
     ) {
         self.id = id
         self.displayName = displayName
         self.config = config
         self.createdAt = createdAt
         self.symlinkName = symlinkName
+        self.policy = policy
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, displayName, config, createdAt, symlinkName, policy
+    }
+
+    /// Defaulting decode for `policy` so the UserDefaults blob written
+    /// before policies existed still round-trips. Missing key → use
+    /// `.default`; matches the upgrade behaviour of `MountPolicyStore`.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(UUID.self, forKey: .id)
+        self.displayName = try c.decode(String.self, forKey: .displayName)
+        self.config = try c.decode(StoredMountConfig.self, forKey: .config)
+        self.createdAt = try c.decode(Date.self, forKey: .createdAt)
+        self.symlinkName = try c.decode(String.self, forKey: .symlinkName)
+        self.policy =
+            (try? c.decode(MountPolicy.self, forKey: .policy)) ?? .default
     }
 
     /// The domain identifier we register with the FileProvider. We use
@@ -139,6 +165,7 @@ public final class DirectMountRegistry: ObservableObject {
     @Published public private(set) var mountErrors: [String: MountConnectionError] = [:]
 
     private let configStore: MountConfigStore
+    private let policyStore: MountPolicyStore
     private let keychain: MountKeychain
     private let symlinks: SymlinkManager
     private let defaults: UserDefaults
@@ -149,10 +176,12 @@ public final class DirectMountRegistry: ObservableObject {
 
     public init(
         configStore: MountConfigStore = MountConfigStore(),
+        policyStore: MountPolicyStore = MountPolicyStore(),
         keychain: MountKeychain = MountKeychain(),
         symlinks: SymlinkManager
     ) {
         self.configStore = configStore
+        self.policyStore = policyStore
         self.keychain = keychain
         self.symlinks = symlinks
         // Shared UserDefaults under the app-group. Falls back to
@@ -227,7 +256,8 @@ public final class DirectMountRegistry: ObservableObject {
     public func createMount(
         name: String,
         config: StoredMountConfig,
-        password: String
+        password: String,
+        policy: MountPolicy = .default
     ) async throws -> DirectMount {
         let id = UUID()
         let domainID = id.uuidString
@@ -244,6 +274,19 @@ public final class DirectMountRegistry: ObservableObject {
             throw error
         }
 
+        // 1a.5. Persist the per-mount policy alongside the config. Done
+        // before the keychain step so a policy-write failure rolls back
+        // only the plist (no orphan secret in the keychain).
+        AppLog.shared.info("step 1a.5: writing policy plist")
+        do {
+            try policyStore.save(policy, domainID: domainID)
+            AppLog.shared.info("step 1a.5: policy plist saved")
+        } catch {
+            AppLog.shared.error("step 1a.5 FAILED (policy save): \("\(error)")")
+            try? configStore.delete(domainID: domainID)
+            throw error
+        }
+
         // 1b. Stash the secret in the shared keychain access group.
         // For Dropbox this is the OAuth access token (no password);
         // for everything else it's the user-typed password.
@@ -253,6 +296,7 @@ public final class DirectMountRegistry: ObservableObject {
             AppLog.shared.info("step 1b: secret saved")
         } catch {
             AppLog.shared.error("step 1b FAILED (keychain save): \("\(error)")")
+            try? policyStore.delete(domainID: domainID)
             try? configStore.delete(domainID: domainID)
             throw error
         }
@@ -272,6 +316,7 @@ public final class DirectMountRegistry: ObservableObject {
         } catch {
             AppLog.shared.error("step 2 FAILED (domain register): \("\(error)")")
             try? keychain.delete(domainID: domainID)
+            try? policyStore.delete(domainID: domainID)
             try? configStore.delete(domainID: domainID)
             throw DirectMountError.domainRegistrationFailed(underlying: error)
         }
@@ -303,7 +348,8 @@ public final class DirectMountRegistry: ObservableObject {
             displayName: displayName,
             config: config,
             createdAt: Date(),
-            symlinkName: symlinkName
+            symlinkName: symlinkName,
+            policy: policy
         )
         mounts.append(mount)
         persist()
@@ -317,73 +363,94 @@ public final class DirectMountRegistry: ObservableObject {
 
     public func createFTPMount(
         name: String, host: String, port: Int, user: String, password: String,
-        rootPath: String = "/", ftps: Bool = false
+        rootPath: String = "/", ftps: Bool = false,
+        policy: MountPolicy = .default
     ) async throws -> DirectMount {
         let inner = FTPMountConfig(
             host: host, port: port, user: user,
             rootPath: rootPath.isEmpty ? "/" : rootPath, ftps: ftps
         )
-        return try await createMount(name: name, config: .ftp(inner), password: password)
+        return try await createMount(name: name, config: .ftp(inner), password: password, policy: policy)
     }
 
     public func createSFTPMount(
         name: String, host: String, port: Int, user: String, password: String,
-        rootPath: String = "/", useSSHAgent: Bool = false
+        rootPath: String = "/", useSSHAgent: Bool = false,
+        policy: MountPolicy = .default
     ) async throws -> DirectMount {
         let inner = SFTPMountConfig(
             host: host, port: port, user: user,
             rootPath: rootPath.isEmpty ? "/" : rootPath, useSSHAgent: useSSHAgent
         )
-        return try await createMount(name: name, config: .sftp(inner), password: password)
+        return try await createMount(name: name, config: .sftp(inner), password: password, policy: policy)
     }
 
     public func createSMBMount(
         name: String, host: String, port: Int, share: String, user: String,
-        password: String, rootPath: String = "/"
+        password: String, rootPath: String = "/",
+        policy: MountPolicy = .default
     ) async throws -> DirectMount {
         let inner = SMBMountConfig(
             host: host, port: port, share: share, user: user,
             rootPath: rootPath.isEmpty ? "/" : rootPath
         )
-        return try await createMount(name: name, config: .smb(inner), password: password)
+        return try await createMount(name: name, config: .smb(inner), password: password, policy: policy)
     }
 
     public func createDropboxMount(
-        name: String, accessToken: String
+        name: String, appKey: String, refreshToken: String,
+        accountLabel: String = "",
+        policy: MountPolicy = .default
     ) async throws -> DirectMount {
-        // Dropbox token plays the role of "password" in our keychain.
-        return try await createMount(name: name, config: .dropbox(DropboxMountConfig()), password: accessToken)
+        // The refresh token plays the role of "password" in the
+        // keychain; the public App Key rides along on the mount
+        // config plist (see DropboxMountConfig). Thumbnail / background
+        // toggles now live on `MountPolicy` rather than the per-protocol
+        // Dropbox config — they're per-mount, not per-protocol.
+        let inner = DropboxMountConfig(
+            appKey: appKey,
+            accountLabel: accountLabel
+        )
+        return try await createMount(name: name, config: .dropbox(inner), password: refreshToken, policy: policy)
     }
 
     public func createWebDAVMount(
         name: String, url: String, user: String, password: String,
-        pathPrefix: String = "/"
+        pathPrefix: String = "/",
+        policy: MountPolicy = .default
     ) async throws -> DirectMount {
         let inner = WebDAVMountConfig(url: url, user: user, pathPrefix: pathPrefix)
-        return try await createMount(name: name, config: .webdav(inner), password: password)
+        return try await createMount(name: name, config: .webdav(inner), password: password, policy: policy)
     }
 
     public func createGDriveMount(
         name: String, clientID: String, clientSecret: String,
-        refreshToken: String, cachedAccessToken: String = ""
+        refreshToken: String, cachedAccessToken: String = "",
+        accountLabel: String = "",
+        policy: MountPolicy = .default
     ) async throws -> DirectMount {
         let inner = GDriveMountConfig(
             clientID: clientID, clientSecret: clientSecret,
-            cachedAccessToken: cachedAccessToken
+            cachedAccessToken: cachedAccessToken,
+            accountLabel: accountLabel
         )
         // Refresh token plays the role of "password" in the keychain.
-        return try await createMount(name: name, config: .gdrive(inner), password: refreshToken)
+        return try await createMount(name: name, config: .gdrive(inner), password: refreshToken, policy: policy)
     }
 
     public func createOneDriveMount(
         name: String, clientID: String, clientSecret: String = "",
-        refreshToken: String, cachedAccessToken: String = ""
+        refreshToken: String, cachedAccessToken: String = "",
+        accountLabel: String = "",
+        policy: MountPolicy = .default
     ) async throws -> DirectMount {
         let inner = OneDriveMountConfig(
             clientID: clientID, clientSecret: clientSecret,
-            cachedAccessToken: cachedAccessToken
+            cachedAccessToken: cachedAccessToken,
+            accountLabel: accountLabel
         )
-        return try await createMount(name: name, config: .onedrive(inner), password: refreshToken)
+        // Refresh token plays the role of "password" in the keychain.
+        return try await createMount(name: name, config: .onedrive(inner), password: refreshToken, policy: policy)
     }
 
     public func createS3Mount(
@@ -391,7 +458,8 @@ public final class DirectMountRegistry: ObservableObject {
         region: String = "us-east-1",
         accessKeyID: String, secretAccessKey: String,
         prefix: String = "", secure: Bool = true,
-        usePathStyle: Bool = false, sessionToken: String = ""
+        usePathStyle: Bool = false, sessionToken: String = "",
+        policy: MountPolicy = .default
     ) async throws -> DirectMount {
         let inner = S3MountConfig(
             endpoint: endpoint, bucket: bucket, region: region,
@@ -400,7 +468,7 @@ public final class DirectMountRegistry: ObservableObject {
             sessionToken: sessionToken
         )
         // Secret access key plays the role of "password" in the keychain.
-        return try await createMount(name: name, config: .s3(inner), password: secretAccessKey)
+        return try await createMount(name: name, config: .s3(inner), password: secretAccessKey, policy: policy)
     }
 
     /// Remove a direct mount: drop the symlink, unregister the
@@ -424,12 +492,42 @@ public final class DirectMountRegistry: ObservableObject {
             AppLog.shared.error("remove domain failed: \(error.localizedDescription)")
         }
 
-        // 3. Config + keychain.
+        // 3. Config + keychain + policy. Best-effort on the policy
+        // file: an orphan plist is harmless, so we log and move on
+        // rather than aborting cleanup.
         try? keychain.delete(domainID: mount.domainID)
         try? configStore.delete(domainID: mount.domainID)
+        do {
+            try policyStore.delete(domainID: mount.domainID)
+        } catch {
+            AppLog.shared.error("remove policy file failed: \(error.localizedDescription)")
+        }
 
         // 4. Registry.
         mounts.removeAll { $0.id == mount.id }
+        persist()
+    }
+
+    /// Replace the policy for an existing mount. Persists the new
+    /// policy plist first (authoritative), then swaps the in-memory
+    /// `DirectMount` and refreshes UserDefaults so a future launch
+    /// sees the updated value without re-reading the plist. Throws
+    /// if the plist write fails — at that point we don't want the
+    /// in-memory copy to drift from disk.
+    public func updatePolicy(_ mount: DirectMount, policy: MountPolicy) throws {
+        try policyStore.save(policy, domainID: mount.domainID)
+        guard let idx = mounts.firstIndex(where: { $0.id == mount.id }) else {
+            return
+        }
+        let updated = DirectMount(
+            id: mount.id,
+            displayName: mount.displayName,
+            config: mount.config,
+            createdAt: mount.createdAt,
+            symlinkName: mount.symlinkName,
+            policy: policy
+        )
+        mounts[idx] = updated
         persist()
     }
 

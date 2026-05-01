@@ -1,0 +1,19 @@
+{
+  "_doc": "Per-provider OAuth client credentials. Copy this file to OAuthClients.json (gitignored) and fill in the values from each provider's developer console. Read at runtime by OAuthClientConfig. Per RFC 8252 / PKCE these values are semi-public for desktop apps — refresh tokens are the actually-sensitive bit and live in the macOS keychain. See docs/dropbox-registration.md, docs/google-drive-registration.md, docs/microsoft-onedrive-registration.md.",
+
+  "dropbox": {
+    "app_key": "REPLACE_WITH_DROPBOX_APP_KEY",
+    "scope_kind": "full_dropbox"
+  },
+
+  "gdrive": {
+    "client_id": "REPLACE_WITH_GOOGLE_CLIENT_ID",
+    "client_secret": "REPLACE_WITH_GOOGLE_CLIENT_SECRET",
+    "_scope_kind_doc": "drive = full Drive (restricted; needs verification + CASA). drive_file = sandboxed (no verification). Defaults to drive when omitted.",
+    "scope_kind": "drive"
+  },
+
+  "onedrive": {
+    "client_id": "REPLACE_WITH_AZURE_APP_CLIENT_ID"
+  }
+}
