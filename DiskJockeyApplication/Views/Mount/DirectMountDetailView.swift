@@ -33,22 +33,24 @@ struct DirectMountDetailView: View {
                 header(mount)
 
                 Divider()
-                    .padding(.horizontal, 24)
 
-                details(mount)
+                ScrollView {
+                    VStack(spacing: 0) {
+                        details(mount)
 
-                if let error = actionError {
-                    errorBanner(error)
+                        if let error = actionError {
+                            errorBanner(error)
+                        }
+
+                        Divider()
+                            .padding(.horizontal, 24)
+                            .padding(.top, 8)
+
+                        logStrip(for: mount)
+                    }
                 }
-
-                Divider()
-                    .padding(.horizontal, 24)
-                    .padding(.top, 8)
-
-                logStrip(for: mount)
-                    .layoutPriority(1)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
                     // Mount/Unmount toggle. Disabled while the status
@@ -58,24 +60,24 @@ struct DirectMountDetailView: View {
                         Button(action: { toggleMount(mount, currentlyMounted: mounted) }) {
                             Label(
                                 mounted ? "Unmount" : "Mount",
-                                systemImage: mounted ? "eject" : "externaldrive.badge.plus"
+                                image: mounted ? "tabler-eject" : "tabler-externaldrive-badge-plus"
                             )
                         }
                         .disabled(isPerformingAction)
                     } else {
                         Button(action: {}) {
-                            Label("Checking…", systemImage: "hourglass")
+                            Label("Checking…", image: "tabler-hourglass")
                         }
                         .disabled(true)
                     }
 
                     Button(action: { revealInFinder(mount) }) {
-                        Label("Reveal in Finder", systemImage: "folder")
+                        Label("Reveal in Finder", image: "tabler-folder")
                     }
                     .disabled(isPerformingAction || isMounted != true)
 
                     Button(action: { showDeleteConfirmation = true }) {
-                        Label("Remove", systemImage: "trash")
+                        Label("Remove", image: "tabler-trash")
                     }
                     .disabled(isPerformingAction)
                 }
@@ -96,7 +98,7 @@ struct DirectMountDetailView: View {
         } else {
             ContentUnavailableView(
                 "Mount Not Found",
-                systemImage: "questionmark.circle",
+                image: "tabler-questionmark-circle",
                 description: Text("This direct mount may have been removed")
             )
         }
@@ -246,7 +248,7 @@ struct DirectMountDetailView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(minHeight: 140, maxHeight: .infinity)
+            .frame(minHeight: 200, maxHeight: 360)
             .background(
                 RoundedRectangle(cornerRadius: 6)
                     .fill(Color.secondary.opacity(0.06))
@@ -255,7 +257,6 @@ struct DirectMountDetailView: View {
         .padding(.horizontal, 24)
         .padding(.bottom, 24)
         .padding(.top, 12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     @ViewBuilder
@@ -312,7 +313,7 @@ struct DirectMountDetailView: View {
     @ViewBuilder
     private func errorBanner(_ message: String) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
+            Image("tabler-exclamationmark-triangle-fill")
                 .foregroundStyle(.yellow)
             Text(message)
                 .font(.callout)
