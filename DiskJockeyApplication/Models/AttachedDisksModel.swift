@@ -561,6 +561,14 @@ public final class AttachedDisksModel: ObservableObject {
         return devicePath
     }
 
+    /// True for a whole-disk BSD ("disk4"); false for partitions
+    /// ("disk4s1", "disk4s2") and nested slices ("disk4s1s1"). Used to
+    /// suppress preview-row creation for container devices that aren't
+    /// mountable filesystems on their own.
+    nonisolated private static func isWholeDiskBSD(_ bsd: String) -> Bool {
+        return bsd.range(of: #"^disk\d+$"#, options: .regularExpression) != nil
+    }
+
     /// Apply a structured event emitted by an FSKit extension via the
     /// NDJSON tail. Match strategy: by `disk.bsd == fields["bsd"]`.
     /// If no row exists for this BSD, create a preview row with
@@ -575,6 +583,18 @@ public final class AttachedDisksModel: ObservableObject {
         if let existing = disks.firstIndex(where: { $0.bsd == bsd }) {
             idx = existing
         } else {
+            // Whole-disk BSDs ("disk4") are containers for partitions
+            // ("disk4s1", "disk4s2"), not mountable filesystems
+            // themselves. An FSKit extension probe against the whole
+            // disk would otherwise create a preview row stuck in
+            // `.mounting` forever (mount(8) never reports it) that
+            // immediately resurrects after Forget. Queue the events
+            // instead — the rare no-partition-table case still gets
+            // them replayed if a `.live` row materialises via mount(8).
+            if Self.isWholeDiskBSD(bsd) {
+                pendingEvents[bsd, default: []].append((kind: kind, fields: fields))
+                return
+            }
             // No row yet — create a preview. fsType comes from the
             // event kind prefix ("ext4.probe", "ntfs.load", …) when
             // available, otherwise blank until volume.info arrives.
@@ -612,6 +632,16 @@ public final class AttachedDisksModel: ObservableObject {
         if let existing = disks.firstIndex(where: { $0.bsd == bsd }) {
             idx = existing
         } else {
+            // Skip preview-row creation for whole-disk BSDs — see
+            // applyExtensionEvent for the reasoning. Queue the line so
+            // it replays into a `.live` row if one ever appears.
+            if Self.isWholeDiskBSD(bsd) {
+                pendingLogs[bsd, default: []].append(entry)
+                if pendingLogs[bsd]!.count > Self.logCap {
+                    pendingLogs[bsd]!.removeFirst(pendingLogs[bsd]!.count - Self.logCap)
+                }
+                return
+            }
             // Create a preview keyed on this bsd. Plain log lines
             // don't carry a kind, so we can't infer fsType yet —
             // leave it blank and let the next structured event fill
