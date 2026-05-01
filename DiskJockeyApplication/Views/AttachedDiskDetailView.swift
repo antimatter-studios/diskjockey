@@ -138,26 +138,22 @@ struct AttachedDiskDetailView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
                         Form {
-                    LabeledContent("Filesystem", value: disk.fsType)
-                    LabeledContent("Device", value: disk.devicePath)
-                    LabeledContent("Mount point", value: disk.mountPath)
-                    LabeledContent("Mode") {
-                        modeText(for: disk)
-                    }
-                    LabeledContent("Status") {
-                        statusText(for: disk.fsckStatus, fsType: disk.fsType)
-                    }
-                    if !disk.info.isEmpty {
-                        Section("Volume info") {
-                            ForEach(orderedInfoKeys(disk.info), id: \.self) { key in
-                                LabeledContent(humanizeInfoKey(key),
-                                               value: formatInfoValue(key: key, value: disk.info[key] ?? ""))
+                            LabeledContent("Filesystem", value: disk.fsType)
+                            LabeledContent("Device", value: disk.devicePath)
+                            LabeledContent("Mount point", value: disk.mountPath)
+                            LabeledContent("Mode") {
+                                modeText(for: disk)
+                            }
+                            LabeledContent("Status") {
+                                statusText(for: disk.fsckStatus, fsType: disk.fsType)
                             }
                         }
-                    }
-                }
-                .formStyle(.columns)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                        .formStyle(.columns)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        if !disk.info.isEmpty {
+                            volumeInfoTwoColumn(disk.info)
+                        }
 
                 if case .running(let phase, let done, let total) = disk.fsckStatus {
                     progressBlock(phase: phase, done: done, total: total)
@@ -672,6 +668,41 @@ struct AttachedDiskDetailView: View {
     }
 
     // MARK: - Volume-info rendering
+
+    /// Render the Volume info section as two side-by-side balanced
+    /// columns. Each column is its own `Form(.columns)` so labels
+    /// line up internally; the keys are split at the midpoint of
+    /// `orderedInfoKeys` so the first column gets the more "headline"
+    /// entries (UUID, sizes) and the second gets the deeper detail
+    /// (timestamps, feature bitmaps).
+    @ViewBuilder
+    private func volumeInfoTwoColumn(_ info: [String: String]) -> some View {
+        let keys = orderedInfoKeys(info)
+        let split = (keys.count + 1) / 2  // first half wins on odd counts
+        let left = Array(keys.prefix(split))
+        let right = Array(keys.dropFirst(split))
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Volume info")
+                .font(.headline)
+                .padding(.top, 8)
+            HStack(alignment: .top, spacing: 32) {
+                volumeInfoColumn(keys: left, info: info)
+                volumeInfoColumn(keys: right, info: info)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func volumeInfoColumn(keys: [String], info: [String: String]) -> some View {
+        Form {
+            ForEach(keys, id: \.self) { key in
+                LabeledContent(humanizeInfoKey(key),
+                               value: formatInfoValue(key: key, value: info[key] ?? ""))
+            }
+        }
+        .formStyle(.columns)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 
     /// Stable display order. Known keys come first in a hand-picked order;
     /// anything unknown gets alphabetised at the end so future fields

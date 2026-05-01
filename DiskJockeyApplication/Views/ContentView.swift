@@ -34,7 +34,10 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle("")
-        .frame(minWidth: 800, minHeight: 500)
+        // Bumped from 800 so the AttachedDisk detail pane's two-column
+        // Volume info layout has room — sidebar (~240) + 24px gutters +
+        // two ~360px columns squeezes if the floor stays at 800.
+        .frame(minWidth: 960, minHeight: 500)
         .sheet(isPresented: $showingAddMount) {
             AddMountView(
                 directMountRegistry: container.directMountRegistry
