@@ -168,6 +168,11 @@ final class NTFSVolume: FSVolume,
         stats.blockSize = Int(info.cluster_size)
         stats.ioSize = Int(info.cluster_size)
         stats.totalBlocks = info.total_clusters
+        // TODO: `fs_ntfs_volume_info_t` doesn't expose `free_clusters`, so
+        // we can't populate free / available space without extending the
+        // rust FFI (touches vendor/rust-fs-ntfs). Until then, Finder's
+        // "Get Info" pane and our detail view show "Free size: 0 B" for
+        // NTFS volumes — known wrong, not "actually full".
         stats.availableBlocks = 0
         stats.freeBlocks = 0
         stats.totalFiles = 0
