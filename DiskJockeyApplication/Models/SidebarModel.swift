@@ -15,6 +15,12 @@ public enum SidebarItem: Hashable {
     /// stable handle that survives mount/unmount/replug cycles when
     /// `stableIdentity` is known.
     case attachedDisk(_ diskID: String)
+    /// Sidebar entry for a *raw* (unmounted / unformatted) block
+    /// device — an SD card or USB stick that has no recognized
+    /// filesystem yet, or a partition we'd want to (re-)format.
+    /// Identified by BSD name ("disk5", "disk5s1") which the
+    /// RawDisksModel uses as its primary key.
+    case rawDisk(_ bsdName: String)
 }
 
 /// Manages the state of the sidebar and navigation.
