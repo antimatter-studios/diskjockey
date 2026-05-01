@@ -100,6 +100,14 @@ public final class DirectMountRegistry: ObservableObject {
     /// tail slice so scrolling works naturally.
     @Published public private(set) var mountLogs: [String: [AttachedDiskLogLine]] = [:]
 
+    /// Per-mount I/O stats keyed by domain identifier. Populated by
+    /// `applyExtensionEvent` whenever an `io.stats` event arrives with
+    /// a `mount` field matching one of our domains. Read by
+    /// `DirectMountDetailView` to render the throughput sparkline +
+    /// totals. Resets on FileProvider extension respawn (counters go
+    /// backwards → IOStats.absorb resets the baseline).
+    @Published public private(set) var mountStats: [String: IOStats] = [:]
+
     private let configStore: MountConfigStore
     private let keychain: MountKeychain
     private let symlinks: SymlinkManager
@@ -433,6 +441,33 @@ public final class DirectMountRegistry: ObservableObject {
         let all = mountLogs[id] ?? []
         let windowed = all.count <= tail ? all : Array(all.suffix(tail))
         return windowed.reversed()
+    }
+
+    /// Read-only accessor for the per-mount I/O stats. Returns an empty
+    /// (zero-counters, zero-samples) `IOStats` if the mount hasn't
+    /// emitted an `io.stats` event yet — keeps the detail view's view
+    /// model unconditional.
+    public func stats(forDomainID id: String) -> IOStats {
+        mountStats[id] ?? IOStats()
+    }
+
+    /// Route a kind-tagged extension event to the matching mount.
+    /// Today only handles `io.stats`; other event kinds are reserved
+    /// for future use (e.g. mount.online/offline). Lines without a
+    /// `mount` tag, or for an unknown domain, are ignored.
+    public func applyExtensionEvent(kind: String, fields: [String: String]) {
+        guard let mountID = fields["mount"] else { return }
+        let knownIDs = Set(mounts.map { $0.domainID })
+        guard knownIDs.contains(mountID) else { return }
+
+        switch kind {
+        case "io.stats":
+            var stats = mountStats[mountID] ?? IOStats()
+            stats.absorb(IOCounters(fields: fields))
+            mountStats[mountID] = stats
+        default:
+            break
+        }
     }
 
     /// Query NSFileProviderManager for the list of registered domains

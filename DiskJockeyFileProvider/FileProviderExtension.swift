@@ -45,6 +45,13 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
     /// prunes the stale domain cleanly.
     let directClient: FileProviderDirectClient?
 
+    /// Per-mount I/O counter aggregator. Emits `io.stats` events tagged
+    /// with `fields["mount"]=<mountID>` (inherited from `mlog`). The
+    /// host app's DirectMountRegistry routes them into the per-mount
+    /// detail view. Counters reset on each FileProvider extension
+    /// respawn — this is "live activity" not "lifetime totals".
+    let stats: IOStatsCollector
+
     required init(domain: NSFileProviderDomain) {
         self.domain = domain
         self.mountID = domain.identifier.rawValue
@@ -68,8 +75,13 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             self.directClient = nil
         }
 
+        self.stats = IOStatsCollector(label: mountID, log: mlog)
+
         super.init()
         self.mlog.info("Initialized")
+        // Begin 1 Hz `io.stats` heartbeats — self-suppressing on idle.
+        // Stopped in `invalidate()`.
+        self.stats.start()
         // libnetworkfs smoke-test log — confirms the combined archive
         // was actually linked into the extension.
         self.mlog.info("libnetworkfs version: \(NetworkFSDriver.libraryVersion())")
@@ -77,6 +89,8 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
 
     func invalidate() {
         self.mlog.info("Invalidating extension for mount: \(mountID)")
+        // Final stats flush before sinks tear down with the extension.
+        stats.stop()
         directClient?.disconnect()
     }
 
@@ -143,6 +157,11 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         }
 
         DispatchQueue.global(qos: .userInitiated).async {
+            // Bracket the fetch so we can record bytes_read +
+            // read_latency for the partition's I/O stats panel. Bytes
+            // are derived from the on-disk size of the temp file
+            // produced by RETR — same source we hand back to FP.
+            let t0 = monotonicNanos()
             do {
                 // Fetch first, then derive metadata from what we
                 // already know. Earlier we did stat-then-fetch to
@@ -196,12 +215,18 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                 } else {
                     size = 0
                 }
+                self.stats.recordRead(bytes: Int(size),
+                                      latencyNs: monotonicNanos() &- t0,
+                                      error: false)
                 let item = FileProviderItem(
                     info: DiskJockeyFileItem(name: name, size: size, isDirectory: false),
                     parentPath: parentPath
                 )
                 completionHandler(url, item, nil)
             } catch {
+                self.stats.recordRead(bytes: 0,
+                                      latencyNs: monotonicNanos() &- t0,
+                                      error: true)
                 self.mlog.error("direct fetch(\(path)) failed: \("\(error)")")
                 completionHandler(nil, nil, Self.mapError(error))
             }

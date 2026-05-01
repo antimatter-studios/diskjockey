@@ -200,6 +200,17 @@ struct DirectMountDetailView: View {
             detailRow(label: "Symlink", value: "~/diskjockey/\(mount.symlinkName)")
             detailRow(label: "Domain ID", value: mount.domainID)
             detailRow(label: "Created", value: mount.createdAt.formatted(date: .abbreviated, time: .shortened))
+
+            // Live I/O activity panel — pulls the current snapshot
+            // straight from the registry every render so SwiftUI's
+            // diffing animates the sparkline as new samples arrive.
+            // FileProvider has no underlying block device, so the
+            // physical track is hidden.
+            IOStatsSection(
+                stats: registry.stats(forDomainID: mount.domainID),
+                showPhysical: false
+            )
+            .padding(.top, 16)
         }
         .padding(24)
     }

@@ -78,10 +78,16 @@ public final class AppContainer: ObservableObject {
         // partition-scoped log.
         let tail = LogTailService(logRepository: self.logRepository)
         let disks = self.attachedDisks
-        tail.onEvent = { kind, fields in
-            disks.applyExtensionEvent(kind: kind, fields: fields)
-        }
         let registryForLog = self.directMountRegistry
+        tail.onEvent = { kind, fields in
+            // Every event goes to both routers; each filters on its own
+            // routing key (AttachedDisksModel requires `bsd`,
+            // DirectMountRegistry requires `mount`). `io.stats` in
+            // particular needs to reach both — FSKit emitters tag with
+            // `bsd`, FileProvider with `mount`.
+            disks.applyExtensionEvent(kind: kind, fields: fields)
+            registryForLog.applyExtensionEvent(kind: kind, fields: fields)
+        }
         tail.onLine = { line in
             // Every line goes to both routers; each drops lines it
             // doesn't own (AttachedDisksModel requires `bsd`,
