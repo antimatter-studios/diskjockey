@@ -63,7 +63,7 @@ struct AttachedDiskDetailView: View {
 
     var body: some View {
         if let disk = disk {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(spacing: 0) {
                 HStack(spacing: 12) {
                     PersonalityIconView(disk.icon)
                         .font(.system(size: 36))
@@ -88,14 +88,17 @@ struct AttachedDiskDetailView: View {
                     // offline disk; live rows can be forgotten too but
                     // the next mount-table poll will resurrect them.
                     Button(role: .destructive, action: { attachedDisks.forget(id: disk.id) }) {
-                        Label("Forget", systemImage: "minus.circle")
+                        Label("Forget", image: "tabler-minus-circle")
                     }
                     .help("Remove this disk from the sidebar")
                 }
+                .padding(20)
 
                 Divider()
 
-                Form {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Form {
                     LabeledContent("Filesystem", value: disk.fsType)
                     LabeledContent("Device", value: disk.devicePath)
                     LabeledContent("Mount point", value: disk.mountPath)
@@ -137,7 +140,7 @@ struct AttachedDiskDetailView: View {
                                     Text(runningLabel)
                                 }
                             } else {
-                                Label("Verify", systemImage: verifySymbol)
+                                Label("Verify", image: verifySymbol)
                             }
                         }
                         .disabled(verifying || unmounting || isFsckRunning(disk.fsckStatus) || isOffline(disk))
@@ -164,7 +167,7 @@ struct AttachedDiskDetailView: View {
                                 Text("Unmounting…")
                             }
                         } else {
-                            Label("Unmount", systemImage: "eject")
+                            Label("Unmount", image: "tabler-eject")
                         }
                     }
                     .disabled(unmounting || isOffline(disk))
@@ -173,14 +176,14 @@ struct AttachedDiskDetailView: View {
                 }
 
                 if let err = unmountError {
-                    Label(err, systemImage: "exclamationmark.triangle.fill")
+                    Label(err, image: "tabler-exclamationmark-triangle-fill")
                         .font(.callout)
                         .foregroundStyle(.red)
                         .padding(.vertical, 4)
                 }
 
                 if let err = verifyError {
-                    Label(err, systemImage: "exclamationmark.triangle.fill")
+                    Label(err, image: "tabler-exclamationmark-triangle-fill")
                         .font(.callout)
                         .foregroundStyle(.red)
                         .padding(.vertical, 4)
@@ -195,15 +198,16 @@ struct AttachedDiskDetailView: View {
 
                 diagnosticsSection()
 
-                partitionLogSection(for: disk)
-                    .layoutPriority(1)
+                        partitionLogSection(for: disk)
+                    }
+                    .padding(20)
+                }
             }
-            .padding(20)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ContentUnavailableView(
                 "Disk Forgotten",
-                systemImage: "externaldrive.badge.minus",
+                image: "tabler-externaldrive-badge-minus",
                 description: Text("This disk is no longer tracked. It will reappear in the sidebar if it's reattached.")
             )
         }
@@ -449,11 +453,11 @@ struct AttachedDiskDetailView: View {
     @ViewBuilder
     private func modeText(for disk: AttachedDisk) -> some View {
         if disk.isWritable {
-            Label("Read-write", systemImage: "pencil.circle.fill")
+            Label("Read-write", image: "tabler-pencil-circle-fill")
                 .foregroundStyle(.green)
                 .help("Mounted read-write — writes are allowed")
         } else {
-            Label("Read-only", systemImage: "lock.fill")
+            Label("Read-only", image: "tabler-lock-fill")
                 .foregroundStyle(.orange)
                 .help("Mounted read-only — writes are not allowed")
         }
@@ -465,13 +469,13 @@ struct AttachedDiskDetailView: View {
         case .unknown:
             Text("—").foregroundStyle(.tertiary)
         case .clean:
-            Label("Clean", systemImage: "checkmark.circle.fill")
+            Label("Clean", image: "tabler-checkmark-circle-fill")
                 .foregroundStyle(.green)
         case .dirty:
-            Label("Dirty (fsck pending)", systemImage: "exclamationmark.triangle.fill")
+            Label("Dirty (fsck pending)", image: "tabler-exclamationmark-triangle-fill")
                 .foregroundStyle(.orange)
         case .running(let phase, _, _):
-            Label("Running fsck · \(phase)", systemImage: "arrow.triangle.2.circlepath")
+            Label("Running fsck · \(phase)", image: "tabler-arrow-triangle-2-circlepath")
                 .foregroundStyle(.orange)
         case .completed(let cleared, let bytes):
             // `cleared == true` covers both NTFS ($LogFile reset + dirty
@@ -483,10 +487,10 @@ struct AttachedDiskDetailView: View {
             // ext4's is a structural anomaly fix — same boolean, very
             // different user-visible meaning.
             let detail = completedDetail(fsType: fsType, cleared: cleared, bytes: bytes)
-            Label(detail, systemImage: "checkmark.seal.fill")
+            Label(detail, image: "tabler-checkmark-seal-fill")
                 .foregroundStyle(.green)
         case .failed(let err):
-            Label("fsck failed: \(err)", systemImage: "xmark.octagon.fill")
+            Label("fsck failed: \(err)", image: "tabler-xmark-octagon-fill")
                 .foregroundStyle(.red)
         }
     }
@@ -515,12 +519,19 @@ struct AttachedDiskDetailView: View {
         let priority = [
             "fs",
             "volume_name",
+            "volume_uuid",
             // cross-fs (statvfs-derived in the data layer, so present
             // for every mounted partition regardless of type)
             "total_size", "free_size",
-            // ext4
-            "block_size", "total_blocks", "free_blocks",
-            "total_inodes", "free_inodes",
+            // ext4 — sizing
+            "block_size", "total_blocks", "free_blocks", "reserved_blocks",
+            "total_inodes", "free_inodes", "inode_size",
+            // ext4 — history / lifecycle
+            "last_write_time", "last_check_time",
+            "mount_count", "max_mount_count",
+            // ext4 — provenance + capabilities
+            "creator_os", "revision_level",
+            "features_compat", "features_incompat", "features_ro_compat",
             // ntfs
             "cluster_size", "total_clusters",
             "ntfs_version", "serial_number",
@@ -532,32 +543,60 @@ struct AttachedDiskDetailView: View {
 
     private func humanizeInfoKey(_ key: String) -> String {
         switch key {
-        case "fs":              return "FS"
-        case "volume_name":     return "Volume name"
-        case "block_size":      return "Block size"
-        case "total_blocks":    return "Total blocks"
-        case "free_blocks":     return "Free blocks"
-        case "total_inodes":    return "Total inodes"
-        case "free_inodes":     return "Free inodes"
-        case "cluster_size":    return "Cluster size"
-        case "total_clusters":  return "Total clusters"
-        case "total_size":      return "Total size"
-        case "free_size":       return "Free size"
-        case "ntfs_version":    return "NTFS version"
-        case "serial_number":   return "Serial number"
-        default:                return key.replacingOccurrences(of: "_", with: " ").capitalized
+        case "fs":                   return "FS"
+        case "volume_name":          return "Volume name"
+        case "volume_uuid":          return "UUID"
+        case "block_size":           return "Block size"
+        case "total_blocks":         return "Total blocks"
+        case "free_blocks":          return "Free blocks"
+        case "reserved_blocks":      return "Reserved blocks"
+        case "total_inodes":         return "Total inodes"
+        case "free_inodes":          return "Free inodes"
+        case "inode_size":           return "Inode size"
+        case "last_write_time":      return "Last written"
+        case "last_check_time":      return "Last checked"
+        case "mount_count":          return "Mount count"
+        case "max_mount_count":      return "Max mount count"
+        case "creator_os":           return "Created by"
+        case "revision_level":       return "Revision"
+        case "features_compat":      return "Compat features"
+        case "features_incompat":    return "Incompat features"
+        case "features_ro_compat":   return "RO-compat features"
+        case "cluster_size":         return "Cluster size"
+        case "total_clusters":       return "Total clusters"
+        case "total_size":           return "Total size"
+        case "free_size":            return "Free size"
+        case "ntfs_version":         return "NTFS version"
+        case "serial_number":        return "Serial number"
+        default:                     return key.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
 
     /// Byte-valued fields become human readable ("12 GB"); counts keep
     /// thousands separators so big numbers are readable at a glance.
     private func formatInfoValue(key: String, value: String) -> String {
-        if ["total_size", "free_size", "block_size", "cluster_size"].contains(key),
+        if ["total_size", "free_size", "block_size", "cluster_size",
+            "inode_size"].contains(key),
            let bytes = UInt64(value) {
             return humanSize(bytes: bytes)
         }
-        if ["total_blocks", "free_blocks", "total_clusters",
-            "total_inodes", "free_inodes"].contains(key),
+        // Unix-epoch seconds → human date. `0` means "never" for the
+        // last-check field (a freshly created filesystem hasn't been
+        // checked yet); render it specially.
+        if ["last_write_time", "last_check_time"].contains(key),
+           let secs = UInt32(value) {
+            if secs == 0 { return "never" }
+            let date = Date(timeIntervalSince1970: TimeInterval(secs))
+            return date.formatted(date: .abbreviated, time: .shortened)
+        }
+        // `0` for max_mount_count means "no scheduled fsck" — surface
+        // that explicitly so the user doesn't read it as a stale 0.
+        if key == "max_mount_count", let n = UInt32(value), n == 0 {
+            return "unlimited"
+        }
+        if ["total_blocks", "free_blocks", "reserved_blocks", "total_clusters",
+            "total_inodes", "free_inodes",
+            "mount_count", "max_mount_count", "revision_level"].contains(key),
            let n = UInt64(value) {
             let f = NumberFormatter()
             f.numberStyle = .decimal
@@ -648,10 +687,10 @@ struct AttachedDiskDetailView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(minHeight: 120, maxHeight: .infinity)
+            .frame(minHeight: 200, maxHeight: 360)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.06)))
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// Apply the model's per-mount scope denylist to this disk's
