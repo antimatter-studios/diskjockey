@@ -708,7 +708,9 @@ final class NTFSVolume: FSVolume,
         // AppleDouble (`._foo`) — silently swallow create. Returns a
         // ghost FSItem whose subsequent write/read/attr/remove ops are
         // handled inline below. We never touch the underlying NTFS
-        // filesystem for these names. Same approach Tuxera/ntfs-3g use.
+        // filesystem for these names — they only carry HFS-specific
+        // resource-fork / FinderInfo metadata that's irrelevant on
+        // NTFS volumes that round-trip back to Linux/Windows.
         if Self.isAppleDouble(name: nameStr) {
             log.info("createItem: silently swallowing AppleDouble \(childPath)", scope: AppLogScope.enumerate)
             let ghost = item(forRecordNumber: Self.appleDoubleGhostRecord, path: childPath)

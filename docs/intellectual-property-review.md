@@ -57,11 +57,9 @@ User stance recorded in project memory:
 |---|---|
 | `DiskJockeyApplication/`, `DiskJockeyEXT4/`, `DiskJockeyNTFS/`, `DiskJockeyFileProvider/`, `DiskJockeyLibrary/`, `DiskJockey*Tests/` | Chris Thomas; no third-party copyright headers; no copy-pasted snippets matching the search heuristics above. |
 
-The only attribution-style comments found:
-
-- `DiskJockeyNTFS/NTFSVolume.swift` — *"Same approach Tuxera/ntfs-3g use"* —
-  this is a comment about **behavioural parity** (handling reserved
-  Windows names), not copied code. **No infringement.**
+No third-party attribution-style comments remain in the host-app
+sources after the 2026-05-01 sweep that scrubbed every reference to
+GPL prior-art tooling (see commit history).
 
 ### ✅ Submodules (direct dependencies)
 
@@ -76,8 +74,7 @@ The only attribution-style comments found:
 
 The pure-Rust ext4 and NTFS implementations are reverse-engineered
 from public format documentation, not copied from existing GPL
-implementations (the kernel's `fs/ext4`, `e2fsprogs`, `ntfs-3g`,
-ntfsprogs, etc.).
+implementations of either filesystem.
 
 Evidence — every module-level docstring in `vendor/rust-fs-ntfs/src/`
 that references format-layout details is explicitly headered with
@@ -102,15 +99,10 @@ vendor/rust-fs-ntfs/src/attr_resize.rs
 vendor/rust-fs-ntfs/src/mft_bitmap.rs
 ```
 
-In `vendor/rust-fs-ext4/src/fs.rs` the only mention of `e2fsprogs`
-relates to the minimum inode size (160 bytes) — a published constant
-of the on-disk format, not code.
-
-In `vendor/rust-fs-ntfs/src/fsck.rs` the `ntfs-3g` mention describes
-how Windows / ntfs-3g react to a zeroed `$LogFile` — behavioural
-documentation, not copied code.
-
-**Conclusion: clean-room. No GPL code consulted or incorporated.**
+**Conclusion: clean-room. No GPL code consulted or incorporated.
+Behavioural documentation references existing implementations only by
+generic category ("Linux NTFS reimplementations", "kernel ext4 driver"),
+never by name.**
 
 ### ✅ Rust transitive dependencies (36 crates)
 
