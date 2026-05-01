@@ -29,6 +29,11 @@ public struct AttachedDisk: Identifiable, Equatable, Hashable {
     public let devicePath: String            // e.g. "/dev/disk5"
     public let fsType: String                // e.g. "ext4"
     public let name: String                  // user-visible label
+    /// Whether the volume is mounted read-write. Derived at parse time
+    /// from `/sbin/mount`'s flag list — macOS emits `read-only` (with
+    /// hyphen) for RO mounts; some older releases emit the bare token
+    /// `ro`, so we accept both. RW is the unsurprising default.
+    public let isWritable: Bool
     /// Latest dirty/fsck status for this volume. Keyed into the model
     /// by correlating `fields["bsd"]` (e.g. "disk5") with this disk's
     /// devicePath tail.
@@ -42,6 +47,13 @@ public struct AttachedDisk: Identifiable, Equatable, Hashable {
     /// whose `fields["bsd"]` matches this disk's BSD). Capped at 500 to
     /// keep memory bounded. Shown in the partition detail view.
     public var partitionLog: [AttachedDiskLogLine] = []
+    /// Live I/O metrics fed by the FSKit extension's 1 Hz `io.stats`
+    /// event (cumulative counters + a rolling buffer of per-second
+    /// throughput samples). Populated whenever an event matching this
+    /// disk's BSD arrives; preserved across mount-table polls in
+    /// `refresh()`. The detail view's I/O activity section reads
+    /// straight from here.
+    public var ioStats: IOStats = IOStats()
 
     /// Sidebar + detail-header icon. Baseline is the generic external-
     /// drive glyph; when `fsType` names a filesystem that only ships on
@@ -69,6 +81,18 @@ public struct AttachedDiskLogLine: Identifiable, Equatable, Hashable {
     public let level: String
     public let message: String
     public let source: String
+    /// Routing tag carried from the originating `AppLogLine.scope`.
+    /// Per-mount detail view filters on this against its own denylist.
+    public let scope: String?
+
+    public init(timestamp: Date, level: String, message: String,
+                source: String, scope: String? = nil) {
+        self.timestamp = timestamp
+        self.level = level
+        self.message = message
+        self.source = source
+        self.scope = scope
+    }
 }
 
 /// NDJSON line in the form the model consumes: timestamp, level,
@@ -89,14 +113,18 @@ public struct ParsedLogLine {
     /// if the event carries `fields["mount"]`. Routes to
     /// DirectMountRegistry's per-mount log strip.
     public let mount: String?
+    /// Routing tag carried over from `AppLogLine.scope`.
+    public let scope: String?
     public init(timestamp: Date, level: String, source: String,
-                message: String, bsd: String?, mount: String? = nil) {
+                message: String, bsd: String?, mount: String? = nil,
+                scope: String? = nil) {
         self.timestamp = timestamp
         self.level = level
         self.source = source
         self.message = message
         self.bsd = bsd
         self.mount = mount
+        self.scope = scope
     }
 }
 
@@ -104,6 +132,13 @@ public struct ParsedLogLine {
 public final class AttachedDisksModel: ObservableObject {
     /// Currently mounted disks filtered to the fstypes we care about.
     @Published public private(set) var disks: [AttachedDisk] = []
+
+    /// Scopes the per-mount detail-view log hides. Empty by default —
+    /// the per-mount pane is the right place to see the full picture
+    /// (enumeration, IO, stats). UI offers toggles to add/remove.
+    /// Applies globally across every mount's detail view; per-mount
+    /// view is responsible for filtering on read.
+    @Published public var suppressedScopes: Set<String> = []
 
     /// Fstypes we display in the sidebar. By default shows everything
     /// that could realistically be an interesting disk (our own
@@ -157,6 +192,7 @@ public final class AttachedDisksModel: ObservableObject {
         let oldStatus = Dictionary(uniqueKeysWithValues: disks.map { ($0.mountPath, $0.fsckStatus) })
         let oldInfo = Dictionary(uniqueKeysWithValues: disks.map { ($0.mountPath, $0.info) })
         let oldLog = Dictionary(uniqueKeysWithValues: disks.map { ($0.mountPath, $0.partitionLog) })
+        let oldStats = Dictionary(uniqueKeysWithValues: disks.map { ($0.mountPath, $0.ioStats) })
         var merged = fresh.map { d -> AttachedDisk in
             var copy = d
             copy.fsckStatus = oldStatus[d.mountPath] ?? .unknown
@@ -171,6 +207,7 @@ public final class AttachedDisksModel: ObservableObject {
                 copy.info[k] = v
             }
             copy.partitionLog = oldLog[d.mountPath] ?? []
+            copy.ioStats = oldStats[d.mountPath] ?? IOStats()
             return copy
         }
 
@@ -246,7 +283,8 @@ public final class AttachedDisksModel: ObservableObject {
             timestamp: line.timestamp,
             level: line.level,
             message: line.message,
-            source: line.source
+            source: line.source,
+            scope: line.scope
         )
         guard let idx = disks.firstIndex(where: { $0.devicePath.hasPrefix(devSuffix) }) else {
             pendingLogs[bsd, default: []].append(entry)
@@ -275,6 +313,15 @@ public final class AttachedDisksModel: ObservableObject {
             // replacing — so free_size from `refresh()` survives alongside
             // the fs-specific keys the extension emits.
             for (k, v) in info { disk.info[k] = v }
+            return
+        }
+
+        if kind == "io.stats" {
+            // 1 Hz heartbeat from the FSKit extension. Decode the
+            // counter snapshot, let `IOStats.absorb` derive a per-second
+            // throughput sample from the delta vs the previous snapshot,
+            // and append it to the rolling buffer the detail view reads.
+            disk.ioStats.absorb(IOCounters(fields: fields))
             return
         }
 
@@ -320,35 +367,51 @@ public final class AttachedDisksModel: ObservableObject {
 
         var results: [AttachedDisk] = []
         for line in text.split(separator: "\n") {
-            // "/dev/diskN on /Volumes/Foo (fstype, flag1, flag2)"
-            let s = String(line)
-            guard let onRange = s.range(of: " on ") else { continue }
-            let devicePath = String(s[..<onRange.lowerBound])
-            let rest = s[onRange.upperBound...]
-            guard let parenOpen = rest.range(of: " (") else { continue }
-            let mountPath = String(rest[..<parenOpen.lowerBound])
-            let flagsStr = rest[parenOpen.upperBound...]
-            guard let parenClose = flagsStr.range(of: ")", options: .backwards) else { continue }
-            let flagsBody = flagsStr[..<parenClose.lowerBound]
-            let flags = flagsBody.split(separator: ",").map {
-                $0.trimmingCharacters(in: .whitespaces)
+            guard var disk = parseMountLine(String(line), fsTypesOfInterest: fsTypesOfInterest) else {
+                continue
             }
-            guard let fsType = flags.first else { continue }
-            guard fsTypesOfInterest.contains(fsType) else { continue }
-
-            let name = (mountPath as NSString).lastPathComponent
-            var disk = AttachedDisk(
-                mountPath: mountPath,
-                devicePath: devicePath,
-                fsType: fsType,
-                name: name
-            )
             disk.info = statvfsInfo(
-                mountPath: mountPath, fsType: fsType, volumeName: name
+                mountPath: disk.mountPath, fsType: disk.fsType, volumeName: disk.name
             )
             results.append(disk)
         }
         return results.sorted { $0.mountPath < $1.mountPath }
+    }
+
+    /// Parse a single `/sbin/mount` output line into an AttachedDisk.
+    /// Extracted from `enumerate` so the parser is reachable from tests
+    /// without spawning a real `mount(8)`. Returns nil for malformed
+    /// lines or fstypes outside the caller's interest set. Does not
+    /// populate `info` — that's done by the live caller after parsing
+    /// so the test path doesn't have to mock statvfs.
+    nonisolated static func parseMountLine(_ line: String, fsTypesOfInterest: Set<String>) -> AttachedDisk? {
+        // "/dev/diskN on /Volumes/Foo (fstype, flag1, flag2)"
+        guard let onRange = line.range(of: " on ") else { return nil }
+        let devicePath = String(line[..<onRange.lowerBound])
+        let rest = line[onRange.upperBound...]
+        guard let parenOpen = rest.range(of: " (") else { return nil }
+        let mountPath = String(rest[..<parenOpen.lowerBound])
+        let flagsStr = rest[parenOpen.upperBound...]
+        guard let parenClose = flagsStr.range(of: ")", options: .backwards) else { return nil }
+        let flagsBody = flagsStr[..<parenClose.lowerBound]
+        let flags = flagsBody.split(separator: ",").map {
+            $0.trimmingCharacters(in: .whitespaces)
+        }
+        guard let fsType = flags.first else { return nil }
+        guard fsTypesOfInterest.contains(fsType) else { return nil }
+
+        // macOS mount(8) emits "read-only" for RO mounts; older / other
+        // tools sometimes emit the bare token "ro". Treat both as RO.
+        let isWritable = !flags.contains("read-only") && !flags.contains("ro")
+
+        let name = (mountPath as NSString).lastPathComponent
+        return AttachedDisk(
+            mountPath: mountPath,
+            devicePath: devicePath,
+            fsType: fsType,
+            name: name,
+            isWritable: isWritable
+        )
     }
 
     /// Compute the concrete `total_size` in bytes for a managed

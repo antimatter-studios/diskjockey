@@ -19,7 +19,12 @@ public struct LogEntry: Identifiable, Equatable, Hashable, Codable {
     
     /// Additional structured data associated with the log entry
     public let metadata: [String: String]?
-    
+
+    /// Routing tag carried over from `AppLogLine.scope`. Drives which
+    /// log panels render this entry — each panel keeps its own
+    /// denylist of scopes. nil = untagged (visible everywhere).
+    public let scope: String?
+
     /// Creates a new log entry
     public init(
         id: UUID = UUID(),
@@ -27,7 +32,8 @@ public struct LogEntry: Identifiable, Equatable, Hashable, Codable {
         category: String,
         timestamp: Date = Date(),
         source: String = "App",
-        metadata: [String: String]? = nil
+        metadata: [String: String]? = nil,
+        scope: String? = nil
     ) {
         self.id = id
         self.message = message
@@ -35,6 +41,7 @@ public struct LogEntry: Identifiable, Equatable, Hashable, Codable {
         self.timestamp = timestamp
         self.source = source
         self.metadata = metadata
+        self.scope = scope
     }
     
     // MARK: - Equatable & Hashable

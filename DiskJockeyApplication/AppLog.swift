@@ -47,9 +47,16 @@ public struct AppLogLine: Codable {
     /// Values are always stringified at the boundary so the wire format
     /// stays simple; consumers coerce back to whatever type they need.
     public let fields: [String: String]?
+    /// Coarse routing tag. Drives which UI panels (system Logs view,
+    /// per-mount detail log) display the line — each panel keeps its
+    /// own denylist of scopes. Canonical values: "lifecycle", "probe",
+    /// "fsck", "volume", "enumerate", "io", "stats". `nil` means
+    /// untagged → visible in every panel.
+    public let scope: String?
 
     public init(level: AppLogLevel, source: String, message: String,
-                kind: String? = nil, fields: [String: String]? = nil) {
+                kind: String? = nil, fields: [String: String]? = nil,
+                scope: String? = nil) {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         self.ts = f.string(from: Date())
@@ -59,7 +66,39 @@ public struct AppLogLine: Codable {
         self.pid = ProcessInfo.processInfo.processIdentifier
         self.kind = kind
         self.fields = fields
+        self.scope = scope
     }
+}
+
+/// Canonical scope values. Centralised so both emitters and consumers
+/// (LogRepository denylist, scope-toggle UI, per-mount filter) reference
+/// the same strings. Untagged messages (scope=nil) bypass all denylists.
+public enum AppLogScope {
+    /// Mount / unmount / activate / deactivate / app launch+shutdown /
+    /// attach+detach. The "things happened" backbone of the system log.
+    public static let lifecycle = "lifecycle"
+    /// Disk detection — probe success/failure, magic-number checks.
+    public static let probe = "probe"
+    /// Filesystem check progress (fsck.start/progress/done/failed).
+    public static let fsck = "fsck"
+    /// Volume identity events (volume.info / volume.clean / volume.dirty)
+    /// emitted once at mount time.
+    public static let volume = "volume"
+    /// Directory enumeration chatter (enumerateDirectory + per-entry rows,
+    /// AppleDouble swallow). High-volume; excluded from system log by
+    /// default.
+    public static let enumerate = "enumerate"
+    /// Block-device read/write/metadata callbacks. High-volume; excluded
+    /// from system log by default.
+    public static let io = "io"
+    /// Periodic IO heartbeats (kind="io.stats"). Excluded from system log
+    /// by default.
+    public static let stats = "stats"
+
+    /// All canonical scopes, in display order.
+    public static let all: [String] = [
+        lifecycle, probe, fsck, volume, enumerate, io, stats
+    ]
 }
 
 /// A sink consumes one log line and emits it somewhere (file, os_log,
@@ -106,10 +145,10 @@ public final class AppLog: @unchecked Sendable {
         self.sinks = sinks
     }
 
-    public func debug(_ message: String) { emit(.debug, message) }
-    public func info(_ message: String)  { emit(.info,  message) }
-    public func warn(_ message: String)  { emit(.warn,  message) }
-    public func error(_ message: String) { emit(.error, message) }
+    public func debug(_ message: String, scope: String? = nil) { emit(.debug, message, scope: scope) }
+    public func info(_ message: String, scope: String? = nil)  { emit(.info,  message, scope: scope) }
+    public func warn(_ message: String, scope: String? = nil)  { emit(.warn,  message, scope: scope) }
+    public func error(_ message: String, scope: String? = nil) { emit(.error, message, scope: scope) }
 
     /// Emit a structured, kind-tagged event. Goes through the same sinks
     /// as plain text — consumers that only care about text see a derived
@@ -117,10 +156,11 @@ public final class AppLog: @unchecked Sendable {
     /// kind + fields. `message` is auto-generated as "kind fields" unless
     /// caller overrides.
     public func event(kind: String, fields: [String: String] = [:],
-                      level: AppLogLevel = .info, message: String? = nil) {
+                      level: AppLogLevel = .info, message: String? = nil,
+                      scope: String? = nil) {
         let msg = message ?? Self.formatEvent(kind: kind, fields: fields)
         let line = AppLogLine(level: level, source: source, message: msg,
-                              kind: kind, fields: fields)
+                              kind: kind, fields: fields, scope: scope)
         lock.lock()
         let snapshot = sinks
         lock.unlock()
@@ -133,8 +173,8 @@ public final class AppLog: @unchecked Sendable {
         return "\(kind) \(kv)"
     }
 
-    private func emit(_ level: AppLogLevel, _ message: String) {
-        let line = AppLogLine(level: level, source: source, message: message)
+    private func emit(_ level: AppLogLevel, _ message: String, scope: String? = nil) {
+        let line = AppLogLine(level: level, source: source, message: message, scope: scope)
         lock.lock()
         let snapshot = sinks
         lock.unlock()
@@ -169,27 +209,36 @@ public final class TaggedLogger {
     public let log: AppLog
     public let fields: [String: String]
     public let kind: String
+    /// Default scope applied to every emit unless the caller passes a
+    /// per-call override. nil → untagged (visible in every panel).
+    public let scope: String?
 
-    public init(_ log: AppLog, fields: [String: String], kind: String) {
+    public init(_ log: AppLog, fields: [String: String], kind: String,
+                scope: String? = nil) {
         self.log = log
         self.fields = fields
         self.kind = kind
+        self.scope = scope
     }
 
-    public func info(_ message: String) {
-        log.event(kind: kind, fields: fields, level: .info, message: message)
+    public func info(_ message: String, scope: String? = nil) {
+        log.event(kind: kind, fields: fields, level: .info, message: message,
+                  scope: scope ?? self.scope)
     }
 
-    public func warn(_ message: String) {
-        log.event(kind: kind, fields: fields, level: .warn, message: message)
+    public func warn(_ message: String, scope: String? = nil) {
+        log.event(kind: kind, fields: fields, level: .warn, message: message,
+                  scope: scope ?? self.scope)
     }
 
-    public func error(_ message: String) {
-        log.event(kind: kind, fields: fields, level: .error, message: message)
+    public func error(_ message: String, scope: String? = nil) {
+        log.event(kind: kind, fields: fields, level: .error, message: message,
+                  scope: scope ?? self.scope)
     }
 
-    public func debug(_ message: String) {
-        log.event(kind: kind, fields: fields, level: .debug, message: message)
+    public func debug(_ message: String, scope: String? = nil) {
+        log.event(kind: kind, fields: fields, level: .debug, message: message,
+                  scope: scope ?? self.scope)
     }
 
     /// Emit a one-off event overriding `kind` and/or merging extra
@@ -199,11 +248,13 @@ public final class TaggedLogger {
     public func event(kind: String? = nil,
                       fields extra: [String: String] = [:],
                       level: AppLogLevel = .info,
-                      message: String? = nil) {
+                      message: String? = nil,
+                      scope: String? = nil) {
         var merged = self.fields
         for (k, v) in extra { merged[k] = v }
         log.event(kind: kind ?? self.kind, fields: merged,
-                  level: level, message: message)
+                  level: level, message: message,
+                  scope: scope ?? self.scope)
     }
 }
 

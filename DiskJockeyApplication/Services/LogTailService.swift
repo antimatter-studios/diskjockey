@@ -86,7 +86,8 @@ final class LogTailService {
             category: payload.level.lowercased(),
             timestamp: ts,
             source: payload.source,
-            metadata: ["pid": String(payload.pid)]
+            metadata: ["pid": String(payload.pid)],
+            scope: payload.scope
         )
         let parsed = ParsedLogLine(
             timestamp: ts,
@@ -94,7 +95,8 @@ final class LogTailService {
             source: payload.source,
             message: payload.message,
             bsd: Self.resolveBsd(fields: payload.fields, message: payload.message),
-            mount: payload.fields?["mount"]
+            mount: payload.fields?["mount"],
+            scope: payload.scope
         )
         Task { @MainActor in
             self.logRepository.addLogEntry(entry)

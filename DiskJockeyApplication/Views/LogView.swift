@@ -26,6 +26,8 @@ struct LogView: View {
                 SearchBar(text: $searchText, placeholder: "Filter logs...")
                     .frame(maxWidth: 300)
 
+                ScopeFilterMenu(suppressed: $appLogModel.suppressedScopes)
+
                 Spacer()
 
                 Button(action: clearLogs) {
@@ -143,6 +145,49 @@ struct LogRow: View {
         .padding(.vertical, 4)
     }
 
+}
+
+// MARK: - ScopeFilterMenu
+//
+// Dropdown of scope toggles. Each entry is one of `AppLogScope.all`;
+// checking it removes the scope from the suppressed set (i.e. shows
+// those entries), unchecking suppresses them. The button label shows
+// a count when any scope is hidden so the user knows the current view
+// is filtered.
+
+struct ScopeFilterMenu: View {
+    @Binding var suppressed: Set<String>
+
+    var body: some View {
+        Menu {
+            ForEach(AppLogScope.all, id: \.self) { scope in
+                Button {
+                    if suppressed.contains(scope) {
+                        suppressed.remove(scope)
+                    } else {
+                        suppressed.insert(scope)
+                    }
+                } label: {
+                    HStack {
+                        Image(systemName: suppressed.contains(scope) ? "square" : "checkmark.square.fill")
+                        Text(scope.capitalized)
+                    }
+                }
+            }
+            Divider()
+            Button("Show All") { suppressed.removeAll() }
+                .disabled(suppressed.isEmpty)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "line.3.horizontal.decrease.circle")
+                if !suppressed.isEmpty {
+                    Text("\(suppressed.count) hidden")
+                        .font(.caption)
+                }
+            }
+        }
+        .frame(width: suppressed.isEmpty ? 36 : 110)
+    }
 }
 
 // MARK: - SearchBar
