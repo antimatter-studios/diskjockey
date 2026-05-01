@@ -64,9 +64,8 @@ final class EXT4Volume: FSVolume,
     private static let appleDoubleGhostInode: UInt32 = 0xFFFF_FFFE
 
     /// Returns true if the basename starts with `._` — macOS Finder /
-    /// Desktop Services AppleDouble metadata. Following the
-    /// ntfs-3g / Tuxera precedent, we silently swallow creates and
-    /// subsequent ops on these files: we accept the operation
+    /// Desktop Services AppleDouble metadata. We silently swallow
+    /// creates and subsequent ops on these files: accept the operation
     /// (apps don't error) but never persist the bytes to disk.
     /// Justification: AppleDouble files only carry HFS-specific
     /// resource-fork / FinderInfo metadata that's irrelevant on
@@ -578,7 +577,7 @@ final class EXT4Volume: FSVolume,
         // AppleDouble (`._foo`) — silently swallow create. Returns a
         // ghost FSItem whose subsequent write/read/attr/remove ops are
         // handled inline below. We never touch the underlying ext4
-        // filesystem for these names. Same approach Tuxera/ntfs-3g use.
+        // filesystem for these names.
         if Self.isAppleDouble(name: nameStr) {
             log.info("createItem: silently swallowing AppleDouble \(childPath)", scope: AppLogScope.enumerate)
             let ghost = item(forID: UInt64(Self.appleDoubleGhostInode), path: childPath)

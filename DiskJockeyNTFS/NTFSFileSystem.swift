@@ -122,6 +122,25 @@ final class FsckProgressContext {
 @objc(NTFSFileSystem)
 final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
 
+    /// FSKit's `startCheck(task:options:)` hands us no resource handle —
+    /// only an `FSTask` + `FSTaskOptions`. To route an explicit fsck
+    /// back to the right mounted volume we register
+    /// `(bsdName, NTFSVolume)` keyed by resource identity at
+    /// `loadResource` time and look it up in `startCheck`. Cleared on
+    /// `unloadResource`.
+    ///
+    /// Keyed by `ObjectIdentifier(FSResource)` — FSKit hands us the same
+    /// FSResource instance for the lifetime of the mount, so the
+    /// in-process pointer is a stable, unique handle. Guarded by an
+    /// unfair lock so `startCheck` can read it without awaiting an
+    /// actor. Mirror of the EXT4 extension's `mountedResources`.
+    fileprivate struct MountedResource {
+        let bsdName: String
+        let volume: NTFSVolume
+    }
+    fileprivate static let mountedResources = OSAllocatedUnfairLock<[ObjectIdentifier: MountedResource]>(
+        initialState: [:])
+
     override init() {
         super.init()
     }
@@ -303,6 +322,12 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             requiresFsckRemount: isWritable,
             stats: stats
         )
+        // Stash volume + bsdName so `startCheck(task:options:)` (which
+        // FSKit calls without a resource handle) can find them.
+        Self.mountedResources.withLock { map in
+            map[ObjectIdentifier(resource)] = MountedResource(
+                bsdName: bsdName, volume: volume)
+        }
         // Begin emitting `io.stats` heartbeats now. The collector
         // self-suppresses idle ticks.
         stats.start()
@@ -332,6 +357,9 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         replyHandler reply: @escaping ((any Error)?) -> Void
     ) {
         log.info("unloadResource called", scope: AppLogScope.lifecycle)
+        Self.mountedResources.withLock { map in
+            map.removeValue(forKey: ObjectIdentifier(resource))
+        }
         reply(nil)
     }
 

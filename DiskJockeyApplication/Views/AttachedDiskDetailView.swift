@@ -253,8 +253,70 @@ struct AttachedDiskDetailView: View {
         return false
     }
 
+    /// Whitelist of fstypes whose verify path actually routes through
+    /// our FSKit extension's `startCheck`. `"ntfs"` (Apple's legacy
+    /// ntfs.fs) and `"ntfs-fskit"` (the older ext4-fskit project's
+    /// ntfsfskitd) deliberately do NOT appear here — they don't run
+    /// our extension, so `fsck_fskit -t …` would have nothing to call
+    /// into.
+    private var verifySupported: Bool {
+        guard let disk = disk else { return false }
+        switch disk.fsType {
+        case "ext4":   return true
+        case "fsntfs": return true
+        default:       return false
+        }
+    }
+
+    /// `-t` argument value for `fsck_fskit`. Matches the FSShortName
+    /// that the corresponding extension registers ("ext4" for
+    /// DiskJockeyEXT4, "fsntfs" for DiskJockeyNTFS).
+    private var fsckArgFstype: String? {
+        guard let disk = disk else { return nil }
+        switch disk.fsType {
+        case "ext4":   return "ext4"
+        case "fsntfs": return "fsntfs"
+        default:       return nil
+        }
+    }
+
+    /// Whether tapping Verify should pop a confirm dialog before
+    /// spawning fsck. ext4's check is read-only; NTFS's rewrites
+    /// `$LogFile` + remounts, so it gets gated.
+    private var requiresVerifyConfirmation: Bool {
+        guard let disk = disk else { return false }
+        return disk.fsType == "fsntfs"
+    }
+
+    /// Inline-progress label while the extension is doing its thing.
+    /// "Verifying…" reads wrong for NTFS where the operation actually
+    /// rewrites `$LogFile`, so we say "Repairing…" there.
+    private var runningLabel: String {
+        guard let disk = disk else { return "Verifying…" }
+        return disk.fsType == "fsntfs" ? "Repairing…" : "Verifying…"
+    }
+
+    /// SF Symbol on the idle Verify button. Stethoscope reads as
+    /// "diagnose" for the read-only ext4 path; wrench/screwdriver
+    /// reads as "repair" for the NTFS path that actually writes.
+    private var verifySymbol: String {
+        guard let disk = disk else { return "stethoscope" }
+        return disk.fsType == "fsntfs" ? "wrench.and.screwdriver" : "stethoscope"
+    }
+
+    /// Button-tap entry point. Routes through the confirm dialog for
+    /// fs types whose verify is destructive; everything else fires
+    /// `verify(_:)` directly.
+    private func verifyTapped(_ disk: AttachedDisk) {
+        if requiresVerifyConfirmation {
+            showVerifyConfirm = true
+        } else {
+            verify(disk)
+        }
+    }
+
     /// Trigger an fsck-lite verify pass via FSKit's standard maintenance
-    /// hook. We invoke `fsck_fskit -t ext4 --progress <devicePath>`
+    /// hook. We invoke `fsck_fskit --progress -t <fs> <devicePath>`
     /// rather than `diskutil verifyVolume` because as of macOS 26
     /// `diskutil` does not route verify requests into FSKit modules —
     /// `fsck_fskit` is the documented user-space entry point that calls
@@ -264,18 +326,29 @@ struct AttachedDiskDetailView: View {
     /// `fsck.start` / `fsck.progress` / `fsck.done` / `fsck.failed`
     /// NDJSON events that the model already consumes.
     ///
+    /// Behavior of the underlying check varies by fs: ext4 is a
+    /// read-only diagnostic; NTFS rewrites `$LogFile` and clears the
+    /// dirty bit (which is why the NTFS path is gated behind
+    /// `showVerifyConfirm`).
+    ///
     /// Spawn pattern matches `unmount(_:)` above: detached Task,
     /// captured stdout+stderr, failure surfaced via the dedicated
     /// `verifyError` banner.
     private func verify(_ disk: AttachedDisk) {
+        // `fsckArgFstype` is non-nil iff `verifySupported` was true at
+        // tap time. Defensive guard so a future caller can't slip a
+        // bogus fstype into the `-t` flag.
+        guard let fsArg = fsckArgFstype else {
+            verifyError = "Verify is not supported for filesystem \"\(disk.fsType)\""
+            return
+        }
         verifying = true
         verifyError = nil
         let devicePath = disk.devicePath
-        let fsType = disk.fsType
         Task.detached {
             let task = Process()
             task.executableURL = URL(fileURLWithPath: "/sbin/fsck_fskit")
-            task.arguments = ["--progress", "-t", fsType, devicePath]
+            task.arguments = ["--progress", "-t", fsArg, devicePath]
             let stdoutPipe = Pipe()
             let stderrPipe = Pipe()
             task.standardOutput = stdoutPipe
