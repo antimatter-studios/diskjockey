@@ -31,6 +31,11 @@ struct AttachedDiskDetailView: View {
     /// `unmountError` so a stale error from one operation can't
     /// masquerade as the other.
     @State private var verifyError: String? = nil
+    /// Drives the NTFS pre-flight confirmation dialog. ext4's verify is
+    /// a read-only diagnostic so it skips this; NTFS's `startCheck`
+    /// rewrites `$LogFile` and clears the dirty bit (and briefly
+    /// unmounts the live volume) so we want an explicit OK first.
+    @State private var showVerifyConfirm = false
 
     /// Global toggle gating the FSKit extension's per-entry
     /// enumerateDirectory log. Stored in the App Group so the
@@ -83,7 +88,7 @@ struct AttachedDiskDetailView: View {
                         modeText(for: disk)
                     }
                     LabeledContent("Status") {
-                        statusText(for: disk.fsckStatus)
+                        statusText(for: disk.fsckStatus, fsType: disk.fsType)
                     }
                     if !disk.info.isEmpty {
                         Section("Volume info") {
@@ -108,18 +113,32 @@ struct AttachedDiskDetailView: View {
                         )
                     }
 
-                    if disk.fsType == "ext4" {
-                        Button(action: { verify(disk) }) {
+                    if verifySupported {
+                        Button(action: { verifyTapped(disk) }) {
                             if verifying || isFsckRunning(disk.fsckStatus) {
                                 HStack(spacing: 4) {
                                     ProgressView().scaleEffect(0.5).frame(width: 14, height: 14)
-                                    Text("Verifying…")
+                                    Text(runningLabel)
                                 }
                             } else {
-                                Label("Verify", systemImage: "stethoscope")
+                                Label("Verify", systemImage: verifySymbol)
                             }
                         }
                         .disabled(verifying || unmounting || isFsckRunning(disk.fsckStatus))
+                        // NTFS verify writes to disk (resets `$LogFile`,
+                        // clears the dirty bit, brief unmount/remount).
+                        // Ext4 verify is a read-only diagnostic, so it
+                        // skips the dialog and runs immediately.
+                        .confirmationDialog(
+                            "Repair NTFS Volume?",
+                            isPresented: $showVerifyConfirm,
+                            titleVisibility: .visible
+                        ) {
+                            Button("Repair", role: .destructive) { verify(disk) }
+                            Button("Cancel", role: .cancel) {}
+                        } message: {
+                            Text("Verifying this NTFS volume will briefly unmount it, reset its log file, and clear the dirty bit. The volume will remain unavailable for a few seconds. Continue?")
+                        }
                     }
 
                     Button(action: { unmount(disk) }) {
@@ -337,7 +356,7 @@ struct AttachedDiskDetailView: View {
     }
 
     @ViewBuilder
-    private func statusText(for status: FsckStatus) -> some View {
+    private func statusText(for status: FsckStatus, fsType: String) -> some View {
         switch status {
         case .unknown:
             Text("—").foregroundStyle(.tertiary)
@@ -355,15 +374,31 @@ struct AttachedDiskDetailView: View {
             // bit cleared) and ext4 (anomalies repaired) — the model
             // collapses both into one boolean. `bytes` is whatever the
             // extension chose to count as "scanned/reset volume" — see
-            // partition log for per-finding detail.
-            let detail = cleared
-                ? "Anomalies cleared (\(bytes) bytes touched) — see partition log"
-                : "No anomalies found (\(bytes) bytes scanned)"
+            // partition log for per-finding detail. Wording diverges by
+            // fs because NTFS's "repair" is a $LogFile rewrite while
+            // ext4's is a structural anomaly fix — same boolean, very
+            // different user-visible meaning.
+            let detail = completedDetail(fsType: fsType, cleared: cleared, bytes: bytes)
             Label(detail, systemImage: "checkmark.seal.fill")
                 .foregroundStyle(.green)
         case .failed(let err):
             Label("fsck failed: \(err)", systemImage: "xmark.octagon.fill")
                 .foregroundStyle(.red)
+        }
+    }
+
+    private func completedDetail(fsType: String, cleared: Bool, bytes: UInt64) -> String {
+        switch fsType {
+        case "fsntfs":
+            return cleared
+                ? "Dirty bit cleared — $LogFile reset (\(bytes) bytes touched)"
+                : "Volume already clean (\(bytes) bytes scanned)"
+        default:
+            // ext4 wording — also the safe fallback for any future
+            // verify-capable fs that hasn't customised its phrasing yet.
+            return cleared
+                ? "Anomalies cleared (\(bytes) bytes touched) — see partition log"
+                : "No anomalies found (\(bytes) bytes scanned)"
         }
     }
 
