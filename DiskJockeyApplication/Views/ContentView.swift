@@ -50,11 +50,13 @@ struct ContentView: View {
         case .addMount:
             ContentUnavailableView(
                 "Add a Mount",
-                systemImage: "externaldrive.badge.plus",
+                image: "tabler-externaldrive-badge-plus",
                 description: Text("Click the + button to add a new mount")
             )
         case .attachedDisk(let diskID):
             AttachedDiskDetailView(diskID: diskID, container: container)
+        case .rawDisk(let bsd):
+            RawDiskDetailView(bsdName: bsd, container: container)
         case nil:
             // First-run case: no folder approved yet. Use the full
             // detail pane to explain what we're about to do before
@@ -69,7 +71,7 @@ struct ContentView: View {
             } else {
                 ContentUnavailableView(
                     "No Mount Selected",
-                    systemImage: "externaldrive",
+                    image: "tabler-externaldrive",
                     description: Text("Select a mount from the sidebar or add a new one")
                 )
             }
@@ -86,6 +88,7 @@ private struct SidebarView: View {
 
     @ObservedObject private var attachedDisks: AttachedDisksModel
     @ObservedObject private var directMountRegistry: DirectMountRegistry
+    @ObservedObject private var rawDisks: RawDisksModel
 
     init(container: AppContainer, sidebarModel: SidebarModel, showingAddMount: Binding<Bool>) {
         self.container = container
@@ -93,6 +96,7 @@ private struct SidebarView: View {
         self._showingAddMount = showingAddMount
         self.attachedDisks = container.attachedDisks
         self.directMountRegistry = container.directMountRegistry
+        self.rawDisks = container.rawDisks
     }
 
     var body: some View {
@@ -124,8 +128,17 @@ private struct SidebarView: View {
                     }
                 }
 
+                if !rawDisks.formatableDisks.isEmpty {
+                    Section("Unformatted Disks") {
+                        ForEach(rawDisks.formatableDisks) { disk in
+                            RawDiskSidebarRow(disk: disk)
+                                .tag(SidebarItem.rawDisk(disk.bsdName))
+                        }
+                    }
+                }
+
                 Section("System") {
-                    Label("Logs", systemImage: "terminal")
+                    Label("Logs", image: "tabler-terminal")
                         .tag(SidebarItem.logs)
                 }
             }
@@ -133,7 +146,7 @@ private struct SidebarView: View {
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button(action: { showingAddMount = true }) {
-                        Image(systemName: "plus")
+                        Image("tabler-plus")
                     }
                     .help("Add Mount")
                 }
@@ -217,7 +230,7 @@ private struct AttachedDiskSidebarRow: View {
                 if isOffline {
                     // Small unplug overlay so an offline row reads as
                     // "this disk is no longer attached" at a glance.
-                    Image(systemName: "bolt.horizontal.circle.fill")
+                    Image("tabler-bolt-horizontal-circle-fill")
                         .font(.system(size: 10))
                         .foregroundStyle(.tertiary, Color(NSColor.windowBackgroundColor))
                         .offset(x: 2, y: 2)
@@ -248,7 +261,7 @@ private struct AttachedDiskSidebarRow: View {
             Spacer()
 
             if !disk.isWritable && !isOffline {
-                Image(systemName: "lock.fill")
+                Image("tabler-lock-fill")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .help("Mounted read-only — writes are not allowed")
@@ -340,5 +353,89 @@ private struct AttachedDiskSidebarRow: View {
                 return "\(base) — fsck failed: \(err)"
             }
         }
+    }
+}
+
+// MARK: - Raw Disk Sidebar Row
+//
+// Removable media that's either unformatted or hosting partitions we
+// want surfaced for format / repartition actions. Distinct from
+// `AttachedDiskSidebarRow` — that one shows volumes the system has
+// already mounted; this one shows storage that needs the user's
+// attention before becoming a usable volume.
+private struct RawDiskSidebarRow: View {
+    let disk: RawDisk
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(iconName)
+                .foregroundStyle(.orange)
+                .frame(width: 20, height: 20)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(displayName)
+                    .font(.body)
+                    .lineLimit(1)
+                Text(secondaryLine)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 2)
+    }
+
+    /// Headline label — prefer the user-visible volume name when it
+    /// exists ("My SD Card"), otherwise fall back to the BSD device
+    /// name so the row is at least addressable ("disk5s1").
+    private var displayName: String {
+        if let label = disk.volumeName, !label.isEmpty { return label }
+        return disk.bsdName
+    }
+
+    /// Caption row — describes the *state* the user cares about for
+    /// an unformatted disk: bytes available, partition map type or
+    /// "no filesystem", and whether the slot is actually empty.
+    private var secondaryLine: String {
+        let sizeStr = formatBytes(disk.size)
+        if disk.isUnformatted {
+            return "\(sizeStr) · unformatted"
+        }
+        if disk.isWhole {
+            return "\(sizeStr) · \(prettyContent(disk.content))"
+        }
+        return "\(sizeStr) · \(prettyContent(disk.content))"
+    }
+
+    /// Whole disks get the external-drive icon; slices / partitions
+    /// get a smaller "internaldrive" glyph so the hierarchy reads at
+    /// a glance even though we render flat (no expand/collapse yet).
+    private var iconName: String {
+        disk.isWhole ? "externaldrive.badge.questionmark" : "internaldrive"
+    }
+
+    private func prettyContent(_ raw: String) -> String {
+        switch raw {
+        case "": return "no filesystem"
+        case "GUID_partition_scheme": return "GPT"
+        case "FDisk_partition_scheme": return "MBR"
+        case "Apple_HFS": return "HFS+"
+        case "Microsoft Basic Data": return "Windows / NTFS"
+        case "Linux": return "Linux"
+        case "Linux_LVM": return "Linux LVM"
+        case "EFI": return "EFI"
+        default: return raw
+        }
+    }
+
+    private func formatBytes(_ n: UInt64) -> String {
+        let labels = ["B", "KB", "MB", "GB", "TB", "PB"]
+        var v = Double(n)
+        var i = 0
+        while i < labels.count - 1 && v >= 2048 { v /= 1024; i += 1 }
+        return i == 0 ? "\(Int(v)) \(labels[i])"
+                      : String(format: "%.1f %@", v, labels[i])
     }
 }
