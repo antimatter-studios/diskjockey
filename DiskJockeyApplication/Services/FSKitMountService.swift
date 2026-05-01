@@ -50,23 +50,29 @@ final class FSKitMountService {
         try Self.validateMountName(name)
         let mountPoint = "/Volumes/\(name)"
 
+        // /Volumes/ is root-owned; a sandboxed app can't `mkdir` there
+        // and the FileManager.createDirectory call would fail before we
+        // even reached the privileged escalation. Defer the mount-point
+        // creation into the admin shell command so it runs with the
+        // privileges that already need to exist for `mount -F` itself.
+        // Pre-flight existence check via stat is allowed inside the
+        // sandbox (it's a read), so we still surface a clean error if
+        // the mount point is already a live mount.
         if FileManager.default.fileExists(atPath: mountPoint) {
-            // Allow reuse only if the directory is empty (not already a mount).
             let contents = (try? FileManager.default.contentsOfDirectory(atPath: mountPoint)) ?? []
             if !contents.isEmpty {
                 throw FSKitError.mountPointInUse(mountPoint)
             }
-        } else {
-            try FileManager.default.createDirectory(
-                atPath: mountPoint, withIntermediateDirectories: true, attributes: nil
-            )
         }
 
         logger.info("attach \(fsType, privacy: .public) \(source, privacy: .public) -> \(mountPoint, privacy: .public)")
-        try await Self.runAsAdmin(
-            executable: "/sbin/mount",
-            arguments: ["-F", "-t", fsType, source, mountPoint]
-        )
+        // `mkdir -p` is idempotent on an existing empty directory, so
+        // running it unconditionally is safe and removes the
+        // sandbox-vs-privileged split.
+        let shellCmd = "/bin/mkdir -p \(Self.shellQuote(mountPoint)) && "
+            + "/sbin/mount -F -t \(Self.shellQuote(fsType)) "
+            + "\(Self.shellQuote(source)) \(Self.shellQuote(mountPoint))"
+        try await Self.runShellAsAdmin(command: shellCmd)
     }
 
     // MARK: - Detach
@@ -141,12 +147,21 @@ final class FSKitMountService {
         // embedded single-quotes escaped — the standard
         // `'\''`-terminate-reopen pattern — so shell interpretation of the
         // user-provided source path / mount name cannot inject flags or
-        // metacharacters. osascript receives that string inside a double-
-        // quoted AppleScript literal; its interpretation rules are also
-        // handled by escaping `\` and `"`.
+        // metacharacters.
         let shellArgs = ([executable] + arguments).map { Self.shellQuote($0) }
             .joined(separator: " ")
-        let appleScript = "do shell script \(Self.appleScriptQuote(shellArgs)) " +
+        try await runShellAsAdmin(command: shellArgs)
+    }
+
+    /// Same admin escalation as `runAsAdmin`, but accepts a pre-built
+    /// shell command string. Used by callers that need to chain
+    /// multiple commands inside the SAME admin scope (e.g. `mkdir &&
+    /// mount`) so the user only sees one auth prompt.
+    ///
+    /// The caller is responsible for shell-quoting individual arguments
+    /// in `command` (use `shellQuote`).
+    private static func runShellAsAdmin(command: String) async throws {
+        let appleScript = "do shell script \(Self.appleScriptQuote(command)) " +
                           "with administrator privileges"
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
