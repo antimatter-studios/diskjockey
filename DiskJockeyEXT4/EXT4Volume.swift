@@ -153,7 +153,15 @@ final class EXT4Volume: FSVolume,
         stats.blockSize = Int(info.blockSize)
         stats.ioSize = Int(info.blockSize)
         stats.totalBlocks = info.totalBlocks
-        stats.availableBlocks = 0
+        // `availableBlocks` is what statvfs(2) reports as `f_bavail` — the
+        // count usable by non-root, which is what `FileManager.systemFreeSize`
+        // (and Finder's "Get Info" free-space readout) ultimately renders.
+        // Leaving this at 0 means free space shows as "0 B" everywhere even
+        // though `freeBlocks` is correct. ext4 reserves a small percentage
+        // for root by default (s_r_blocks_count) but the fs_ext4 FFI
+        // doesn't expose that count separately, so we treat free == available.
+        // Worst case the figure is slightly optimistic by ~5%.
+        stats.availableBlocks = info.freeBlocks
         stats.freeBlocks = info.freeBlocks
         stats.totalFiles = UInt64(info.totalInodes)
         stats.freeFiles = UInt64(info.freeInodes)
