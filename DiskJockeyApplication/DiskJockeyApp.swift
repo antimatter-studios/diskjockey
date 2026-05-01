@@ -131,7 +131,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if mainWindowController == nil {
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 900, height: 560),
-                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                styleMask: [.titled, .closable, .miniaturizable, .resizable],
                 backing: .buffered,
                 defer: false
             )
@@ -139,7 +139,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             window.center()
             window.setFrameAutosaveName("Main Window")
             window.title = "DiskJockey"
-            window.titlebarAppearsTransparent = true
             window.contentView = NSHostingView(rootView: contentView)
 
             let windowController = NSWindowController(window: window)
