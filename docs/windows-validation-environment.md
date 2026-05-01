@@ -73,9 +73,32 @@ repos; paid by the minute for private.
 Option 1 is cleaner: the wrapping happens once, the artifact is
 self-describing, and the Windows job has no extra deps.
 
-### Example workflow
+### How to trigger it (already committed in `vendor/rust-fs-ntfs`)
 
-`.github/workflows/ntfs-mkfs-validation.yml` (sketch — not yet committed):
+The workflow is `.github/workflows/ci.yml` in the `rust-fs-ntfs`
+submodule. Three trigger paths:
+
+1. **Manual `workflow_dispatch`** (the iteration loop): visit
+   <https://github.com/christhomas/rust-fs-ntfs/actions/workflows/ci.yml>
+   and click "Run workflow". No tag needed. Use this every time
+   you want to see what real chkdsk says about your latest
+   `fs_ntfs_mkfs` output.
+
+2. **Tag push** (`v*`): release-time validation. Cut a tag,
+   workflow runs automatically alongside the Linux jobs.
+
+3. **Push or PR to main**: only the Linux validation runs (cheap).
+   The Windows job is gated behind `startsWith(github.ref,
+   'refs/tags/v') || github.event_name == 'workflow_dispatch'` so
+   PRs don't burn windows-latest minutes.
+
+Diagnostics from every run are uploaded as a
+`ntfs-windows-diag-<run-id>` artifact, containing chkdsk's full
+stdout, `Get-Volume` metadata, `fsutil fsinfo` dumps, and the root
+directory listing. Compare across commits when chkdsk's verdict
+shifts.
+
+### Example workflow (sketch from earlier — superseded by what's committed)
 
 ```yaml
 name: NTFS mkfs Windows validation
