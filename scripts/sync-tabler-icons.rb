@@ -64,8 +64,10 @@ MAPPING = {
 # (the OS-brand glyphs we used to hand-draw because SF Symbols won't
 # ship them). Output filename is the asset name verbatim.
 EXTRAS = {
-  'tabler-linux-drive'   => ['outline', 'brand-ubuntu'],
-  'tabler-windows-drive' => ['outline', 'brand-windows'],
+  'tabler-linux-drive'    => ['outline', 'brand-ubuntu'],
+  'tabler-windows-drive'  => ['outline', 'brand-windows'],
+  'tabler-sidebar-toggle' => ['outline', 'layout-sidebar-left-collapse'],
+  'tabler-dismiss'        => ['outline', 'x'],
 }.freeze
 
 # Asset name == SF Symbol name, with `.fill` preserved so call-site
