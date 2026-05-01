@@ -77,4 +77,69 @@ protocol FileSystemBackend: AnyObject {
 
     /// Read a symbolic link target. Returns nil on error.
     func readSymlink(path: String) -> String?
+
+    // MARK: - Write path
+
+    /// Create an empty regular file at `path` with the given mode bits.
+    /// Returns true on success.
+    func createFile(path: String, mode: UInt16) -> Bool
+
+    /// Replace the contents of `path` with `length` bytes from `data`.
+    /// Returns the new size on success, or -1 on error.
+    /// NOTE: this REPLACES the whole file. Callers needing partial writes
+    /// must do read-modify-write themselves.
+    func writeFile(path: String, data: UnsafeRawPointer, length: UInt64) -> Int64
+
+    /// Remove a non-directory file. Returns true on success.
+    func unlink(path: String) -> Bool
+
+    /// Move/rename src → dst. Returns true on success.
+    func rename(src: String, dst: String) -> Bool
+
+    /// Create a directory. Returns true on success.
+    func mkdir(path: String, mode: UInt16) -> Bool
+
+    /// Remove an empty directory. Returns true on success.
+    func rmdir(path: String) -> Bool
+
+    /// Shrink a regular file to `size` bytes.
+    func truncate(path: String, size: UInt64) -> Bool
+
+    /// Change permission bits.
+    func chmod(path: String, mode: UInt16) -> Bool
+
+    /// Change owner. Pass `nil` for either component to leave it unchanged.
+    func chown(path: String, uid: UInt32?, gid: UInt32?) -> Bool
+
+    /// Create a symbolic link.
+    func symlink(target: String, linkpath: String) -> Bool
+
+    /// Create a hard link.
+    func link(src: String, dst: String) -> Bool
+
+    /// Set access and/or modify times. Pass `nil` to skip a pair.
+    func utimens(path: String, atime: timespec?, mtime: timespec?) -> Bool
+
+    /// Flush pending writes to the underlying device. Returns true on success.
+    func flush() -> Bool
+
+    /// Returns the last POSIX errno from a failed call (thread-local).
+    /// Returns 0 if the last call succeeded.
+    func lastErrno() -> Int32
+
+    /// Replay the on-disk journal if the volume is dirty. Idempotent —
+    /// safe to call on a clean volume. Returns true on success (or
+    /// already-clean), false on failure.
+    ///
+    /// Used to defer ext4 journal replay until AFTER FSKit's
+    /// `loadResource` returns, working around a macOS limitation where
+    /// the kernel-level write FD doesn't actually become writable until
+    /// loadResource returns successfully.
+    func replayJournalIfDirty() -> Bool
+}
+
+extension FileSystemBackend {
+    /// Default implementation for backends that don't have a journal
+    /// (or never need to replay one). Treats the call as a no-op.
+    func replayJournalIfDirty() -> Bool { true }
 }

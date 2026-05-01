@@ -35,11 +35,18 @@ final class NTFSBlockDeviceContext {
     let resource: FSBlockDeviceResource
     let blockSize: Int
     let log: TaggedLogger
+    /// Optional — populated for the long-lived mount context (set by
+    /// loadResource before NTFSVolume init), nil for the short-lived
+    /// probe context that's torn down before any IOStatsCollector
+    /// exists. Present-vs-absent decides whether we record bdev stats
+    /// or no-op.
+    let stats: IOStatsCollector?
 
-    init(resource: FSBlockDeviceResource, log: TaggedLogger) {
+    init(resource: FSBlockDeviceResource, log: TaggedLogger, stats: IOStatsCollector? = nil) {
         self.resource = resource
         self.blockSize = Int(resource.blockSize)
         self.log = log
+        self.stats = stats
     }
 
     func read(into buf: UnsafeMutableRawPointer, offset: off_t, length: Int) -> Int32 {
@@ -51,26 +58,28 @@ final class NTFSBlockDeviceContext {
         let tmp = UnsafeMutableRawPointer.allocate(byteCount: alignedLength, alignment: bs)
         defer { tmp.deallocate() }
 
+        let t0 = monotonicNanos()
         do {
             let rawBuf = UnsafeMutableRawBufferPointer(start: tmp, count: alignedLength)
             let bytesRead = try resource.read(into: rawBuf, startingAt: off_t(alignedOffset), length: alignedLength)
             if bytesRead < offsetDelta + length {
-                log.error("bdev read short: off=\(offset) len=\(length) got=\(bytesRead)")
+                log.error("bdev read short: off=\(offset) len=\(length) got=\(bytesRead)", scope: AppLogScope.io)
+                stats?.recordBdevRead(bytes: 0, latencyNs: monotonicNanos() &- t0, error: true)
                 return EIO
             }
             memcpy(buf, tmp.advanced(by: offsetDelta), length)
+            stats?.recordBdevRead(bytes: alignedLength, latencyNs: monotonicNanos() &- t0, error: false)
             return 0
         } catch {
-            log.error("bdev read error: off=\(offset) len=\(length) err=\(error.localizedDescription)")
+            log.error("bdev read error: off=\(offset) len=\(length) err=\(error.localizedDescription)", scope: AppLogScope.io)
+            stats?.recordBdevRead(bytes: 0, latencyNs: monotonicNanos() &- t0, error: true)
             return EIO
         }
     }
 
-    /// Read-modify-write wrapper so sub-block writes (e.g. the 2-byte
-    /// dirty-flag patch) work the same as aligned large writes (e.g. the
-    /// $LogFile overwrite). FSBlockDeviceResource.write requires aligned
-    /// offset+length, so we align, read the affected blocks, patch in the
-    /// caller's bytes, and write the whole aligned window back.
+    /// Read-modify-write wrapper. Reads via plain `read` (works during
+    /// loadResource) and writes via `metadataWrite` (plain `write`
+    /// returns EBADF until the volume is fully activated).
     func write(from buf: UnsafeRawPointer, offset: off_t, length: Int) -> Int32 {
         let bs = max(blockSize, 512)
         let alignedOffset = (Int(offset) / bs) * bs
@@ -80,9 +89,8 @@ final class NTFSBlockDeviceContext {
         let tmp = UnsafeMutableRawPointer.allocate(byteCount: alignedLength, alignment: bs)
         defer { tmp.deallocate() }
 
+        let t0 = monotonicNanos()
         do {
-            // Only read-patch-write when the caller's window isn't
-            // already block-aligned; otherwise skip the read entirely.
             if offsetDelta != 0 || alignedLength != length {
                 let readRaw = UnsafeMutableRawBufferPointer(start: tmp, count: alignedLength)
                 _ = try resource.read(into: readRaw, startingAt: off_t(alignedOffset), length: alignedLength)
@@ -90,10 +98,14 @@ final class NTFSBlockDeviceContext {
             memcpy(tmp.advanced(by: offsetDelta), buf, length)
 
             let writeRaw = UnsafeRawBufferPointer(start: tmp, count: alignedLength)
-            try resource.write(from: writeRaw, startingAt: off_t(alignedOffset), length: alignedLength)
+            try resource.metadataWrite(from: writeRaw,
+                                       startingAt: off_t(alignedOffset),
+                                       length: alignedLength)
+            stats?.recordBdevWrite(bytes: alignedLength, latencyNs: monotonicNanos() &- t0, error: false)
             return 0
         } catch {
-            log.error("bdev write error: off=\(offset) len=\(length) err=\(error.localizedDescription)")
+            log.error("bdev metadataWrite error: off=\(offset) len=\(length) err=\(error.localizedDescription)", scope: AppLogScope.io)
+            stats?.recordBdevWrite(bytes: 0, latencyNs: monotonicNanos() &- t0, error: true)
             return EIO
         }
     }
@@ -120,14 +132,15 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         resource: FSResource,
         replyHandler: @escaping (FSProbeResult?, (any Error)?) -> Void
     ) {
-        log.info("probe called")
+        log.info("probe called", scope: AppLogScope.probe)
         guard let blockDevice = resource as? FSBlockDeviceResource else {
-            log.warn("probe: resource is not a block device — not recognized")
+            log.warn("probe: resource is not a block device — not recognized", scope: AppLogScope.probe)
             replyHandler(.notRecognized, nil)
             return
         }
         let dlog = TaggedLogger(
-            log, fields: ["bsd": blockDevice.bsdName], kind: "ntfs.probe"
+            log, fields: ["bsd": blockDevice.bsdName], kind: "ntfs.probe",
+            scope: AppLogScope.probe
         )
         dlog.info("probe \(blockDevice.bsdName): blockSize=\(blockDevice.blockSize) blockCount=\(blockDevice.blockCount)")
 
@@ -215,9 +228,9 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         options: FSTaskOptions,
         replyHandler: @escaping (FSVolume?, (any Error)?) -> Void
     ) {
-        log.info("loadResource called")
+        log.info("loadResource called", scope: AppLogScope.lifecycle)
         guard let blockDevice = resource as? FSBlockDeviceResource else {
-            log.error("loadResource: resource is not a block device — EINVAL")
+            log.error("loadResource: resource is not a block device — EINVAL", scope: AppLogScope.lifecycle)
             replyHandler(nil, POSIXError(.EINVAL))
             return
         }
@@ -225,12 +238,28 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         // All subsequent log lines carry `fields["bsd"]` so the
         // partition detail view's per-disk log strip picks them up.
         let dlog = TaggedLogger(
-            log, fields: ["bsd": bsdName], kind: "ntfs.load"
+            log, fields: ["bsd": bsdName], kind: "ntfs.load",
+            scope: AppLogScope.lifecycle
         )
-        dlog.info("loadResource \(bsdName): blockSize=\(blockDevice.blockSize) blockCount=\(blockDevice.blockCount)")
+        dlog.info("loadResource \(bsdName): blockSize=\(blockDevice.blockSize) blockCount=\(blockDevice.blockCount) isWritable=\(blockDevice.isWritable) taskOptions=\(options.taskOptions)")
 
-        let context = NTFSBlockDeviceContext(resource: blockDevice, log: dlog)
+        // One stats collector per mount — lives until NTFSVolume.deactivate.
+        // The block-device callbacks made during fsck + RW remount in
+        // `NTFSVolume.activate` flow through the SAME context object
+        // we hand to FSKit here, so they get counted too.
+        let stats = IOStatsCollector(label: bsdName, log: dlog)
+        let context = NTFSBlockDeviceContext(resource: blockDevice, log: dlog, stats: stats)
         let contextPtr = Unmanaged.passRetained(context).toOpaque()
+
+        // Mirror the EXT4 fix: the kernel-level write FD on the
+        // FSBlockDeviceResource only becomes truly writable AFTER
+        // loadResource returns. Doing the dirty-check / $LogFile reset
+        // here fails with "Bad file descriptor" on the first metadata
+        // write. So we always mount RO during load and, if the resource
+        // is writable, defer fsck + an RW remount to
+        // `NTFSVolume.activate(options:)` where the FD is live.
+        let isWritable = blockDevice.isWritable
+        let cfgSizeBytes = blockDevice.blockCount * blockDevice.blockSize
 
         var cfg = fs_ntfs_blockdev_cfg_t()
         cfg.read = { ctx, buf, offset, length in
@@ -238,81 +267,20 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             let context = Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
             return context.read(into: buf, offset: off_t(offset), length: Int(length))
         }
-        cfg.write = { ctx, buf, offset, length in
-            guard let ctx = ctx, let buf = buf else { return EIO }
-            let context = Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
-            return context.write(from: buf, offset: off_t(offset), length: Int(length))
-        }
+        cfg.write = nil
         cfg.context = contextPtr
-        cfg.size_bytes = blockDevice.blockCount * blockDevice.blockSize
+        cfg.size_bytes = cfgSizeBytes
 
-        // Dirty-check + conditional fsck BEFORE mount. Upstream ntfs crate
-        // (ColinFinck/ntfs) will happily parse a dirty volume read-only —
-        // Windows would still insist on chkdsk next plug-in though, so
-        // clear the dirty bit + reset $LogFile while we have the device.
-        switch fs_ntfs_is_dirty_with_callbacks(&cfg) {
-        case 1:
-            dlog.event(kind: "volume.dirty")
-            dlog.event(kind: "fsck.start")
-
-            // The C progress callback can't capture `dlog` (it's a
-            // @convention(c) function pointer). Stash the tagged
-            // logger's target tag in the progress context so the
-            // callback can rebuild an equivalent emission path.
-            let progressCtx = FsckProgressContext(bsdName: bsdName)
-            let progressCtxPtr = Unmanaged.passRetained(progressCtx).toOpaque()
-            defer { Unmanaged<FsckProgressContext>.fromOpaque(progressCtxPtr).release() }
-
-            var logfileBytes: UInt64 = 0
-            var dirtyCleared: UInt8 = 0
-            let rc = fs_ntfs_fsck_with_callbacks(
-                &cfg,
-                { ctx, phase, done, total in
-                    guard let ctx = ctx, let phase = phase else { return 0 }
-                    let pctx = Unmanaged<FsckProgressContext>.fromOpaque(ctx).takeUnretainedValue()
-                    let phaseStr = String(cString: phase)
-                    log.event(kind: "fsck.progress", fields: [
-                        "bsd": pctx.bsdName,
-                        "phase": phaseStr,
-                        "done": "\(done)",
-                        "total": "\(total)"
-                    ])
-                    return 0
-                },
-                progressCtxPtr,
-                &logfileBytes,
-                &dirtyCleared
-            )
-
-            if rc == 0 {
-                dlog.event(kind: "fsck.done", fields: [
-                    "logfile_bytes": "\(logfileBytes)",
-                    "dirty_cleared": dirtyCleared == 1 ? "true" : "false"
-                ])
-            } else {
-                let err = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
-                dlog.event(kind: "fsck.failed", fields: ["error": err], level: .error)
-                // Fall through to mount attempt — the ntfs crate can still
-                // read-only-parse a dirty volume; reads will work. Clean
-                // shutdown will be incomplete though.
-            }
-        case 0:
-            dlog.event(kind: "volume.clean")
-        default:
-            let err = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
-            dlog.event(kind: "dirty.check.failed", fields: ["error": err], level: .warn)
-        }
-
-        dlog.info("calling fs_ntfs_mount_with_callbacks size=\(cfg.size_bytes) blockSize=\(blockDevice.blockSize)")
+        dlog.info("calling fs_ntfs_mount_with_callbacks (RO during load) size=\(cfg.size_bytes) blockSize=\(blockDevice.blockSize)")
 
         guard let bridgeFS = fs_ntfs_mount_with_callbacks(&cfg) else {
             let err = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
-            dlog.error("fs_ntfs mount failed: \(err)")
+            dlog.error("fs_ntfs mount failed (RO): \(err)")
             Unmanaged<NTFSBlockDeviceContext>.fromOpaque(contextPtr).release()
             replyHandler(nil, POSIXError(.EIO))
             return
         }
-        dlog.info("fs_ntfs mount succeeded")
+        dlog.info("fs_ntfs mount succeeded (RO during load; will remount RW in activate if writable)")
 
         var volInfo = fs_ntfs_volume_info_t()
         fs_ntfs_get_volume_info(bridgeFS, &volInfo)
@@ -328,8 +296,16 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             volumeID: volID,
             volumeName: FSFileName(string: resolvedName),
             bridgeFS: bridgeFS,
-            blockDevice: blockDevice
+            blockDevice: blockDevice,
+            contextPtr: contextPtr,
+            cfgSizeBytes: cfgSizeBytes,
+            bsdName: bsdName,
+            requiresFsckRemount: isWritable,
+            stats: stats
         )
+        // Begin emitting `io.stats` heartbeats now. The collector
+        // self-suppresses idle ticks.
+        stats.start()
 
         // CRITICAL: matches EXT4 pattern. Without this, fskitd never gets
         // the "load completed" signal and subsequent operations on the
@@ -344,7 +320,7 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             "total_size": "\(volInfo.total_size)",
             "ntfs_version": "\(volInfo.ntfs_version_major).\(volInfo.ntfs_version_minor)",
             "serial_number": "0x\(String(volInfo.serial_number, radix: 16))",
-        ])
+        ], scope: AppLogScope.volume)
         replyHandler(volume, nil)
     }
 
@@ -355,7 +331,7 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         options: FSTaskOptions,
         replyHandler reply: @escaping ((any Error)?) -> Void
     ) {
-        log.info("unloadResource called")
+        log.info("unloadResource called", scope: AppLogScope.lifecycle)
         reply(nil)
     }
 

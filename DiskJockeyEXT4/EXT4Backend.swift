@@ -141,6 +141,221 @@ final class EXT4Backend: FileSystemBackend {
         }
     }
 
+    // MARK: - Write path
+
+    func createFile(path: String, mode: UInt16) -> Bool {
+        state.withLock { fs in
+            guard let fs = fs else { return false }
+            return fs_ext4_create(fs, path, mode) != 0
+        }
+    }
+
+    func writeFile(path: String, data: UnsafeRawPointer, length: UInt64) -> Int64 {
+        state.withLock { fs in
+            guard let fs = fs else { return Int64(-1) }
+            return fs_ext4_write_file(fs, path, data, length)
+        }
+    }
+
+    func unlink(path: String) -> Bool {
+        state.withLock { fs in
+            guard let fs = fs else { return false }
+            return fs_ext4_unlink(fs, path) == 0
+        }
+    }
+
+    func rename(src: String, dst: String) -> Bool {
+        state.withLock { fs in
+            guard let fs = fs else { return false }
+            return fs_ext4_rename(fs, src, dst) == 0
+        }
+    }
+
+    func mkdir(path: String, mode: UInt16) -> Bool {
+        state.withLock { fs in
+            guard let fs = fs else { return false }
+            return fs_ext4_mkdir(fs, path, mode) != 0
+        }
+    }
+
+    func rmdir(path: String) -> Bool {
+        state.withLock { fs in
+            guard let fs = fs else { return false }
+            return fs_ext4_rmdir(fs, path) == 0
+        }
+    }
+
+    func truncate(path: String, size: UInt64) -> Bool {
+        state.withLock { fs in
+            guard let fs = fs else { return false }
+            return fs_ext4_truncate(fs, path, size) == 0
+        }
+    }
+
+    func chmod(path: String, mode: UInt16) -> Bool {
+        state.withLock { fs in
+            guard let fs = fs else { return false }
+            return fs_ext4_chmod(fs, path, mode) == 0
+        }
+    }
+
+    func chown(path: String, uid: UInt32?, gid: UInt32?) -> Bool {
+        state.withLock { fs in
+            guard let fs = fs else { return false }
+            let cuid = uid ?? ~UInt32(0)
+            let cgid = gid ?? ~UInt32(0)
+            return fs_ext4_chown(fs, path, cuid, cgid) == 0
+        }
+    }
+
+    func symlink(target: String, linkpath: String) -> Bool {
+        state.withLock { fs in
+            guard let fs = fs else { return false }
+            return fs_ext4_symlink(fs, target, linkpath) != 0
+        }
+    }
+
+    func link(src: String, dst: String) -> Bool {
+        state.withLock { fs in
+            guard let fs = fs else { return false }
+            return fs_ext4_link(fs, src, dst) == 0
+        }
+    }
+
+    func utimens(path: String, atime: timespec?, mtime: timespec?) -> Bool {
+        state.withLock { fs in
+            guard let fs = fs else { return false }
+            let aSec: UInt32 = atime.map { UInt32(clamping: $0.tv_sec) } ?? ~UInt32(0)
+            let aNsec: UInt32 = atime.map { UInt32(clamping: $0.tv_nsec) } ?? 0
+            let mSec: UInt32 = mtime.map { UInt32(clamping: $0.tv_sec) } ?? ~UInt32(0)
+            let mNsec: UInt32 = mtime.map { UInt32(clamping: $0.tv_nsec) } ?? 0
+            return fs_ext4_utimens(fs, path, aSec, aNsec, mSec, mNsec) == 0
+        }
+    }
+
+    func flush() -> Bool {
+        // The fs_ext4 driver currently has no top-level flush call — the
+        // RW callback's flush handler is what gets called from inside the
+        // driver. From Swift's side, returning success is correct: any
+        // pending writes were already pushed via the callback during the
+        // operation that produced them.
+        return true
+    }
+
+    func lastErrno() -> Int32 {
+        return Int32(fs_ext4_last_errno())
+    }
+
+    /// Run journal replay if the volume's on-disk journal is dirty. Idempotent
+    /// — safe to call on a clean volume. Returns true on success (or
+    /// already-clean), false on failure.
+    func replayJournalIfDirty() -> Bool {
+        state.withLock { fs in
+            guard let fs = fs else { return false }
+            return fs_ext4_replay_journal_if_dirty(fs) == 0
+        }
+    }
+
+    // MARK: - fsck
+
+    struct FsckReport {
+        let inodesVisited: UInt64
+        let directoriesScanned: UInt64
+        let entriesScanned: UInt64
+        let anomaliesFound: UInt64
+        let wasDirty: Bool
+        let dirtyCleared: Bool
+    }
+
+    struct FsckFinding {
+        /// One of "link_count_low", "link_count_high", "dangling_entry",
+        /// "wrong_dotdot", "bogus_entry" (Rust-emitted strings — do NOT
+        /// extend without coordinating with the Rust crate).
+        let kind: String
+        let inode: UInt32
+        let detail: String
+    }
+
+    /// Box for the two Swift closures fsck needs to call back into.
+    /// Required because `@convention(c)` callbacks (which Rust expects)
+    /// cannot capture Swift state — we pass `Unmanaged.passRetained(...)
+    /// .toOpaque()` as the `context` and unwrap inside the C closure.
+    /// Same pattern as `BlockDeviceContext` for the I/O callbacks.
+    private final class FsckCallbackBox {
+        let onProgress: (_ phase: String, _ done: UInt64, _ total: UInt64) -> Void
+        let onFinding: (FsckFinding) -> Void
+        init(onProgress: @escaping (_ phase: String, _ done: UInt64, _ total: UInt64) -> Void,
+             onFinding: @escaping (FsckFinding) -> Void) {
+            self.onProgress = onProgress
+            self.onFinding = onFinding
+        }
+    }
+
+    /// Run a read-only fsck pass on the mounted volume.
+    ///
+    /// `onProgress` and `onFinding` fire from the Rust thread that drives
+    /// the scan — the caller is responsible for hopping to its own
+    /// queue/actor before touching shared state.
+    ///
+    /// Holds the per-handle state lock for the whole scan. Because fsck
+    /// is read-only and doesn't reenter the backend through other code
+    /// paths, this is safe — no deadlock risk.
+    func runFsck(
+        onProgress: @escaping (_ phase: String, _ done: UInt64, _ total: UInt64) -> Void,
+        onFinding: @escaping (FsckFinding) -> Void
+    ) -> Result<FsckReport, Error> {
+        return state.withLock { fs -> Result<FsckReport, Error> in
+            guard let fs = fs else {
+                return .failure(POSIXError(.EBADF))
+            }
+
+            let box = FsckCallbackBox(onProgress: onProgress, onFinding: onFinding)
+            let ctxPtr = Unmanaged.passRetained(box).toOpaque()
+            defer { Unmanaged<FsckCallbackBox>.fromOpaque(ctxPtr).release() }
+
+            var opts = fs_ext4_fsck_options_t()
+            opts.read_only = 1
+            opts.replay_journal = 1
+            opts.max_dirs = 0
+            opts.max_entries_per_dir = 0
+            opts.context = ctxPtr
+            opts.on_progress = { ctx, _phase, phaseName, done, total in
+                guard let ctx = ctx else { return }
+                let box = Unmanaged<FsckCallbackBox>.fromOpaque(ctx).takeUnretainedValue()
+                let name = phaseName.flatMap { String(cString: $0) } ?? ""
+                box.onProgress(name, done, total)
+            }
+            opts.on_finding = { ctx, kind, inode, detail in
+                guard let ctx = ctx else { return }
+                let box = Unmanaged<FsckCallbackBox>.fromOpaque(ctx).takeUnretainedValue()
+                let kindStr = kind.flatMap { String(cString: $0) } ?? ""
+                let detailStr = detail.flatMap { String(cString: $0) } ?? ""
+                box.onFinding(FsckFinding(kind: kindStr, inode: inode, detail: detailStr))
+            }
+
+            var report = fs_ext4_fsck_report_t()
+            let rc = fs_ext4_fsck_run(fs, &opts, &report)
+            if rc != 0 {
+                let msg = fs_ext4_last_error().flatMap { String(cString: $0) } ?? "fs_ext4_fsck_run failed (rc=\(rc))"
+                let err = NSError(
+                    domain: NSPOSIXErrorDomain,
+                    code: Int(POSIXErrorCode.EIO.rawValue),
+                    userInfo: [NSLocalizedDescriptionKey: msg]
+                )
+                return .failure(err)
+            }
+
+            return .success(FsckReport(
+                inodesVisited: report.inodes_visited,
+                directoriesScanned: report.directories_scanned,
+                entriesScanned: report.entries_scanned,
+                anomaliesFound: report.anomalies_found,
+                wasDirty: report.was_dirty != 0,
+                dirtyCleared: report.dirty_cleared != 0
+            ))
+        }
+    }
+
     // MARK: - Helpers
 
     private static func convertFileType(_ bridgeType: fs_ext4_file_type_t) -> BackendFileType {
