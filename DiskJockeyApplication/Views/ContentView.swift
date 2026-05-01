@@ -6,6 +6,10 @@ struct ContentView: View {
 
     @StateObject private var sidebarModel = SidebarModel()
     @State private var showingAddMount = false
+    /// Driven by the custom sidebar-toggle button so we can group it
+    /// next to "+" instead of macOS's auto toggle, which lands at the
+    /// sidebar/detail boundary (visually marooned in the middle).
+    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
 
     // Observed so the detail pane swaps out of the setup view the
     // moment the user picks a folder.
@@ -17,11 +21,12 @@ struct ContentView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(
                 container: container,
                 sidebarModel: sidebarModel,
-                showingAddMount: $showingAddMount
+                showingAddMount: $showingAddMount,
+                columnVisibility: $columnVisibility
             )
             .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
         } detail: {
@@ -85,15 +90,20 @@ private struct SidebarView: View {
     let container: AppContainer
     @ObservedObject var sidebarModel: SidebarModel
     @Binding var showingAddMount: Bool
+    @Binding var columnVisibility: NavigationSplitViewVisibility
 
     @ObservedObject private var attachedDisks: AttachedDisksModel
     @ObservedObject private var directMountRegistry: DirectMountRegistry
     @ObservedObject private var rawDisks: RawDisksModel
 
-    init(container: AppContainer, sidebarModel: SidebarModel, showingAddMount: Binding<Bool>) {
+    init(container: AppContainer,
+         sidebarModel: SidebarModel,
+         showingAddMount: Binding<Bool>,
+         columnVisibility: Binding<NavigationSplitViewVisibility>) {
         self.container = container
         self.sidebarModel = sidebarModel
         self._showingAddMount = showingAddMount
+        self._columnVisibility = columnVisibility
         self.attachedDisks = container.attachedDisks
         self.directMountRegistry = container.directMountRegistry
         self.rawDisks = container.rawDisks
@@ -143,14 +153,37 @@ private struct SidebarView: View {
                 }
             }
             .listStyle(.sidebar)
+            // Drop the auto sidebar toggle — macOS plants it at the
+            // sidebar/detail boundary (looks orphaned in the middle of
+            // the titlebar). We provide a custom one in the same
+            // navigation group as "+" below.
+            .toolbar(removing: .sidebarToggle)
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
+                // `.navigation` anchors both buttons to the leading
+                // edge of the unified titlebar (left of the pane
+                // boundary). Detail views supply their own
+                // `.primaryAction` group on the trailing edge.
+                ToolbarItemGroup(placement: .navigation) {
+                    Button(action: { toggleSidebar() }) {
+                        Image("tabler-sidebar-toggle")
+                    }
+                    .help("Show / Hide Sidebar")
+
                     Button(action: { showingAddMount = true }) {
                         Image("tabler-plus")
                     }
                     .help("Add Mount")
                 }
             }
+        }
+    }
+
+    /// Toggle between sidebar-visible and detail-only. `.automatic`
+    /// resolves to `.all` on macOS when the window is wide enough, so
+    /// we only need a binary flip.
+    private func toggleSidebar() {
+        withAnimation {
+            columnVisibility = (columnVisibility == .detailOnly) ? .all : .detailOnly
         }
     }
 }
