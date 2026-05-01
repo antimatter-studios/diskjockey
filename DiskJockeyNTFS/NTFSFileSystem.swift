@@ -129,6 +129,14 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
     fileprivate struct MountedResource {
         let bsdName: String
         let volume: NTFSVolume
+        /// Retained `NTFSBlockDeviceContext` pointer the load path used
+        /// to drive the FSBlockDeviceResource via C callbacks. Carried
+        /// so `startFormat` can build a fresh `fs_ntfs_blockdev_cfg_t`
+        /// against the same device. Mirror of EXT4's contextPtr.
+        let contextPtr: UnsafeMutableRawPointer
+        /// `cfg.size_bytes` captured at load time so format can rebuild
+        /// the cfg without re-reading from the resource.
+        let cfgSizeBytes: UInt64
     }
     fileprivate static let mountedResources = OSAllocatedUnfairLock<[ObjectIdentifier: MountedResource]>(
         initialState: [:])
@@ -314,11 +322,14 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             requiresFsckRemount: isWritable,
             stats: stats
         )
-        // Stash volume + bsdName so `startCheck(task:options:)` (which
-        // FSKit calls without a resource handle) can find them.
+        // Stash volume + bsdName + contextPtr + size so `startCheck`
+        // and `startFormat` (both called without a resource handle)
+        // can find them. Lifecycle matches the volume's; freed in
+        // NTFSVolume.deactivate.
         Self.mountedResources.withLock { map in
             map[ObjectIdentifier(resource)] = MountedResource(
-                bsdName: bsdName, volume: volume)
+                bsdName: bsdName, volume: volume,
+                contextPtr: contextPtr, cfgSizeBytes: cfgSizeBytes)
         }
         // Begin emitting `io.stats` heartbeats now. The collector
         // self-suppresses idle ticks.
@@ -447,8 +458,85 @@ extension NTFSFileSystem: FSManageableResourceMaintenanceOperations {
         return progress
     }
 
+    /// Start formatting the resource as NTFS. Mirror of the EXT4
+    /// extension's `startFormat` — see comments there + see
+    /// `docs/fskit-format-pipeline.md` for the FSKit limitations and
+    /// safety caveats. Same single-mount-required, same kernel-cache
+    /// risk if the volume is actively mounted.
     func startFormat(task: FSTask, options: FSTaskOptions) throws -> Progress {
-        throw POSIXError(.ENOSYS)
+        let resolved: MountedResource? = Self.mountedResources.withLock { map in
+            guard !map.isEmpty else { return nil }
+            if map.count == 1 { return map.values.first }
+            return nil
+        }
+        guard let resolved = resolved else {
+            log.error(
+                "startFormat: no loaded resource to format — disk must be probed/loaded first; see docs/fskit-format-pipeline.md",
+                scope: AppLogScope.fsck
+            )
+            throw POSIXError(.ENOTSUP)
+        }
+        let bsdName = resolved.bsdName
+        let dlog = TaggedLogger(
+            log, fields: ["bsd": bsdName], kind: "ntfs.format",
+            scope: AppLogScope.fsck
+        )
+        dlog.info("startFormat \(bsdName): taskOptions=\(options.taskOptions)")
+
+        // -L <label> from argv (newfs_fskit forwards user args verbatim).
+        var label: String? = nil
+        let argv = options.taskOptions
+        if let idx = argv.firstIndex(of: "-L"), idx + 1 < argv.count {
+            label = argv[idx + 1]
+        }
+
+        let progress = Progress(totalUnitCount: 100)
+        dlog.event(kind: "format.start", fields: ["label": label ?? ""])
+
+        Task.detached {
+            // Same callback-cfg construction as the mount path — see
+            // NTFSFileSystem.loadResource for the original. Reuses the
+            // retained NTFSBlockDeviceContext so writes go through the
+            // FSBlockDeviceResource just like a mounted-time write.
+            let bdc = resolved.contextPtr
+            var cfg = fs_ntfs_blockdev_cfg_t()
+            cfg.read = { ctx, buf, offset, length in
+                guard let ctx = ctx, let buf = buf else { return EIO }
+                let context = Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                return context.read(into: buf, offset: off_t(offset), length: Int(length))
+            }
+            cfg.write = { ctx, buf, offset, length in
+                guard let ctx = ctx, let buf = buf else { return EIO }
+                let context = Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                return context.write(from: buf, offset: off_t(offset), length: Int(length))
+            }
+            cfg.context = bdc
+            cfg.size_bytes = resolved.cfgSizeBytes
+
+            // The Rust `fs_ntfs::mkfs::format_filesystem` accepts a
+            // label, but the current C ABI export `fs_ntfs_mkfs(cfg)`
+            // hard-codes `None`. Extending the C ABI to accept a label
+            // (matching `fs_ext4_mkfs`) is straightforward follow-up
+            // work — for now formatting is "no label, no serial,
+            // 4096-byte clusters, 4096-byte MFT records". Caller's
+            // -L argv is ignored with a warn so the user sees the gap.
+            if let l = label {
+                dlog.warn("ignoring -L \(l): fs_ntfs_mkfs C ABI does not yet accept a label; format will produce a no-label volume")
+            }
+            let rc = fs_ntfs_mkfs(&cfg)
+
+            if rc == 0 {
+                dlog.event(kind: "format.done", fields: [:])
+                progress.completedUnitCount = 100
+                task.didComplete(error: nil)
+            } else {
+                let err = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
+                dlog.event(kind: "format.failed", fields: ["error": err], level: .error)
+                task.didComplete(error: POSIXError(.EIO))
+            }
+        }
+
+        return progress
     }
 }
 

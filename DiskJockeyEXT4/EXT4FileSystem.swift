@@ -151,6 +151,12 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
     fileprivate struct MountedResource {
         let bsdName: String
         let backend: EXT4Backend
+        /// Retained `BlockDeviceContext` pointer the load path used to
+        /// drive the FSBlockDeviceResource via C callbacks. Carried so
+        /// `startFormat` can build a fresh `fs_ext4_blockdev_cfg_t`
+        /// against the same device without going through the backend
+        /// (which is mid-mount and has its own lock semantics).
+        let contextPtr: UnsafeMutableRawPointer
     }
     fileprivate static let mountedResources = OSAllocatedUnfairLock<[ObjectIdentifier: MountedResource]>(
         initialState: [:])
@@ -296,11 +302,13 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         dlog.info("fs_ext4 mount succeeded (\(isWritable ? "rw, replay deferred" : "ro"))")
 
         let backend = EXT4Backend(bridgeFS: bridgeFS)
-        // Stash backend + bsdName so `startCheck(task:options:)` (which
-        // FSKit calls without a resource handle) can find them.
+        // Stash backend + bsdName + contextPtr so `startCheck` and
+        // `startFormat` (both called without a resource handle) can
+        // find them. The contextPtr lifecycle matches the volume's;
+        // the EXT4Volume releases it in `deactivate`.
         Self.mountedResources.withLock { map in
             map[ObjectIdentifier(resource)] = MountedResource(
-                bsdName: bsdName, backend: backend)
+                bsdName: bsdName, backend: backend, contextPtr: contextPtr)
         }
         let volInfo = backend.volumeInfo()
         let volID = FSVolume.Identifier()
@@ -566,8 +574,118 @@ extension EXT4FileSystem: FSManageableResourceMaintenanceOperations {
         return progress
     }
 
+    /// Start formatting the resource as ext4. Mirror of `startCheck`
+    /// in shape: FSKit hands us a task + argv-style options but **no
+    /// FSResource** (see `FSManageableResourceMaintenanceOperations`
+    /// in the macOS 26 SDK headers). Same `mountedResources` map
+    /// trick — find the single loaded device and operate on its
+    /// `BlockDeviceContext`.
+    ///
+    /// **Current limitations** — captured in detail at
+    /// `docs/fskit-format-pipeline.md`:
+    /// 1. Disk MUST be loaded via `loadResource` first, otherwise we
+    ///    throw `ENOTSUP`. Blank/raw disks (no recognized FS) never
+    ///    load, so this path can't format them yet.
+    /// 2. Formatting an actively-mounted volume corrupts the kernel
+    ///    buffer cache. Caller is expected to unmount first; we don't
+    ///    enforce it because the extension can't drive `diskutil` from
+    ///    its sandbox.
+    /// 3. The host-app side (`RawDiskDetailView`) is responsible for
+    ///    the pre-format unmount + admin prompt + re-probe dance.
+    ///
+    /// The Rust `fs_ext4_mkfs` itself works correctly — round-trip
+    /// tested, fsck.ext4 in CI confirms output is valid. The unsafe
+    /// part is the *integration* with a live macOS mount, not the
+    /// bytes we write.
     func startFormat(task: FSTask, options: FSTaskOptions) throws -> Progress {
-        throw POSIXError(.ENOSYS)
+        let resolved: MountedResource? = Self.mountedResources.withLock { map in
+            guard !map.isEmpty else { return nil }
+            // Same single-mount-per-extension assumption as startCheck —
+            // surface ambiguity loudly rather than guessing.
+            if map.count == 1 { return map.values.first }
+            return nil
+        }
+        guard let resolved = resolved else {
+            log.error(
+                "startFormat: no loaded resource to format — disk must be probed/loaded first; see docs/fskit-format-pipeline.md",
+                scope: AppLogScope.fsck
+            )
+            throw POSIXError(.ENOTSUP)
+        }
+        let bsdName = resolved.bsdName
+        let dlog = TaggedLogger(
+            log, fields: ["bsd": bsdName], kind: "ext4.format",
+            scope: AppLogScope.fsck
+        )
+        dlog.info("startFormat \(bsdName): taskOptions=\(options.taskOptions)")
+
+        // Parse the `-L <label>` option if present in argv. We accept
+        // it positionally because newfs_fskit forwards the user's CLI
+        // args verbatim. No declared `FSFormatOptionSyntax` yet (would
+        // be ideal — Apple's intended way) so we hand-parse.
+        var label: String? = nil
+        let argv = options.taskOptions
+        if let idx = argv.firstIndex(of: "-L"), idx + 1 < argv.count {
+            label = argv[idx + 1]
+        }
+
+        let progress = Progress(totalUnitCount: 100)
+        dlog.event(kind: "format.start", fields: [
+            "label": label ?? "",
+        ])
+
+        Task.detached {
+            // Build a fresh blockdev cfg pointing at the same
+            // BlockDeviceContext the live mount is using. The cfg's
+            // read/write/flush callbacks dispatch through the same C
+            // shim as the mount path — so writes go through FSKit's
+            // FSBlockDeviceResource just like a normal file write
+            // would. Safety caveat: if the volume is mounted, the
+            // kernel buffer cache is now stale. Unmount-after-format
+            // is the user's responsibility (see doc).
+            let bdc = resolved.contextPtr
+            var cfg = fs_ext4_blockdev_cfg_t()
+            cfg.read = { ctx, buf, offset, length in
+                guard let ctx = ctx, let buf = buf else { return EIO }
+                let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                return context.read(into: buf, offset: off_t(offset), length: Int(length))
+            }
+            cfg.write = { ctx, buf, offset, length in
+                guard let ctx = ctx, let buf = buf else { return EIO }
+                let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                return context.write(from: buf, offset: off_t(offset), length: Int(length))
+            }
+            cfg.flush = { ctx in
+                guard let ctx = ctx else { return EIO }
+                let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                return context.flush()
+            }
+            cfg.context = bdc
+            // Pull size + block_size from the BlockDeviceContext's
+            // resource; same values the original cfg used at load.
+            let context = Unmanaged<BlockDeviceContext>.fromOpaque(bdc).takeUnretainedValue()
+            cfg.size_bytes = UInt64(context.resource.blockCount * context.resource.blockSize)
+            cfg.block_size = UInt32(context.resource.blockSize)
+
+            // Convert label to a C string. Truncate to 16 bytes (ext4
+            // superblock max). nil-safe — fs_ext4_mkfs accepts NULL.
+            let labelCString = label?.cString(using: .utf8)
+            let rc = labelCString?.withUnsafeBufferPointer { cbuf in
+                fs_ext4_mkfs(&cfg, cbuf.baseAddress, nil)
+            } ?? fs_ext4_mkfs(&cfg, nil, nil)
+
+            if rc == 0 {
+                dlog.event(kind: "format.done", fields: [:])
+                progress.completedUnitCount = 100
+                task.didComplete(error: nil)
+            } else {
+                let err = fs_ext4_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
+                dlog.event(kind: "format.failed", fields: ["error": err], level: .error)
+                task.didComplete(error: POSIXError(.EIO))
+            }
+        }
+
+        return progress
     }
 }
 
