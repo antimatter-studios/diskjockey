@@ -55,8 +55,11 @@ public final class AppContainer: ObservableObject {
     /// Subscribes to macOS DiskArbitration events so already-attached
     /// disks (mounted before the app launched, or by a prior session)
     /// get their identity populated in `attachedDisks` without needing
-    /// the FSKit extension to re-probe. Lifetime is the container's.
-    private var diskArbitration: DiskArbitrationService?
+    /// the FSKit extension to re-probe. Also exposes a `mount(bsd:)`
+    /// entry point for the offline-row Mount button — DA's
+    /// `DADiskMount` is the only mount path that reliably reaches our
+    /// FSKit extensions on macOS 26.
+    internal private(set) var diskArbitration: DiskArbitrationService?
 
     public init() {
         self.logRepository = LogRepository()

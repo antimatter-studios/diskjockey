@@ -29,6 +29,14 @@ import DiskJockeyLibrary
 final class DiskArbitrationService {
     private let session: DASession
     private weak var attachedDisks: AttachedDisksModel?
+    /// Live `DADisk` refs keyed by BSD name. Populated from the
+    /// appearance callback, dropped from disappearance. Held so a
+    /// later `mount(bsd:)` call can hand the SAME `DADisk` to
+    /// `DADiskMount` — going through DA reaches our FSKit extension
+    /// reliably, whereas `diskutil mount` falls into the
+    /// LaunchServices fstype-routing cache that often forgets the
+    /// extension's claim after first unmount.
+    private var disksByBSD: [String: DADisk] = [:]
 
     init(attachedDisks: AttachedDisksModel) {
         self.attachedDisks = attachedDisks
@@ -85,6 +93,10 @@ final class DiskArbitrationService {
 
         guard let bsd = desc[kDADiskDescriptionMediaBSDNameKey as String] as? String,
               !bsd.isEmpty else { return }
+        // Cache the DADisk ref for later `mount(bsd:)` requests.
+        // Tracked even for fs we don't filter into the sidebar — the
+        // user-facing filter happens below.
+        disksByBSD[bsd] = disk
 
         // Build the synthetic event fields. Use the same keys the FSKit
         // extension emits in its `volume.info` event so the model's
@@ -139,10 +151,78 @@ final class DiskArbitrationService {
         guard let bsd = desc[kDADiskDescriptionMediaBSDNameKey as String] as? String else {
             return
         }
+        disksByBSD.removeValue(forKey: bsd)
         AppLog.shared.info("DA disappeared: bsd=\(bsd)")
         // No model action needed — the next refresh() poll will see
         // the BSD missing from /sbin/mount and flip the row to
         // .offline via the existing detached-row path.
+    }
+
+    // MARK: - Manual mount
+
+    /// Request macOS to mount the volume currently identified by `bsd`.
+    /// Routes through `DADiskMount`, which goes through the same DA
+    /// path that the on-physical-insert flow uses — that's the only
+    /// path that reliably reaches FSKit extensions for non-native
+    /// filesystems on macOS 26 (`diskutil mount` falls into a stale
+    /// LaunchServices fstype-routing cache and silently bypasses the
+    /// extension).
+    ///
+    /// `reply` is invoked on the main actor with nil on success or an
+    /// `NSError` whose `localizedDescription` is the dissenter status
+    /// string on failure. Common failure modes: dissenter "already
+    /// mounted" (caller's stale state), "mount failed" (FSKit
+    /// rejection — read the extension's NDJSON log for the cause).
+    func mount(bsd: String, reply: @escaping @Sendable (Error?) -> Void) {
+        guard let disk = disksByBSD[bsd] else {
+            AppLog.shared.warn("DA mount: no cached DADisk for bsd=\(bsd) — DA hasn't fired appearance for this disk")
+            reply(NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(POSIXErrorCode.ENODEV.rawValue),
+                userInfo: [NSLocalizedDescriptionKey:
+                    "Disk \(bsd) not currently visible to DiskArbitration. Try unplugging and reattaching."]))
+            return
+        }
+        AppLog.shared.info("DA mount: requesting mount of \(bsd)")
+
+        // Box the reply so the C callback can dispatch back into it.
+        // `Unmanaged.passRetained` keeps the box alive until the
+        // callback fires (DA guarantees exactly one callback per
+        // mount request), at which point we release.
+        final class ReplyBox {
+            let bsd: String
+            let reply: (Error?) -> Void
+            init(bsd: String, reply: @escaping (Error?) -> Void) {
+                self.bsd = bsd; self.reply = reply
+            }
+        }
+        let box = ReplyBox(bsd: bsd, reply: reply)
+        let ctx = Unmanaged.passRetained(box).toOpaque()
+
+        DADiskMount(disk, nil, DADiskMountOptions(kDADiskMountOptionDefault), { _, dissenter, ctx in
+            guard let ctx = ctx else { return }
+            let box = Unmanaged<ReplyBox>.fromOpaque(ctx).takeRetainedValue()
+            // Dissenter non-nil means the mount was vetoed; nil means
+            // the request was accepted and the volume is now mounted
+            // (or already was — DA treats both as success).
+            let err: Error?
+            if let d = dissenter {
+                let status = DADissenterGetStatus(d)
+                let reason = DADissenterGetStatusString(d)
+                    .flatMap { $0 as String? } ?? "(no reason)"
+                AppLog.shared.warn("DA mount \(box.bsd): dissented status=\(status) reason=\(reason)")
+                err = NSError(
+                    domain: "DiskArbitration",
+                    code: Int(status),
+                    userInfo: [NSLocalizedDescriptionKey: reason])
+            } else {
+                AppLog.shared.info("DA mount \(box.bsd): accepted")
+                err = nil
+            }
+            // Hop back to the main actor for the reply — the model
+            // and UI live there.
+            Task { @MainActor in box.reply(err) }
+        }, ctx)
     }
 
     /// Normalise DA's `VolumeKindKey` to the short fs name the FSKit

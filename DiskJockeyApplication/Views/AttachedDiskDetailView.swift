@@ -41,6 +41,14 @@ struct AttachedDiskDetailView: View {
     /// unmounts the live volume) so we want an explicit OK first.
     @State private var showVerifyConfirm = false
 
+    /// Spinner shown on the Mount button while `DADiskMount` is in
+    /// flight. Offline rows only — live rows hide this affordance.
+    @State private var mounting = false
+    /// Surfaced failure from the mount attempt (DA dissenter, missing
+    /// DADisk ref, etc). Distinct state from unmountError / verifyError
+    /// so they can't masquerade as each other.
+    @State private var mountError: String? = nil
+
     /// Global toggle gating the FSKit extension's per-entry
     /// enumerateDirectory log. Stored in the App Group so the
     /// extension reads the same value via `UserDefaults(suiteName:)`.
@@ -94,6 +102,37 @@ struct AttachedDiskDetailView: View {
                 }
                 .padding(20)
 
+                // Error banners pinned above the scrollable body so
+                // the user sees them without having to scroll past
+                // the form. Mirrors the connection-error banner in
+                // DirectMountDetailView. We render every active
+                // error (Mount / Unmount / Verify) so a stale error
+                // from a prior op stays visible until dismissed
+                // rather than being clobbered by a fresh failure.
+                if let err = mountError {
+                    errorBanner(
+                        headline: "Mount failed",
+                        message: err,
+                        onDismiss: { mountError = nil }
+                    )
+                }
+
+                if let err = unmountError {
+                    errorBanner(
+                        headline: "Unmount failed",
+                        message: err,
+                        onDismiss: { unmountError = nil }
+                    )
+                }
+
+                if let err = verifyError {
+                    errorBanner(
+                        headline: "Verify failed",
+                        message: err,
+                        onDismiss: { verifyError = nil }
+                    )
+                }
+
                 Divider()
 
                 ScrollView {
@@ -124,71 +163,6 @@ struct AttachedDiskDetailView: View {
                     progressBlock(phase: phase, done: done, total: total)
                 }
 
-                HStack {
-                    Button("Reveal in Finder") {
-                        NSWorkspace.shared.activateFileViewerSelecting(
-                            [URL(fileURLWithPath: disk.mountPath)]
-                        )
-                    }
-                    .disabled(isOffline(disk))
-
-                    if verifySupported {
-                        Button(action: { verifyTapped(disk) }) {
-                            if verifying || isFsckRunning(disk.fsckStatus) {
-                                HStack(spacing: 4) {
-                                    ProgressView().scaleEffect(0.5).frame(width: 14, height: 14)
-                                    Text(runningLabel)
-                                }
-                            } else {
-                                Label("Verify", image: verifySymbol)
-                            }
-                        }
-                        .disabled(verifying || unmounting || isFsckRunning(disk.fsckStatus) || isOffline(disk))
-                        // NTFS verify writes to disk (resets `$LogFile`,
-                        // clears the dirty bit, brief unmount/remount).
-                        // Ext4 verify is a read-only diagnostic, so it
-                        // skips the dialog and runs immediately.
-                        .confirmationDialog(
-                            "Repair NTFS Volume?",
-                            isPresented: $showVerifyConfirm,
-                            titleVisibility: .visible
-                        ) {
-                            Button("Repair", role: .destructive) { verify(disk) }
-                            Button("Cancel", role: .cancel) {}
-                        } message: {
-                            Text("Verifying this NTFS volume will briefly unmount it, reset its log file, and clear the dirty bit. The volume will remain unavailable for a few seconds. Continue?")
-                        }
-                    }
-
-                    Button(action: { unmount(disk) }) {
-                        if unmounting {
-                            HStack(spacing: 4) {
-                                ProgressView().scaleEffect(0.5).frame(width: 14, height: 14)
-                                Text("Unmounting…")
-                            }
-                        } else {
-                            Label("Unmount", image: "tabler-eject")
-                        }
-                    }
-                    .disabled(unmounting || isOffline(disk))
-
-                    Spacer()
-                }
-
-                if let err = unmountError {
-                    Label(err, image: "tabler-exclamationmark-triangle-fill")
-                        .font(.callout)
-                        .foregroundStyle(.red)
-                        .padding(.vertical, 4)
-                }
-
-                if let err = verifyError {
-                    Label(err, image: "tabler-exclamationmark-triangle-fill")
-                        .font(.callout)
-                        .foregroundStyle(.red)
-                        .padding(.vertical, 4)
-                }
-
                 // Live I/O activity panel — re-reads `disk.ioStats`
                 // each render, so the sparkline slides as the FSKit
                 // extension emits new 1 Hz `io.stats` samples. FSKit
@@ -204,12 +178,152 @@ struct AttachedDiskDetailView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Mount/Reveal · Verify · Unmount live in the unified
+            // titlebar at `.primaryAction` (right edge), mirroring
+            // DirectMountDetailView for consistency. ContentView's
+            // sidebar `+` is at `.navigation` so the two groups split
+            // across the leading and trailing edges instead of
+            // collapsing into the centre.
+            .toolbar {
+                // `.titleAndIcon` overrides the macOS toolbar default
+                // (icon-only in unified titlebar) so each button shows
+                // its label next to its glyph. Cascades to every Label
+                // inside the group.
+                //
+                // The leading `ToolbarSpacer(.flexible)` is what pushes
+                // the group to the trailing edge: macOS 26 (Tahoe) packs
+                // toolbar items toward the centre by default, so without
+                // an explicit flex spacer the buttons end up clustered
+                // mid-window instead of glued to the right.
+                ToolbarSpacer(.flexible, placement: .primaryAction)
+                ToolbarItemGroup(placement: .primaryAction) {
+                    if isOffline(disk) {
+                        // Offline rows: only "Mount" is meaningful.
+                        // Reveal/Verify/Unmount all assume a live mount.
+                        Button(action: { mount(disk) }) {
+                            if mounting {
+                                HStack(spacing: 4) {
+                                    ProgressView().scaleEffect(0.5).frame(width: 14, height: 14)
+                                    Text("Mounting…")
+                                }
+                            } else {
+                                Label("Mount", image: "tabler-externaldrive-connected-to-line-below")
+                                    .labelStyle(.titleAndIcon)
+                            }
+                        }
+                        .disabled(mounting || (disk.bsd ?? "").isEmpty)
+                        .help((disk.bsd ?? "").isEmpty
+                              ? "DiskArbitration hasn't fired for this disk yet — try replugging."
+                              : "Mount via DiskArbitration. macOS routes this through the FSKit extension reliably (unlike `diskutil mount`).")
+                    } else {
+                        Button(action: {
+                            NSWorkspace.shared.activateFileViewerSelecting(
+                                [URL(fileURLWithPath: disk.mountPath)]
+                            )
+                        }) {
+                            Label("Reveal in Finder", image: "tabler-folder")
+                                .labelStyle(.titleAndIcon)
+                        }
+                    }
+
+                    if verifySupported && !isOffline(disk) {
+                        Button(action: { verifyTapped(disk) }) {
+                            if verifying || isFsckRunning(disk.fsckStatus) {
+                                HStack(spacing: 4) {
+                                    ProgressView().scaleEffect(0.5).frame(width: 14, height: 14)
+                                    Text(runningLabel)
+                                }
+                            } else {
+                                Label("Verify", image: verifySymbol)
+                                    .labelStyle(.titleAndIcon)
+                            }
+                        }
+                        .disabled(verifying || unmounting || isFsckRunning(disk.fsckStatus) || isOffline(disk))
+                    }
+
+                    if !isOffline(disk) {
+                        Button(action: { unmount(disk) }) {
+                            if unmounting {
+                                HStack(spacing: 4) {
+                                    ProgressView().scaleEffect(0.5).frame(width: 14, height: 14)
+                                    Text("Unmounting…")
+                                }
+                            } else {
+                                Label("Unmount", image: "tabler-eject")
+                                    .labelStyle(.titleAndIcon)
+                            }
+                        }
+                        .disabled(unmounting)
+                    }
+                }
+            }
+            // NTFS verify writes to disk (resets `$LogFile`, clears
+            // the dirty bit, brief unmount/remount). Ext4 verify is a
+            // read-only diagnostic, so it skips the dialog and runs
+            // immediately. Lifted out of the toolbar button — the
+            // dialog needs to anchor to a stable view, not a transient
+            // toolbar item.
+            .confirmationDialog(
+                "Repair NTFS Volume?",
+                isPresented: $showVerifyConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Repair", role: .destructive) { verify(disk) }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Verifying this NTFS volume will briefly unmount it, reset its log file, and clear the dirty bit. The volume will remain unavailable for a few seconds. Continue?")
+            }
         } else {
             ContentUnavailableView(
                 "Disk Forgotten",
                 image: "tabler-externaldrive-badge-minus",
                 description: Text("This disk is no longer tracked. It will reappear in the sidebar if it's reattached.")
             )
+        }
+    }
+
+    // MARK: - Mount
+
+    /// Mount the offline disk via macOS 26's FSKit-aware `mount -F`
+    /// path, gated by `osascript "do shell script with administrator
+    /// privileges"`.
+    ///
+    /// Why this path (and not DADiskMount):
+    /// `DADiskMount` from a sandboxed app is silently vetoed by the
+    /// App Sandbox profile — `authd` denies the right
+    /// `system.volume.removable.mount` for sandboxed callers, the
+    /// DA framework returns `kDAReturnNotPrivileged`, the call never
+    /// reaches `diskarbitrationd`. `mount -F -t ext4 /dev/diskN
+    /// /Volumes/<name>` (macOS 26 `mount(8) --F` flag) explicitly
+    /// dispatches to fskitd via the FSKit module path and bypasses the
+    /// LaunchServices fstype-routing cache that breaks `diskutil mount`
+    /// for FSKit-managed types. The `osascript` wrapper handles the
+    /// privilege escalation through Authorization Services — Touch ID
+    /// supported, credential cached ~5min for follow-up mounts, App
+    /// Store compatible.
+    private func mount(_ disk: AttachedDisk) {
+        guard !disk.devicePath.isEmpty else {
+            mountError = "Cannot mount: no device path on record."
+            return
+        }
+        // Use the disk's name (or the BSD as a fallback) for the
+        // /Volumes/<name> mount point. FSKitMountService.attach
+        // validates the name format.
+        let name = disk.name.isEmpty ? (disk.bsd ?? "disk") : disk.name
+        mounting = true
+        mountError = nil
+        Task { @MainActor in
+            do {
+                try await FSKitMountService.shared.attach(
+                    imagePath: disk.devicePath,
+                    name: name,
+                    fsType: disk.fsType
+                )
+                self.mounting = false
+            } catch {
+                self.mounting = false
+                self.mountError = error.localizedDescription
+            }
         }
     }
 
@@ -417,6 +531,53 @@ struct AttachedDiskDetailView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Error banner
+
+    /// Compact red banner for action errors (Mount / Unmount / Verify).
+    /// Mirrors the visual language of `DirectMountDetailView`'s
+    /// connection-error banner so local-drive failures look the same as
+    /// network-drive failures. Pinned above the scrollable body in the
+    /// caller; rendered as a flat stack of Texts with no nested
+    /// DisclosureGroup to avoid the SwiftUI layout cycles the network
+    /// banner ran into.
+    @ViewBuilder
+    private func errorBanner(headline: String,
+                             message: String,
+                             onDismiss: @escaping () -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image("tabler-exclamationmark-triangle-fill")
+                    .foregroundStyle(.red)
+                Text(headline)
+                    .font(.callout.weight(.semibold))
+                Spacer(minLength: 8)
+                Button(action: onDismiss) {
+                    Image("tabler-dismiss")
+                }
+                .buttonStyle(.borderless)
+                .help("Dismiss")
+            }
+
+            Text(message)
+                .font(.callout)
+                .foregroundStyle(.primary)
+                .multilineTextAlignment(.leading)
+                .lineLimit(nil)
+                .textSelection(.enabled)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.red.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.red.opacity(0.35), lineWidth: 1)
+        )
+        .padding(.horizontal, 24)
+        .padding(.vertical, 12)
     }
 
     // MARK: - Status rendering
