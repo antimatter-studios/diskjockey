@@ -68,6 +68,11 @@ EXTRAS = {
   'tabler-windows-drive'  => ['outline', 'brand-windows'],
   'tabler-sidebar-toggle' => ['outline', 'layout-sidebar-left-collapse'],
   'tabler-dismiss'        => ['outline', 'x'],
+  'tabler-brand-onedrive'     => ['outline', 'brand-onedrive'],
+  'tabler-brand-filezilla'    => ['outline', 'brand-filezilla'],
+  'tabler-brand-dropbox'      => ['outline', 'brand-dropbox'],
+  'tabler-brand-google-drive' => ['outline', 'brand-google-drive'],
+  'tabler-brand-windows'      => ['outline', 'brand-windows'],
 }.freeze
 
 # Asset name == SF Symbol name, with `.fill` preserved so call-site

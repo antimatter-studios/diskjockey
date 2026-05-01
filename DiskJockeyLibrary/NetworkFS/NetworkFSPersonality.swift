@@ -81,11 +81,13 @@ public enum DirectMountScheme: String, Codable, Sendable, CaseIterable {
     /// attached disks.
     public var icon: PersonalityIcon {
         switch self {
-        case .ftp, .sftp, .smb, .webdav: return .asset("tabler-network")
-        case .dropbox:                   return .asset("tabler-shippingbox")
-        case .gdrive:                    return .asset("tabler-externaldrive-connected-to-line-below")
-        case .onedrive:                  return .asset("tabler-cloud")
-        case .s3:                        return .asset("tabler-cube-box")
+        case .ftp:             return .asset("tabler-brand-filezilla")
+        case .smb:             return .asset("tabler-brand-windows")
+        case .sftp, .webdav:   return .asset("tabler-network")
+        case .dropbox:         return .asset("tabler-brand-dropbox")
+        case .gdrive:          return .asset("tabler-brand-google-drive")
+        case .onedrive:        return .asset("tabler-brand-onedrive")
+        case .s3:              return .asset("tabler-cube-box")
         }
     }
 }
