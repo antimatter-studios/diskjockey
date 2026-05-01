@@ -23,6 +23,17 @@ public enum FsckStatus: Equatable, Hashable {
     case failed(String)
 }
 
+/// Where this disk sits in its lifecycle. Drives sidebar visual + the
+/// conditional third line ("Verifying disk…", "Offline since …"). Stays
+/// `.live` while `/sbin/mount` reports the path; flips to `.offline`
+/// when it disappears so the user can still inspect why it went away
+/// (partition log, last fsck status) without us silently dropping the
+/// row.
+public enum AttachedDiskStatus: Equatable, Hashable {
+    case live
+    case offline(since: Date)
+}
+
 public struct AttachedDisk: Identifiable, Equatable, Hashable {
     public var id: String { mountPath }
     public let mountPath: String             // e.g. "/Volumes/inline-vol"
@@ -34,6 +45,11 @@ public struct AttachedDisk: Identifiable, Equatable, Hashable {
     /// hyphen) for RO mounts; some older releases emit the bare token
     /// `ro`, so we accept both. RW is the unsurprising default.
     public let isWritable: Bool
+    /// Lifecycle state. `.live` while currently in `/sbin/mount`;
+    /// flipped to `.offline(since:)` when the entry drops out. Kept
+    /// in the sidebar either way so the user can read the partition
+    /// log to investigate why a disk disappeared.
+    public var status: AttachedDiskStatus = .live
     /// Latest dirty/fsck status for this volume. Keyed into the model
     /// by correlating `fields["bsd"]` (e.g. "disk5") with this disk's
     /// devicePath tail.
@@ -184,38 +200,54 @@ public final class AttachedDisksModel: ObservableObject {
 
     public func refresh() {
         let fresh = Self.enumerate(fsTypesOfInterest: fsTypesOfInterest)
+        let freshPaths = Set(fresh.map { $0.mountPath })
+        let oldByPath = Dictionary(uniqueKeysWithValues: disks.map { ($0.mountPath, $0) })
+        let oldPaths = Set(disks.map { $0.mountPath })
 
-        // Preserve per-disk fsck status + info + per-partition log
-        // across the mount-table re-poll, otherwise every 3-second
-        // poll wipes "running" back to "unknown" and drops the
-        // volume.info fields we already captured.
-        let oldStatus = Dictionary(uniqueKeysWithValues: disks.map { ($0.mountPath, $0.fsckStatus) })
-        let oldInfo = Dictionary(uniqueKeysWithValues: disks.map { ($0.mountPath, $0.info) })
-        let oldLog = Dictionary(uniqueKeysWithValues: disks.map { ($0.mountPath, $0.partitionLog) })
-        let oldStats = Dictionary(uniqueKeysWithValues: disks.map { ($0.mountPath, $0.ioStats) })
-        var merged = fresh.map { d -> AttachedDisk in
+        // Build the merged list as the union of:
+        //   (a) every entry currently in /sbin/mount (status=.live, with
+        //       prior partition log + info + ioStats + fsck preserved), and
+        //   (b) every prior entry we've seen this session that's no
+        //       longer in mount(8) (status=.offline). Keeping the offline
+        //       rows is the whole point of this model — the partition
+        //       log explaining why a disk vanished is useless if the
+        //       row vanishes with it.
+        var merged: [AttachedDisk] = fresh.map { d in
             var copy = d
-            copy.fsckStatus = oldStatus[d.mountPath] ?? .unknown
-            // Fresh statvfs baseline (fs, volume_name, total_size, free_size)
-            // starts from `copy.info`; any prior extension-emitted keys
-            // (cluster_size, total_inodes, serial_number, ...) overlay on
-            // top. `total_size` from the extension overrides the statvfs
-            // value when present, which is correct — extensions get the
-            // bytes from the on-disk superblock, identical to but slightly
-            // richer than what statvfs reports.
-            for (k, v) in oldInfo[d.mountPath] ?? [:] {
-                copy.info[k] = v
+            if let prior = oldByPath[d.mountPath] {
+                copy.fsckStatus = prior.fsckStatus
+                // Carry over extension-emitted info (cluster_size,
+                // total_inodes, serial_number, ...) on top of the
+                // statvfs baseline already on `copy.info`.
+                for (k, v) in prior.info { copy.info[k] = v }
+                copy.partitionLog = prior.partitionLog
+                copy.ioStats = prior.ioStats
             }
-            copy.partitionLog = oldLog[d.mountPath] ?? []
-            copy.ioStats = oldStats[d.mountPath] ?? IOStats()
+            copy.status = .live
             return copy
+        }
+        let now = Date()
+        for prior in disks where !freshPaths.contains(prior.mountPath) {
+            // Was here before, gone from mount(8) now → keep it but
+            // mark offline. Only stamp `since` on the transition; if it
+            // was already offline, preserve the original timestamp.
+            var carried = prior
+            switch prior.status {
+            case .offline:
+                break
+            case .live:
+                carried.status = .offline(since: now)
+            }
+            merged.append(carried)
         }
 
         // Replay any events / log lines that arrived for a disk before
         // it showed up in mount(8). This covers the launch-time race
         // where LogTailService reads existing ndjson before the first
-        // mount-table poll completes.
-        for i in merged.indices {
+        // mount-table poll completes. Only target live rows — offline
+        // rows shouldn't absorb new events for a disk that no longer
+        // exists at that BSD.
+        for i in merged.indices where merged[i].status == .live {
             let bsd = Self.bsdName(from: merged[i].devicePath)
             if let queued = pendingEvents.removeValue(forKey: bsd) {
                 for ev in queued {
@@ -232,15 +264,23 @@ public final class AttachedDisksModel: ObservableObject {
 
         guard merged != disks else { return }
 
-        let oldPaths = Set(disks.map { $0.mountPath })
-        let newPaths = Set(fresh.map { $0.mountPath })
         for added in fresh where !oldPaths.contains(added.mountPath) {
             AppLog.shared.info("attached: \(added.fsType) at \(added.mountPath) (\(added.devicePath))")
         }
-        for removedPath in oldPaths.subtracting(newPaths) {
-            AppLog.shared.info("detached: \(removedPath)")
+        for prior in disks where !freshPaths.contains(prior.mountPath) && prior.status == .live {
+            AppLog.shared.info("detached: \(prior.mountPath) (kept in sidebar as offline)")
         }
         disks = merged
+    }
+
+    /// Drop a disk row entirely. Triggered by the user's "Forget" action
+    /// in the detail view — typically used on offline rows once the
+    /// user has finished investigating, but allowed on live rows too
+    /// (the next refresh() will resurrect a live row anyway).
+    public func forget(mountPath: String) {
+        guard let idx = disks.firstIndex(where: { $0.mountPath == mountPath }) else { return }
+        let removed = disks.remove(at: idx)
+        AppLog.shared.info("forgot: \(removed.mountPath)")
     }
 
     /// Strip "/dev/" prefix off a devicePath. Uses prefix match so

@@ -63,7 +63,7 @@ struct AttachedDiskDetailView: View {
                 HStack(spacing: 12) {
                     PersonalityIconView(disk.icon)
                         .font(.system(size: 36))
-                        .foregroundStyle(.tint)
+                        .foregroundStyle(isOffline(disk) ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tint))
                         .frame(width: 36, height: 36)
                     VStack(alignment: .leading) {
                         HStack(spacing: 6) {
@@ -72,10 +72,21 @@ struct AttachedDiskDetailView: View {
                                 .bold()
                             statusBadge(for: disk.fsckStatus)
                         }
-                        Text("Mounted by the system — no configuration")
+                        Text(isOffline(disk)
+                             ? "Offline — last seen at \(offlineSinceText(disk))"
+                             : "Mounted by the system — no configuration")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    Spacer()
+                    // Top-right: Forget removes the row from the sidebar.
+                    // Useful once the user has finished investigating an
+                    // offline disk; live rows can be forgotten too but
+                    // the next mount-table poll will resurrect them.
+                    Button(role: .destructive, action: { attachedDisks.forget(mountPath: disk.mountPath) }) {
+                        Label("Forget", systemImage: "minus.circle")
+                    }
+                    .help("Remove this disk from the sidebar")
                 }
 
                 Divider()
@@ -112,6 +123,7 @@ struct AttachedDiskDetailView: View {
                             [URL(fileURLWithPath: disk.mountPath)]
                         )
                     }
+                    .disabled(isOffline(disk))
 
                     if verifySupported {
                         Button(action: { verifyTapped(disk) }) {
@@ -124,7 +136,7 @@ struct AttachedDiskDetailView: View {
                                 Label("Verify", systemImage: verifySymbol)
                             }
                         }
-                        .disabled(verifying || unmounting || isFsckRunning(disk.fsckStatus))
+                        .disabled(verifying || unmounting || isFsckRunning(disk.fsckStatus) || isOffline(disk))
                         // NTFS verify writes to disk (resets `$LogFile`,
                         // clears the dirty bit, brief unmount/remount).
                         // Ext4 verify is a read-only diagnostic, so it
@@ -151,7 +163,7 @@ struct AttachedDiskDetailView: View {
                             Label("Unmount", systemImage: "eject")
                         }
                     }
-                    .disabled(unmounting)
+                    .disabled(unmounting || isOffline(disk))
 
                     Spacer()
                 }
@@ -251,6 +263,21 @@ struct AttachedDiskDetailView: View {
     private func isFsckRunning(_ status: FsckStatus) -> Bool {
         if case .running = status { return true }
         return false
+    }
+
+    private func isOffline(_ disk: AttachedDisk) -> Bool {
+        if case .offline = disk.status { return true }
+        return false
+    }
+
+    /// Formatted "since" timestamp for the offline subtitle. Shows the
+    /// absolute date+time so the user can tell whether the dropout
+    /// happened just now or hours ago.
+    private func offlineSinceText(_ disk: AttachedDisk) -> String {
+        if case .offline(let since) = disk.status {
+            return since.formatted(date: .abbreviated, time: .shortened)
+        }
+        return ""
     }
 
     /// Whitelist of fstypes whose verify path actually routes through

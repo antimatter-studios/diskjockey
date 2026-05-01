@@ -210,23 +210,44 @@ private struct AttachedDiskSidebarRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            PersonalityIconView(disk.icon)
-                .foregroundStyle(.secondary)
-                .frame(width: 20, height: 20)
+            ZStack(alignment: .bottomTrailing) {
+                PersonalityIconView(disk.icon)
+                    .foregroundStyle(isOffline ? .tertiary : .secondary)
+                    .frame(width: 20, height: 20)
+                if isOffline {
+                    // Small unplug overlay so an offline row reads as
+                    // "this disk is no longer attached" at a glance.
+                    Image(systemName: "bolt.horizontal.circle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary, Color(NSColor.windowBackgroundColor))
+                        .offset(x: 2, y: 2)
+                }
+            }
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(disk.name)
                     .font(.body)
+                    .foregroundStyle(isOffline ? .secondary : .primary)
                     .lineLimit(1)
-                Text("\(disk.fsType) · \(disk.devicePath)")
+                Text(secondaryLine)
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
+                // Third line — only shown while the disk is in a
+                // transitional / non-ready state (currently: fsck
+                // running). Click into the row to see the live
+                // fsck.progress lines streaming in the partition log.
+                if let transient = transientLine {
+                    Text(transient)
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                        .lineLimit(1)
+                }
             }
 
             Spacer()
 
-            if !disk.isWritable {
+            if !disk.isWritable && !isOffline {
                 Image(systemName: "lock.fill")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -239,9 +260,49 @@ private struct AttachedDiskSidebarRow: View {
                 .help(tooltip)
         }
         .padding(.vertical, 2)
+        .opacity(isOffline ? 0.65 : 1.0)
     }
 
+    private var isOffline: Bool {
+        if case .offline = disk.status { return true }
+        return false
+    }
+
+    private var secondaryLine: String {
+        switch disk.status {
+        case .live:
+            return "\(disk.fsType) · \(disk.devicePath)"
+        case .offline(let since):
+            return "\(disk.fsType) · offline · " + Self.relativeTime.localizedString(for: since, relativeTo: Date())
+        }
+    }
+
+    /// Transient status line. nil → not shown. Currently surfaces fsck
+    /// progress; future stages will add detecting / mounting states for
+    /// disks that haven't reached mount(8) yet.
+    private var transientLine: String? {
+        if isOffline { return nil }
+        if case .running(let phase, let done, let total) = disk.fsckStatus {
+            if total > 0 {
+                let pct = Int((Double(done) / Double(total)) * 100)
+                return "Verifying · \(phase) \(pct)%"
+            }
+            return "Verifying · \(phase)…"
+        }
+        return nil
+    }
+
+    /// Cached so we don't allocate a fresh formatter on every row body.
+    /// Output is "5 min ago" / "2 hr ago" — short enough to fit the
+    /// caption row without truncation on a typical sidebar width.
+    private static let relativeTime: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .short
+        return f
+    }()
+
     private var dotColor: Color {
+        if isOffline { return .gray }
         switch disk.fsckStatus {
         case .unknown:       return .green
         case .clean:         return .green
@@ -253,16 +314,21 @@ private struct AttachedDiskSidebarRow: View {
     }
 
     private var tooltip: String {
-        let base = "Mounted at \(disk.mountPath)"
-        switch disk.fsckStatus {
-        case .unknown, .clean, .completed:
-            return base
-        case .dirty:
-            return "\(base) — volume is dirty, fsck pending"
-        case .running(let phase, _, _):
-            return "\(base) — fsck running (\(phase))"
-        case .failed(let err):
-            return "\(base) — fsck failed: \(err)"
+        switch disk.status {
+        case .offline(let since):
+            return "Offline (was at \(disk.mountPath)) — last seen \(since.formatted(date: .abbreviated, time: .shortened))"
+        case .live:
+            let base = "Mounted at \(disk.mountPath)"
+            switch disk.fsckStatus {
+            case .unknown, .clean, .completed:
+                return base
+            case .dirty:
+                return "\(base) — volume is dirty, fsck pending"
+            case .running(let phase, _, _):
+                return "\(base) — fsck running (\(phase))"
+            case .failed(let err):
+                return "\(base) — fsck failed: \(err)"
+            }
         }
     }
 }
