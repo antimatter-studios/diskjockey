@@ -39,10 +39,24 @@ public final class AppContainer: ObservableObject {
     /// extensions) so the sidebar can show them. Read-only.
     public let attachedDisks: AttachedDisksModel = AttachedDisksModel()
 
+    /// Enumerates *unmounted* / *unformatted* block devices via diskutil
+    /// polling. Sibling of `attachedDisks` — anything without a working
+    /// filesystem (blank SD card, GPT-partitioned disk with empty slices,
+    /// etc.) is invisible to `AttachedDisksModel` because that one only
+    /// sees what `/sbin/mount` reports. The sidebar's "Unformatted Disks"
+    /// section reads `formatableDisks` off this; the format / partition
+    /// actions in the detail view operate on entries here.
+    public let rawDisks: RawDisksModel = RawDisksModel()
+
     /// Surfaced error for the UI to display as an alert.
     @Published public private(set) var error: Error?
 
     private var logTailService: LogTailService?
+    /// Subscribes to macOS DiskArbitration events so already-attached
+    /// disks (mounted before the app launched, or by a prior session)
+    /// get their identity populated in `attachedDisks` without needing
+    /// the FSKit extension to re-probe. Lifetime is the container's.
+    private var diskArbitration: DiskArbitrationService?
 
     public init() {
         self.logRepository = LogRepository()
@@ -69,6 +83,7 @@ public final class AppContainer: ObservableObject {
         // each ndjson file; if the disk model hasn't polled mount(8) yet
         // those events would match no disk and get dropped.
         self.attachedDisks.start()
+        self.rawDisks.start()
 
         // Tail subprocess NDJSON log files. Lines flow into the central
         // logRepository; kind-tagged events (volume.clean/dirty,
@@ -97,6 +112,15 @@ public final class AppContainer: ObservableObject {
         }
         tail.start()
         self.logTailService = tail
+
+        // DiskArbitration session — replays appearance events for every
+        // currently-attached disk on registration, populating
+        // stableIdentity for disks the FSKit extension already mounted
+        // in a prior session (and won't re-probe). Must be initialised
+        // AFTER attachedDisks so the synthetic volume.info events have
+        // a target.
+        self.diskArbitration = DiskArbitrationService(attachedDisks: self.attachedDisks)
+
         AppLog.shared.info("DiskJockey launched — log tail started")
     }
 }
