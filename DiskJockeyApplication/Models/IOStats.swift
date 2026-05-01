@@ -135,6 +135,17 @@ public struct IOSample: Equatable, Hashable, Sendable, Identifiable {
 public struct IOStats: Equatable, Hashable, Sendable {
     public static let sampleCap = 120
 
+    /// Maximum age (in seconds) of the latest sample before the live
+    /// throughput readout is treated as stale and reported as 0. Set
+    /// just above the extensions' 1 Hz emit cadence so a single
+    /// dropped tick doesn't blip to zero, but a genuine idle period
+    /// (or a dead extension) decays the rate display naturally.
+    /// All three IOStatsCollectors (FileProvider/EXT4/NTFS)
+    /// self-suppress emissions when counters are unchanged, which
+    /// would otherwise leave `samples.last` frozen at whatever rate
+    /// was last observed.
+    public static let staleThresholdSeconds: TimeInterval = 3.0
+
     public var cumulative: IOCounters = .init()
     public var samples: [IOSample] = []
     public var lastUpdate: Date? = nil
@@ -186,19 +197,48 @@ public struct IOStats: Equatable, Hashable, Sendable {
         }
     }
 
-    /// Convenience: latest sample's read+write throughput, or 0 if no
-    /// samples yet.
-    public var currentReadBytesPerSec: Double { samples.last?.readBytesPerSec ?? 0 }
-    public var currentWriteBytesPerSec: Double { samples.last?.writeBytesPerSec ?? 0 }
-    public var currentBdevReadBytesPerSec: Double { samples.last?.bdevReadBytesPerSec ?? 0 }
-    public var currentBdevWriteBytesPerSec: Double { samples.last?.bdevWriteBytesPerSec ?? 0 }
+    /// True when the most recent sample is older than
+    /// `staleThresholdSeconds`. Used by the live-throughput getters
+    /// below so an idle (or dead) extension's last sample doesn't
+    /// keep rendering as the "current" rate forever.
+    public func isStale(at now: Date = Date()) -> Bool {
+        guard let ts = samples.last?.timestamp else { return true }
+        return now.timeIntervalSince(ts) > Self.staleThresholdSeconds
+    }
+
+    /// Latest sample's read+write throughput, or 0 if no samples yet
+    /// OR the latest sample is older than `staleThresholdSeconds`.
+    /// Pass `now` from a `TimelineView` so the view re-evaluates the
+    /// staleness check on each tick — without that, SwiftUI won't
+    /// re-render until something else publishes.
+    public func currentReadBytesPerSec(at now: Date = Date()) -> Double {
+        isStale(at: now) ? 0 : (samples.last?.readBytesPerSec ?? 0)
+    }
+    public func currentWriteBytesPerSec(at now: Date = Date()) -> Double {
+        isStale(at: now) ? 0 : (samples.last?.writeBytesPerSec ?? 0)
+    }
+    public func currentBdevReadBytesPerSec(at now: Date = Date()) -> Double {
+        isStale(at: now) ? 0 : (samples.last?.bdevReadBytesPerSec ?? 0)
+    }
+    public func currentBdevWriteBytesPerSec(at now: Date = Date()) -> Double {
+        isStale(at: now) ? 0 : (samples.last?.bdevWriteBytesPerSec ?? 0)
+    }
 
     /// Peak throughput observed in the current sample window — useful
     /// to scale sparkline y-axes consistently across read + write.
-    public var peakReadBytesPerSec: Double {
-        samples.map { $0.readBytesPerSec }.max() ?? 0
+    /// Returns 0 once the buffer is fully stale, so the y-axis
+    /// collapses back to a flat baseline instead of being permanently
+    /// scaled by an old burst.
+    public func peakReadBytesPerSec(at now: Date = Date()) -> Double {
+        isStale(at: now) ? 0 : (samples.map { $0.readBytesPerSec }.max() ?? 0)
     }
-    public var peakWriteBytesPerSec: Double {
-        samples.map { $0.writeBytesPerSec }.max() ?? 0
+    public func peakWriteBytesPerSec(at now: Date = Date()) -> Double {
+        isStale(at: now) ? 0 : (samples.map { $0.writeBytesPerSec }.max() ?? 0)
+    }
+    public func peakBdevReadBytesPerSec(at now: Date = Date()) -> Double {
+        isStale(at: now) ? 0 : (samples.map { $0.bdevReadBytesPerSec }.max() ?? 0)
+    }
+    public func peakBdevWriteBytesPerSec(at now: Date = Date()) -> Double {
+        isStale(at: now) ? 0 : (samples.map { $0.bdevWriteBytesPerSec }.max() ?? 0)
     }
 }

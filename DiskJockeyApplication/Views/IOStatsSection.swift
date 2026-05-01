@@ -29,13 +29,25 @@ struct IOStatsSection: View {
     let showPhysical: Bool
 
     var body: some View {
+        // 1 Hz tick drives the staleness recompute on the live-rate
+        // getters. Without this, SwiftUI only re-renders when the
+        // model publishes — and once the extension stops emitting
+        // io.stats events (idle volumes self-suppress), the displayed
+        // rate would freeze at the last observed value forever.
+        TimelineView(.periodic(from: .now, by: 1.0)) { ctx in
+            content(now: ctx.date)
+        }
+    }
+
+    @ViewBuilder
+    private func content(now: Date) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("I/O activity")
                     .font(.headline)
                 Spacer()
                 if let last = stats.lastUpdate {
-                    Text("updated \(Self.relative(last))")
+                    Text("updated \(Self.relative(last, relativeTo: now))")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 } else {
@@ -49,17 +61,17 @@ struct IOStatsSection: View {
             HStack(spacing: 14) {
                 throughputCard(
                     title: "Read",
-                    bytesPerSec: stats.currentReadBytesPerSec,
+                    bytesPerSec: stats.currentReadBytesPerSec(at: now),
                     samples: stats.samples.map { $0.readBytesPerSec },
-                    peak: stats.peakReadBytesPerSec,
+                    peak: stats.peakReadBytesPerSec(at: now),
                     color: .blue,
                     icon: "arrow.down.circle.fill"
                 )
                 throughputCard(
                     title: "Write",
-                    bytesPerSec: stats.currentWriteBytesPerSec,
+                    bytesPerSec: stats.currentWriteBytesPerSec(at: now),
                     samples: stats.samples.map { $0.writeBytesPerSec },
-                    peak: stats.peakWriteBytesPerSec,
+                    peak: stats.peakWriteBytesPerSec(at: now),
                     color: .orange,
                     icon: "arrow.up.circle.fill"
                 )
@@ -70,7 +82,7 @@ struct IOStatsSection: View {
 
             if showPhysical {
                 Divider().padding(.vertical, 4)
-                physicalTrack()
+                physicalTrack(now: now)
             }
         }
     }
@@ -181,7 +193,7 @@ struct IOStatsSection: View {
     // MARK: - Physical (block-device) track
 
     @ViewBuilder
-    private func physicalTrack() -> some View {
+    private func physicalTrack(now: Date) -> some View {
         let c = stats.cumulative
         VStack(alignment: .leading, spacing: 6) {
             Text("Physical I/O (block device)")
@@ -189,17 +201,17 @@ struct IOStatsSection: View {
             HStack(spacing: 14) {
                 throughputCard(
                     title: "Bdev read",
-                    bytesPerSec: stats.currentBdevReadBytesPerSec,
+                    bytesPerSec: stats.currentBdevReadBytesPerSec(at: now),
                     samples: stats.samples.map { $0.bdevReadBytesPerSec },
-                    peak: stats.samples.map { $0.bdevReadBytesPerSec }.max() ?? 0,
+                    peak: stats.peakBdevReadBytesPerSec(at: now),
                     color: .teal,
                     icon: "internaldrive"
                 )
                 throughputCard(
                     title: "Bdev write",
-                    bytesPerSec: stats.currentBdevWriteBytesPerSec,
+                    bytesPerSec: stats.currentBdevWriteBytesPerSec(at: now),
                     samples: stats.samples.map { $0.bdevWriteBytesPerSec },
-                    peak: stats.samples.map { $0.bdevWriteBytesPerSec }.max() ?? 0,
+                    peak: stats.peakBdevWriteBytesPerSec(at: now),
                     color: .purple,
                     icon: "internaldrive.fill"
                 )
@@ -281,8 +293,8 @@ struct IOStatsSection: View {
         return f
     }()
 
-    private static func relative(_ d: Date) -> String {
-        return relativeFormatter.localizedString(for: d, relativeTo: Date())
+    private static func relative(_ d: Date, relativeTo now: Date = Date()) -> String {
+        return relativeFormatter.localizedString(for: d, relativeTo: now)
     }
 }
 
