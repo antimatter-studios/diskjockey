@@ -1,11 +1,20 @@
 /*
  * IOStatsCollector.swift — runtime I/O metrics for a FileProvider mount.
  *
- * Hooked into `fetchContents` (the only data-bearing op in the read-only
- * MVP). Counters tick under an unfair lock; a 1 Hz timer flushes a
- * snapshot as a structured `io.stats` event over the existing NDJSON IPC,
- * where the host app's DirectMountRegistry ingests it and derives
- * throughput.
+ * Source of truth for byte/op counts is the *Go side* — every HTTP-backed
+ * driver wraps its http.Client with `pkg/api.CountingTransport` and the
+ * `networkfs_get_stats(mountID)` C export returns a snapshot of the
+ * per-mount totals. On each 1 Hz tick we pull the Go snapshot, copy the
+ * monotonic counters into our IOCounters struct, and flush the NDJSON
+ * `io.stats` event. The host app's DirectMountRegistry diffs successive
+ * snapshots to derive throughput.
+ *
+ * Why pull from Go (vs. instrument Swift call sites): the previous
+ * Swift hand-instrumentation only covered `fetchContents` success paths
+ * and reported the *resulting file size*, not the actual wire bytes.
+ * Folder enumeration, metadata GETs, OAuth token refreshes, and the
+ * *entire* upload path were invisible. Counting at the http.RoundTripper
+ * captures all of them.
  *
  * Mirror of DiskJockeyEXT4/IOStatsCollector.swift — kept duplicated
  * (rather than shared via a framework) to match the existing pattern
@@ -57,9 +66,14 @@ final class IOStatsCollector: @unchecked Sendable {
     private let queue: DispatchQueue
     private var timer: DispatchSourceTimer?
     private var lastEmitted: IOCounters? = nil
+    /// Int32 mount ID used to call `networkfs_get_stats`. Same value
+    /// `FileProviderDirectClient` derives from the domain UUID via
+    /// `mountID(for:)`.
+    private let mountID: Int32
 
-    init(label: String, log: TaggedLogger) {
+    init(label: String, mountID: Int32, log: TaggedLogger) {
         self.log = log
+        self.mountID = mountID
         self.queue = DispatchQueue(
             label: "com.antimatterstudios.diskjockey.iostats.\(label)")
     }
@@ -107,6 +121,18 @@ final class IOStatsCollector: @unchecked Sendable {
     // MARK: - Flush
 
     private func flush(force: Bool = false) {
+        // Pull the Go-side transport snapshot and overlay it onto our
+        // counters so emitted bytes/ops always reflect the wire, not
+        // whatever the Swift hand-instrumentation happened to record.
+        // Latency + error fields stay Swift-counted (Go doesn't track
+        // those per-request) — they're additive, not authoritative.
+        let goStats = NetworkFSDriver.getStats(mountID: mountID)
+        counters.withLock { c in
+            c.bytesRead = goStats.bytesRead
+            c.bytesWritten = goStats.bytesWritten
+            c.opsRead = goStats.opsRead
+            c.opsWritten = goStats.opsWritten
+        }
         let snapshot = counters.withLock { $0 }
         if !force, let last = lastEmitted, last == snapshot { return }
         lastEmitted = snapshot
