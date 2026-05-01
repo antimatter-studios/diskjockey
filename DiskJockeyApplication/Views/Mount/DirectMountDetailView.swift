@@ -13,6 +13,10 @@ struct DirectMountDetailView: View {
     @State private var showDeleteConfirmation = false
     @State private var isPerformingAction = false
     @State private var actionError: String?
+    /// Whether the connection-error banner has its detail section
+    /// expanded — collapsed by default so the banner stays compact;
+    /// the user can pop it open to read the raw Go-side message.
+    @State private var connErrorDetailExpanded = false
     /// Live mount state — queried from NSFileProviderManager, not from
     /// local persistence. `nil` while the first query is in flight.
     @State private var isMounted: Bool? = nil
@@ -31,6 +35,15 @@ struct DirectMountDetailView: View {
         if let mount = mount {
             VStack(spacing: 0) {
                 header(mount)
+
+                // Connection-error banner pinned above the scrollable
+                // body so it stays visible while the user scrolls
+                // through details / logs. Sourced from the registry's
+                // `mountErrors` map, populated by `mount.error` events
+                // emitted by the FileProvider extension.
+                if let connErr = registry.connectionError(forDomainID: mount.domainID) {
+                    connectionErrorBanner(connErr, mount: mount)
+                }
 
                 Divider()
 
@@ -52,6 +65,16 @@ struct DirectMountDetailView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .toolbar {
+                // `.titleAndIcon` overrides the macOS toolbar default
+                // (icon-only in unified titlebar) so each button shows
+                // its label next to its glyph.
+                //
+                // The leading `ToolbarSpacer(.flexible)` is what pushes
+                // the group to the trailing edge: macOS 26 (Tahoe) packs
+                // toolbar items toward the centre by default, so without
+                // an explicit flex spacer the buttons end up clustered
+                // mid-window instead of glued to the right.
+                ToolbarSpacer(.flexible, placement: .primaryAction)
                 ToolbarItemGroup(placement: .primaryAction) {
                     // Mount/Unmount toggle. Disabled while the status
                     // query is pending to avoid racing an action
@@ -62,22 +85,26 @@ struct DirectMountDetailView: View {
                                 mounted ? "Unmount" : "Mount",
                                 image: mounted ? "tabler-eject" : "tabler-externaldrive-badge-plus"
                             )
+                            .labelStyle(.titleAndIcon)
                         }
                         .disabled(isPerformingAction)
                     } else {
                         Button(action: {}) {
                             Label("Checking…", image: "tabler-hourglass")
+                                .labelStyle(.titleAndIcon)
                         }
                         .disabled(true)
                     }
 
                     Button(action: { revealInFinder(mount) }) {
                         Label("Reveal in Finder", image: "tabler-folder")
+                            .labelStyle(.titleAndIcon)
                     }
                     .disabled(isPerformingAction || isMounted != true)
 
                     Button(action: { showDeleteConfirmation = true }) {
                         Label("Remove", image: "tabler-trash")
+                            .labelStyle(.titleAndIcon)
                     }
                     .disabled(isPerformingAction)
                 }
@@ -327,6 +354,88 @@ struct DirectMountDetailView: View {
                 .fill(Color.yellow.opacity(0.1))
         )
         .padding(.horizontal, 24)
+    }
+
+    /// Persistent banner for the most recent connection / op failure
+    /// the FileProvider extension surfaced for this mount. Plain stack
+    /// of wrapped Texts with no nested HStack/DisclosureGroup — earlier
+    /// shapes ran into SwiftUI layout cycles that whited out the entire
+    /// window on macOS. Keep this flat.
+    @ViewBuilder
+    private func connectionErrorBanner(_ err: MountConnectionError,
+                                       mount: DirectMount) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image("tabler-exclamationmark-triangle-fill")
+                    .foregroundStyle(.red)
+                Text(connErrorHeadline(err))
+                    .font(.callout.weight(.semibold))
+                Spacer(minLength: 8)
+                Button(action: {
+                    registry.dismissConnectionError(forDomainID: mount.domainID)
+                    connErrorDetailExpanded = false
+                }) {
+                    Image("tabler-dismiss")
+                }
+                .buttonStyle(.borderless)
+                .help("Dismiss")
+            }
+
+            Text(err.summary)
+                .font(.callout)
+                .foregroundStyle(.primary)
+                .multilineTextAlignment(.leading)
+                .lineLimit(nil)
+
+            Button {
+                connErrorDetailExpanded.toggle()
+            } label: {
+                Text(connErrorDetailExpanded ? "Hide raw error" : "Show raw error")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+
+            if connErrorDetailExpanded {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    Text(err.detail.isEmpty ? "(no underlying message)" : err.detail)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.red.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.red.opacity(0.35), lineWidth: 1)
+        )
+        .padding(.horizontal, 24)
+        .padding(.vertical, 12)
+    }
+
+    /// "listDir(/home) failed" / "connect failed" / etc. Built from
+    /// `op` + optional `path` so the banner has both context (what was
+    /// attempted) and the human summary (why it broke).
+    private func connErrorHeadline(_ err: MountConnectionError) -> String {
+        let opLabel: String
+        switch err.op {
+        case "connect":  opLabel = "Connection failed"
+        case "listDir":  opLabel = "Directory listing failed"
+        case "stat":     opLabel = "Metadata lookup failed"
+        case "fetchFile":opLabel = "File download failed"
+        default:         opLabel = "\(err.op) failed"
+        }
+        if let p = err.path, !p.isEmpty {
+            return "\(opLabel) — \(p)"
+        }
+        return opLabel
     }
 
     // MARK: - Status rendering

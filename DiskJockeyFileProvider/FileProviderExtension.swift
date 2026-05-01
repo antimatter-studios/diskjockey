@@ -70,8 +70,12 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             // Config or keychain missing. This is not fatal — the
             // per-op methods below check for `nil` and fail with
             // noSuchItem. Finder will then prune the domain on its
-            // next refresh.
+            // next refresh. We also surface a `mount.error` so the
+            // host app's banner explains why the mount stopped
+            // working instead of the user just seeing an empty
+            // folder.
             self.mlog.error("direct-client init failed: \(error)")
+            emitMountError(mlog: mlog, op: "init", path: nil, error: error)
             self.directClient = nil
         }
 
@@ -138,6 +142,15 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                 completionHandler(item, nil)
             } catch {
                 self.mlog.error("direct stat(\(path)) failed: \("\(error)")")
+                // DirectClient emits `mount.error` for its own throws;
+                // only surface here when the error came from somewhere
+                // else (defensive — every reachable error today is a
+                // FileProviderDirectClientError, but future refactors
+                // may add untyped throws).
+                if !(error is FileProviderDirectClientError) {
+                    emitMountError(mlog: self.mlog, op: "stat",
+                                   path: path, error: error)
+                }
                 completionHandler(nil, Self.mapError(error))
             }
         }
@@ -228,6 +241,13 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                                       latencyNs: monotonicNanos() &- t0,
                                       error: true)
                 self.mlog.error("direct fetch(\(path)) failed: \("\(error)")")
+                // DirectClient emits `mount.error` for its own throws;
+                // surface anything else (e.g. temp-dir creation
+                // failures, FP manager unavailable).
+                if !(error is FileProviderDirectClientError) {
+                    emitMountError(mlog: self.mlog, op: "fetchFile",
+                                   path: path, error: error)
+                }
                 completionHandler(nil, nil, Self.mapError(error))
             }
         }

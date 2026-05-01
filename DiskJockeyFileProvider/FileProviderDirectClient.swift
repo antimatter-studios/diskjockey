@@ -110,7 +110,15 @@ final class FileProviderDirectClient {
                                         driverType: config.driverType,
                                         configJSON: json)
             mounted = true
+            // A fresh (re)connection is the only signal we trust for
+            // "the mount is healthy again" — clear any banner the host
+            // app is showing from a prior failure. Data-layer success
+            // (a stat/listDir returning OK) doesn't fire a clear,
+            // because we'd flood the IPC channel; the user dismisses
+            // those, or the next failure overwrites them.
+            emitMountErrorCleared(mlog: mlog)
         } catch let e as NetworkFSDriverError {
+            emitMountError(mlog: mlog, op: "connect", path: nil, error: e)
             throw FileProviderDirectClientError.driver(e)
         }
     }
@@ -123,6 +131,7 @@ final class FileProviderDirectClient {
         lock.unlock()
     }
 
+
     // MARK: - Ops (all synchronous; libnetworkfs is already blocking
     //        under the hood, and FileProvider callbacks can come in on
     //        any queue — we don't add our own threading).
@@ -134,6 +143,7 @@ final class FileProviderDirectClient {
         } catch let e as NetworkFSDriverError {
             if case .operationFailed = e { /* fine — data-layer error */ }
             else { markDisconnected() }
+            emitMountError(mlog: mlog, op: "stat", path: path, error: e)
             throw FileProviderDirectClientError.driver(e)
         }
     }
@@ -145,6 +155,7 @@ final class FileProviderDirectClient {
         } catch let e as NetworkFSDriverError {
             if case .operationFailed = e { /* data-layer, keep session */ }
             else { markDisconnected() }
+            emitMountError(mlog: mlog, op: "listDir", path: path, error: e)
             throw FileProviderDirectClientError.driver(e)
         }
     }
@@ -163,6 +174,7 @@ final class FileProviderDirectClient {
             // Treat read failures as session-fatal only if the code is
             // non-data. Today libnetworkfs doesn't distinguish — be safe.
             if case .readFailed = e { markDisconnected() }
+            emitMountError(mlog: mlog, op: "fetchFile", path: path, error: e)
             throw FileProviderDirectClientError.driver(e)
         }
     }

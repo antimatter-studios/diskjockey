@@ -67,6 +67,28 @@ public struct DirectMount: Identifiable, Codable, Equatable, Hashable, Sendable 
     }
 }
 
+/// Most-recent connection / op error for a single direct mount,
+/// emitted by the FileProvider extension via `mount.error` events.
+/// `summary` is a short one-liner suitable for the banner headline;
+/// `detail` carries the raw underlying message for the expand-to-see
+/// section. `op` and `path` are diagnostic context.
+public struct MountConnectionError: Equatable, Sendable {
+    public let summary: String
+    public let detail: String
+    public let op: String
+    public let path: String?
+    public let timestamp: Date
+
+    public init(summary: String, detail: String, op: String,
+                path: String? = nil, timestamp: Date = Date()) {
+        self.summary = summary
+        self.detail = detail
+        self.op = op
+        self.path = path
+        self.timestamp = timestamp
+    }
+}
+
 public enum DirectMountError: Error, LocalizedError {
     case domainRegistrationFailed(underlying: Error)
     case userVisibleURLUnavailable
@@ -107,6 +129,14 @@ public final class DirectMountRegistry: ObservableObject {
     /// totals. Resets on FileProvider extension respawn (counters go
     /// backwards → IOStats.absorb resets the baseline).
     @Published public private(set) var mountStats: [String: IOStats] = [:]
+
+    /// Most-recent connection / op error per domain ID, populated from
+    /// `mount.error` events emitted by the FileProvider extension and
+    /// cleared on `mount.error.cleared`. Read by `DirectMountDetailView`
+    /// to render a banner above the details — empty entry → no banner.
+    /// Survives only the host-app process lifetime; on launch the next
+    /// failed op repopulates.
+    @Published public private(set) var mountErrors: [String: MountConnectionError] = [:]
 
     private let configStore: MountConfigStore
     private let keychain: MountKeychain
@@ -465,9 +495,32 @@ public final class DirectMountRegistry: ObservableObject {
             var stats = mountStats[mountID] ?? IOStats()
             stats.absorb(IOCounters(fields: fields))
             mountStats[mountID] = stats
+        case "mount.error":
+            mountErrors[mountID] = MountConnectionError(
+                summary: fields["summary"] ?? "Mount error",
+                detail:  fields["detail"]  ?? "",
+                op:      fields["op"]      ?? "?",
+                path:    fields["path"]
+            )
+        case "mount.error.cleared":
+            mountErrors.removeValue(forKey: mountID)
         default:
             break
         }
+    }
+
+    /// Read-only accessor for the per-mount connection error banner.
+    /// Returns nil when the mount has no recorded failure (or the most
+    /// recent op succeeded and emitted `mount.error.cleared`).
+    public func connectionError(forDomainID id: String) -> MountConnectionError? {
+        mountErrors[id]
+    }
+
+    /// Clear the connection-error banner for a mount. Used by the
+    /// "Dismiss" action in the detail view; the next failed op will
+    /// repopulate it.
+    public func dismissConnectionError(forDomainID id: String) {
+        mountErrors.removeValue(forKey: id)
     }
 
     /// Query NSFileProviderManager for the list of registered domains

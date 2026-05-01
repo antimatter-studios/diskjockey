@@ -56,6 +56,15 @@ class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
                 observer.finishEnumerating(upTo: nil)
             } catch {
                 self.mlog.error("direct listDir(\(path)) failed: \("\(error)")")
+                // DirectClient emits `mount.error` for its own throws;
+                // surface anything else (defensive — listDir today only
+                // throws FileProviderDirectClientError, but if a future
+                // refactor adds untyped throws into this block we still
+                // want them on the host's banner).
+                if !(error is FileProviderDirectClientError) {
+                    emitMountError(mlog: self.mlog, op: "listDir",
+                                   path: path, error: error)
+                }
                 observer.finishEnumeratingWithError(FileProviderExtension.mapError(error))
             }
         }
