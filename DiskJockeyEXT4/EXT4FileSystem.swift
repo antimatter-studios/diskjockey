@@ -318,9 +318,12 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
 
         containerStatus = .ready
         dlog.info("volume ready: \"\(volInfo.name)\" blocks=\(volInfo.totalBlocks) free=\(volInfo.freeBlocks) dirty=\(volInfo.mountedDirty)")
-        // Emit one compact event with volume-identity + sizing so the host
-        // app can populate the detail pane without re-parsing the text log.
-        dlog.event(kind: "volume.info", fields: [
+        // Emit a compact event with everything the rust crate handed
+        // back from the on-disk superblock. The host app's
+        // AttachedDisksModel ingests these into the detail-pane "Volume
+        // info" section, and `volume_uuid` drives stableIdentity for
+        // sidebar coalescing across replug + app restart.
+        var infoFields: [String: String] = [
             "fs": "ext4",
             "volume_name": volInfo.name,
             "block_size": "\(volInfo.blockSize)",
@@ -328,7 +331,30 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             "free_blocks": "\(volInfo.freeBlocks)",
             "total_inodes": "\(volInfo.totalInodes)",
             "free_inodes": "\(volInfo.freeInodes)",
-        ], scope: AppLogScope.volume)
+        ]
+        if let v = volInfo.uuid                   { infoFields["volume_uuid"]      = v }
+        if let v = volInfo.lastMounted            { infoFields["last_mounted"]     = v }
+        if let v = volInfo.reservedBlocks         { infoFields["reserved_blocks"]  = "\(v)" }
+        if let v = volInfo.inodeSize              { infoFields["inode_size"]       = "\(v)" }
+        if let v = volInfo.firstInode             { infoFields["first_inode"]      = "\(v)" }
+        if let v = volInfo.blocksPerGroup         { infoFields["blocks_per_group"] = "\(v)" }
+        if let v = volInfo.inodesPerGroup         { infoFields["inodes_per_group"] = "\(v)" }
+        if let v = volInfo.creatorOS              { infoFields["creator_os"]       = Self.formatCreatorOS(v) }
+        if let v = volInfo.revLevel               { infoFields["revision_level"]   = "\(v)" }
+        if let v = volInfo.minorRevLevel          { infoFields["minor_rev_level"]  = "\(v)" }
+        if let v = volInfo.featureCompat          { infoFields["features_compat"]    = Self.formatFeatureFlags(v, kind: .compat) }
+        if let v = volInfo.featureIncompat        { infoFields["features_incompat"]  = Self.formatFeatureFlags(v, kind: .incompat) }
+        if let v = volInfo.featureRoCompat        { infoFields["features_ro_compat"] = Self.formatFeatureFlags(v, kind: .roCompat) }
+        if let v = volInfo.descSize               { infoFields["desc_size"]        = "\(v)" }
+        if let v = volInfo.state                  { infoFields["state"]            = Self.formatState(v) }
+        if let v = volInfo.errorsBehavior         { infoFields["errors_behavior"]  = Self.formatErrorsBehavior(v) }
+        if let v = volInfo.lastMountTime          { infoFields["last_mount_time"]  = "\(v)" }
+        if let v = volInfo.lastWriteTime          { infoFields["last_write_time"]  = "\(v)" }
+        if let v = volInfo.lastCheckTime          { infoFields["last_check_time"]  = "\(v)" }
+        if let v = volInfo.checkInterval          { infoFields["check_interval"]   = "\(v)" }
+        if let v = volInfo.mountCount             { infoFields["mount_count"]      = "\(v)" }
+        if let v = volInfo.maxMountCount          { infoFields["max_mount_count"]  = "\(v)" }
+        dlog.event(kind: "volume.info", fields: infoFields, scope: AppLogScope.volume)
         // Surface the clean/dirty signal read by the Rust driver (from
         // s_state before any journal replay). ext4's journal replay is
         // automatic inside fs_ext4_mount_with_callbacks, so the event is
@@ -351,6 +377,90 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
     }
 
     func didFinishLoading() {
+    }
+
+    /// Render the `s_creator_os` field. The ext4 spec defines five
+    /// values; anything else gets the raw number so the user can look
+    /// it up in `ext4.h` if it ever appears in the wild.
+    static func formatCreatorOS(_ raw: UInt32) -> String {
+        switch raw {
+        case 0: return "Linux"
+        case 1: return "Hurd"
+        case 2: return "Masix"
+        case 3: return "FreeBSD"
+        case 4: return "Lites"
+        default: return "unknown (\(raw))"
+        }
+    }
+
+    /// Render `s_state` as a comma-separated bit list. Fresh filesystems
+    /// read as "valid"; a kernel that detected errors leaves the
+    /// `errors` bit set even after a remount.
+    static func formatState(_ raw: UInt16) -> String {
+        var parts: [String] = []
+        if raw & 0x0001 != 0 { parts.append("valid") }
+        if raw & 0x0002 != 0 { parts.append("errors") }
+        if raw & 0x0004 != 0 { parts.append("orphan_recovery") }
+        if parts.isEmpty { return "unknown (\(raw))" }
+        return parts.joined(separator: ", ")
+    }
+
+    /// Render `s_errors`. The kernel uses this to decide what to do
+    /// when it detects metadata corruption mid-operation.
+    static func formatErrorsBehavior(_ raw: UInt16) -> String {
+        switch raw {
+        case 1: return "continue"
+        case 2: return "remount read-only"
+        case 3: return "panic"
+        default: return "unknown (\(raw))"
+        }
+    }
+
+    /// Pretty-print the three feature bitmaps as a comma-separated
+    /// list of names. Caller passes the field tag ("compat",
+    /// "incompat", "ro_compat") so we know which name table to use.
+    /// Unknown bits surface as `bit-<n>` so nothing is silently lost.
+    static func formatFeatureFlags(_ raw: UInt32, kind: FeatureKind) -> String {
+        let names = kind.bitNames
+        var out: [String] = []
+        for i in 0..<32 where (raw & (UInt32(1) << i)) != 0 {
+            if let n = names[i] { out.append(n) }
+            else { out.append("bit-\(i)") }
+        }
+        return out.isEmpty ? "(none)" : out.joined(separator: ", ")
+    }
+
+    enum FeatureKind {
+        case compat, incompat, roCompat
+
+        /// Mapping from bit position → spec-defined feature name.
+        /// Sourced from `linux/fs/ext4/ext4.h`; bits not yet defined
+        /// stay nil and surface as `bit-<n>` to the user.
+        var bitNames: [Int: String] {
+            switch self {
+            case .compat: return [
+                0: "dir_prealloc", 1: "imagic_inodes", 2: "has_journal",
+                3: "ext_attr", 4: "resize_inode", 5: "dir_index",
+                6: "lazy_bg", 7: "exclude_inode", 8: "exclude_bitmap",
+                9: "sparse_super2",
+            ]
+            case .incompat: return [
+                0: "compression", 1: "filetype", 2: "recover",
+                3: "journal_dev", 4: "meta_bg", 6: "extents",
+                7: "64bit", 8: "mmp", 9: "flex_bg",
+                10: "ea_inode", 12: "dirdata", 13: "csum_seed",
+                14: "largedir", 15: "inline_data", 16: "encrypt",
+                17: "casefold",
+            ]
+            case .roCompat: return [
+                0: "sparse_super", 1: "large_file", 2: "btree_dir",
+                3: "huge_file", 4: "gdt_csum", 5: "dir_nlink",
+                6: "extra_isize", 7: "quota", 8: "bigalloc",
+                9: "metadata_csum", 10: "replica", 11: "readonly",
+                12: "project", 13: "verity", 14: "orphan_file",
+            ]
+            }
+        }
     }
 }
 

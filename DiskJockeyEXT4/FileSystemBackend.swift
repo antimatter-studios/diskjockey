@@ -42,13 +42,52 @@ struct BackendDirectoryEntry {
     var name: String
 }
 
+/// Mirror of `fs_ext4_volume_info_t`. Everything the on-disk
+/// superblock exposes is surfaced here so the host app can render
+/// rich volume info without parsing the disk itself. Optional fields
+/// are populated only when the source FFI returns them — the NTFS
+/// backend's volumeInfo, for example, leaves the ext4-specific
+/// timestamps and feature bitmaps as nil.
 struct BackendVolumeInfo {
+    /* ----- Identity ----- */
     var name: String
+    var uuid: String?            /* canonical 8-4-4-4-12 hex */
+    var lastMounted: String?     /* path the FS was last mounted at */
+
+    /* ----- Sizing ----- */
     var blockSize: UInt32
     var totalBlocks: UInt64
     var freeBlocks: UInt64
+    var reservedBlocks: UInt64?  /* root-reserve blocks */
     var totalInodes: UInt32
     var freeInodes: UInt32
+    var inodeSize: UInt16?
+    var firstInode: UInt32?
+    var blocksPerGroup: UInt32?
+    var inodesPerGroup: UInt32?
+
+    /* ----- Provenance + capabilities ----- */
+    var creatorOS: UInt32?
+    var revLevel: UInt32?
+    var minorRevLevel: UInt16?
+    var featureCompat: UInt32?
+    var featureIncompat: UInt32?
+    var featureRoCompat: UInt32?
+    var descSize: UInt16?
+    var defaultHashVersion: UInt8?
+
+    /* ----- Lifecycle / health ----- */
+    var state: UInt16?
+    var errorsBehavior: UInt16?
+    var lastMountTime: UInt32?   /* unix epoch */
+    var lastWriteTime: UInt32?
+    var lastCheckTime: UInt32?
+    var checkInterval: UInt32?
+    var mountCount: UInt16?
+    var maxMountCount: UInt16?
+    var defResUID: UInt16?
+    var defResGID: UInt16?
+
     /// `true` if the filesystem was not cleanly unmounted last time it
     /// was used — the host app surfaces this as a dirty badge and can
     /// trigger fsck. Sourced from the driver's on-disk metadata (e.g.

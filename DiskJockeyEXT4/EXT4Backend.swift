@@ -43,14 +43,60 @@ final class EXT4Backend: FileSystemBackend {
                     String(cString: cstr)
                 }
             }
+            // Format the raw 16-byte UUID as canonical 8-4-4-4-12 hex
+            // so it round-trips with `blkid` / `tune2fs -l`.
+            let uuidStr = withUnsafePointer(to: info.uuid) { ptr -> String in
+                ptr.withMemoryRebound(to: UInt8.self, capacity: 16) { bytes in
+                    String(format: "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+                           bytes[0], bytes[1], bytes[2], bytes[3],
+                           bytes[4], bytes[5],
+                           bytes[6], bytes[7],
+                           bytes[8], bytes[9],
+                           bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15])
+                }
+            }
+            // s_last_mounted is empty-string on a freshly mkfs'd FS;
+            // surface as nil so the host app can omit the row instead
+            // of rendering "Last mounted at: (empty)".
+            let lastMountedStr = withUnsafePointer(to: info.last_mounted) { ptr -> String? in
+                ptr.withMemoryRebound(to: CChar.self, capacity: 64) { cstr in
+                    let s = String(cString: cstr)
+                    return s.isEmpty ? nil : s
+                }
+            }
 
             return BackendVolumeInfo(
                 name: name.isEmpty ? "ext4" : name,
+                uuid: uuidStr,
+                lastMounted: lastMountedStr,
                 blockSize: info.block_size,
                 totalBlocks: info.total_blocks,
                 freeBlocks: info.free_blocks,
+                reservedBlocks: info.reserved_blocks,
                 totalInodes: info.total_inodes,
                 freeInodes: info.free_inodes,
+                inodeSize: info.inode_size,
+                firstInode: info.first_inode,
+                blocksPerGroup: info.blocks_per_group,
+                inodesPerGroup: info.inodes_per_group,
+                creatorOS: info.creator_os,
+                revLevel: info.rev_level,
+                minorRevLevel: info.minor_rev_level,
+                featureCompat: info.feature_compat,
+                featureIncompat: info.feature_incompat,
+                featureRoCompat: info.feature_ro_compat,
+                descSize: info.desc_size,
+                defaultHashVersion: info.default_hash_version,
+                state: info.state,
+                errorsBehavior: info.errors_behavior,
+                lastMountTime: info.last_mount_time,
+                lastWriteTime: info.last_write_time,
+                lastCheckTime: info.last_check_time,
+                checkInterval: info.check_interval,
+                mountCount: info.mount_count,
+                maxMountCount: info.max_mount_count,
+                defResUID: info.def_resuid,
+                defResGID: info.def_resgid,
                 mountedDirty: info.mounted_dirty != 0
             )
         }
