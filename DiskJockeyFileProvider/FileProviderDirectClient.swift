@@ -57,6 +57,10 @@ final class FileProviderDirectClient {
     let mountID: Int32
 
     let config: StoredMountConfig
+    /// Protocol-agnostic policy flags (thumbnail toggles etc.).
+    /// Loaded alongside the config; `MountPolicy.default` if no
+    /// policy file exists for this mount (legacy upgrade path).
+    let policy: MountPolicy
     private let password: String
 
     /// Per-mount logger — carries `fields["mount"]=<domainID>` on every
@@ -76,6 +80,7 @@ final class FileProviderDirectClient {
     init(domainID: String,
          log: TaggedLogger,
          store: MountConfigStore = MountConfigStore(),
+         policyStore: MountPolicyStore = MountPolicyStore(),
          keychain: MountKeychain = MountKeychain()) throws {
         self.domainID = domainID
         self.mountID = Self.mountID(for: domainID)
@@ -86,6 +91,16 @@ final class FileProviderDirectClient {
             throw FileProviderDirectClientError.missingConfig(
                 domainID: domainID, underlying: error
             )
+        }
+        // Policy is best-effort: a corrupt or unreadable policy file
+        // shouldn't take down the whole mount, since the defaults
+        // ("everything on") are the same behaviour as before policies
+        // existed. Log and proceed with defaults.
+        do {
+            self.policy = try policyStore.load(domainID: domainID)
+        } catch {
+            log.warn("policy load failed; using defaults: \(error)")
+            self.policy = .default
         }
         do {
             self.password = try keychain.load(domainID: domainID)
@@ -175,6 +190,103 @@ final class FileProviderDirectClient {
             // non-data. Today libnetworkfs doesn't distinguish — be safe.
             if case .readFailed = e { markDisconnected() }
             emitMountError(mlog: mlog, op: "fetchFile", path: path, error: e)
+            throw FileProviderDirectClientError.driver(e)
+        }
+    }
+
+    // MARK: - Write ops
+
+    func writeFile(path: String, data: Data) throws {
+        try ensureConnected()
+        do {
+            try NetworkFSDriver.writeFile(mountID: mountID, path: path, data: data)
+        } catch let e as NetworkFSDriverError {
+            if case .operationFailed = e { /* data-layer, keep session */ }
+            else { markDisconnected() }
+            emitMountError(mlog: mlog, op: "writefile", path: path, error: e)
+            throw FileProviderDirectClientError.driver(e)
+        }
+    }
+
+    func mkdir(path: String) throws {
+        try ensureConnected()
+        do {
+            try NetworkFSDriver.mkdir(mountID: mountID, path: path)
+        } catch let e as NetworkFSDriverError {
+            if case .operationFailed = e { /* data-layer, keep session */ }
+            else { markDisconnected() }
+            emitMountError(mlog: mlog, op: "mkdir", path: path, error: e)
+            throw FileProviderDirectClientError.driver(e)
+        }
+    }
+
+    func removeItem(path: String) throws {
+        try ensureConnected()
+        do {
+            try NetworkFSDriver.removeItem(mountID: mountID, path: path)
+        } catch let e as NetworkFSDriverError {
+            if case .operationFailed = e { /* data-layer, keep session */ }
+            else { markDisconnected() }
+            emitMountError(mlog: mlog, op: "remove", path: path, error: e)
+            throw FileProviderDirectClientError.driver(e)
+        }
+    }
+
+    func renameItem(from: String, to: String) throws {
+        try ensureConnected()
+        do {
+            try NetworkFSDriver.renameItem(mountID: mountID, from: from, to: to)
+        } catch let e as NetworkFSDriverError {
+            if case .operationFailed = e { /* data-layer, keep session */ }
+            else { markDisconnected() }
+            emitMountError(mlog: mlog, op: "rename", path: from, error: e)
+            throw FileProviderDirectClientError.driver(e)
+        }
+    }
+
+    /// Combined per-mount + network policy: should we fetch
+    /// thumbnails right now? Used both by `fetchThumbnails`
+    /// (responding to Finder) and by the enumerator's pre-warm path
+    /// (so the same toggle + cellular gates apply to both).
+    /// Protocol-agnostic — applies to every connector. Drivers
+    /// without a Go-side `Thumbnailer` impl will return rc=2 on
+    /// the C ABI and we skip silently; the toggle still controls
+    /// whether we even try.
+    var shouldFetchThumbnails: Bool {
+        if !policy.fetchThumbnails { return false }
+        if NetworkPathMonitor.shared.isExpensiveOrConstrained {
+            return false
+        }
+        return true
+    }
+
+    /// Should the enumerator pre-warm thumbnails for this mount?
+    /// Implies `shouldFetchThumbnails` — no point pre-warming a
+    /// cache we then refuse to serve. Adds the `backgroundFetch`
+    /// gate on top.
+    var shouldPrewarmThumbnails: Bool {
+        guard shouldFetchThumbnails else { return false }
+        return policy.backgroundFetch
+    }
+
+    /// Fetch a thumbnail for `path`, sized so the long edge is
+    /// approximately `sizePx`. Returns the JPEG bytes the Go driver's
+    /// `Thumbnailer` produced. Drivers without thumbnail support
+    /// throw `.driver(.thumbnailFailed(code: 2, ...))` — the caller
+    /// (FileProviderExtension.fetchThumbnails) treats that as
+    /// "skip; let Finder show a generic icon" rather than an error.
+    ///
+    /// We don't `reportError` here because thumbnail failures are
+    /// noise, not a broken-mount signal — every non-image file in a
+    /// folder of mixed content would emit a banner. The driver's
+    /// real connection errors still surface through ensureConnected.
+    func fetchThumbnail(path: String, sizePx: Int) throws -> Data {
+        try ensureConnected()
+        do {
+            return try NetworkFSDriver.fetchThumbnail(
+                mountID: mountID, path: path, sizePx: Int32(sizePx)
+            )
+        } catch let e as NetworkFSDriverError {
             throw FileProviderDirectClientError.driver(e)
         }
     }

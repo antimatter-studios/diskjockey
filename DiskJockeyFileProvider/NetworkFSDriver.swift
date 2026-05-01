@@ -64,6 +64,12 @@ enum NetworkFSDriverError: Error, CustomStringConvertible {
     case operationFailed(op: String, path: String, code: Int32, message: String)
     /// `networkfs_openfile` returned non-zero or gave us a null data pointer.
     case readFailed(path: String, code: Int32)
+    /// `networkfs_get_thumbnail` returned non-zero. Distinct case so the
+    /// caller can fall back to a generic icon without surfacing the error
+    /// the way real read failures do — thumbnails are a "nice to have."
+    /// `code` mirrors the C ABI: 1 mount-not-found, 2 driver-not-thumbnailer,
+    /// 3 fetch error from the provider.
+    case thumbnailFailed(path: String, code: Int32, message: String)
     /// Response bytes were not valid UTF-8 / JSON / decodable.
     case decodeFailed(op: String, underlying: Error)
     /// Write-to-temp-file (fetchFile) failed at the Swift layer, after
@@ -84,6 +90,9 @@ enum NetworkFSDriverError: Error, CustomStringConvertible {
             return "NetworkFSDriver: \(op)(\(path)) failed code=\(code) msg=\(message)"
         case .readFailed(let path, let code):
             return "NetworkFSDriver: openfile(\(path)) failed code=\(code)"
+        case .thumbnailFailed(let path, let code, let message):
+            let suffix = message.isEmpty ? "" : ": \(message)"
+            return "NetworkFSDriver: get_thumbnail(\(path)) failed code=\(code)\(suffix)"
         case .decodeFailed(let op, let err):
             return "NetworkFSDriver: \(op) decode failed: \(err)"
         case .tempFileFailed(let url, let err):
@@ -240,6 +249,162 @@ enum NetworkFSDriver {
             log.error("fetchFile write failed: \(error)")
             throw NetworkFSDriverError.tempFileFailed(url, error)
         }
+    }
+
+    // MARK: Write ops
+
+    /// Upload `data` to `path`, replacing whatever's there. The Go side
+    /// copies the bytes via `C.GoBytes` so the Swift pointer only needs
+    /// to outlive the call itself.
+    static func writeFile(mountID: Int32, path: String, data: Data) throws {
+        let count = data.count
+        let rc: Int32 = path.withCString { cpath -> Int32 in
+            let mutablePath = UnsafeMutablePointer<CChar>(mutating: cpath)
+            if count == 0 {
+                let slice = ByteSlice(data: nil, len: 0)
+                return networkfs_writefile(mountID, mutablePath, slice)
+            }
+            return data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> Int32 in
+                // ByteSlice.data is `char*`; rebind the raw bytes so the
+                // pointer types line up. Go copies via C.GoBytes, so the
+                // pointer only needs to live for this call.
+                let basePtr = raw.baseAddress!
+                    .bindMemory(to: CChar.self, capacity: count)
+                let slice = ByteSlice(
+                    data: UnsafeMutablePointer<CChar>(mutating: basePtr),
+                    len: count
+                )
+                return networkfs_writefile(mountID, mutablePath, slice)
+            }
+        }
+        guard rc == 0 else {
+            throw NetworkFSDriverError.operationFailed(
+                op: "writefile", path: path, code: rc, message: ""
+            )
+        }
+    }
+
+    static func mkdir(mountID: Int32, path: String) throws {
+        let rc = path.withCString { cpath -> Int32 in
+            let mutablePath = UnsafeMutablePointer<CChar>(mutating: cpath)
+            return networkfs_mkdir(mountID, mutablePath)
+        }
+        guard rc == 0 else {
+            throw NetworkFSDriverError.operationFailed(
+                op: "mkdir", path: path, code: rc, message: ""
+            )
+        }
+    }
+
+    static func removeItem(mountID: Int32, path: String) throws {
+        let rc = path.withCString { cpath -> Int32 in
+            let mutablePath = UnsafeMutablePointer<CChar>(mutating: cpath)
+            return networkfs_remove(mountID, mutablePath)
+        }
+        guard rc == 0 else {
+            throw NetworkFSDriverError.operationFailed(
+                op: "remove", path: path, code: rc, message: ""
+            )
+        }
+    }
+
+    static func renameItem(mountID: Int32, from: String, to: String) throws {
+        let rc = from.withCString { cFrom -> Int32 in
+            to.withCString { cTo -> Int32 in
+                let mutableFrom = UnsafeMutablePointer<CChar>(mutating: cFrom)
+                let mutableTo = UnsafeMutablePointer<CChar>(mutating: cTo)
+                return networkfs_rename(mountID, mutableFrom, mutableTo)
+            }
+        }
+        guard rc == 0 else {
+            throw NetworkFSDriverError.operationFailed(
+                op: "rename", path: from, code: rc, message: ""
+            )
+        }
+    }
+
+    // MARK: Thumbnails
+
+    /// Ask the Go driver for a thumbnail (JPEG bytes) for `path`, sized
+    /// so the long edge is approximately `sizePx`. Returns the raw image
+    /// bytes — caller decodes with `NSImage` / hands to FileProvider.
+    ///
+    /// Drivers that don't implement Go's `Thumbnailer` interface
+    /// (everything except Dropbox today) return rc=2 with message
+    /// "driver does not support thumbnails"; we surface that as
+    /// `.thumbnailFailed` and the caller falls back to a generic icon.
+    static func fetchThumbnail(mountID: Int32, path: String,
+                               sizePx: Int32) throws -> Data {
+        var slice = ByteSlice(data: nil, len: 0)
+        var outErr: UnsafeMutablePointer<CChar>? = nil
+        let rc = withUnsafeMutablePointer(to: &slice) { slicePtr -> Int32 in
+            path.withCString { cpath -> Int32 in
+                let mutablePath = UnsafeMutablePointer<CChar>(mutating: cpath)
+                return networkfs_get_thumbnail(
+                    mountID, mutablePath, sizePx, slicePtr, &outErr
+                )
+            }
+        }
+        let message: String
+        if let ptr = outErr {
+            message = String(cString: ptr)
+            networkfs_free(ptr)
+        } else {
+            message = ""
+        }
+        guard rc == 0, let dataPtr = slice.data else {
+            if let leaked = slice.data { networkfs_free(leaked) }
+            throw NetworkFSDriverError.thumbnailFailed(
+                path: path, code: rc, message: message
+            )
+        }
+        defer { networkfs_free(dataPtr) }
+        let count = Int(slice.len)
+        if count == 0 { return Data() }
+        return dataPtr.withMemoryRebound(to: UInt8.self, capacity: count) { bytes in
+            Data(bytes: bytes, count: count)
+        }
+    }
+
+    /// Wire shape of `networkfs_get_stats` JSON. Mirrors the map the
+    /// Go side emits in cmd/networkfs/main.go. All zeros means either
+    /// "no traffic yet" or "non-HTTP driver" — indistinguishable on
+    /// purpose so the poller doesn't have to special-case anything.
+    struct TransportStats: Codable, Equatable {
+        let bytesRead: UInt64
+        let bytesWritten: UInt64
+        let opsRead: UInt64
+        let opsWritten: UInt64
+
+        static let zero = TransportStats(
+            bytesRead: 0, bytesWritten: 0, opsRead: 0, opsWritten: 0
+        )
+
+        enum CodingKeys: String, CodingKey {
+            case bytesRead    = "bytes_read"
+            case bytesWritten = "bytes_written"
+            case opsRead      = "ops_read"
+            case opsWritten   = "ops_written"
+        }
+    }
+
+    /// Snapshot of the Go-side per-mount transport counters (see
+    /// pkg/api/transport.go). Counts request/response *body* bytes
+    /// flowing through the driver's http.Client — covers folder
+    /// listings, metadata, OAuth refreshes, and uploads/downloads.
+    /// Headers and TCP/TLS framing are not counted.
+    ///
+    /// Returns `.zero` (instead of throwing) when the rc is non-zero
+    /// or the JSON fails to decode — the 1 Hz IOStatsCollector poll
+    /// shouldn't generate error spam during transient teardown.
+    static func getStats(mountID: Int32) -> TransportStats {
+        var outPtr: UnsafeMutablePointer<CChar>? = nil
+        let rc = networkfs_get_stats(mountID, &outPtr)
+        guard let ptr = outPtr else { return .zero }
+        let text = String(cString: ptr)
+        networkfs_free(ptr)
+        guard rc == 0, let data = text.data(using: .utf8) else { return .zero }
+        return (try? JSONDecoder().decode(TransportStats.self, from: data)) ?? .zero
     }
 
     // MARK: - Internal helpers

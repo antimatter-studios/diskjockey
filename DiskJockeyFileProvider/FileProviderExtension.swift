@@ -21,7 +21,7 @@ let log = AppLog(source: "fileprovider",
 /// or password is missing — e.g. the user removed the mount while
 /// Finder was still holding a reference — we return NSFileProviderError
 /// per-op rather than crashing.
-class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
+class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFileProviderThumbnailing {
     let mountID: String
 
     /// Stashed so we can build an `NSFileProviderManager(for:)` in
@@ -79,7 +79,13 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             self.directClient = nil
         }
 
-        self.stats = IOStatsCollector(label: mountID, log: mlog)
+        // Pass the int32 mountID through so the collector can poll
+        // Go-side transport counters via NetworkFSDriver.getStats.
+        self.stats = IOStatsCollector(
+            label: mountID,
+            mountID: FileProviderDirectClient.mountID(for: mountID),
+            log: mlog
+        )
 
         super.init()
         self.mlog.info("Initialized")
@@ -114,11 +120,14 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         }
 
         if identifier == .trashContainer {
-            let trashItem = FileProviderItem(
-                info: DiskJockeyFileItem(name: ".Trash", size: 0, isDirectory: true),
-                parentPath: "/"
-            )
-            completionHandler(trashItem, nil)
+            // We don't implement Trash — return noSuchItem like
+            // workingSet below. Returning a synthesized FileProviderItem
+            // here was wrong: its `itemIdentifier` came back as
+            // `item-/.Trash` not `.trashContainer`, which fileproviderd
+            // rejects with `itemMismatch` and then invalidates the
+            // whole extension session — at which point Finder shows
+            // nothing for the mount even though enumeration succeeded.
+            completionHandler(nil, NSFileProviderError(.noSuchItem))
             return Progress()
         }
 
@@ -255,22 +264,276 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         return Progress()
     }
 
-    // MARK: - Write Operations (not implemented — read-only MVP)
+    // MARK: - Thumbnails
+
+    /// Finder asks for thumbnails when displaying a folder so the
+    /// user sees image previews instead of generic icons. We honour
+    /// it only for drivers that implement the Go-side `Thumbnailer`
+    /// interface (today: Dropbox), and only when the per-mount
+    /// `fetchThumbnails` toggle is on AND the active network path
+    /// isn't metered (cellular / Low Data Mode).
+    ///
+    /// Each thumbnail goes through `ThumbnailCache` first — Finder
+    /// re-asks the same identifiers repeatedly (folder reopen, scroll
+    /// back, icon-size change), so without the cache we'd burn the
+    /// user's data plan on a folder of photos.
+    ///
+    /// We always invoke `perThumbnailCompletionHandler` for every
+    /// requested identifier (even on skip / error, with a `nil` data
+    /// payload — Finder treats that as "fall back to generic icon").
+    ///
+    /// Marked `@objc` because `fetchThumbnails(...)` is declared
+    /// `@objc optional` on `NSFileProviderReplicatedExtension`.
+    /// Without the marker, Swift doesn't expose our override to the
+    /// Obj-C runtime — fileproviderd's `respondsToSelector:` check
+    /// then returns false and the system falls back to QuickLook
+    /// downloading the full file to generate a thumbnail locally,
+    /// which on cloud-only items returns `(null)` and the user sees
+    /// generic icons forever.
+    @objc
+    func fetchThumbnails(for itemIdentifiers: [NSFileProviderItemIdentifier],
+                         requestedSize size: CGSize,
+                         perThumbnailCompletionHandler: @escaping (NSFileProviderItemIdentifier, Data?, Error?) -> Void,
+                         completionHandler: @escaping (Error?) -> Void) -> Progress {
+        // Long edge in pixels — the FP API hands us points; we fetch
+        // the smallest provider bucket >= long edge, then cache by
+        // that bucket so similar requests share a row.
+        let sizePx = Int(max(size.width, size.height).rounded(.up))
+
+        let policy = thumbnailPolicy()
+        let progress = Progress(totalUnitCount: Int64(itemIdentifiers.count))
+
+        self.mlog.info("fetchThumbnails called count=\(itemIdentifiers.count) sizePx=\(sizePx)")
+
+        switch policy {
+        case .skip(let reason):
+            self.mlog.info("thumbnails skipped (\(reason)) count=\(itemIdentifiers.count)")
+            for id in itemIdentifiers {
+                perThumbnailCompletionHandler(id, nil, nil)
+                progress.completedUnitCount += 1
+            }
+            completionHandler(nil)
+            return progress
+
+        case .fetch:
+            break
+        }
+
+        guard let direct = directClient else {
+            // Mount configuration is missing; let Finder fall back to
+            // generic icons rather than surfacing an error per-file.
+            for id in itemIdentifiers {
+                perThumbnailCompletionHandler(id, nil, nil)
+                progress.completedUnitCount += 1
+            }
+            completionHandler(nil)
+            return progress
+        }
+
+        let mountID = self.mountID
+        let log = self.mlog
+        DispatchQueue.global(qos: .userInitiated).async {
+            var hits = 0
+            var fetches = 0
+            var fails = 0
+            for id in itemIdentifiers {
+                let path = self.extractPath(from: id)
+                if let cached = ThumbnailCache.shared.get(
+                    mountID: mountID, path: path, sizePx: sizePx
+                ) {
+                    perThumbnailCompletionHandler(id, cached, nil)
+                    progress.completedUnitCount += 1
+                    hits += 1
+                    continue
+                }
+                do {
+                    let data = try direct.fetchThumbnail(path: path, sizePx: sizePx)
+                    ThumbnailCache.shared.put(
+                        mountID: mountID, path: path,
+                        sizePx: sizePx, data: data
+                    )
+                    perThumbnailCompletionHandler(id, data, nil)
+                    fetches += 1
+                } catch {
+                    // Drivers without thumbnail support (rc=2) and
+                    // per-file fetch failures both land here — Finder
+                    // gets `nil` data, no surfaced error. We log at
+                    // debug since this is normal for non-image files
+                    // and unsupported drivers.
+                    log.debug("thumbnail(\(path)) skipped: \("\(error)")")
+                    perThumbnailCompletionHandler(id, nil, nil)
+                    fails += 1
+                }
+                progress.completedUnitCount += 1
+            }
+            log.info("fetchThumbnails done: cache=\(hits) fetched=\(fetches) failed=\(fails)")
+            completionHandler(nil)
+        }
+        return progress
+    }
+
+    /// Decide whether to attempt thumbnail fetches for this mount on
+    /// the current network path. Defers to the protocol-agnostic
+    /// `FileProviderDirectClient.shouldFetchThumbnails` so the same
+    /// gates (per-mount `MountPolicy` + `NetworkPathMonitor`) apply
+    /// to Finder-driven and pre-warm fetches uniformly.
+    private func thumbnailPolicy() -> ThumbnailPolicy {
+        guard let direct = directClient else {
+            return .skip(reason: "no direct client")
+        }
+        if !direct.policy.fetchThumbnails {
+            return .skip(reason: "per-mount toggle off")
+        }
+        if NetworkPathMonitor.shared.isExpensiveOrConstrained {
+            return .skip(reason: "expensive/constrained network")
+        }
+        return .fetch
+    }
+
+    private enum ThumbnailPolicy {
+        case fetch
+        case skip(reason: String)
+    }
+
+    // MARK: - Write Operations
 
     func createItem(basedOn itemTemplate: NSFileProviderItem, fields: NSFileProviderItemFields, contents url: URL?, options: NSFileProviderCreateItemOptions = [], request: NSFileProviderRequest, completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void) -> Progress {
-        completionHandler(nil, [], false, NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError, userInfo: [:]))
+        guard let direct = directClient else {
+            completionHandler(nil, [], false, NSFileProviderError(.noSuchItem))
+            return Progress()
+        }
+
+        let parentPath = extractPath(from: itemTemplate.parentItemIdentifier)
+        let filename = itemTemplate.filename
+        let newPath = Self.joinPath(parentPath, filename)
+        let isFolder = (itemTemplate.contentType == .folder)
+        self.mlog.info("createItem(\(newPath)) folder=\(isFolder)")
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                if isFolder {
+                    try direct.mkdir(path: newPath)
+                } else {
+                    guard let src = url else {
+                        completionHandler(nil, [], false, NSError(
+                            domain: NSCocoaErrorDomain,
+                            code: NSFeatureUnsupportedError,
+                            userInfo: [NSLocalizedDescriptionKey: "createItem: missing contents URL"]
+                        ))
+                        return
+                    }
+                    let data = try Data(contentsOf: src)
+                    try direct.writeFile(path: newPath, data: data)
+                }
+                let info = try direct.stat(path: newPath)
+                let item = FileProviderItem(info: info.toFileItem(), parentPath: parentPath)
+                completionHandler(item, [], false, nil)
+                if let manager = NSFileProviderManager(for: self.domain) {
+                    manager.signalEnumerator(for: itemTemplate.parentItemIdentifier) { _ in }
+                }
+            } catch {
+                self.mlog.error("createItem(\(newPath)) failed: \("\(error)")")
+                if !(error is FileProviderDirectClientError) {
+                    emitMountError(mlog: self.mlog, op: isFolder ? "mkdir" : "writefile",
+                                   path: newPath, error: error)
+                }
+                completionHandler(nil, [], false, Self.mapError(error))
+            }
+        }
         return Progress()
     }
 
     func modifyItem(_ item: NSFileProviderItem, baseVersion version: NSFileProviderItemVersion, changedFields: NSFileProviderItemFields, contents newContents: URL?, options: NSFileProviderModifyItemOptions = [], request: NSFileProviderRequest, completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void) -> Progress {
-        // Read-only: return the item unchanged, no error
-        completionHandler(item, [], false, nil)
+        guard let direct = directClient else {
+            completionHandler(nil, [], false, NSFileProviderError(.noSuchItem))
+            return Progress()
+        }
+
+        // Old path comes from the existing identifier ("item-<oldpath>");
+        // new path is rebuilt from the desired-state item's parent + filename.
+        let oldPath = extractPath(from: item.itemIdentifier)
+        let oldParentIdentifier = NSFileProviderItemIdentifier(
+            "item-" + ((oldPath as NSString).deletingLastPathComponent)
+        )
+        let newParentPath = extractPath(from: item.parentItemIdentifier)
+        let newPath = Self.joinPath(newParentPath, item.filename)
+        let renamed = (changedFields.contains(.filename) || changedFields.contains(.parentItemIdentifier))
+            && oldPath != newPath
+        let updateContents = changedFields.contains(.contents) && newContents != nil
+
+        self.mlog.info("modifyItem old=\(oldPath) new=\(newPath) renamed=\(renamed) updateContents=\(updateContents)")
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                if renamed {
+                    try direct.renameItem(from: oldPath, to: newPath)
+                }
+                if updateContents, let src = newContents {
+                    let data = try Data(contentsOf: src)
+                    try direct.writeFile(path: newPath, data: data)
+                }
+                let info = try direct.stat(path: newPath)
+                let parentPath = (newPath as NSString).deletingLastPathComponent
+                let resultItem = FileProviderItem(info: info.toFileItem(), parentPath: parentPath)
+                completionHandler(resultItem, [], false, nil)
+                if let manager = NSFileProviderManager(for: self.domain) {
+                    manager.signalEnumerator(for: item.parentItemIdentifier) { _ in }
+                    if renamed && oldParentIdentifier != item.parentItemIdentifier {
+                        manager.signalEnumerator(for: oldParentIdentifier) { _ in }
+                    }
+                }
+            } catch {
+                self.mlog.error("modifyItem(\(oldPath) → \(newPath)) failed: \("\(error)")")
+                if !(error is FileProviderDirectClientError) {
+                    emitMountError(mlog: self.mlog, op: renamed ? "rename" : "writefile",
+                                   path: oldPath, error: error)
+                }
+                completionHandler(nil, [], false, Self.mapError(error))
+            }
+        }
         return Progress()
     }
 
     func deleteItem(identifier: NSFileProviderItemIdentifier, baseVersion version: NSFileProviderItemVersion, options: NSFileProviderDeleteItemOptions = [], request: NSFileProviderRequest, completionHandler: @escaping (Error?) -> Void) -> Progress {
-        completionHandler(NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError, userInfo: [:]))
+        guard let direct = directClient else {
+            completionHandler(NSFileProviderError(.noSuchItem))
+            return Progress()
+        }
+
+        let path = extractPath(from: identifier)
+        self.mlog.info("deleteItem(\(path))")
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                try direct.removeItem(path: path)
+                completionHandler(nil)
+                let parentPathRaw = (path as NSString).deletingLastPathComponent
+                let parentIdentifier: NSFileProviderItemIdentifier =
+                    (parentPathRaw.isEmpty || parentPathRaw == "/")
+                        ? .rootContainer
+                        : NSFileProviderItemIdentifier("item-" + parentPathRaw)
+                if let manager = NSFileProviderManager(for: self.domain) {
+                    manager.signalEnumerator(for: parentIdentifier) { _ in }
+                }
+            } catch {
+                self.mlog.error("deleteItem(\(path)) failed: \("\(error)")")
+                if !(error is FileProviderDirectClientError) {
+                    emitMountError(mlog: self.mlog, op: "remove",
+                                   path: path, error: error)
+                }
+                completionHandler(Self.mapError(error))
+            }
+        }
         return Progress()
+    }
+
+    /// Compose a child path under a parent dir, normalising slashes so
+    /// "/" + "foo" produces "/foo" and "/dir" + "foo" produces "/dir/foo".
+    private static func joinPath(_ parent: String, _ name: String) -> String {
+        let p = parent.isEmpty ? "/" : parent
+        if p == "/" { return "/" + name }
+        if p.hasSuffix("/") { return p + name }
+        return p + "/" + name
     }
 
     // MARK: - Enumeration
@@ -333,6 +596,15 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             }
             return NSFileProviderError(.serverUnreachable)
         case .readFailed:
+            return NSFileProviderError(.noSuchItem)
+        case .thumbnailFailed:
+            // Thumbnails are best-effort; the FP layer treats a `nil`
+            // data payload as "fall back to generic icon" so we
+            // shouldn't surface this as a real error to Finder. The
+            // thumbnail call site already maps the throw to a `nil`
+            // payload before this `mapDriverError` runs — but if a
+            // future caller forgets that, treat it as noSuchItem so
+            // Finder doesn't show a scary state.
             return NSFileProviderError(.noSuchItem)
         case .decodeFailed, .invalidConfig, .tempFileFailed:
             return NSFileProviderError(.serverUnreachable)

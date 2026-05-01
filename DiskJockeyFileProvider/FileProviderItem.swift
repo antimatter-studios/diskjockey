@@ -47,8 +47,26 @@ class FileProviderItem: NSObject, NSFileProviderItem {
     }
 
     var capabilities: NSFileProviderItemCapabilities {
-        // Read-only
-        return [.allowsReading, .allowsContentEnumerating]
+        // Folders enumerate + accept new children; files read/write bytes.
+        // Both can be renamed, reparented, deleted. No trash — we delete
+        // outright via networkfs_remove.
+        if info.isDirectory {
+            return [
+                .allowsReading,
+                .allowsContentEnumerating,
+                .allowsAddingSubItems,
+                .allowsRenaming,
+                .allowsReparenting,
+                .allowsDeleting,
+            ]
+        }
+        return [
+            .allowsReading,
+            .allowsWriting,
+            .allowsRenaming,
+            .allowsReparenting,
+            .allowsDeleting,
+        ]
     }
 
     // MARK: - NSFileProviderItem Properties
@@ -62,8 +80,19 @@ class FileProviderItem: NSObject, NSFileProviderItem {
         return info.name
     }
     var contentType: UTType {
-        // Use info.isDirectory for type
-        return info.isDirectory ? .folder : .data
+        // Folders short-circuit. For files, derive from the filename
+        // extension so Finder + QuickLook + the thumbnailing
+        // subsystem know what they're dealing with — without this,
+        // every non-folder is reported as `.data` (generic binary)
+        // and macOS skips `fetchThumbnailsForItemIdentifiers` because
+        // it doesn't believe the item could have a preview. A `.jpg`
+        // resolves to `UTType.jpeg`, `.heic` to `UTType.heic`, etc.;
+        // unknowns fall back to `.data` so we don't lie about the
+        // file's nature.
+        if info.isDirectory { return .folder }
+        let ext = (info.name as NSString).pathExtension
+        if ext.isEmpty { return .data }
+        return UTType(filenameExtension: ext) ?? .data
     }
     var isDirectory: Bool {
         return info.isDirectory
@@ -75,7 +104,19 @@ class FileProviderItem: NSObject, NSFileProviderItem {
         return info.isDirectory ? nil : NSNumber(value: info.size)
     }
     var itemVersion: NSFileProviderItemVersion {
-        let versionString = "\(info.name)-\(info.size)"
+        // Bump `schemaVersion` whenever this struct's reported
+        // properties change (capabilities, contentType, etc.) so
+        // fileproviderd's cache treats every item's metadata as
+        // changed and re-asks instead of serving stale records.
+        // Without this, switching the contentType derivation from
+        // `.data` to UTType-from-extension (which is what makes
+        // Finder request thumbnails) was invisible to fileproviderd
+        // because `\(name)-\(size)` is identical across builds —
+        // the cache happily kept the old `kUTTypeData` UTI and
+        // Finder kept skipping `fetchThumbnailsForItemIdentifiers`.
+        // v3: capabilities expanded from read-only to full read/write.
+        let schemaVersion = 3
+        let versionString = "v\(schemaVersion)-\(info.name)-\(info.size)"
         return NSFileProviderItemVersion(
             contentVersion: versionString.data(using: .utf8)!,
             metadataVersion: versionString.data(using: .utf8)!
