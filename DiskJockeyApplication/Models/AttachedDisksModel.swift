@@ -111,11 +111,11 @@ public struct AttachedDisk: Identifiable, Equatable, Hashable {
     public var icon: PersonalityIcon {
         switch fsType.lowercased() {
         case "ext2", "ext3", "ext4":
-            return .asset("LinuxDrive")
+            return .asset("tabler-linux-drive")
         case "ntfs", "fsntfs", "ntfs-fskit":
-            return .asset("WindowsDrive")
+            return .asset("tabler-windows-drive")
         default:
-            return .sfSymbol("externaldrive.fill")
+            return .asset("tabler-externaldrive-fill")
         }
     }
 
@@ -262,14 +262,20 @@ public final class AttachedDisksModel: ObservableObject {
     private var pendingLogs: [String: [AttachedDiskLogLine]] = [:]
     private static let logCap = 500
 
-    /// UserDefaults key holding the persisted history of disks we've
-    /// seen with a `stableIdentity`. Restored at launch as `.offline`
-    /// rows so the user can investigate a disk that was unmounted
-    /// before the app was last quit. Rows without `stableIdentity`
-    /// (e.g. ext4 disks where we can't read the UUID) are NOT
-    /// persisted — their identity wouldn't survive a reboot anyway.
-    private static let persistenceKey = "AttachedDisksHistory.v1"
-    private static let persistenceDefaults = UserDefaults.standard
+    /// JSON file holding the persisted history of disks we've seen
+    /// with a `stableIdentity`. Restored at launch as `.offline` rows
+    /// so the user can investigate a disk that was unmounted before
+    /// the app was last quit, or so a still-mounted disk reattaches
+    /// to its existing row before mount(8) re-enumeration completes.
+    /// Rows without `stableIdentity` (e.g. ext4 disks where we can't
+    /// read the UUID) are NOT persisted — the BSD they're keyed on
+    /// is meaningless across reboots.
+    ///
+    /// Stored in the App Group container — same dir tree as the NDJSON
+    /// logs (see `AppLog.groupIdentifier`). Inspectable with `cat`,
+    /// wipeable with `rm`, no UserDefaults voodoo. Schema is versioned
+    /// so a future field addition can either migrate or skip cleanly.
+    private static let persistenceFilename = "AttachedDisks.v1.json"
 
     public init(pollInterval: TimeInterval = 3.0) {
         self.pollInterval = pollInterval
@@ -295,8 +301,15 @@ public final class AttachedDisksModel: ObservableObject {
     /// sidebar row across an app restart. Deliberately doesn't include
     /// partitionLog / ioStats / fsckStatus — those are session-scoped
     /// and would be misleading if rendered from a previous run.
+    ///
+    /// `stableIdentity` is optional: rows that have it survive replug
+    /// + reboot. Rows without it (no `volume.info` yet, e.g. a disk
+    /// already mounted from a prior session) are still persisted so
+    /// the sidebar isn't empty after a relaunch — they just won't
+    /// coalesce across a BSD change. The fallback is keyed on `bsd`
+    /// so an in-session restart works.
     private struct PersistedRow: Codable {
-        let stableIdentity: String
+        let stableIdentity: String?
         let lastBsd: String?
         let lastMountPath: String?
         let lastDevicePath: String
@@ -306,41 +319,90 @@ public final class AttachedDisksModel: ObservableObject {
         let info: [String: String]
     }
 
+    /// Versioned envelope for the JSON file. Lets us add fields to
+    /// `PersistedRow` later (or migrate the row shape) without
+    /// silently corrupting an old cache — a bumped `version` triggers
+    /// a clean discard rather than a half-decoded mess.
+    private struct PersistedSnapshot: Codable {
+        let version: Int
+        let savedAt: Date
+        let rows: [PersistedRow]
+    }
+
+    /// Resolve the on-disk path for the snapshot file. Returns nil only
+    /// if the App Group container isn't accessible, which would mean
+    /// the entitlement is misconfigured — we fall back to skipping
+    /// persistence rather than dropping the file in `tmp` where it
+    /// would silently disappear.
+    private static func persistenceURL() -> URL? {
+        let fm = FileManager.default
+        guard let base = fm.containerURL(
+            forSecurityApplicationGroupIdentifier: AppLog.groupIdentifier
+        ) else { return nil }
+        return base.appendingPathComponent(persistenceFilename, isDirectory: false)
+    }
+
     private static func loadPersisted() -> [AttachedDisk] {
-        guard let data = persistenceDefaults.data(forKey: persistenceKey),
-              let rows = try? JSONDecoder().decode([PersistedRow].self, from: data)
-        else { return [] }
-        return rows.map { row in
-            AttachedDisk(
-                stableIdentity: row.stableIdentity,
-                bsd: row.lastBsd,
-                mountPath: "",
-                devicePath: row.lastDevicePath,
-                fsType: row.fsType,
-                name: row.name,
-                isWritable: true,
-                status: .offline(since: row.lastSeenAt),
-                lastMountPath: row.lastMountPath,
-                info: row.info
-            )
+        guard let url = persistenceURL() else {
+            AppLog.shared.warn("AttachedDisks: persistence URL unavailable (app group entitlement?) — starting with empty history")
+            return []
+        }
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            AppLog.shared.info("AttachedDisks: no persisted history at \(url.path) (first launch?)")
+            return []
+        }
+        do {
+            let data = try Data(contentsOf: url)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let snapshot = try decoder.decode(PersistedSnapshot.self, from: data)
+            AppLog.shared.info("AttachedDisks: loaded \(snapshot.rows.count) persisted rows (savedAt=\(snapshot.savedAt))")
+            return snapshot.rows.map { row in
+                AttachedDisk(
+                    stableIdentity: row.stableIdentity,
+                    bsd: row.lastBsd,
+                    mountPath: "",
+                    devicePath: row.lastDevicePath,
+                    fsType: row.fsType,
+                    name: row.name,
+                    isWritable: true,
+                    status: .offline(since: row.lastSeenAt),
+                    lastMountPath: row.lastMountPath,
+                    info: row.info
+                )
+            }
+        } catch {
+            AppLog.shared.warn("AttachedDisks: failed to decode \(url.lastPathComponent) — \(error.localizedDescription)")
+            return []
         }
     }
 
-    /// Snapshot the current `disks` to UserDefaults. Called from didSet
-    /// of `disks` so any mutation that goes through the published
-    /// property (refresh, applyEvent, applyLogLine, forget) gets saved.
-    /// Rows without `stableIdentity` are skipped — the BSD they're
-    /// keyed on is meaningless next session.
+    /// Snapshot the current `disks` to the App Group JSON file. Called
+    /// from didSet of `disks` so any mutation that goes through the
+    /// published property (refresh, applyEvent, applyLogLine, forget)
+    /// gets saved.
+    ///
+    /// Saved if EITHER `stableIdentity` (best — survives replug) OR
+    /// `bsd` (good enough within a session) is known. Rows with
+    /// neither are noise — they're transient parse failures that
+    /// haven't reached the model's identity-tracking logic yet.
+    ///
+    /// Atomic write: encode → tmp file → rename. A partial write or
+    /// crash mid-encode leaves the previous valid snapshot in place
+    /// rather than a truncated file the next launch can't decode.
     private func persist() {
+        guard let url = Self.persistenceURL() else { return }
         let rows: [PersistedRow] = disks.compactMap { d in
-            guard let stable = d.stableIdentity, !stable.isEmpty else { return nil }
+            let hasStable = !(d.stableIdentity ?? "").isEmpty
+            let hasBsd = !(d.bsd ?? "").isEmpty
+            guard hasStable || hasBsd else { return nil }
             let lastSeen: Date
             switch d.status {
             case .offline(let since): lastSeen = since
             case .live, .mounting:    lastSeen = Date()
             }
             return PersistedRow(
-                stableIdentity: stable,
+                stableIdentity: d.stableIdentity,
                 lastBsd: d.bsd,
                 lastMountPath: d.lastMountPath ?? (d.mountPath.isEmpty ? nil : d.mountPath),
                 lastDevicePath: d.devicePath,
@@ -350,8 +412,16 @@ public final class AttachedDisksModel: ObservableObject {
                 info: d.info
             )
         }
-        guard let data = try? JSONEncoder().encode(rows) else { return }
-        Self.persistenceDefaults.set(data, forKey: Self.persistenceKey)
+        let snapshot = PersistedSnapshot(version: 1, savedAt: Date(), rows: rows)
+        do {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(snapshot)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            AppLog.shared.warn("AttachedDisks: persist failed — \(error.localizedDescription)")
+        }
     }
 
     public func refresh() {
