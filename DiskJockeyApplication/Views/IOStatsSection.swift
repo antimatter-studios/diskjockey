@@ -63,7 +63,7 @@ struct IOStatsSection: View {
                     title: "Read",
                     bytesPerSec: stats.currentReadBytesPerSec(at: now),
                     samples: stats.samples.map { $0.readBytesPerSec },
-                    peak: stats.peakReadBytesPerSec(at: now),
+                    peak: stats.peakReadBytesPerSec,
                     color: .blue,
                     icon: "arrow.down.circle.fill"
                 )
@@ -71,7 +71,7 @@ struct IOStatsSection: View {
                     title: "Write",
                     bytesPerSec: stats.currentWriteBytesPerSec(at: now),
                     samples: stats.samples.map { $0.writeBytesPerSec },
-                    peak: stats.peakWriteBytesPerSec(at: now),
+                    peak: stats.peakWriteBytesPerSec,
                     color: .orange,
                     icon: "arrow.up.circle.fill"
                 )
@@ -110,6 +110,13 @@ struct IOStatsSection: View {
             }
             Sparkline(samples: samples, peak: peak, color: color)
                 .frame(height: 38)
+                // Hard-clip — Path strokes don't honor parent frames
+                // by default. Without this, any inconsistency between
+                // `peak` and `samples` (e.g. a stale-peak override
+                // pulling the y-scale to 1 while samples still contain
+                // KB/s readings) draws the curve far above the card,
+                // streaking blue bars across the whole window.
+                .clipped()
             HStack {
                 Text("peak \(Self.rate(peak))")
                     .font(.caption2.monospacedDigit())
@@ -203,7 +210,7 @@ struct IOStatsSection: View {
                     title: "Bdev read",
                     bytesPerSec: stats.currentBdevReadBytesPerSec(at: now),
                     samples: stats.samples.map { $0.bdevReadBytesPerSec },
-                    peak: stats.peakBdevReadBytesPerSec(at: now),
+                    peak: stats.peakBdevReadBytesPerSec,
                     color: .teal,
                     icon: "internaldrive"
                 )
@@ -211,7 +218,7 @@ struct IOStatsSection: View {
                     title: "Bdev write",
                     bytesPerSec: stats.currentBdevWriteBytesPerSec(at: now),
                     samples: stats.samples.map { $0.bdevWriteBytesPerSec },
-                    peak: stats.peakBdevWriteBytesPerSec(at: now),
+                    peak: stats.peakBdevWriteBytesPerSec,
                     color: .purple,
                     icon: "internaldrive.fill"
                 )

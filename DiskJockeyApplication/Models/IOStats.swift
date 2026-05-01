@@ -224,21 +224,27 @@ public struct IOStats: Equatable, Hashable, Sendable {
         isStale(at: now) ? 0 : (samples.last?.bdevWriteBytesPerSec ?? 0)
     }
 
-    /// Peak throughput observed in the current sample window — useful
-    /// to scale sparkline y-axes consistently across read + write.
-    /// Returns 0 once the buffer is fully stale, so the y-axis
-    /// collapses back to a flat baseline instead of being permanently
-    /// scaled by an old burst.
-    public func peakReadBytesPerSec(at now: Date = Date()) -> Double {
-        isStale(at: now) ? 0 : (samples.map { $0.readBytesPerSec }.max() ?? 0)
+    /// Peak throughput observed in the buffered sample window — used
+    /// by the sparkline as its y-axis scale. MUST stay consistent
+    /// with the raw `samples` array passed alongside it: if peak
+    /// returns 0 while `samples` still contains a 352 KB/s reading,
+    /// the sparkline path computes `y = h - (352000/1) * h`, which
+    /// is a huge negative number, and the stroke is drawn far above
+    /// its frame (SwiftUI doesn't clip Path strokes by default).
+    /// The historical peak is therefore reported as-is regardless of
+    /// the staleness check that gates `current*BytesPerSec` — the
+    /// chart shows the historical signal with a correct y-scale; only
+    /// the live readout decays to zero.
+    public var peakReadBytesPerSec: Double {
+        samples.map { $0.readBytesPerSec }.max() ?? 0
     }
-    public func peakWriteBytesPerSec(at now: Date = Date()) -> Double {
-        isStale(at: now) ? 0 : (samples.map { $0.writeBytesPerSec }.max() ?? 0)
+    public var peakWriteBytesPerSec: Double {
+        samples.map { $0.writeBytesPerSec }.max() ?? 0
     }
-    public func peakBdevReadBytesPerSec(at now: Date = Date()) -> Double {
-        isStale(at: now) ? 0 : (samples.map { $0.bdevReadBytesPerSec }.max() ?? 0)
+    public var peakBdevReadBytesPerSec: Double {
+        samples.map { $0.bdevReadBytesPerSec }.max() ?? 0
     }
-    public func peakBdevWriteBytesPerSec(at now: Date = Date()) -> Double {
-        isStale(at: now) ? 0 : (samples.map { $0.bdevWriteBytesPerSec }.max() ?? 0)
+    public var peakBdevWriteBytesPerSec: Double {
+        samples.map { $0.bdevWriteBytesPerSec }.max() ?? 0
     }
 }
