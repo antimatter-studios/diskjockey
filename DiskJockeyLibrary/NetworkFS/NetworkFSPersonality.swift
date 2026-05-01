@@ -81,22 +81,21 @@ public enum DirectMountScheme: String, Codable, Sendable, CaseIterable {
     /// attached disks.
     public var icon: PersonalityIcon {
         switch self {
-        case .ftp, .sftp, .smb, .webdav: return .sfSymbol("network")
-        case .dropbox:                   return .sfSymbol("shippingbox")
-        case .gdrive:                    return .sfSymbol("externaldrive.connected.to.line.below")
-        case .onedrive:                  return .sfSymbol("cloud")
-        case .s3:                        return .sfSymbol("cube.box")
+        case .ftp, .sftp, .smb, .webdav: return .asset("tabler-network")
+        case .dropbox:                   return .asset("tabler-shippingbox")
+        case .gdrive:                    return .asset("tabler-externaldrive-connected-to-line-below")
+        case .onedrive:                  return .asset("tabler-cloud")
+        case .s3:                        return .asset("tabler-cube-box")
         }
     }
 }
 
-/// How an icon is sourced. SF Symbols for generic concepts,
-/// asset-catalog template images for brand-evocative glyphs SF Symbols
-/// refuses to ship (Windows tiles, Tux). Callers render via
-/// `PersonalityIconView` so the two cases pick up `.foregroundStyle`
-/// identically.
+/// How an icon is sourced. All icons live in `Assets.xcassets` as
+/// template imagesets — generic glyphs come from the bundled Tabler
+/// set (synced by `scripts/sync-tabler-icons.rb`), brand-evocative
+/// ones (Windows tiles, Tux) are hand-drawn alongside them. Callers
+/// render via `PersonalityIconView`.
 public enum PersonalityIcon: Sendable, Equatable {
-    case sfSymbol(String)
     case asset(String)
 }
 

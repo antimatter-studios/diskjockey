@@ -41,7 +41,7 @@ struct NetworkDrivesSetupView: View {
 
     private var header: some View {
         HStack(spacing: 16) {
-            Image(systemName: "externaldrive.connected.to.line.below")
+            Image("tabler-externaldrive-connected-to-line-below")
                 .font(.system(size: 36, weight: .regular))
                 .foregroundStyle(.tint)
                 .frame(width: 56, height: 56)
@@ -102,7 +102,7 @@ struct NetworkDrivesSetupView: View {
 
     private var privacyNote: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "lock.shield")
+            Image("tabler-lock-shield")
                 .foregroundStyle(.secondary)
                 .font(.title3)
             VStack(alignment: .leading, spacing: 4) {
@@ -135,7 +135,7 @@ struct NetworkDrivesSetupView: View {
                     if isPicking {
                         ProgressView().scaleEffect(0.6).frame(width: 16, height: 16)
                     } else {
-                        Image(systemName: "folder.badge.plus")
+                        Image("tabler-folder-badge-plus")
                     }
                     Text("Choose Folder…")
                 }
@@ -152,7 +152,7 @@ struct NetworkDrivesSetupView: View {
 
     private func errorBanner(_ message: String) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
+            Image("tabler-exclamationmark-triangle-fill")
                 .foregroundStyle(.yellow)
             Text(message)
                 .font(.callout)
