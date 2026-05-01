@@ -30,6 +30,8 @@
 		D9CECEF266A909EB810942A6 /* EXT4Backend.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0377D4332EFC4FF34689518 /* EXT4Backend.swift */; };
 		F3B991C06CBEFBF2B3B657B4 /* FSKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EA52B7280D02F6F8D737A4DF /* FSKit.framework */; };
 		F6FF4AC950047E0FD59AE139 /* EXT4Volume.swift in Sources */ = {isa = PBXBuildFile; fileRef = F01E35D6B49C797E269EAC45 /* EXT4Volume.swift */; };
+		5550000000000000000A1101 /* IOStatsCollector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5550000000000000000A1102 /* IOStatsCollector.swift */; };
+		5550000000000000000A1103 /* IOStatsCollector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5550000000000000000A1104 /* IOStatsCollector.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -175,6 +177,8 @@
 		F127A673B820253463739471 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		F8545E3C164E31A018E781C7 /* DiskJockeyNTFS.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; path = DiskJockeyNTFS.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		FB028A4796ABC3388189B043 /* FileSystemBackend.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileSystemBackend.swift; sourceTree = "<group>"; };
+		5550000000000000000A1102 /* IOStatsCollector.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IOStatsCollector.swift; sourceTree = "<group>"; };
+		5550000000000000000A1104 /* IOStatsCollector.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IOStatsCollector.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -308,6 +312,7 @@
 				1FAA4308D6EB33A49E406790 /* NTFSVolume.swift */,
 				14F83248DC1C5461BF1076E7 /* NTFSItem.swift */,
 				8E9E57DD469BF4AF7C9443E2 /* AppLog.swift */,
+				5550000000000000000A1104 /* IOStatsCollector.swift */,
 				541A4DEFDFDD7491866E5B51 /* DiskJockeyNTFS-Bridging-Header.h */,
 				6345F2DEC89E3AA479220149 /* DiskJockeyNTFS.entitlements */,
 				F127A673B820253463739471 /* Info.plist */,
@@ -344,6 +349,7 @@
 				A36068023A9CD2AD5B72E9E6 /* DiskJockeyEXT4.entitlements */,
 				5B97F7050B209EAC37A411F7 /* DiskJockeyEXT4-Bridging-Header.h */,
 				5A5467C93291C7DC2AED96E6 /* AppLog.swift */,
+				5550000000000000000A1102 /* IOStatsCollector.swift */,
 			);
 			path = DiskJockeyEXT4;
 			sourceTree = SOURCE_ROOT;
@@ -773,6 +779,7 @@
 				D9CECEF266A909EB810942A6 /* EXT4Backend.swift in Sources */,
 				4DAE78E7034E84C6B08A0B2B /* FileSystemBackend.swift in Sources */,
 				2DC467E100DBCF6E33B90CA2 /* AppLog.swift in Sources */,
+				5550000000000000000A1101 /* IOStatsCollector.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -784,6 +791,7 @@
 				027139E38C99564FE69885EA /* NTFSVolume.swift in Sources */,
 				97AD5CB9870B6709835166D3 /* NTFSItem.swift in Sources */,
 				8478A9B3971742F0EFB0100B /* AppLog.swift in Sources */,
+				5550000000000000000A1103 /* IOStatsCollector.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1286,7 +1294,7 @@
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 43UMKXZ8P4;
 				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 15.5;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1305,7 +1313,7 @@
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 43UMKXZ8P4;
 				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 15.5;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
