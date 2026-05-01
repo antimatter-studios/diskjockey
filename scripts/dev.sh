@@ -114,6 +114,16 @@ fi
 
 cmd_build() {
     yellow "Building $SCHEME ($CONFIGURATION, $ARCHS) into ${DERIVED_DATA}…"
+    # Capture xcodebuild output to a tmp log so we can read its real
+    # exit code directly. Earlier the pipe to grep|sed swallowed the
+    # exit code, and the fallback `[[ -d $APP_BUNDLE ]]` check was
+    # unreliable: a stale bundle from a prior successful build sticks
+    # around even when the current build fails (e.g. an extension
+    # target breaking doesn't delete the main .app), so the script
+    # silently reported green on real failures.
+    local log
+    log=$(mktemp -t dev-build) || { red "mktemp failed"; return 1; }
+    local rc=0
     xcodebuild \
         -project "$XCODEPROJ" \
         -scheme "$SCHEME" \
@@ -121,15 +131,16 @@ cmd_build() {
         -derivedDataPath "$DERIVED_DATA" \
         ONLY_ACTIVE_ARCH=YES ARCHS="$ARCHS" \
         build \
-        2>&1 \
-      | grep -E "error:|warning:|BUILD (SUCCEEDED|FAILED)|\*\* " \
-      | sed 's/^/  /' \
-      || true
-    # xcodebuild's exit code is lost through the pipe; re-run `-json` test
-    # of the app bundle's existence as a cheap success proxy. If it's not
-    # there, the build failed.
+        >"$log" 2>&1 || rc=$?
+    grep -E "error:|warning:|BUILD (SUCCEEDED|FAILED)|\*\* " "$log" \
+      | sed 's/^/  /' || true
+    rm -f "$log"
+    if (( rc != 0 )); then
+        red "Build failed (xcodebuild exit=$rc)"
+        return $rc
+    fi
     if [[ ! -d "$APP_BUNDLE" ]]; then
-        red "Build failed — no bundle at $APP_BUNDLE"
+        red "Build reported success but no bundle at $APP_BUNDLE"
         return 1
     fi
     green "Built: $APP_BUNDLE"
