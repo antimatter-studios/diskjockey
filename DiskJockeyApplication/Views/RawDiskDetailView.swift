@@ -43,15 +43,17 @@ struct RawDiskDetailView: View {
     /// "Format complete" without a modal interruption.
     @State private var formatSuccess: String? = nil
 
-    /// Opaque pre-format request — captures both which fs to format as
-    /// and the disk identity at the moment the user clicked Format.
-    /// Stored in `pendingFormat` until the user confirms. The disk
-    /// reference is captured by BSD so a sidebar refresh between
-    /// click + confirm doesn't desync.
+    /// Opaque pre-format request — captures which fs to format as,
+    /// the disk identity, and whether it's a whole disk (eraseDisk
+    /// rebuilds the partition map) or a slice (eraseVolume formats the
+    /// existing slice in place). Stored in `pendingFormat` until the
+    /// user confirms. The disk reference is captured by BSD so a
+    /// sidebar refresh between click + confirm doesn't desync.
     private struct FormatRequest: Identifiable {
         let id = UUID()
-        let fsType: String       // "ext4" or "ntfs"
+        let fsType: String       // "ext4" or "ntfs" (FSPersonality name)
         let bsdName: String      // e.g. "disk5" or "disk5s1"
+        let isWhole: Bool        // true → eraseDisk; false → eraseVolume
         let displayName: String  // user-visible label for the alert text
     }
 
@@ -336,15 +338,30 @@ struct RawDiskDetailView: View {
         pendingFormat = FormatRequest(
             fsType: fsType,
             bsdName: disk.bsdName,
+            isWhole: disk.isWhole,
             displayName: displayName
         )
     }
 
     /// Second half: the user confirmed. Spawn `osascript` with admin
-    /// privileges to run `/sbin/newfs_fskit -t <fs> /dev/diskN`. The
-    /// password prompt comes from osascript itself; the kernel routes
-    /// the format to our FSKit extension's `startFormat` which calls
-    /// the Rust mkfs.
+    /// privileges to run `diskutil eraseDisk` (whole disk) or
+    /// `diskutil eraseVolume` (single slice).
+    ///
+    /// **Why `diskutil eraseDisk`/`eraseVolume` rather than `newfs_fskit`?**
+    /// diskutil is a strict superset: it unmounts cleanly first (no
+    /// kernel-buffer-cache corruption), rebuilds the partition map
+    /// when needed (so blank/raw disks work), routes the format
+    /// through FSKit to our extension's `startFormat`, and re-mounts
+    /// the result so the user sees the new volume in Finder. Same
+    /// per-action admin prompt UX (osascript still pops the password
+    /// dialog). See docs/fskit-format-pipeline.md.
+    ///
+    /// `diskutil eraseDisk <fstype> <name> [partitionMap] <device>` —
+    /// for whole disks (e.g. disk5). We pass `GPT` explicitly because
+    /// it's what every modern non-Windows OS uses; let macOS default
+    /// where it makes sense.
+    /// `diskutil eraseVolume <fstype> <name> <device>` — for slices
+    /// (e.g. disk5s1). Doesn't touch the surrounding partition map.
     ///
     /// We `.detached` the Process invocation off the main actor because
     /// `Process.waitUntilExit()` blocks the calling thread for the
@@ -353,20 +370,28 @@ struct RawDiskDetailView: View {
     /// flipped back through `MainActor.run`.
     private func runFormat(_ req: FormatRequest) {
         formatInProgress = req.fsType
-        let device = "/dev/\(req.bsdName)"
+        let bsd = req.bsdName
         let fsType = req.fsType
+        let isWhole = req.isWhole
+        // Default volume name. Hardcoded for now; adding a "Name"
+        // field to the confirmation dialog is straightforward
+        // follow-up. ASCII-only and within both ext4's 16-byte and
+        // NTFS's 32-byte label budget.
+        let volumeName = "DJ-\(fsType)"
         Task.detached {
             // osascript's `do shell script ... with administrator
             // privileges` is the conventional macOS way to elevate a
             // single command from a sandboxed app. The OS shows its own
             // password prompt; we don't store credentials.
-            //
-            // Single-quoting the inner shell string is intentional —
-            // newfs_fskit takes no shell-interpreted args, but if the
-            // device path ever contained shell metacharacters (it
-            // shouldn't — diskutil names are alphanumeric) the quoting
-            // contains them.
-            let inner = "/sbin/newfs_fskit -t \(fsType) \(device)"
+            let inner: String
+            if isWhole {
+                // GPT is the partition map type — explicit so behaviour
+                // doesn't change if Apple ever flips the diskutil
+                // default. ext4/ntfs both prefer GPT on modern systems.
+                inner = "/usr/sbin/diskutil eraseDisk \(fsType) \(volumeName) GPT \(bsd)"
+            } else {
+                inner = "/usr/sbin/diskutil eraseVolume \(fsType) \(volumeName) \(bsd)"
+            }
             let scriptSource =
                 "do shell script \"\(inner.replacingOccurrences(of: "\"", with: "\\\""))\" with administrator privileges"
 
@@ -387,13 +412,13 @@ struct RawDiskDetailView: View {
                 let outStr = String(data: outData, encoding: .utf8) ?? ""
                 let errStr = String(data: errData, encoding: .utf8) ?? ""
                 if task.terminationStatus == 0 {
-                    result = (true, "Format complete. \(device) is now \(fsType.uppercased()).")
+                    result = (true, "Format complete. /dev/\(bsd) is now \(fsType.uppercased()) (\"\(volumeName)\").")
                 } else {
                     // osascript exit codes: -128 user-cancelled,
                     // anything else is the underlying failure.
                     let detail = !errStr.isEmpty ? errStr
                         : !outStr.isEmpty ? outStr
-                        : "newfs_fskit exited with status \(task.terminationStatus)"
+                        : "diskutil exited with status \(task.terminationStatus)"
                     result = (false, detail.trimmingCharacters(in: .whitespacesAndNewlines))
                 }
             } catch {
