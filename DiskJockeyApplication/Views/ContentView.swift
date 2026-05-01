@@ -226,6 +226,13 @@ private struct AttachedDiskSidebarRow: View {
 
             Spacer()
 
+            if !disk.isWritable {
+                Image(systemName: "lock.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .help("Mounted read-only — writes are not allowed")
+            }
+
             Circle()
                 .fill(dotColor)
                 .frame(width: 7, height: 7)

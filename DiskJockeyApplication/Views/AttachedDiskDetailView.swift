@@ -20,6 +20,28 @@ struct AttachedDiskDetailView: View {
     /// when a Terminal has `cd`'d into the mountpoint).
     @State private var unmountError: String? = nil
 
+    /// Spinner shown on the Verify button between tap and the FSKit
+    /// extension picking up the call (i.e. the window before
+    /// `disk.fsckStatus` flips into `.running`). Once the extension
+    /// starts emitting `fsck.start`/`fsck.progress`, the running-state
+    /// branch of the model takes over the visual.
+    @State private var verifying = false
+    /// Surfaced failure from spawning `fsck_fskit` (binary missing,
+    /// permission denied on the raw device, etc). Kept distinct from
+    /// `unmountError` so a stale error from one operation can't
+    /// masquerade as the other.
+    @State private var verifyError: String? = nil
+
+    /// Global toggle gating the FSKit extension's per-entry
+    /// enumerateDirectory log. Stored in the App Group so the
+    /// extension reads the same value via `UserDefaults(suiteName:)`.
+    /// Off by default — flip it on only when investigating something.
+    @AppStorage(
+        "verboseEnumerateLog",
+        store: UserDefaults(suiteName: "group.com.antimatterstudios.diskjockey")
+    )
+    private var verboseEnumerateLog = false
+
     init(mountPath: String, container: AppContainer) {
         self.mountPath = mountPath
         self.container = container
@@ -57,6 +79,9 @@ struct AttachedDiskDetailView: View {
                     LabeledContent("Filesystem", value: disk.fsType)
                     LabeledContent("Device", value: disk.devicePath)
                     LabeledContent("Mount point", value: disk.mountPath)
+                    LabeledContent("Mode") {
+                        modeText(for: disk)
+                    }
                     LabeledContent("Status") {
                         statusText(for: disk.fsckStatus)
                     }
@@ -69,7 +94,8 @@ struct AttachedDiskDetailView: View {
                         }
                     }
                 }
-                .formStyle(.grouped)
+                .formStyle(.columns)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 if case .running(let phase, let done, let total) = disk.fsckStatus {
                     progressBlock(phase: phase, done: done, total: total)
@@ -80,6 +106,20 @@ struct AttachedDiskDetailView: View {
                         NSWorkspace.shared.activateFileViewerSelecting(
                             [URL(fileURLWithPath: disk.mountPath)]
                         )
+                    }
+
+                    if disk.fsType == "ext4" {
+                        Button(action: { verify(disk) }) {
+                            if verifying || isFsckRunning(disk.fsckStatus) {
+                                HStack(spacing: 4) {
+                                    ProgressView().scaleEffect(0.5).frame(width: 14, height: 14)
+                                    Text("Verifying…")
+                                }
+                            } else {
+                                Label("Verify", systemImage: "stethoscope")
+                            }
+                        }
+                        .disabled(verifying || unmounting || isFsckRunning(disk.fsckStatus))
                     }
 
                     Button(action: { unmount(disk) }) {
@@ -104,11 +144,27 @@ struct AttachedDiskDetailView: View {
                         .padding(.vertical, 4)
                 }
 
-                partitionLogSection(for: disk)
+                if let err = verifyError {
+                    Label(err, systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                        .padding(.vertical, 4)
+                }
 
-                Spacer()
+                // Live I/O activity panel — re-reads `disk.ioStats`
+                // each render, so the sparkline slides as the FSKit
+                // extension emits new 1 Hz `io.stats` samples. FSKit
+                // volumes have a real block device so we show the
+                // physical track too.
+                IOStatsSection(stats: disk.ioStats, showPhysical: true)
+
+                diagnosticsSection()
+
+                partitionLogSection(for: disk)
+                    .layoutPriority(1)
             }
             .padding(20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         } else {
             ContentUnavailableView(
                 "Disk Unmounted",
@@ -166,6 +222,76 @@ struct AttachedDiskDetailView: View {
         }
     }
 
+    // MARK: - Verify
+
+    /// True while the FSKit extension is actively running its check
+    /// pass — gates the Verify button so the user can't double-fire a
+    /// scan that's already in progress. Distinct from `verifying`
+    /// (which only covers the brief tap → `fsck.start` window before
+    /// the extension reports back).
+    private func isFsckRunning(_ status: FsckStatus) -> Bool {
+        if case .running = status { return true }
+        return false
+    }
+
+    /// Trigger an fsck-lite verify pass via FSKit's standard maintenance
+    /// hook. We invoke `fsck_fskit -t ext4 --progress <devicePath>`
+    /// rather than `diskutil verifyVolume` because as of macOS 26
+    /// `diskutil` does not route verify requests into FSKit modules —
+    /// `fsck_fskit` is the documented user-space entry point that calls
+    /// into our extension's `FSManageableResourceMaintenanceOperations
+    /// .startCheck`. The extension drives all UI updates from there
+    /// (status badge, progress bar, partition log) by emitting
+    /// `fsck.start` / `fsck.progress` / `fsck.done` / `fsck.failed`
+    /// NDJSON events that the model already consumes.
+    ///
+    /// Spawn pattern matches `unmount(_:)` above: detached Task,
+    /// captured stdout+stderr, failure surfaced via the dedicated
+    /// `verifyError` banner.
+    private func verify(_ disk: AttachedDisk) {
+        verifying = true
+        verifyError = nil
+        let devicePath = disk.devicePath
+        let fsType = disk.fsType
+        Task.detached {
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/sbin/fsck_fskit")
+            task.arguments = ["--progress", "-t", fsType, devicePath]
+            let stdoutPipe = Pipe()
+            let stderrPipe = Pipe()
+            task.standardOutput = stdoutPipe
+            task.standardError = stderrPipe
+            do {
+                try task.run()
+                task.waitUntilExit()
+                let rc = task.terminationStatus
+                // rc == 0: clean. rc != 0 here means we couldn't even
+                // launch the check (perm denied on raw device, missing
+                // entitlement, etc) — actual fs-level findings come
+                // back through the `fsck.done`/`fsck.failed` event
+                // stream and render via statusText, not here.
+                let err: String?
+                if rc == 0 {
+                    err = nil
+                } else {
+                    let out = (try? stdoutPipe.fileHandleForReading.readToEnd()).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                    let errText = (try? stderrPipe.fileHandleForReading.readToEnd()).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                    let combined = (out + errText).trimmingCharacters(in: .whitespacesAndNewlines)
+                    err = combined.isEmpty ? "fsck_fskit failed (rc=\(rc))" : combined
+                }
+                await MainActor.run {
+                    self.verifying = false
+                    self.verifyError = err
+                }
+            } catch {
+                await MainActor.run {
+                    self.verifying = false
+                    self.verifyError = "Could not run fsck_fskit: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
     // MARK: - Status rendering
 
     @ViewBuilder
@@ -194,6 +320,22 @@ struct AttachedDiskDetailView: View {
         }
     }
 
+    /// Read-only / read-write indicator. RO is accented in orange to
+    /// match the dirty-volume state — both flag "writes won't behave
+    /// the way you'd expect", so they read with one visual idiom.
+    @ViewBuilder
+    private func modeText(for disk: AttachedDisk) -> some View {
+        if disk.isWritable {
+            Label("Read-write", systemImage: "pencil.circle.fill")
+                .foregroundStyle(.green)
+                .help("Mounted read-write — writes are allowed")
+        } else {
+            Label("Read-only", systemImage: "lock.fill")
+                .foregroundStyle(.orange)
+                .help("Mounted read-only — writes are not allowed")
+        }
+    }
+
     @ViewBuilder
     private func statusText(for status: FsckStatus) -> some View {
         switch status {
@@ -209,9 +351,14 @@ struct AttachedDiskDetailView: View {
             Label("Running fsck · \(phase)", systemImage: "arrow.triangle.2.circlepath")
                 .foregroundStyle(.orange)
         case .completed(let cleared, let bytes):
+            // `cleared == true` covers both NTFS ($LogFile reset + dirty
+            // bit cleared) and ext4 (anomalies repaired) — the model
+            // collapses both into one boolean. `bytes` is whatever the
+            // extension chose to count as "scanned/reset volume" — see
+            // partition log for per-finding detail.
             let detail = cleared
-                ? "$LogFile reset (\(bytes) bytes), dirty bit cleared"
-                : "Already clean (\(bytes) bytes scanned)"
+                ? "Anomalies cleared (\(bytes) bytes touched) — see partition log"
+                : "No anomalies found (\(bytes) bytes scanned)"
             Label(detail, systemImage: "checkmark.seal.fill")
                 .foregroundStyle(.green)
         case .failed(let err):
@@ -305,23 +452,48 @@ struct AttachedDiskDetailView: View {
         return String(format: "%.1f %@", value, labels[idx])
     }
 
+    // MARK: - Diagnostics
+
+    /// A small section with debugging toggles. Today: only the
+    /// per-entry enumerateDirectory log gate. Default off — flip on
+    /// when investigating something. The flag is global (shared App
+    /// Group UserDefaults), not per-disk; the toggle lives here for
+    /// quick reach while looking at a specific volume.
+    @ViewBuilder
+    private func diagnosticsSection() -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Diagnostics")
+                .font(.headline)
+            Toggle("Verbose enumerate log", isOn: $verboseEnumerateLog)
+                .toggleStyle(.switch)
+            Text("Logs each child path the FSKit extension hands to macOS during directory listing. Useful for diagnosing missing-file or wrong-attributes issues. Off by default; can be very noisy when Spotlight indexes a freshly-mounted volume.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     // MARK: - Per-partition log
 
     @ViewBuilder
     private func partitionLogSection(for disk: AttachedDisk) -> some View {
+        let visible = visiblePartitionLog(for: disk)
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Partition log")
                     .font(.headline)
                 Spacer()
-                Text("\(disk.partitionLog.count) lines")
+                ScopeFilterMenu(suppressed: $attachedDisks.suppressedScopes)
+                Text("\(visible.count) of \(disk.partitionLog.count)")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 1) {
-                    if disk.partitionLog.isEmpty {
-                        Text("No events recorded yet for this partition.")
+                    if visible.isEmpty {
+                        Text(disk.partitionLog.isEmpty
+                             ? "No events recorded yet for this partition."
+                             : "All recorded events are hidden by the current scope filter.")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                             .padding(8)
@@ -330,15 +502,27 @@ struct AttachedDiskDetailView: View {
                         // top where the user's eye already is. We take
                         // the tail 200 then reverse so order is
                         // "most recent → oldest of the 200".
-                        ForEach(disk.partitionLog.suffix(200).reversed()) { line in
+                        ForEach(visible.suffix(200).reversed()) { line in
                             partitionLogRow(line)
                         }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(minHeight: 120, maxHeight: 260)
+            .frame(minHeight: 120, maxHeight: .infinity)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.06)))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+    }
+
+    /// Apply the model's per-mount scope denylist to this disk's
+    /// partition log. Untagged entries (scope == nil) are always shown.
+    private func visiblePartitionLog(for disk: AttachedDisk) -> [AttachedDiskLogLine] {
+        let suppressed = attachedDisks.suppressedScopes
+        if suppressed.isEmpty { return disk.partitionLog }
+        return disk.partitionLog.filter { entry in
+            guard let scope = entry.scope else { return true }
+            return !suppressed.contains(scope)
         }
     }
 
