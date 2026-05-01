@@ -265,6 +265,22 @@ final class EXT4Backend: FileSystemBackend {
         let anomaliesFound: UInt64
         let wasDirty: Bool
         let dirtyCleared: Bool
+
+        /// Format the report as `fsck.done` event fields. Mirrors
+        /// `NTFSVolume.FsckReport.toEventFields()` — both include
+        /// `dirty_cleared` and `logfile_bytes` (set to "0" here since
+        /// ext4 fsck doesn't touch a log file the way NTFS does) so
+        /// the host app's `AttachedDisksModel.applyEventInPlace`
+        /// consumes either with the same code path.
+        func toEventFields() -> [String: String] {
+            return [
+                "dirty_cleared": dirtyCleared ? "true" : "false",
+                "logfile_bytes": "0",
+                "anomalies":     "\(anomaliesFound)",
+                "directories":   "\(directoriesScanned)",
+                "inodes":        "\(inodesVisited)",
+            ]
+        }
     }
 
     struct FsckFinding {

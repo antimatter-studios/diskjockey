@@ -441,13 +441,7 @@ extension EXT4FileSystem: FSManageableResourceMaintenanceOperations {
 
             switch result {
             case .success(let report):
-                dlog.event(kind: "fsck.done", fields: [
-                    "dirty_cleared": report.dirtyCleared ? "true" : "false",
-                    "logfile_bytes": "0",
-                    "anomalies":     "\(report.anomaliesFound)",
-                    "directories":   "\(report.directoriesScanned)",
-                    "inodes":        "\(report.inodesVisited)",
-                ])
+                dlog.event(kind: "fsck.done", fields: report.toEventFields())
                 progress.completedUnitCount = 100
                 task.didComplete(error: nil)
 

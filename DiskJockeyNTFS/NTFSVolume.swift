@@ -201,45 +201,70 @@ final class NTFSVolume: FSVolume,
         return item(forRecordNumber: 5, path: "/")
     }
 
-    /// Deferred half of the load flow: tear down the RO mount established
-    /// in `loadResource`, run the dirty-check + $LogFile reset via
-    /// callback I/O (now that the kernel write FD is live), then mount
-    /// RW so subsequent mutating ops can hit `fs_ntfs_*_h`. If the RW
-    /// remount fails, fall back to RO so the volume stays usable.
-    ///
-    /// Mode toggles whether dirty-only or always-fsck behaviour applies:
-    ///   - `.deferredOnDirty`: fsck only runs if the volume is dirty;
-    ///     emits `volume.dirty` / `volume.clean` and a single
-    ///     `fsck.start` / `fsck.done` cycle gated on dirtiness. This is
-    ///     the lazy-activation path called from `activate`.
-    ///   - `.explicit`: user-triggered via `startCheck`; always emits
-    ///     `fsck.start` and `fsck.done` even on a clean volume so the
-    ///     UI sees a complete cycle ending in `dirty_cleared=false`. The
-    ///     actual `fs_ntfs_fsck_with_callbacks` call is still skipped on
-    ///     a clean volume (no work to do, no $LogFile rewrite).
-    ///
-    /// The unmount→fsck→remount lifecycle is non-negotiable: the rust
-    /// crate refuses to call fsck against a mounted handle (it rewrites
-    /// $LogFile + the dirty bit on the raw device, which would conflict
-    /// with the in-memory view held by a live mount). So even on
-    /// already-clean volumes the explicit path still does the cycle
-    /// because we don't know the volume is clean until we've dropped the
-    /// mount and asked.
-    private enum FsckMode {
-        case deferredOnDirty
-        case explicit
+    // MARK: - fsck
+
+    /// Mirror of `EXT4Backend.FsckReport`. Common fields (`wasDirty`,
+    /// `dirtyCleared`) are intentionally identically named so callers
+    /// can render them with the same code path. `logfileBytes` is
+    /// NTFS-specific (the number of bytes overwritten in `$LogFile`
+    /// during recovery); ext4 sets the analogous field to 0.
+    struct FsckReport {
+        let wasDirty: Bool
+        let dirtyCleared: Bool
+        let logfileBytes: UInt64
+
+        /// Format the report as `fsck.done` event fields. Mirrors
+        /// `EXT4Backend.FsckReport.toEventFields()` — both include
+        /// `dirty_cleared` and `logfile_bytes` so the host app's
+        /// `AttachedDisksModel.applyEventInPlace` consumes either with
+        /// the same code path.
+        func toEventFields() -> [String: String] {
+            return [
+                "dirty_cleared": dirtyCleared ? "true" : "false",
+                "logfile_bytes": "\(logfileBytes)",
+            ]
+        }
     }
 
-    private func fsckAndRemount(mode: FsckMode) {
-        let scopeKind = mode == .explicit ? "ntfs.fsck" : "ntfs.activate"
-        let dlog = TaggedLogger(log, fields: ["bsd": bsdName], kind: scopeKind,
-                                scope: AppLogScope.lifecycle)
-        dlog.info("performing fsck + remount (mode=\(mode))")
+    /// Mirror of `EXT4Backend.FsckFinding`. NTFS fsck has no
+    /// per-finding callback (the rust crate only reports progress + a
+    /// terminal logfile_bytes / dirty_cleared pair), so the `onFinding`
+    /// closure is never invoked — kept for shape parity with EXT4 so
+    /// `startCheck` looks identical across extensions.
+    struct FsckFinding {
+        let kind: String
+        let inode: UInt32
+        let detail: String
+    }
 
-        // Drop any current handle before fsck. fsck rewrites $LogFile and
-        // the dirty bit on the raw device; leaving a mount in place
-        // would have stale in-memory views of those bytes. Safe to call
-        // when bridgeFS is already nil — we just skip the umount.
+    /// Run an fsck pass on the volume.
+    ///
+    /// Pure: emits no NDJSON events. The caller (e.g.
+    /// `NTFSFileSystem.startCheck` or `performDeferredFsckAndRwRemount`)
+    /// is responsible for emitting `fsck.start` / `fsck.progress` /
+    /// `fsck.done` / `fsck.failed`. This split mirrors `EXT4Backend.runFsck`
+    /// — both `runFsck` implementations are pure FFI wrappers that hand
+    /// progress + (where applicable) findings to the caller.
+    ///
+    /// The unmount→dirty-check→fsck→remount lifecycle is non-negotiable:
+    /// the rust crate refuses to call fsck against a mounted handle
+    /// (it rewrites `$LogFile` + the dirty bit on the raw device, which
+    /// would conflict with the in-memory view held by a live mount).
+    /// Even on already-clean volumes we still do the cycle because we
+    /// don't know the volume is clean until after the dirty check.
+    ///
+    /// `onProgress` fires from the rust crate's worker thread. After
+    /// this method returns, `bridgeFS` is live again (RW preferred, RO
+    /// fallback) so subsequent FSKit ops work. Concurrent reads/writes
+    /// during the call will fail.
+    func runFsck(
+        onProgress: @escaping (_ phase: String, _ done: UInt64, _ total: UInt64) -> Void,
+        onFinding: @escaping (FsckFinding) -> Void
+    ) -> Result<FsckReport, Error> {
+        _ = onFinding  // NTFS has no per-finding callback; param is for shape parity with EXT4.
+
+        // Drop any current handle before fsck. Safe to call when
+        // bridgeFS is already nil — we just skip the umount.
         if let oldFs = bridgeFS {
             fs_ntfs_umount(oldFs)
             bridgeFS = nil
@@ -259,26 +284,24 @@ final class NTFSVolume: FSVolume,
         cfg.context = contextPtr
         cfg.size_bytes = cfgSizeBytes
 
-        // Explicit mode emits `fsck.start` up front regardless of
-        // dirtiness so the UI's status pill flips into `.running` the
-        // moment the user clicks the button.
-        if mode == .explicit {
-            dlog.event(kind: "fsck.start", scope: AppLogScope.fsck)
+        // Always remount before returning — even on errors — so the
+        // volume stays usable. Captured here so every exit path runs it.
+        func remount() {
+            if let newFs = fs_ntfs_mount_with_callbacks(&cfg) {
+                bridgeFS = newFs
+            } else {
+                cfg.write = nil
+                bridgeFS = fs_ntfs_mount_with_callbacks(&cfg)
+            }
         }
 
         let dirtyResult = fs_ntfs_is_dirty_with_callbacks(&cfg)
         switch dirtyResult {
         case 1:
-            dlog.event(kind: "volume.dirty", scope: AppLogScope.volume)
-            // Deferred path emits `fsck.start` only when actually about
-            // to fsck. Explicit path already emitted it above.
-            if mode == .deferredOnDirty {
-                dlog.event(kind: "fsck.start", scope: AppLogScope.fsck)
-            }
-
-            let progressCtx = FsckProgressContext(bsdName: bsdName)
-            let progressCtxPtr = Unmanaged.passRetained(progressCtx).toOpaque()
-            defer { Unmanaged<FsckProgressContext>.fromOpaque(progressCtxPtr).release() }
+            // Dirty — actually run fsck.
+            let box = FsckProgressBox(onProgress: onProgress)
+            let boxPtr = Unmanaged.passRetained(box).toOpaque()
+            defer { Unmanaged<FsckProgressBox>.fromOpaque(boxPtr).release() }
 
             var logfileBytes: UInt64 = 0
             var dirtyCleared: UInt8 = 0
@@ -286,90 +309,87 @@ final class NTFSVolume: FSVolume,
                 &cfg,
                 { ctx, phase, done, total in
                     guard let ctx = ctx, let phase = phase else { return 0 }
-                    let pctx = Unmanaged<FsckProgressContext>.fromOpaque(ctx).takeUnretainedValue()
-                    let phaseStr = String(cString: phase)
-                    log.event(kind: "fsck.progress", fields: [
-                        "bsd": pctx.bsdName,
-                        "phase": phaseStr,
-                        "done": "\(done)",
-                        "total": "\(total)"
-                    ], scope: AppLogScope.fsck)
+                    let box = Unmanaged<FsckProgressBox>.fromOpaque(ctx).takeUnretainedValue()
+                    box.onProgress(String(cString: phase), done, total)
                     return 0
                 },
-                progressCtxPtr,
+                boxPtr,
                 &logfileBytes,
                 &dirtyCleared
             )
-
+            remount()
             if rc == 0 {
-                dlog.event(kind: "fsck.done", fields: [
-                    "logfile_bytes": "\(logfileBytes)",
-                    "dirty_cleared": dirtyCleared == 1 ? "true" : "false"
-                ], scope: AppLogScope.fsck)
-            } else {
-                let err = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
-                dlog.event(kind: "fsck.failed", fields: ["error": err], level: .error,
-                           scope: AppLogScope.fsck)
-                // Fall through to remount — the rust crate can still
-                // read-only-parse a dirty volume; mutating ops may fail
-                // until the user reseats the device under Windows.
+                return .success(FsckReport(
+                    wasDirty: true,
+                    dirtyCleared: dirtyCleared == 1,
+                    logfileBytes: logfileBytes
+                ))
             }
+            let msg = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "fs_ntfs_fsck_with_callbacks failed (rc=\(rc))"
+            return .failure(NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(POSIXErrorCode.EIO.rawValue),
+                userInfo: [NSLocalizedDescriptionKey: msg]
+            ))
+
         case 0:
-            dlog.event(kind: "volume.clean", scope: AppLogScope.volume)
-            // Explicit user-triggered path: still close the cycle so the
-            // UI flips from `.running` to `.completed(dirtyCleared:false)`.
-            // No actual fsck call — nothing to do on a clean volume.
-            if mode == .explicit {
-                dlog.event(kind: "fsck.done", fields: [
-                    "logfile_bytes": "0",
-                    "dirty_cleared": "false"
-                ], scope: AppLogScope.fsck)
-            }
+            // Clean — nothing to do, just remount and report.
+            remount()
+            return .success(FsckReport(wasDirty: false, dirtyCleared: false, logfileBytes: 0))
+
         default:
-            let err = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
-            dlog.event(kind: "dirty.check.failed", fields: ["error": err], level: .warn,
-                       scope: AppLogScope.fsck)
-            // In explicit mode the UI is waiting on a terminal event;
-            // surface the dirty-check failure as `fsck.failed` too so
-            // the status pill resolves rather than hanging on `.running`.
-            if mode == .explicit {
-                dlog.event(kind: "fsck.failed", fields: ["error": err], level: .error,
-                           scope: AppLogScope.fsck)
-            }
-        }
-
-        dlog.info("calling fs_ntfs_mount_with_callbacks (RW after fsck)")
-        if let newFs = fs_ntfs_mount_with_callbacks(&cfg) {
-            bridgeFS = newFs
-            dlog.info("RW remount succeeded")
-        } else {
-            let err = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
-            dlog.error("RW remount failed: \(err) — retrying as RO so volume stays usable")
-            cfg.write = nil
-            if let roFs = fs_ntfs_mount_with_callbacks(&cfg) {
-                bridgeFS = roFs
-                dlog.warn("RO fallback mount succeeded — volume is read-only")
-            } else {
-                let err2 = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
-                dlog.error("RO fallback mount also failed: \(err2)")
-            }
+            // Dirty check itself failed.
+            remount()
+            let msg = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "fs_ntfs_is_dirty_with_callbacks failed"
+            return .failure(NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(POSIXErrorCode.EIO.rawValue),
+                userInfo: [NSLocalizedDescriptionKey: msg]
+            ))
         }
     }
 
-    /// Lazy-activation entry point: only fsck if volume is dirty.
+    /// Lazy-activation entry point. Calls `runFsck` and emits the
+    /// lifecycle-scoped `volume.dirty` / `volume.clean` + fsck.* events
+    /// the host app's `AttachedDisksModel` consumes. Distinct from
+    /// startCheck's emissions in scope (`lifecycle` vs `fsck`) but
+    /// identical in shape.
     private func performDeferredFsckAndRwRemount() {
-        fsckAndRemount(mode: .deferredOnDirty)
-    }
+        let dlog = TaggedLogger(log, fields: ["bsd": bsdName], kind: "ntfs.activate",
+                                scope: AppLogScope.lifecycle)
+        dlog.info("performing deferred fsck + RW remount")
 
-    /// User-triggered fsck via FSKit's `startCheck`. Always emits
-    /// `fsck.start` and a terminal event (`fsck.done` or `fsck.failed`).
-    /// Concurrent reads/writes during fsck will fail with EBADF (the
-    /// rust handle is dropped before the dirty check) — that's expected;
-    /// fsck takes the volume offline for its duration. After this
-    /// method returns, `bridgeFS` is live again (RW preferred, RO
-    /// fallback) so subsequent FSKit ops work.
-    func runFsckExplicit() {
-        fsckAndRemount(mode: .explicit)
+        let result = runFsck(
+            onProgress: { phase, done, total in
+                log.event(kind: "fsck.progress", fields: [
+                    "bsd": self.bsdName,
+                    "phase": phase,
+                    "done": "\(done)",
+                    "total": "\(total)",
+                ], scope: AppLogScope.fsck)
+            },
+            onFinding: { _ in /* unused on NTFS */ }
+        )
+
+        switch result {
+        case .success(let report) where report.wasDirty:
+            dlog.event(kind: "volume.dirty", scope: AppLogScope.volume)
+            // The fsck.start/done pair only fires when work was actually
+            // done. Synthesise a start now for symmetry with the explicit
+            // path; emission order matches the explicit path too.
+            dlog.event(kind: "fsck.start", scope: AppLogScope.fsck)
+            dlog.event(kind: "fsck.done", fields: report.toEventFields(),
+                       scope: AppLogScope.fsck)
+        case .success(let report):
+            // Clean — emit only the volume.clean signal. Skipping
+            // fsck.start/done keeps the deferred path quiet on already-
+            // clean mounts (matches pre-unification behaviour).
+            _ = report
+            dlog.event(kind: "volume.clean", scope: AppLogScope.volume)
+        case .failure(let err):
+            dlog.event(kind: "fsck.failed", fields: ["error": "\(err.localizedDescription)"],
+                       level: .error, scope: AppLogScope.fsck)
+        }
     }
 
     func deactivate(options: FSDeactivateOptions) async throws {
@@ -384,6 +404,18 @@ final class NTFSVolume: FSVolume,
     }
 
     // MARK: - File attributes
+
+    /// Box for the Swift closure the C progress callback dispatches to.
+    /// Required because `@convention(c)` callbacks (which Rust expects)
+    /// cannot capture Swift state — we pass `Unmanaged.passRetained(...)
+    /// .toOpaque()` as the `progress_ctx` and unwrap inside the C
+    /// closure. Mirrors `EXT4Backend.FsckCallbackBox`.
+    private final class FsckProgressBox {
+        let onProgress: (_ phase: String, _ done: UInt64, _ total: UInt64) -> Void
+        init(onProgress: @escaping (_ phase: String, _ done: UInt64, _ total: UInt64) -> Void) {
+            self.onProgress = onProgress
+        }
+    }
 
     func attributes(
         _ desiredAttributes: FSItem.GetAttributesRequest,

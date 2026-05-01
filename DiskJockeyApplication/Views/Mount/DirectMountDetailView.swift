@@ -29,26 +29,26 @@ struct DirectMountDetailView: View {
 
     var body: some View {
         if let mount = mount {
-            ScrollView {
-                VStack(spacing: 0) {
-                    header(mount)
+            VStack(spacing: 0) {
+                header(mount)
 
-                    Divider()
-                        .padding(.horizontal, 24)
+                Divider()
+                    .padding(.horizontal, 24)
 
-                    details(mount)
+                details(mount)
 
-                    if let error = actionError {
-                        errorBanner(error)
-                    }
-
-                    Divider()
-                        .padding(.horizontal, 24)
-                        .padding(.top, 8)
-
-                    logStrip(for: mount)
+                if let error = actionError {
+                    errorBanner(error)
                 }
+
+                Divider()
+                    .padding(.horizontal, 24)
+                    .padding(.top, 8)
+
+                logStrip(for: mount)
+                    .layoutPriority(1)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
                     // Mount/Unmount toggle. Disabled while the status
@@ -246,7 +246,7 @@ struct DirectMountDetailView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(minHeight: 140, maxHeight: 320)
+            .frame(minHeight: 140, maxHeight: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 6)
                     .fill(Color.secondary.opacity(0.06))
@@ -255,6 +255,7 @@ struct DirectMountDetailView: View {
         .padding(.horizontal, 24)
         .padding(.bottom, 24)
         .padding(.top, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     @ViewBuilder

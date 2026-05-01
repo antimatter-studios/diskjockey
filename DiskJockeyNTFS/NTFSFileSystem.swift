@@ -111,14 +111,6 @@ final class NTFSBlockDeviceContext {
     }
 }
 
-/// Context the C progress callback receives. Holds the correlation key
-/// (BSD device name) so the host app can route fsck.progress events to
-/// the right AttachedDisk.
-final class FsckProgressContext {
-    let bsdName: String
-    init(bsdName: String) { self.bsdName = bsdName }
-}
-
 @objc(NTFSFileSystem)
 final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
 
@@ -370,18 +362,134 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
 // fskitd calls `_checkResource:` on every mount (not just explicit fsck)
 // to decide whether to go down the check/repair path. Without this
 // conformance the call returns ENOTSUP (POSIX 45) and the system
-// refuses to mount. EXT4 has the same stub — keep them in sync.
+// refuses to mount.
 extension NTFSFileSystem: FSManageableResourceMaintenanceOperations {
+    /// Run an NTFS fsck pass driven by the rust crate's
+    /// `fs_ntfs_fsck_with_callbacks`. Emits NDJSON events the host app's
+    /// `AttachedDisksModel` consumes: `fsck.start`, `fsck.progress`,
+    /// `fsck.done`, `fsck.failed`.
+    ///
+    /// Shape parity with `EXT4FileSystem.startCheck`: the body is
+    /// intentionally near-identical — only the resolved type
+    /// (`NTFSVolume` vs `EXT4Backend`), the dlog `kind`, and the
+    /// progress-tracker phase weights differ. `runFsck` is pure on
+    /// both extensions, so all event emission lives here.
+    ///
+    /// `FSManageableResourceMaintenanceOperations` does NOT pass us a
+    /// resource handle (see header comment on `mountedResources`).
+    /// Since `FSUnaryFileSystem` instances host one mount at a time we
+    /// resolve the mount by reading the single entry. If multiple are
+    /// ever registered (hypothetical multi-volume FSKit future) we fail
+    /// loudly rather than guess.
     func startCheck(task: FSTask, options: FSTaskOptions) throws -> Progress {
-        let progress = Progress(totalUnitCount: 100)
-        Task {
-            progress.completedUnitCount = 100
-            task.didComplete(error: nil)
+        let resolved: MountedResource? = Self.mountedResources.withLock { map in
+            guard !map.isEmpty else { return nil }
+            if map.count == 1 { return map.values.first }
+            return nil
         }
+
+        guard let resolved = resolved else {
+            log.error("startCheck: no (or ambiguous) mounted resource registered — refusing", scope: AppLogScope.fsck)
+            throw POSIXError(.EBADF)
+        }
+        let bsdName = resolved.bsdName
+        let volume = resolved.volume
+        let dlog = TaggedLogger(
+            log, fields: ["bsd": bsdName], kind: "ntfs.fsck",
+            scope: AppLogScope.fsck
+        )
+
+        // Pin Progress at 100 total units; the tracker bumps
+        // `completedUnitCount` per phase as the rust crate reports.
+        // The rust fsck has no cancel hook, so we don't wire a
+        // `cancellationHandler`.
+        let progress = Progress(totalUnitCount: 100)
+
+        dlog.event(kind: "fsck.start", fields: [:])
+
+        let tracker = FsckProgressTracker()
+
+        // Detached so the closure isn't tied to any actor; the C
+        // callbacks fire on rust's worker thread anyway. Concurrent
+        // reads/writes on the volume will fail while fsck runs (we drop
+        // bridgeFS before the dirty check) — that's expected; fsck
+        // temporarily takes the volume offline.
+        Task.detached {
+            let result = volume.runFsck(
+                onProgress: { phase, done, total in
+                    dlog.event(kind: "fsck.progress", fields: [
+                        "phase": phase,
+                        "done":  "\(done)",
+                        "total": "\(total)",
+                    ])
+                    let units = tracker.observe(phase: phase, done: done, total: total)
+                    progress.completedUnitCount = units
+                },
+                onFinding: { _ in
+                    // NTFS has no per-finding callback; closure unused.
+                }
+            )
+
+            switch result {
+            case .success(let report):
+                dlog.event(kind: "fsck.done", fields: report.toEventFields())
+                progress.completedUnitCount = 100
+                task.didComplete(error: nil)
+
+            case .failure(let err):
+                dlog.event(kind: "fsck.failed", fields: [
+                    "error": "\(err)",
+                ])
+                task.didComplete(error: err)
+            }
+        }
+
         return progress
     }
 
     func startFormat(task: FSTask, options: FSTaskOptions) throws -> Progress {
         throw POSIXError(.ENOSYS)
+    }
+}
+
+/// Maps the rust crate's phase/done/total stream onto a 0-100
+/// `NSProgress.completedUnitCount`. Mirror of `EXT4FileSystem`'s
+/// `FsckProgressTracker` with NTFS-specific phase weights — the rust
+/// crate emits `"reset_logfile"` (long, byte-count progress) and
+/// `"clear_dirty"` (single tick around a 2-byte write).
+///
+/// Lock guards the mutable cursor so callbacks fired from the rust
+/// thread are serialised against any future caller.
+final class FsckProgressTracker: @unchecked Sendable {
+    private struct State {
+        var lastPhase: String = ""
+        var completedFloor: Int64 = 0
+    }
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    private static let totalUnits: Int64 = 100
+    private static let phaseWeight: [String: Int64] = [
+        "reset_logfile": 90,
+        "clear_dirty":   10,
+    ]
+
+    func observe(phase: String, done: UInt64, total: UInt64) -> Int64 {
+        return state.withLock { s -> Int64 in
+            if phase != s.lastPhase {
+                if !s.lastPhase.isEmpty {
+                    s.completedFloor += Self.phaseWeight[s.lastPhase] ?? 0
+                }
+                s.lastPhase = phase
+            }
+            let weight = Self.phaseWeight[phase] ?? 0
+            let intra: Int64
+            if total == 0 {
+                intra = 0
+            } else {
+                let ratio = max(0.0, min(1.0, Double(done) / Double(total)))
+                intra = Int64(Double(weight) * ratio)
+            }
+            return min(Self.totalUnits, s.completedFloor + intra)
+        }
     }
 }
