@@ -31,12 +31,12 @@ struct LogView: View {
                 Spacer()
 
                 Button(action: clearLogs) {
-                    Label("Clear", systemImage: "trash")
+                    Label("Clear", image: "tabler-trash")
                 }
                 .disabled(appLogModel.messages.isEmpty)
 
                 Button(action: exportLogs) {
-                    Label("Export", systemImage: "square.and.arrow.up")
+                    Label("Export", image: "tabler-square-and-arrow-up")
                 }
                 .disabled(appLogModel.messages.isEmpty)
             }
@@ -48,7 +48,7 @@ struct LogView: View {
             if appLogModel.messages.isEmpty {
                 ContentUnavailableView(
                     "No Logs",
-                    systemImage: "doc.text.magnifyingglass",
+                    image: "tabler-doc-text-magnifyingglass",
                     description: Text("Logs will appear here as they are generated")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -169,7 +169,7 @@ struct ScopeFilterMenu: View {
                     }
                 } label: {
                     HStack {
-                        Image(systemName: suppressed.contains(scope) ? "square" : "checkmark.square.fill")
+                        Image(suppressed.contains(scope) ? "square" : "checkmark.square.fill")
                         Text(scope.capitalized)
                     }
                 }
@@ -179,7 +179,7 @@ struct ScopeFilterMenu: View {
                 .disabled(suppressed.isEmpty)
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: "line.3.horizontal.decrease.circle")
+                Image("tabler-line-3-horizontal-decrease-circle")
                 if !suppressed.isEmpty {
                     Text("\(suppressed.count) hidden")
                         .font(.caption)
