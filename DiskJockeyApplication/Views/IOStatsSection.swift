@@ -88,7 +88,7 @@ struct IOStatsSection: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                Image(systemName: icon).foregroundStyle(color)
+                Image(icon).foregroundStyle(color)
                 Text(title)
                     .font(.subheadline.weight(.semibold))
                 Spacer()
@@ -117,32 +117,38 @@ struct IOStatsSection: View {
     @ViewBuilder
     private func statsGrid() -> some View {
         let c = stats.cumulative
-        Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 4) {
-            GridRow {
-                gridLabel("Bytes read")
-                gridValue(Self.bytes(c.bytesRead))
-                gridLabel("Bytes written")
-                gridValue(Self.bytes(c.bytesWritten))
+        HStack(alignment: .top, spacing: 32) {
+            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 4) {
+                GridRow {
+                    gridLabel("Bytes read")
+                    gridValue(Self.bytes(c.bytesRead))
+                    gridLabel("Bytes written")
+                    gridValue(Self.bytes(c.bytesWritten))
+                }
+                GridRow {
+                    gridLabel("Read ops")
+                    gridValue(Self.count(c.opsRead))
+                    gridLabel("Write ops")
+                    gridValue(Self.count(c.opsWritten))
+                }
             }
-            GridRow {
-                gridLabel("Read ops")
-                gridValue(Self.count(c.opsRead))
-                gridLabel("Write ops")
-                gridValue(Self.count(c.opsWritten))
+            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 4) {
+                GridRow {
+                    gridLabel("Avg read size")
+                    gridValue(c.opsRead == 0 ? "—" : Self.bytes(c.avgReadSize))
+                    gridLabel("Avg write size")
+                    gridValue(c.opsWritten == 0 ? "—" : Self.bytes(c.avgWriteSize))
+                }
+                GridRow {
+                    gridLabel("Avg read latency")
+                    gridValue(c.opsRead == 0 ? "—" : Self.duration(c.avgReadLatencyNs))
+                    gridLabel("Avg write latency")
+                    gridValue(c.opsWritten == 0 ? "—" : Self.duration(c.avgWriteLatencyNs))
+                }
             }
-            GridRow {
-                gridLabel("Avg read size")
-                gridValue(c.opsRead == 0 ? "—" : Self.bytes(c.avgReadSize))
-                gridLabel("Avg write size")
-                gridValue(c.opsWritten == 0 ? "—" : Self.bytes(c.avgWriteSize))
-            }
-            GridRow {
-                gridLabel("Avg read latency")
-                gridValue(c.opsRead == 0 ? "—" : Self.duration(c.avgReadLatencyNs))
-                gridLabel("Avg write latency")
-                gridValue(c.opsWritten == 0 ? "—" : Self.duration(c.avgWriteLatencyNs))
-            }
-            if c.errorsRead > 0 || c.errorsWritten > 0 {
+        }
+        if c.errorsRead > 0 || c.errorsWritten > 0 {
+            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 4) {
                 GridRow {
                     gridLabel("Read errors")
                     Text(Self.count(c.errorsRead))
