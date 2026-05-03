@@ -20,7 +20,8 @@ Because DiskJockey installs a File Provider extension and FSKit extensions, macO
 - **Local-directory passthrough** disk type for end-to-end testing of the File Provider stack.
 - **CLI client (`djctl`)** that speaks the same protobuf API the GUI uses, for scripting and automation.
 - **Per-mount tagged logging** with live in-app log views and per-partition log strips.
-- **Per-mount transport throughput sparklines** pulled from the underlying network library each tick.
+- **Per-mount I/O counters and throughput sparklines for every network driver** — HTTP-based drivers (Dropbox / Google Drive / OneDrive / WebDAV / S3) wrap their `http.Client`; socket-based drivers (FTP / SFTP / SMB) wrap the underlying `net.Conn`. FTPS counts ciphertext bytes (what the wire sees, not the plaintext). One unified `MountStats` snapshot shape across all eight.
+- **Provider-native thumbnails for Dropbox, Google Drive, and OneDrive** — each driver hits the provider's thumbnail endpoint directly (Dropbox `get_thumbnail_v2`, GDrive `thumbnailLink` CDN, OneDrive `/items/{id}/thumbnails`); the source file is never downloaded. Thumbnails go through a SQLite cache so Finder's repeated asks for the same icon never re-fetch.
 - **Browser-based OAuth sign-in** for Dropbox, Google Drive, and OneDrive.
 - **Tabler icon set** wired through the sidebar and detail views; OS-flavoured glyphs for ext / NTFS attached disks.
 
@@ -62,7 +63,7 @@ Concrete, observable on a current build:
 - **All eight network drivers** verified end-to-end against their respective servers; writes flow through Finder for every scheme.
 - **Sidebar surfaces unformatted disks** discovered via DiskArbitration, with cold-start persistence and stable identity across sessions.
 - **Format actions** for raw disks route through FSKit `startFormat`, chained under a single admin auth prompt.
-- **Per-mount I/O counters and sparklines** in the detail view, fed by transport-byte counters pulled from the network library.
+- **Per-mount I/O counters and sparklines** in the detail view for every one of the eight network drivers — HTTP transports counted via `CountingTransport`, socket transports via `CountingConn` at the dial layer.
 - **Browser-based OAuth sign-in** for Dropbox, Google Drive, OneDrive — refresh tokens stored in Keychain.
 - **Per-mount thumbnail cache** (SQLite) with a cellular-data gate and enumerator pre-warm.
 - **CLI driver** (`djctl`): list mounts, list disk types, exercise the protobuf API headlessly.
@@ -143,6 +144,8 @@ Gaps to know about before trusting this with real data:
 Reverse-chronological. Pulled from `git log`, breakthroughs highlighted.
 
 ### 2026-05-03
+- **I/O stats on every network driver.** FTP / SFTP / SMB now instrument the underlying `net.Conn` at dial time (FTPS counts ciphertext bytes, what the wire actually carries). WebDAV + S3 wrap their `http.Client` with the existing `CountingTransport`. Every driver implements `StatsProvider`; `networkfs_get_stats(mount_id)` returns real numbers across the board instead of zeros for five of eight drivers.
+- **Native thumbnails for Google Drive and OneDrive.** GDrive uses the file metadata's `thumbnailLink` CDN URL with `=s<px>` size-rewriting; OneDrive uses `GET /items/{id}/thumbnails` to pick the right pre-rendered bucket. Neither downloads the source file. FTP / SFTP / SMB / WebDAV / S3 stay truthful (no native thumbnail API → no `Thumbnailer` impl → driver returns rc=2 → Finder falls back to a generic icon). Future client-side thumbnail generator will populate the same SQLite cache from already-downloaded file bytes, so those protocols can still get thumbnails opportunistically without lying about protocol capabilities.
 - Submodule bumps for rust-fs-ntfs (verbose mode wired through to remote, live verbose output refactor, observability + safety contracts, bench harness + OOM fix, FUTURE_FEATURES fixes, /scan-13 docs, Tier 3 fixture dispatcher, CLI consolidation + release infra).
 - Submodule bumps for rust-fs-ext4 (close all crash-safety test gaps, sequence-advance + orphan-crash tests, Phase 5.2 finish, cross-validator infra, **ext3 RW unlock — Phase B complete**, write path Phases 1/2/3/5/6/7/8).
 
