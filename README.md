@@ -276,7 +276,7 @@ Block-device filesystems don't benefit from a server-in-the-middle: all bytes co
 
 MIT — see [`LICENSE`](LICENSE). Copyright (c) 2025 Christopher Thomas.
 
-For a full audit of every dependency licence and the verdict that the MIT licence is not at risk of being forced into a stricter copyleft licence, see [`docs/intellectual-property-review.md`](docs/intellectual-property-review.md) and the dependency inventory.
+For a full audit of every dependency licence and the verdict that the MIT licence is not at risk of being forced into a stricter copyleft licence, see [`docs/intellectual-property-review.md`](docs/intellectual-property-review.md).
 
 Vendored submodules: `rust-fs-ext4` (MIT), `rust-fs-ntfs` (MIT OR Apache-2.0), `go-networkfs` (MIT), `tabler-icons` (MIT — Paweł Kuna).
 
