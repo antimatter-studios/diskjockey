@@ -50,19 +50,22 @@ struct ContentView: View {
     }
 
     private func handleDroppedImages(_ providers: [NSItemProvider]) -> Bool {
-        var handled = false
-        for provider in providers {
-            guard provider.canLoadObject(ofClass: URL.self) else { continue }
-            handled = true
-            _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                guard let url else { return }
-                Task { @MainActor in
-                    FSKitAttachController.attachUserPickedImage(
-                        at: url, logRepository: container.logRepository)
-                }
+        // Single-image only — every other attach surface (sidebar
+        // button, file picker) is single-image, and routing every
+        // dropped URL through `attachUserPickedImage` would stack
+        // modal alerts and admin prompts in parallel. Take the first
+        // resolvable URL and ignore the rest.
+        guard let provider = providers.first(where: { $0.canLoadObject(ofClass: URL.self) }) else {
+            return false
+        }
+        _ = provider.loadObject(ofClass: URL.self) { url, _ in
+            guard let url else { return }
+            Task { @MainActor in
+                FSKitAttachController.attachUserPickedImage(
+                    at: url, logRepository: container.logRepository)
             }
         }
-        return handled
+        return true
     }
 
     @ViewBuilder

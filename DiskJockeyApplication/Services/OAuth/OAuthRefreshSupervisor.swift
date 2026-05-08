@@ -130,14 +130,16 @@ public final class OAuthRefreshSupervisor {
             try await registry.unmountDomain(mount)
             try await registry.mountDomain(mount)
             AppLog.shared.info("oauth-reauth: recovered \(mount.displayName); domain cycled")
+            // Only dismiss the visible error banner once the remount
+            // has actually succeeded — otherwise we'd hide a real
+            // failure and remove the user's manual-recovery cue. If
+            // the cycle fails the keychain still has the fresh
+            // credentials, so the next FileProvider op will pick
+            // them up; the banner stays until that happens.
+            registry.dismissConnectionError(forDomainID: mount.domainID)
         } catch {
-            // Cycling the domain is best-effort. Even if it fails, the
-            // updated keychain entry is in place; the next FileProvider
-            // op will re-mount with the fresh credentials.
             AppLog.shared.error("oauth-reauth: domain cycle failed for \(mount.displayName): \(error)")
         }
-
-        registry.dismissConnectionError(forDomainID: mount.domainID)
     }
 
     // MARK: - Pure helpers
