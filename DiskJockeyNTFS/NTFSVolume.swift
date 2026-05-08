@@ -13,6 +13,7 @@
 import FSKit
 import Foundation
 import os
+import DiskJockeyLibrary
 
 /// Represents a mounted NTFS volume.
 /// All file operations are dispatched to the Rust bridge layer.
@@ -103,13 +104,18 @@ final class NTFSVolume: FSVolume,
         isAppleDouble(name: basename(of: path))
     }
 
-    /// Synthesize `FSItem.Attributes` for a ghost AppleDouble item that
-    /// only exists in our short-circuited code path. Type=file, size=0,
-    /// mode=0o644, times=now, fileID=the ghost sentinel.
-    private static func ghostAppleDoubleAttributes(for path: String) -> FSItem.Attributes {
+    /// Synthesize `FSItem.Attributes` for a ghost AppleDouble item.
+    /// Same standard-set coverage as `attributes(from:parentRecordNumber:)`
+    /// — flags, parentID, birthTime must all be set or FSKit rejects
+    /// the reply with errno 2 (ENOENT) and the file appears to vanish.
+    private static func ghostAppleDoubleAttributes(
+        for path: String,
+        parentRecordNumber: UInt64?
+    ) -> FSItem.Attributes {
         let attrs = FSItem.Attributes()
         attrs.type = .file
         attrs.mode = 0o644
+        attrs.flags = 0
         attrs.size = 0
         attrs.allocSize = 0
         attrs.linkCount = 1
@@ -117,21 +123,42 @@ final class NTFSVolume: FSVolume,
         attrs.accessTime = now
         attrs.modifyTime = now
         attrs.changeTime = now
+        attrs.birthTime = now
         attrs.fileID = FSItem.Identifier(rawValue: appleDoubleGhostRecord)!
+        let parentRaw = parentRecordNumber ?? 1
+        if let parentID = FSItem.Identifier(rawValue: parentRaw) {
+            attrs.parentID = parentID
+        }
         return attrs
     }
 
     // MARK: - Item management
 
-    private func item(forRecordNumber recno: UInt64, path: String) -> NTFSItem {
+    /// Look up or create the cached `NTFSItem` for a given MFT record.
+    ///
+    /// On a hit, the cached item's `path` and `parentRecordNumber` are
+    /// compared against the lookup context — if either differs, the
+    /// cached entry is **replaced** rather than returned as-is.
+    /// Mirror of the EXT4 cache fix; same rationale: every backend op
+    /// is path-based, so returning an NTFSItem whose `path` doesn't
+    /// match the kernel's current lookup leads to spurious ENOENT and
+    /// (in the worst case) Finder rendering rename UI on the wrong
+    /// dirent because two FSItems share an `FSItem.Identifier`.
+    /// `parentRecordNumber` is `nil` only for the root directory — its
+    /// parent is `FSItemIDParentOfRoot` (1).
+    private func item(forRecordNumber recno: UInt64, path: String,
+                      parentRecordNumber: UInt64?) -> NTFSItem {
         itemsLock.lock()
         defer { itemsLock.unlock() }
 
-        if let existing = items[recno] {
+        if let existing = items[recno],
+           existing.path == path,
+           existing.parentRecordNumber == parentRecordNumber {
             return existing
         }
 
-        let newItem = NTFSItem(fileRecordNumber: recno, path: path)
+        let newItem = NTFSItem(fileRecordNumber: recno, path: path,
+                               parentRecordNumber: parentRecordNumber)
         items[recno] = newItem
         return newItem
     }
@@ -203,7 +230,7 @@ final class NTFSVolume: FSVolume,
             performDeferredFsckAndRwRemount()
             requiresFsckRemount = false
         }
-        return item(forRecordNumber: 5, path: "/")
+        return item(forRecordNumber: 5, path: "/", parentRecordNumber: nil)
     }
 
     // MARK: - fsck
@@ -364,8 +391,25 @@ final class NTFSVolume: FSVolume,
                                 scope: AppLogScope.lifecycle)
         dlog.info("performing deferred fsck + RW remount")
 
+        // Throttle fsck.progress emission. See EXT4FileSystem.startCheck
+        // for rationale — Rust's onProgress fires once per record on a
+        // multi-thousand-record volume, and each emit ends up on the
+        // host's main actor.
+        let appGroupDefaults = UserDefaults(suiteName: AppLog.groupIdentifier)
+        let verbose = appGroupDefaults?.bool(forKey: "verboseRepairLog") ?? false
+        let minIntervalNs: UInt64 = verbose ? 100_000_000 : 1_000_000_000
+        var lastEmitMonotonic: UInt64 = 0
+        var lastPhase: String = ""
+
         let result = runFsck(
             onProgress: { phase, done, total in
+                let now = monotonicNanos()
+                let phaseChanged = phase != lastPhase
+                let intervalElapsed = lastEmitMonotonic == 0
+                    || (now &- lastEmitMonotonic) >= minIntervalNs
+                guard phaseChanged || intervalElapsed else { return }
+                lastEmitMonotonic = now
+                lastPhase = phase
                 log.event(kind: "fsck.progress", fields: [
                     "bsd": self.bsdName,
                     "phase": phase,
@@ -432,7 +476,9 @@ final class NTFSVolume: FSVolume,
 
         // Ghost AppleDouble — return synthetic attrs without hitting bridge.
         if Self.isAppleDouble(path: ntfsItem.path) {
-            return Self.ghostAppleDoubleAttributes(for: ntfsItem.path)
+            return Self.ghostAppleDoubleAttributes(
+                for: ntfsItem.path,
+                parentRecordNumber: ntfsItem.parentRecordNumber)
         }
 
         var attr = fs_ntfs_attr_t()
@@ -441,26 +487,8 @@ final class NTFSVolume: FSVolume,
             throw fs_errorForPOSIXError(ENOENT)
         }
 
-        let attrs = FSItem.Attributes()
-        attrs.type = Self.fsItemType(from: attr.file_type)
-        attrs.mode = UInt32(attr.mode)
-        attrs.uid = 0
-        attrs.gid = 0
-        attrs.size = attr.size
-        attrs.linkCount = UInt32(attr.link_count)
-        attrs.allocSize = attr.size
-
-        attrs.accessTime = timespec(tv_sec: Int(attr.atime), tv_nsec: 0)
-        attrs.modifyTime = timespec(tv_sec: Int(attr.mtime), tv_nsec: 0)
-        attrs.changeTime = timespec(tv_sec: Int(attr.ctime), tv_nsec: 0)
-
-        if attr.crtime > 0 {
-            attrs.addedTime = timespec(tv_sec: Int(attr.crtime), tv_nsec: 0)
-        }
-
-        attrs.fileID = FSItem.Identifier(rawValue: attr.file_record_number)!
-
-        return attrs
+        return Self.attributes(from: attr,
+                               parentRecordNumber: ntfsItem.parentRecordNumber)
     }
 
     func setAttributes(
@@ -479,7 +507,9 @@ final class NTFSVolume: FSVolume,
                 .accessTime, .modifyTime, .changeTime, .addedTime,
                 .size,
             ]
-            return Self.ghostAppleDoubleAttributes(for: ntfsItem.path)
+            return Self.ghostAppleDoubleAttributes(
+                for: ntfsItem.path,
+                parentRecordNumber: ntfsItem.parentRecordNumber)
         }
 
         var consumed: FSItem.Attribute = []
@@ -569,7 +599,8 @@ final class NTFSVolume: FSVolume,
         guard fs_ntfs_stat(fs, ntfsItem.path, &attr) == 0 else {
             throw fs_errorForPOSIXError(ENOENT)
         }
-        return Self.attributes(from: attr)
+        return Self.attributes(from: attr,
+                               parentRecordNumber: ntfsItem.parentRecordNumber)
     }
 
     // MARK: - Lookup
@@ -594,7 +625,9 @@ final class NTFSVolume: FSVolume,
             throw fs_errorForPOSIXError(ENOENT)
         }
 
-        let foundItem = item(forRecordNumber: attr.file_record_number, path: childPath)
+        let foundItem = item(forRecordNumber: attr.file_record_number,
+                             path: childPath,
+                             parentRecordNumber: dirItem.fileRecordNumber)
         return (foundItem, name)
     }
 
@@ -637,16 +670,17 @@ final class NTFSVolume: FSVolume,
 
             var itemAttrs: FSItem.Attributes? = nil
             if attributes != nil {
+                // Always populate FSKit's full standard attribute set —
+                // see `attributes(from:parentRecordNumber:)` for the
+                // contract. An incomplete mask (missing flags /
+                // parentID / birthTime) makes the connector reject
+                // the reply, which surfaces to userspace as "file
+                // vanished."
                 var attr = fs_ntfs_attr_t()
                 if fs_ntfs_stat(fs, childPath, &attr) == 0 {
-                    itemAttrs = FSItem.Attributes()
-                    itemAttrs?.type = Self.fsItemType(from: attr.file_type)
-                    itemAttrs?.mode = UInt32(attr.mode)
-                    itemAttrs?.uid = 0
-                    itemAttrs?.gid = 0
-                    itemAttrs?.size = attr.size
-                    itemAttrs?.linkCount = UInt32(attr.link_count)
-                    itemAttrs?.fileID = FSItem.Identifier(rawValue: attr.file_record_number)!
+                    itemAttrs = Self.attributes(
+                        from: attr,
+                        parentRecordNumber: dirItem.fileRecordNumber)
                 }
             }
 
@@ -713,7 +747,9 @@ final class NTFSVolume: FSVolume,
         // NTFS volumes that round-trip back to Linux/Windows.
         if Self.isAppleDouble(name: nameStr) {
             log.info("createItem: silently swallowing AppleDouble \(childPath)", scope: AppLogScope.enumerate)
-            let ghost = item(forRecordNumber: Self.appleDoubleGhostRecord, path: childPath)
+            let ghost = item(forRecordNumber: Self.appleDoubleGhostRecord,
+                             path: childPath,
+                             parentRecordNumber: dirItem.fileRecordNumber)
             attributes.consumedAttributes = [.mode, .uid, .gid, .accessTime, .modifyTime]
             return (ghost, name)
         }
@@ -738,7 +774,9 @@ final class NTFSVolume: FSVolume,
             throw fs_errorForPOSIXError(err != 0 ? err : EIO)
         }
 
-        let newItem = item(forRecordNumber: UInt64(mftNum), path: childPath)
+        let newItem = item(forRecordNumber: UInt64(mftNum),
+                           path: childPath,
+                           parentRecordNumber: dirItem.fileRecordNumber)
 
         // Best-effort: apply any caller-supplied attributes. If this
         // fails, log and proceed — the file/dir was created successfully
@@ -1012,26 +1050,47 @@ final class NTFSVolume: FSVolume,
         return parent == "/" ? "/\(child)" : "\(parent)/\(child)"
     }
 
-    /// Build an `FSItem.Attributes` snapshot from an fs_ntfs_attr_t. Used
-    /// by `setAttributes` to return the post-mutation state without
-    /// duplicating field-by-field plumbing.
-    static func attributes(from attr: fs_ntfs_attr_t) -> FSItem.Attributes {
+    /// Build an `FSItem.Attributes` snapshot from an fs_ntfs_attr_t.
+    ///
+    /// Populates **every bit in FSKit's standard attribute set** —
+    /// `type, mode, linkCount, flags, size, allocSize, fileID,
+    /// parentID, accessTime, modifyTime, changeTime, birthTime`.
+    /// Missing any of these makes
+    /// `FSVolumeConnector.getStandardItemAttributesForItem` reject the
+    /// reply with errno 2 (ENOENT), which surfaces to userspace as
+    /// "file vanished after save". See
+    /// `DiskJockeyTests/EXT4AttributeMaskTests.swift` for the regression
+    /// fixture and the FSKit bit layout — same contract here.
+    ///
+    /// `parentRecordNumber` is `nil` only for the root directory — its
+    /// parent is the FSKit-defined `FSItemIDParentOfRoot` (1).
+    static func attributes(from attr: fs_ntfs_attr_t,
+                           parentRecordNumber: UInt64?) -> FSItem.Attributes {
         let attrs = FSItem.Attributes()
         attrs.type = fsItemType(from: attr.file_type)
         attrs.mode = UInt32(attr.mode)
         attrs.uid = 0
         attrs.gid = 0
+        // NTFS doesn't have BSD inode flags; 0 is correct and marks
+        // bit 5 valid so FSKit accepts the reply.
+        attrs.flags = 0
         attrs.size = attr.size
         attrs.linkCount = UInt32(attr.link_count)
         attrs.allocSize = attr.size
         attrs.accessTime = timespec(tv_sec: Int(attr.atime), tv_nsec: 0)
         attrs.modifyTime = timespec(tv_sec: Int(attr.mtime), tv_nsec: 0)
         attrs.changeTime = timespec(tv_sec: Int(attr.ctime), tv_nsec: 0)
-        if attr.crtime > 0 {
-            attrs.addedTime = timespec(tv_sec: Int(attr.crtime), tv_nsec: 0)
-        }
+        // NTFS stores StandardInformation::CreationTime as the birth
+        // time. The previous code routed it into addedTime (an
+        // HFS+/APFS concept), which left FSKit's required birthTime
+        // bit unset.
+        attrs.birthTime = timespec(tv_sec: Int(attr.crtime), tv_nsec: 0)
         if let id = FSItem.Identifier(rawValue: attr.file_record_number) {
             attrs.fileID = id
+        }
+        let parentRaw = parentRecordNumber ?? 1
+        if let parentID = FSItem.Identifier(rawValue: parentRaw) {
+            attrs.parentID = parentID
         }
         return attrs
     }

@@ -308,9 +308,21 @@ final class EXT4Backend: FileSystemBackend {
         let inodesVisited: UInt64
         let directoriesScanned: UInt64
         let entriesScanned: UInt64
+        /// **Authoritative current** anomaly count. After a repair
+        /// pass this is the post-repair re-scan count — what's still
+        /// actually wrong on disk. NOT initial-minus-repaired.
         let anomaliesFound: UInt64
         let wasDirty: Bool
         let dirtyCleared: Bool
+        /// Number of anomalies the repair pass committed to disk. 0
+        /// when the run was read-only.
+        let repairedCount: UInt64
+        /// Anomalies the audit found BEFORE any repair commits.
+        /// Equal to `anomaliesFound` for non-repair runs. After a
+        /// repair pass: `initialAnomaliesFound - repairedCount` is
+        /// what we EXPECT to remain; `anomaliesFound` is what
+        /// ACTUALLY remains. A discrepancy flags repair-logic bugs.
+        let initialAnomaliesFound: UInt64
 
         /// Format the report as `fsck.done` event fields. Mirrors
         /// `NTFSVolume.FsckReport.toEventFields()` — both include
@@ -320,19 +332,22 @@ final class EXT4Backend: FileSystemBackend {
         /// consumes either with the same code path.
         func toEventFields() -> [String: String] {
             return [
-                "dirty_cleared": dirtyCleared ? "true" : "false",
-                "logfile_bytes": "0",
-                "anomalies":     "\(anomaliesFound)",
-                "directories":   "\(directoriesScanned)",
-                "inodes":        "\(inodesVisited)",
+                "dirty_cleared":           dirtyCleared ? "true" : "false",
+                "logfile_bytes":           "0",
+                "anomalies":               "\(anomaliesFound)",
+                "directories":             "\(directoriesScanned)",
+                "inodes":                  "\(inodesVisited)",
+                "repaired_count":          "\(repairedCount)",
+                "initial_anomalies_count": "\(initialAnomaliesFound)",
             ]
         }
     }
 
     struct FsckFinding {
         /// One of "link_count_low", "link_count_high", "dangling_entry",
-        /// "wrong_dotdot", "bogus_entry" (Rust-emitted strings — do NOT
-        /// extend without coordinating with the Rust crate).
+        /// "wrong_dotdot", "bogus_entry", "duplicate_dir_inode"
+        /// (Rust-emitted strings — do NOT extend without coordinating
+        /// with the Rust crate's `anomaly_to_capi`).
         let kind: String
         let inode: UInt32
         let detail: String
@@ -353,7 +368,13 @@ final class EXT4Backend: FileSystemBackend {
         }
     }
 
-    /// Run a read-only fsck pass on the mounted volume.
+    /// Run an fsck pass on the mounted volume.
+    ///
+    /// Default is read-only (audit + report only). Pass `repair: true`
+    /// to commit journaled fixes for the anomaly classes the Rust
+    /// crate's `audit_with_repair` knows how to handle (duplicate
+    /// directory entries, link-count drift today; orphan / dangling /
+    /// wrong-dotdot remain detect-only).
     ///
     /// `onProgress` and `onFinding` fire from the Rust thread that drives
     /// the scan — the caller is responsible for hopping to its own
@@ -363,6 +384,7 @@ final class EXT4Backend: FileSystemBackend {
     /// is read-only and doesn't reenter the backend through other code
     /// paths, this is safe — no deadlock risk.
     func runFsck(
+        repair: Bool = false,
         onProgress: @escaping (_ phase: String, _ done: UInt64, _ total: UInt64) -> Void,
         onFinding: @escaping (FsckFinding) -> Void
     ) -> Result<FsckReport, Error> {
@@ -376,7 +398,10 @@ final class EXT4Backend: FileSystemBackend {
             defer { Unmanaged<FsckCallbackBox>.fromOpaque(ctxPtr).release() }
 
             var opts = fs_ext4_fsck_options_t()
-            opts.read_only = 1
+            // Repair pass requires read_only = 0 so the journaled
+            // commits inside `audit_with_repair` can land.
+            opts.read_only = repair ? 0 : 1
+            opts.repair = repair ? 1 : 0
             opts.replay_journal = 1
             opts.max_dirs = 0
             opts.max_entries_per_dir = 0
@@ -413,9 +438,21 @@ final class EXT4Backend: FileSystemBackend {
                 entriesScanned: report.entries_scanned,
                 anomaliesFound: report.anomalies_found,
                 wasDirty: report.was_dirty != 0,
-                dirtyCleared: report.dirty_cleared != 0
+                dirtyCleared: report.dirty_cleared != 0,
+                repairedCount: report.repaired_count,
+                initialAnomaliesFound: report.initial_anomalies_count
             ))
         }
+    }
+
+    /// Run an fsck pass that writes back fixes for anomalies it finds.
+    /// Thin wrapper over `runFsck(repair: true, …)` — separate entry
+    /// point so call sites that mean "repair" read clearly.
+    func runRepair(
+        onProgress: @escaping (_ phase: String, _ done: UInt64, _ total: UInt64) -> Void,
+        onFinding: @escaping (FsckFinding) -> Void
+    ) -> Result<FsckReport, Error> {
+        runFsck(repair: true, onProgress: onProgress, onFinding: onFinding)
     }
 
     // MARK: - Helpers

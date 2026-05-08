@@ -1,16 +1,20 @@
 //
 // AttachedDiskDetailView.swift — detail pane for a system-mounted disk.
-// Read-only information + Reveal-in-Finder + Unmount.
+// Read-only information + Reveal-in-Finder + Verify + Repair + Unmount.
+//
+// Repair runs as an in-process pass inside the FSKit extension — see
+// `repair(_:)` and `DiskJockeyRepairProtocol`. Verify still spawns
+// `/sbin/fsck_fskit` against the live mount (read-only, no admin).
 //
 
 import SwiftUI
 import AppKit
+import DiskJockeyLibrary
 
 struct AttachedDiskDetailView: View {
-    /// `AttachedDisk.id` — stable handle that survives mount/unmount/replug
-    /// when `stableIdentity` is known. Routed in via the SidebarItem
-    /// `.attachedDisk` case so the detail view sticks with one disk
-    /// across status transitions (live → offline → live).
+    /// `AttachedDisk.id` — stable handle that survives the
+    /// `.mounting` → `.live` transition for a single attach. Routed in
+    /// via the SidebarItem `.attachedDisk` case.
     let diskID: String
     let container: AppContainer
 
@@ -41,13 +45,21 @@ struct AttachedDiskDetailView: View {
     /// unmounts the live volume) so we want an explicit OK first.
     @State private var showVerifyConfirm = false
 
-    /// Spinner shown on the Mount button while `DADiskMount` is in
-    /// flight. Offline rows only — live rows hide this affordance.
-    @State private var mounting = false
-    /// Surfaced failure from the mount attempt (DA dissenter, missing
-    /// DADisk ref, etc). Distinct state from unmountError / verifyError
-    /// so they can't masquerade as each other.
-    @State private var mountError: String? = nil
+    /// Spinner shown on the Repair button between tap and the FSKit
+    /// extension picking up the call. Same role as `verifying` — once
+    /// `fsck.start` flips `disk.fsckStatus` into `.running`, the
+    /// running-state branch of the model takes over the visual.
+    @State private var repairing = false
+    /// Surfaced failure from spawning the repair pass. Distinct from
+    /// `verifyError` so a stale verify error can't masquerade as a
+    /// repair failure (and vice versa).
+    @State private var repairError: String? = nil
+    /// Pre-flight confirmation. Repair writes to the volume, so unlike
+    /// the read-only ext4 verify path it's always gated.
+    @State private var showRepairConfirm = false
+    /// Transient success banner copy (e.g. "Repaired 7 anomalies").
+    /// Cleared on a timer or on the next user action. nil = no banner.
+    @State private var repairResultMessage: String? = nil
 
     /// Global toggle gating the FSKit extension's per-entry
     /// enumerateDirectory log. Stored in the App Group so the
@@ -58,6 +70,20 @@ struct AttachedDiskDetailView: View {
         store: UserDefaults(suiteName: "group.com.antimatterstudios.diskjockey")
     )
     private var verboseEnumerateLog = false
+
+    /// Global toggle gating the FSKit extension's repair-pass
+    /// progress emission rate. Off (default): the watcher emits
+    /// `fsck.progress` events at most once per second — enough to
+    /// keep the UI's progress bar moving without flooding the
+    /// NDJSON log. On: emits at ~10 Hz, useful when collecting
+    /// detailed traces for debugging a problematic repair.
+    /// Stored in the App Group; the extension reads via
+    /// `UserDefaults(suiteName:)`.
+    @AppStorage(
+        "verboseRepairLog",
+        store: UserDefaults(suiteName: "group.com.antimatterstudios.diskjockey")
+    )
+    private var verboseRepairLog = false
 
     init(diskID: String, container: AppContainer) {
         self.diskID = diskID
@@ -75,7 +101,7 @@ struct AttachedDiskDetailView: View {
                 HStack(spacing: 12) {
                     PersonalityIconView(disk.icon)
                         .font(.system(size: 36))
-                        .foregroundStyle(isOffline(disk) ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tint))
+                        .foregroundStyle(.tint)
                         .frame(width: 36, height: 36)
                     VStack(alignment: .leading) {
                         HStack(spacing: 6) {
@@ -84,16 +110,14 @@ struct AttachedDiskDetailView: View {
                                 .bold()
                             statusBadge(for: disk.fsckStatus)
                         }
-                        Text(isOffline(disk)
-                             ? "Offline — last seen at \(offlineSinceText(disk))"
-                             : "Mounted by the system — no configuration")
+                        Text(headerSubtitle(disk))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
                     // Top-right: Forget removes the row from the sidebar.
-                    // Useful once the user has finished investigating an
-                    // offline disk; live rows can be forgotten too but
+                    // Mostly useful for clearing a `.mounting` preview
+                    // stuck in limbo; live rows can be forgotten too but
                     // the next mount-table poll will resurrect them.
                     Button(role: .destructive, action: { attachedDisks.forget(id: disk.id) }) {
                         Label("Forget", image: "tabler-minus-circle")
@@ -106,17 +130,9 @@ struct AttachedDiskDetailView: View {
                 // the user sees them without having to scroll past
                 // the form. Mirrors the connection-error banner in
                 // DirectMountDetailView. We render every active
-                // error (Mount / Unmount / Verify) so a stale error
-                // from a prior op stays visible until dismissed
-                // rather than being clobbered by a fresh failure.
-                if let err = mountError {
-                    errorBanner(
-                        headline: "Mount failed",
-                        message: err,
-                        onDismiss: { mountError = nil }
-                    )
-                }
-
+                // error (Unmount / Verify) so a stale error from a
+                // prior op stays visible until dismissed rather than
+                // being clobbered by a fresh failure.
                 if let err = unmountError {
                     errorBanner(
                         headline: "Unmount failed",
@@ -131,6 +147,54 @@ struct AttachedDiskDetailView: View {
                         message: err,
                         onDismiss: { verifyError = nil }
                     )
+                }
+
+                if let err = repairError {
+                    errorBanner(
+                        headline: "Repair failed",
+                        message: err,
+                        onDismiss: { repairError = nil }
+                    )
+                }
+
+                if let msg = repairResultMessage {
+                    successBanner(
+                        headline: "Repair complete",
+                        message: msg,
+                        onDismiss: { repairResultMessage = nil }
+                    )
+                }
+
+                // While the unmount → fsck → remount pipeline is in
+                // flight the volume is intentionally offline. Surface
+                // that prominently so the user understands why the
+                // disk seems "missing" and waits.
+                if case .repairing = disk.status {
+                    repairInProgressBanner(disk: disk)
+                }
+
+                // Terminal sticky state — pipeline couldn't bring the
+                // disk back online. Tells the user how to recover.
+                if case .repairFailed(let msg) = disk.status {
+                    repairFailedBanner(message: msg)
+                }
+
+                // "Repair recommended" hint. Surfaces whenever the
+                // last verify left the volume with un-repaired
+                // anomalies. Hides itself once a repair pass clears
+                // them (lastAnomaliesFound is overwritten by the
+                // post-repair fsck.done) or the user dismisses the
+                // most recent verify-error banner. Only shown for
+                // filesystems whose driver reports anomaly counts;
+                // unknown / 0 anomalies → no nag. Suppressed during
+                // repairing/repairFailed states (the in-progress /
+                // terminal banners take precedence).
+                if repairSupported,
+                   let n = disk.lastAnomaliesFound, n > 0,
+                   !isFsckRunning(disk.fsckStatus),
+                   !repairing,
+                   disk.status == .live {
+                    repairRecommendedBanner(anomalies: n, fsckStatus: disk.fsckStatus)
                 }
 
                 Divider()
@@ -151,22 +215,33 @@ struct AttachedDiskDetailView: View {
                         .formStyle(.columns)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
+                        if case .running(let phase, let done, let total) = disk.fsckStatus {
+                            progressBlock(phase: phase, done: done, total: total)
+                        }
+
+                        // Section 1 — Drive usage. Reads total_size /
+                        // free_size from `disk.info`; statvfs refreshes
+                        // those every poll cycle, so the bar slides as
+                        // the volume fills/drains.
+                        if let total = UInt64(disk.info["total_size"] ?? ""),
+                           total > 0,
+                           let free = UInt64(disk.info["free_size"] ?? "") {
+                            driveUsageSection(total: total, free: free)
+                        }
+
+                        // Section 2 — Live I/O activity. Re-reads
+                        // `disk.ioStats` each render, so the sparkline
+                        // slides as the FSKit extension emits new 1 Hz
+                        // `io.stats` samples. FSKit volumes have a real
+                        // block device so we show the physical track too.
+                        IOStatsSection(stats: disk.ioStats, showPhysical: true)
+
+                        // Section 3 — Volume info.
                         if !disk.info.isEmpty {
                             volumeInfoTwoColumn(disk.info)
                         }
 
-                if case .running(let phase, let done, let total) = disk.fsckStatus {
-                    progressBlock(phase: phase, done: done, total: total)
-                }
-
-                // Live I/O activity panel — re-reads `disk.ioStats`
-                // each render, so the sparkline slides as the FSKit
-                // extension emits new 1 Hz `io.stats` samples. FSKit
-                // volumes have a real block device so we show the
-                // physical track too.
-                IOStatsSection(stats: disk.ioStats, showPhysical: true)
-
-                diagnosticsSection()
+                        diagnosticsSection()
 
                         partitionLogSection(for: disk)
                     }
@@ -174,8 +249,8 @@ struct AttachedDiskDetailView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            // Mount/Reveal · Verify · Unmount live in the unified
-            // titlebar at `.primaryAction` (right edge), mirroring
+            // Reveal · Verify · Unmount live in the unified titlebar
+            // at `.primaryAction` (right edge), mirroring
             // DirectMountDetailView for consistency. ContentView's
             // sidebar `+` is at `.navigation` so the two groups split
             // across the leading and trailing edges instead of
@@ -193,36 +268,16 @@ struct AttachedDiskDetailView: View {
                 // mid-window instead of glued to the right.
                 ToolbarSpacer(.flexible, placement: .primaryAction)
                 ToolbarItemGroup(placement: .primaryAction) {
-                    if isOffline(disk) {
-                        // Offline rows: only "Mount" is meaningful.
-                        // Reveal/Verify/Unmount all assume a live mount.
-                        Button(action: { mount(disk) }) {
-                            if mounting {
-                                HStack(spacing: 4) {
-                                    ProgressView().scaleEffect(0.5).frame(width: 14, height: 14)
-                                    Text("Mounting…")
-                                }
-                            } else {
-                                Label("Mount", image: "tabler-externaldrive-connected-to-line-below")
-                                    .labelStyle(.titleAndIcon)
-                            }
-                        }
-                        .disabled(mounting || (disk.bsd ?? "").isEmpty)
-                        .help((disk.bsd ?? "").isEmpty
-                              ? "DiskArbitration hasn't fired for this disk yet — try replugging."
-                              : "Mount via DiskArbitration. macOS routes this through the FSKit extension reliably (unlike `diskutil mount`).")
-                    } else {
-                        Button(action: {
-                            NSWorkspace.shared.activateFileViewerSelecting(
-                                [URL(fileURLWithPath: disk.mountPath)]
-                            )
-                        }) {
-                            Label("Reveal in Finder", image: "tabler-folder")
-                                .labelStyle(.titleAndIcon)
-                        }
+                    Button(action: {
+                        NSWorkspace.shared.activateFileViewerSelecting(
+                            [URL(fileURLWithPath: disk.mountPath)]
+                        )
+                    }) {
+                        Label("Reveal in Finder", image: "tabler-folder")
+                            .labelStyle(.titleAndIcon)
                     }
 
-                    if verifySupported && !isOffline(disk) {
+                    if verifySupported {
                         Button(action: { verifyTapped(disk) }) {
                             if verifying || isFsckRunning(disk.fsckStatus) {
                                 HStack(spacing: 4) {
@@ -234,23 +289,37 @@ struct AttachedDiskDetailView: View {
                                     .labelStyle(.titleAndIcon)
                             }
                         }
-                        .disabled(verifying || unmounting || isFsckRunning(disk.fsckStatus) || isOffline(disk))
+                        .disabled(verifying || repairing || unmounting || isFsckRunning(disk.fsckStatus))
                     }
 
-                    if !isOffline(disk) {
-                        Button(action: { unmount(disk) }) {
-                            if unmounting {
+                    if repairSupported {
+                        Button(action: { showRepairConfirm = true }) {
+                            if repairing {
                                 HStack(spacing: 4) {
                                     ProgressView().scaleEffect(0.5).frame(width: 14, height: 14)
-                                    Text("Unmounting…")
+                                    Text("Repairing…")
                                 }
                             } else {
-                                Label("Unmount", image: "tabler-eject")
+                                Label("Repair Filesystem", systemImage: "wrench.and.screwdriver")
                                     .labelStyle(.titleAndIcon)
                             }
                         }
-                        .disabled(unmounting)
+                        .help("Detects and repairs known on-disk corruption (duplicate directory entries from a fixed driver bug). Modifies the disk — back up first if you're unsure.")
+                        .disabled(verifying || repairing || unmounting || isFsckRunning(disk.fsckStatus))
                     }
+
+                    Button(action: { unmount(disk) }) {
+                        if unmounting {
+                            HStack(spacing: 4) {
+                                ProgressView().scaleEffect(0.5).frame(width: 14, height: 14)
+                                Text("Unmounting…")
+                            }
+                        } else {
+                            Label("Unmount", image: "tabler-eject")
+                                .labelStyle(.titleAndIcon)
+                        }
+                    }
+                    .disabled(unmounting)
                 }
             }
             // NTFS verify writes to disk (resets `$LogFile`, clears
@@ -269,57 +338,26 @@ struct AttachedDiskDetailView: View {
             } message: {
                 Text("Verifying this NTFS volume will briefly unmount it, reset its log file, and clear the dirty bit. The volume will remain unavailable for a few seconds. Continue?")
             }
+            // Repair always writes — no read-only escape hatch the way
+            // ext4 verify has — so the confirm always fires regardless
+            // of fs type. Wording references the volume name explicitly
+            // because the user may have several mounts open at once.
+            .confirmationDialog(
+                "Repair Filesystem?",
+                isPresented: $showRepairConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Repair", role: .destructive) { repair(disk) }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("DiskJockey will repair \"\(disk.name)\" in place against the live mount — no unmount and no admin password required. The pass is journaled, but back up anything irreplaceable first if you can.")
+            }
         } else {
             ContentUnavailableView(
                 "Disk Forgotten",
                 image: "tabler-externaldrive-badge-minus",
                 description: Text("This disk is no longer tracked. It will reappear in the sidebar if it's reattached.")
             )
-        }
-    }
-
-    // MARK: - Mount
-
-    /// Mount the offline disk via macOS 26's FSKit-aware `mount -F`
-    /// path, gated by `osascript "do shell script with administrator
-    /// privileges"`.
-    ///
-    /// Why this path (and not DADiskMount):
-    /// `DADiskMount` from a sandboxed app is silently vetoed by the
-    /// App Sandbox profile — `authd` denies the right
-    /// `system.volume.removable.mount` for sandboxed callers, the
-    /// DA framework returns `kDAReturnNotPrivileged`, the call never
-    /// reaches `diskarbitrationd`. `mount -F -t ext4 /dev/diskN
-    /// /Volumes/<name>` (macOS 26 `mount(8) --F` flag) explicitly
-    /// dispatches to fskitd via the FSKit module path and bypasses the
-    /// LaunchServices fstype-routing cache that breaks `diskutil mount`
-    /// for FSKit-managed types. The `osascript` wrapper handles the
-    /// privilege escalation through Authorization Services — Touch ID
-    /// supported, credential cached ~5min for follow-up mounts, App
-    /// Store compatible.
-    private func mount(_ disk: AttachedDisk) {
-        guard !disk.devicePath.isEmpty else {
-            mountError = "Cannot mount: no device path on record."
-            return
-        }
-        // Use the disk's name (or the BSD as a fallback) for the
-        // /Volumes/<name> mount point. FSKitMountService.attach
-        // validates the name format.
-        let name = disk.name.isEmpty ? (disk.bsd ?? "disk") : disk.name
-        mounting = true
-        mountError = nil
-        Task { @MainActor in
-            do {
-                try await FSKitMountService.shared.attach(
-                    imagePath: disk.devicePath,
-                    name: name,
-                    fsType: disk.fsType
-                )
-                self.mounting = false
-            } catch {
-                self.mounting = false
-                self.mountError = error.localizedDescription
-            }
         }
     }
 
@@ -383,19 +421,13 @@ struct AttachedDiskDetailView: View {
         return false
     }
 
-    private func isOffline(_ disk: AttachedDisk) -> Bool {
-        if case .offline = disk.status { return true }
-        return false
-    }
-
-    /// Formatted "since" timestamp for the offline subtitle. Shows the
-    /// absolute date+time so the user can tell whether the dropout
-    /// happened just now or hours ago.
-    private func offlineSinceText(_ disk: AttachedDisk) -> String {
-        if case .offline(let since) = disk.status {
-            return since.formatted(date: .abbreviated, time: .shortened)
+    /// Caption under the disk name. fsck running takes priority over
+    /// the regular "mounted by the system" line.
+    private func headerSubtitle(_ disk: AttachedDisk) -> String {
+        if case .running(let phase, _, _) = disk.fsckStatus {
+            return "Running fsck — \(phase)"
         }
-        return ""
+        return "Mounted by the system — no configuration"
     }
 
     /// Whitelist of fstypes whose verify path actually routes through
@@ -411,6 +443,15 @@ struct AttachedDiskDetailView: View {
         case "fsntfs": return true
         default:       return false
         }
+    }
+
+    /// Whether the Repair Filesystem button should appear. Today only
+    /// ext4 has a write-back repair pass distinct from Verify — NTFS's
+    /// existing Verify path already rewrites `$LogFile`, so adding a
+    /// second button there would duplicate the affordance.
+    private var repairSupported: Bool {
+        guard let disk = disk else { return false }
+        return disk.fsType == "ext4"
     }
 
     /// `-t` argument value for `fsck_fskit`. Matches the FSShortName
@@ -529,6 +570,134 @@ struct AttachedDiskDetailView: View {
         }
     }
 
+    // MARK: - Repair
+
+    /// Drive the repair pass in-process inside the FSKit extension by
+    /// dropping a request file into the shared App Group container.
+    /// The extension's RepairWatcher claims the file, runs the
+    /// journaled repair against the live mount, and writes a result
+    /// file we poll for. fsck.start/progress/done events still flow
+    /// through the existing NDJSON stream so the per-disk progress
+    /// UI updates without any new plumbing here.
+    ///
+    /// Why files instead of XPC: ExtensionKit-extension bundles
+    /// silently ignore Info.plist `MachServices` declarations, and
+    /// the anonymous-listener-endpoint workaround is unconventional
+    /// enough to risk reviewer-friction at App Store review. Two of
+    /// our own bundles communicating through their own App Group
+    /// container is the textbook use of App Groups.
+    private func repair(_ disk: AttachedDisk) {
+        guard let bsd = disk.bsd, !bsd.isEmpty else {
+            repairError = "Repair is unavailable: this row has no BSD identity."
+            return
+        }
+        guard
+            let requestsDir = DiskJockeyRepairFiles.requestsURL(forFsType: disk.fsType),
+            let responsesDir = DiskJockeyRepairFiles.responsesURL(forFsType: disk.fsType)
+        else {
+            repairError = "Repair is not supported for filesystem \"\(disk.fsType)\""
+            return
+        }
+
+        // Make sure the directory tree exists. The extension also
+        // creates these on its own start, but we can't assume it has
+        // started before the user clicks Repair — creating from both
+        // sides is idempotent.
+        do {
+            try DiskJockeyRepairFiles.ensureDirectories(forFsType: disk.fsType)
+        } catch {
+            repairError = "Could not create repair request directory: \(error.localizedDescription)"
+            return
+        }
+
+        let request = RepairRequest(bsd: bsd)
+        let requestURL = requestsDir.appendingPathComponent(
+            DiskJockeyRepairFiles.requestFilename(id: request.id)
+        )
+        let resultURL = responsesDir.appendingPathComponent(
+            DiskJockeyRepairFiles.resultFilename(id: request.id)
+        )
+
+        do {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            let data = try encoder.encode(request)
+            try data.write(to: requestURL, options: .atomic)
+        } catch {
+            repairError = "Could not write repair request: \(error.localizedDescription)"
+            return
+        }
+
+        repairing = true
+        repairError = nil
+        repairResultMessage = nil
+        let diskID = disk.id
+        let model = self.attachedDisks
+        model.setStatus(.repairing, forID: diskID)
+
+        AppLog.shared.info("repair: submitted request \(request.id) for bsd=\(bsd) at \(requestURL.lastPathComponent)")
+
+        // Watch for the response. We use a simple polling Task rather
+        // than DispatchSource because the host app can't watch
+        // directories that haven't been written to yet (kqueue
+        // semantics), and the result file may appear seconds-to-
+        // minutes from now depending on the volume's repair load.
+        // Polling every 0.5s is cheap (single stat() per tick) and
+        // plenty responsive.
+        let timeoutSec: Double = 60 * 30  // 30 minutes — even the largest
+                                          // ext4 volumes finish in under that.
+        let pollInterval: Double = 0.5
+        let startedAt = Date()
+
+        Task.detached {
+            let fm = FileManager.default
+            while Date().timeIntervalSince(startedAt) < timeoutSec {
+                if fm.fileExists(atPath: resultURL.path) {
+                    do {
+                        let data = try Data(contentsOf: resultURL)
+                        let decoder = JSONDecoder()
+                        decoder.dateDecodingStrategy = .iso8601
+                        let result = try decoder.decode(RepairResult.self, from: data)
+                        // Best-effort cleanup so the response dir
+                        // doesn't accumulate stale entries.
+                        try? fm.removeItem(at: resultURL)
+                        await MainActor.run {
+                            self.repairing = false
+                            if result.success {
+                                self.repairResultMessage = result.message
+                                model.setStatus(.live, forID: diskID)
+                            } else {
+                                self.repairError = result.message
+                                model.setStatus(
+                                    .repairFailed("Repair failed: \(result.message.prefix(160))"),
+                                    forID: diskID)
+                            }
+                            AppLog.shared.info("repair: \(request.id) done success=\(result.success) repaired=\(result.repairedCount.map { "\($0)" } ?? "—")")
+                        }
+                        return
+                    } catch {
+                        await MainActor.run {
+                            self.repairing = false
+                            self.repairError = "Could not parse repair result: \(error.localizedDescription)"
+                            model.setStatus(.repairFailed("Repair result unreadable."), forID: diskID)
+                        }
+                        return
+                    }
+                }
+                try? await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
+            }
+            // Timeout — the extension may have crashed or is taking
+            // unreasonably long. Surface clearly.
+            await MainActor.run {
+                self.repairing = false
+                self.repairError = "Repair timed out after 30 minutes. Check the per-disk log strip for the latest progress."
+                model.setStatus(
+                    .repairFailed("Repair timed out — check per-disk log."),
+                    forID: diskID)
+            }
+        }
+    }
+
     // MARK: - Error banner
 
     /// Compact red banner for action errors (Mount / Unmount / Verify).
@@ -571,6 +740,49 @@ struct AttachedDiskDetailView: View {
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(Color.red.opacity(0.35), lineWidth: 1)
+        )
+        .padding(.horizontal, 24)
+        .padding(.vertical, 12)
+    }
+
+    /// Green sibling of `errorBanner`. Same shape so the success +
+    /// failure outcomes of the Repair button share a visual idiom.
+    /// Caller is responsible for clearing the message — there's no
+    /// auto-dismiss timer because the user may want to read the
+    /// repaired-count number before dismissing.
+    @ViewBuilder
+    private func successBanner(headline: String,
+                               message: String,
+                               onDismiss: @escaping () -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image("tabler-checkmark-seal-fill")
+                    .foregroundStyle(.green)
+                Text(headline)
+                    .font(.callout.weight(.semibold))
+                Spacer(minLength: 8)
+                Button(action: onDismiss) {
+                    Image("tabler-dismiss")
+                }
+                .buttonStyle(.borderless)
+                .help("Dismiss")
+            }
+
+            Text(message)
+                .font(.callout)
+                .foregroundStyle(.primary)
+                .multilineTextAlignment(.leading)
+                .lineLimit(nil)
+                .textSelection(.enabled)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.green.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.green.opacity(0.35), lineWidth: 1)
         )
         .padding(.horizontal, 24)
         .padding(.vertical, 12)
@@ -665,6 +877,49 @@ struct AttachedDiskDetailView: View {
                 ? "Anomalies cleared (\(bytes) bytes touched) — see partition log"
                 : "No anomalies found (\(bytes) bytes scanned)"
         }
+    }
+
+    // MARK: - Drive-usage rendering
+
+    /// Stacked usage bar — light-blue track represents free capacity,
+    /// solid-blue overlay represents used. Three caption labels under
+    /// the bar (Used / Free / Total) give the absolute numbers. Inputs
+    /// are bytes; values come from `disk.info["total_size"]` and
+    /// `disk.info["free_size"]` which `AttachedDisksModel.refresh()`
+    /// repopulates from `statvfs(2)` every poll cycle, so the bar
+    /// slides as the volume fills/drains without any extra timer here.
+    @ViewBuilder
+    private func driveUsageSection(total: UInt64, free: UInt64) -> some View {
+        let used: UInt64 = total > free ? total - free : 0
+        let usedFraction: Double = total > 0
+            ? min(1.0, max(0.0, Double(used) / Double(total)))
+            : 0
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Drive usage")
+                .font(.headline)
+
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.blue.opacity(0.18))
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.blue)
+                        .frame(width: geo.size.width * usedFraction)
+                }
+            }
+            .frame(height: 14)
+
+            HStack {
+                Text("Used: \(humanSize(bytes: used))")
+                Spacer()
+                Text("Free: \(humanSize(bytes: free))")
+                Spacer()
+                Text("Total: \(humanSize(bytes: total))")
+            }
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Volume-info rendering
@@ -839,6 +1094,13 @@ struct AttachedDiskDetailView: View {
             Text("Logs each child path the FSKit extension hands to macOS during directory listing. Useful for diagnosing missing-file or wrong-attributes issues. Off by default; can be very noisy when Spotlight indexes a freshly-mounted volume.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            Toggle("Verbose repair log", isOn: $verboseRepairLog)
+                .toggleStyle(.switch)
+                .padding(.top, 4)
+            Text("Emits fsck progress events at ~10 Hz instead of the default 1 Hz. Useful when collecting traces for a hard-to-reproduce repair bug. Off by default — the higher rate can flood the log and freeze the UI on volumes with millions of entries.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -949,5 +1211,118 @@ struct AttachedDiskDetailView: View {
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.08)))
+    }
+
+    /// Verify-found-anomalies call-to-action. Inline button that
+    /// kicks the same confirmation flow as the toolbar Repair button
+    /// — saves the user from hunting for it after running Verify.
+    /// No dismiss control by design: the message is "you have a
+    /// repairable problem", not transient feedback. Goes away when
+    /// the next repair pass overwrites `lastAnomaliesFound` with 0
+    /// (the post-repair fsck.done re-emits the residual count).
+    /// In-progress banner shown for the duration of the
+    /// unmount → fsck → remount pipeline. The volume isn't in
+    /// `/sbin/mount` while this is up, so without the banner the user
+    /// would just see the disk "vanish" with no explanation. Pairs
+    /// with the live fsck progress bar inside `inFlightSection`,
+    /// which keeps rendering as `fsck.start`/`fsck.progress` events
+    /// flow in from the extension's NDJSON stream.
+    @ViewBuilder
+    private func repairInProgressBanner(disk: AttachedDisk) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Repairing \(disk.name)")
+                    .font(.callout.weight(.semibold))
+                Text("Repairing in place — keep the disk plugged in until the pass finishes. The volume stays mounted; file operations are paused while the repair runs.")
+                    .font(.callout)
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.leading)
+            }
+            Spacer(minLength: 12)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.blue.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.blue.opacity(0.40), lineWidth: 1)
+        )
+        .padding(.horizontal, 24)
+        .padding(.vertical, 6)
+    }
+
+    /// Terminal sticky banner — pipeline couldn't put the disk back
+    /// online. Tells the user how to recover. Stays up until the row
+    /// is replaced (replug, or a successful next mount surfaces a
+    /// fresh row).
+    @ViewBuilder
+    private func repairFailedBanner(message: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image("tabler-alert-octagon-filled")
+                .foregroundStyle(.red)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Repair failed")
+                    .font(.callout.weight(.semibold))
+                Text(message)
+                    .font(.callout)
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.leading)
+                    .textSelection(.enabled)
+            }
+            Spacer(minLength: 12)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.red.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.red.opacity(0.40), lineWidth: 1)
+        )
+        .padding(.horizontal, 24)
+        .padding(.vertical, 6)
+    }
+
+    @ViewBuilder
+    private func repairRecommendedBanner(anomalies: UInt64, fsckStatus: FsckStatus) -> some View {
+        let label = anomalies == 1 ? "1 anomaly" : "\(anomalies) anomalies"
+        HStack(alignment: .top, spacing: 10) {
+            Image("tabler-alert-triangle-filled")
+                .foregroundStyle(.orange)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Repair recommended")
+                    .font(.callout.weight(.semibold))
+                Text("Verify found \(label) on this volume. Run Repair Filesystem to fix the on-disk inconsistencies.")
+                    .font(.callout)
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.leading)
+            }
+            Spacer(minLength: 12)
+            Button("Repair Filesystem…") {
+                showRepairConfirm = true
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .disabled(repairing || isFsckRunning(fsckStatus))
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.orange.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.orange.opacity(0.40), lineWidth: 1)
+        )
+        .padding(.horizontal, 24)
+        .padding(.vertical, 6)
     }
 }

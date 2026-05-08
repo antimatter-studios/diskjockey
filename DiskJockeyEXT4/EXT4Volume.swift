@@ -14,6 +14,7 @@
 import FSKit
 import Foundation
 import os
+import DiskJockeyLibrary
 
 /// Represents a mounted volume backed by any FileSystemBackend.
 final class EXT4Volume: FSVolume,
@@ -83,12 +84,17 @@ final class EXT4Volume: FSVolume,
     }
 
     /// Synthesize `FSItem.Attributes` for a ghost AppleDouble item that
-    /// only exists in our short-circuited code path. Type=file, size=0,
-    /// mode=0o644, times=now, fileID=the ghost sentinel.
-    private static func ghostAppleDoubleAttributes(for path: String) -> FSItem.Attributes {
+    /// only exists in our short-circuited code path. Same standard-set
+    /// coverage as `attributes(from:parentInode:)` — flags, parentID,
+    /// and birthTime must all be set or FSKit rejects the reply.
+    private static func ghostAppleDoubleAttributes(
+        for path: String,
+        parentInode: UInt32?
+    ) -> FSItem.Attributes {
         let attrs = FSItem.Attributes()
         attrs.type = .file
         attrs.mode = 0o644
+        attrs.flags = 0
         attrs.size = 0
         attrs.allocSize = 0
         attrs.linkCount = 1
@@ -96,7 +102,12 @@ final class EXT4Volume: FSVolume,
         attrs.accessTime = now
         attrs.modifyTime = now
         attrs.changeTime = now
+        attrs.birthTime = now
         attrs.fileID = FSItem.Identifier(rawValue: UInt64(appleDoubleGhostInode))!
+        let parentRaw = UInt64(parentInode ?? 1)
+        if let parentID = FSItem.Identifier(rawValue: parentRaw) {
+            attrs.parentID = parentID
+        }
         return attrs
     }
 
@@ -115,12 +126,44 @@ final class EXT4Volume: FSVolume,
 
     // MARK: - Item management
 
-    private func item(forID fileID: UInt64, path: String) -> EXT4Item {
+    /// Look up or create the cached `EXT4Item` for a given inode.
+    ///
+    /// The cache is keyed on `fileID` (the inode). On a hit, the
+    /// cached item's `path` and `parentInode` are compared against the
+    /// lookup context — if either differs, the cached entry is
+    /// **replaced** rather than returned as-is.
+    ///
+    /// Why: every backend op on this volume is path-based
+    /// (`backend.stat(path:)`, `backend.writeFile(path:)`, …), so
+    /// returning an EXT4Item whose `path` doesn't match the kernel's
+    /// current lookup leads to `ENOENT` from the wrong path. Three
+    /// concrete failure modes were observed before this guard:
+    ///
+    ///   1. Inode reuse after `unlink` + `create` — same inode number,
+    ///      new path. Stat against the old (deleted) path fails.
+    ///   2. Hard-linked files reachable via two different paths —
+    ///      lookup of the second path returned the FSItem cached for
+    ///      the first.
+    ///   3. **Driver corruption**: rust-fs-ext4 `mkdir` reusing the
+    ///      same inode for multiple dirents (see
+    ///      `vendor/rust-fs-ext4` Bug A). Because our cache keyed
+    ///      only on `fileID`, every `untitled folder N` got the
+    ///      EXT4Item we'd cached for `.fseventsd` first, and Finder
+    ///      drew the rename UI on `.fseventsd` instead of the new
+    ///      folder.
+    ///
+    /// `parentInode` is `nil` only for the root directory — its parent
+    /// is `FSItemIDParentOfRoot` (1), set inside the attribute builder.
+    private func item(forID fileID: UInt64, path: String,
+                      parentInode: UInt32?) -> EXT4Item {
         itemsLock.withLock { items in
-            if let existing = items[fileID] {
+            if let existing = items[fileID],
+               existing.path == path,
+               existing.parentInode == parentInode {
                 return existing
             }
-            let newItem = EXT4Item(inode: UInt32(fileID), path: path)
+            let newItem = EXT4Item(inode: UInt32(fileID), path: path,
+                                   parentInode: parentInode)
             items[fileID] = newItem
             return newItem
         }
@@ -196,7 +239,7 @@ final class EXT4Volume: FSVolume,
                 log.info("volume: journal replay completed (or volume was clean)", scope: AppLogScope.lifecycle)
             }
         }
-        return item(forID: 2, path: "/")
+        return item(forID: 2, path: "/", parentInode: nil)
     }
 
     func deactivate(options: FSDeactivateOptions) async throws {
@@ -221,32 +264,15 @@ final class EXT4Volume: FSVolume,
 
         // Ghost AppleDouble — return synthetic attrs without hitting backend.
         if Self.isAppleDouble(path: ext4Item.path) {
-            return Self.ghostAppleDoubleAttributes(for: ext4Item.path)
+            return Self.ghostAppleDoubleAttributes(for: ext4Item.path,
+                                                   parentInode: ext4Item.parentInode)
         }
 
         guard let attr = backend.stat(path: ext4Item.path) else {
+            log.error("attributes: backend.stat returned nil for path=\"\(ext4Item.path)\" inode=\(ext4Item.inode) errno=\(backend.lastErrno()) — throwing ENOENT", scope: AppLogScope.io)
             throw POSIXError(.ENOENT)
         }
-
-        let attrs = FSItem.Attributes()
-        attrs.type = Self.fsItemType(from: attr.fileType)
-        attrs.mode = UInt32(attr.mode & 0o7777)
-        attrs.uid = uid_t(attr.uid)
-        attrs.gid = gid_t(attr.gid)
-        attrs.size = attr.size
-        attrs.linkCount = UInt32(attr.linkCount)
-        attrs.allocSize = attr.size
-
-        attrs.accessTime = timespec(tv_sec: Int(attr.atime), tv_nsec: 0)
-        attrs.modifyTime = timespec(tv_sec: Int(attr.mtime), tv_nsec: 0)
-        attrs.changeTime = timespec(tv_sec: Int(attr.ctime), tv_nsec: 0)
-
-        if attr.crtime > 0 {
-            attrs.addedTime = timespec(tv_sec: Int(attr.crtime), tv_nsec: 0)
-        }
-
-        attrs.fileID = FSItem.Identifier(rawValue: attr.fileID)!
-        return attrs
+        return Self.attributes(from: attr, parentInode: ext4Item.parentInode)
     }
 
     func setAttributes(_ newAttributes: FSItem.SetAttributesRequest,
@@ -259,7 +285,8 @@ final class EXT4Volume: FSVolume,
         // return synthetic state. Nothing hits the backend.
         if Self.isAppleDouble(path: ext4Item.path) {
             newAttributes.consumedAttributes = [.mode, .uid, .gid, .accessTime, .modifyTime, .size]
-            return Self.ghostAppleDoubleAttributes(for: ext4Item.path)
+            return Self.ghostAppleDoubleAttributes(for: ext4Item.path,
+                                                   parentInode: ext4Item.parentInode)
         }
 
         // Track which attributes we successfully consumed so the kernel
@@ -307,7 +334,7 @@ final class EXT4Volume: FSVolume,
         guard let attr = backend.stat(path: ext4Item.path) else {
             throw POSIXError(.ENOENT)
         }
-        return Self.attributes(from: attr)
+        return Self.attributes(from: attr, parentInode: ext4Item.parentInode)
     }
 
     // MARK: - Lookup (async)
@@ -328,7 +355,8 @@ final class EXT4Volume: FSVolume,
             throw POSIXError(.ENOENT)
         }
 
-        return (item(forID: attr.fileID, path: childPath), name)
+        return (item(forID: attr.fileID, path: childPath,
+                     parentInode: dirItem.inode), name)
     }
 
     // MARK: - Directory enumeration (async)
@@ -380,24 +408,31 @@ final class EXT4Volume: FSVolume,
 
             var itemAttrs: FSItem.Attributes? = nil
             if attributes != nil {
-                // Always populate at least minimal attributes when requested.
-                // FSKit errors out if attributes were requested but nil.
-                let attrs = FSItem.Attributes()
-                attrs.type = itemType
-                attrs.fileID = FSItem.Identifier(rawValue: entry.fileID) ?? FSItem.Identifier(rawValue: 1)!
-                attrs.linkCount = 1
-                attrs.mode = itemType == .directory ? 0o755 : 0o644
-
-                // Upgrade with richer info from stat when available.
+                // Always populate FSKit's full standard attribute set —
+                // an incomplete mask (missing flags/parentID/birthTime
+                // etc.) makes the connector reject the reply with errno
+                // 2, which surfaces to userspace as "file vanished."
+                // See `attributes(from:parentInode:)` for the contract
+                // and `EXT4AttributeMaskTests.swift` for the regression.
                 let childPath = dirItem.path == "/" ? "/\(entry.name)" : "\(dirItem.path)/\(entry.name)"
-                if let stat = backend.stat(path: childPath) {
-                    attrs.mode = UInt32(stat.mode & 0o7777)
-                    attrs.uid = uid_t(stat.uid)
-                    attrs.gid = gid_t(stat.gid)
-                    attrs.size = stat.size
-                    attrs.linkCount = UInt32(stat.linkCount)
+                let stat: BackendFileAttributes
+                if let s = backend.stat(path: childPath) {
+                    stat = s
+                } else {
+                    // Stat failed (race, transient I/O error). Fabricate
+                    // a stub so the standard mask is still fully covered.
+                    let defaultMode: UInt16 = (itemType == .directory) ? 0o755 : 0o644
+                    stat = BackendFileAttributes(
+                        fileID: entry.fileID,
+                        fileType: entry.fileType,
+                        mode: defaultMode,
+                        uid: 0, gid: 0,
+                        size: 0,
+                        linkCount: 1,
+                        atime: 0, mtime: 0, ctime: 0, crtime: 0
+                    )
                 }
-                itemAttrs = attrs
+                itemAttrs = Self.attributes(from: stat, parentInode: dirItem.inode)
             }
 
             let packed = packer.packEntry(
@@ -588,7 +623,9 @@ final class EXT4Volume: FSVolume,
         // filesystem for these names.
         if Self.isAppleDouble(name: nameStr) {
             log.info("createItem: silently swallowing AppleDouble \(childPath)", scope: AppLogScope.enumerate)
-            let ghost = item(forID: UInt64(Self.appleDoubleGhostInode), path: childPath)
+            let ghost = item(forID: UInt64(Self.appleDoubleGhostInode),
+                             path: childPath,
+                             parentInode: dirItem.inode)
             attributes.consumedAttributes = [.mode, .uid, .gid, .accessTime, .modifyTime]
             return (ghost, name)
         }
@@ -608,6 +645,7 @@ final class EXT4Volume: FSVolume,
             guard backend.mkdir(path: childPath, mode: modeBits) else {
                 throw Self.posixError(from: backend)
             }
+            log.info("createItem: mkdir ok path=\"\(childPath)\" parent=\(dirItem.inode)", scope: AppLogScope.io)
         case .symlink:
             // Symlinks have a dedicated entry point on this protocol; if
             // FSKit ever routes one through createItem we want a clear
@@ -643,9 +681,12 @@ final class EXT4Volume: FSVolume,
         attributes.consumedAttributes = consumed
 
         guard let attr = backend.stat(path: childPath) else {
+            log.error("createItem: post-create stat returned nil path=\"\(childPath)\" errno=\(backend.lastErrno())", scope: AppLogScope.io)
             throw POSIXError(.ENOENT)
         }
-        return (item(forID: attr.fileID, path: childPath), name)
+        log.info("createItem: post-create stat ok path=\"\(childPath)\" inode=\(attr.fileID) type=\(attr.fileType)", scope: AppLogScope.io)
+        return (item(forID: attr.fileID, path: childPath,
+                     parentInode: dirItem.inode), name)
     }
 
     func createSymbolicLink(named name: FSFileName, inDirectory directory: FSItem,
@@ -664,7 +705,8 @@ final class EXT4Volume: FSVolume,
         guard let attr = backend.stat(path: childPath) else {
             throw POSIXError(.ENOENT)
         }
-        return (item(forID: attr.fileID, path: childPath), name)
+        return (item(forID: attr.fileID, path: childPath,
+                     parentInode: dirItem.inode), name)
     }
 
     func createLink(to item: FSItem, named name: FSFileName,
@@ -786,26 +828,52 @@ final class EXT4Volume: FSVolume,
         }
     }
 
-    /// Build an `FSItem.Attributes` snapshot from a backend stat. Used by
-    /// `setAttributes` to return the post-mutation state without
-    /// duplicating field-by-field plumbing.
-    static func attributes(from attr: BackendFileAttributes) -> FSItem.Attributes {
+    /// Build an `FSItem.Attributes` snapshot from a backend stat.
+    ///
+    /// Populates **every bit in FSKit's standard attribute set** —
+    /// `type, mode, linkCount, flags, size, allocSize, fileID,
+    /// parentID, accessTime, modifyTime, changeTime, birthTime`.
+    /// Missing any of these makes
+    /// `FSVolumeConnector.getStandardItemAttributesForItem` reject the
+    /// reply with errno 2 (ENOENT), which surfaces to userspace as
+    /// "file vanished after save". See
+    /// `DiskJockeyTests/EXT4AttributeMaskTests.swift` for the regression
+    /// fixture and the FSKit bit layout.
+    ///
+    /// `parentInode` is `nil` only for the root directory — its parent
+    /// is the FSKit-defined `FSItemIDParentOfRoot` (1).
+    static func attributes(from attr: BackendFileAttributes,
+                           parentInode: UInt32?) -> FSItem.Attributes {
         let attrs = FSItem.Attributes()
         attrs.type = fsItemType(from: attr.fileType)
         attrs.mode = UInt32(attr.mode & 0o7777)
         attrs.uid = uid_t(attr.uid)
         attrs.gid = gid_t(attr.gid)
+        // ext4 stores BSD inode flags (e.g. immutable, append-only) in
+        // i_flags, but the fs_ext4 FFI doesn't surface them yet.
+        // Setting `flags = 0` is correct for the common case and, more
+        // importantly, marks bit 5 valid so FSKit accepts the reply.
+        attrs.flags = 0
         attrs.size = attr.size
         attrs.linkCount = UInt32(attr.linkCount)
         attrs.allocSize = attr.size
         attrs.accessTime = timespec(tv_sec: Int(attr.atime), tv_nsec: 0)
         attrs.modifyTime = timespec(tv_sec: Int(attr.mtime), tv_nsec: 0)
         attrs.changeTime = timespec(tv_sec: Int(attr.ctime), tv_nsec: 0)
-        if attr.crtime > 0 {
-            attrs.addedTime = timespec(tv_sec: Int(attr.crtime), tv_nsec: 0)
-        }
+        // ext4's i_crtime IS the birth time. The previous code routed
+        // it into addedTime (an HFS+/APFS concept — when this dirent
+        // was added to its current parent), which left FSKit's required
+        // birthTime bit unset.
+        attrs.birthTime = timespec(tv_sec: Int(attr.crtime), tv_nsec: 0)
         if let id = FSItem.Identifier(rawValue: attr.fileID) {
             attrs.fileID = id
+        }
+        // Root's parent is the FSKit-defined sentinel (= 1); every
+        // other item carries the inode of its enclosing directory,
+        // recorded at lookup/create time on the EXT4Item.
+        let parentRaw = UInt64(parentInode ?? 1)
+        if let parentID = FSItem.Identifier(rawValue: parentRaw) {
+            attrs.parentID = parentID
         }
         return attrs
     }

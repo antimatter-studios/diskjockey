@@ -5,6 +5,7 @@
 
 import FSKit
 import Foundation
+import DiskJockeyLibrary
 
 /// Single logging surface — fans out to os_log (system) + NDJSON file
 /// (tailed by host app UI) via AppLog's configured sinks.
@@ -148,7 +149,7 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
     /// `FSResource.identifier` (UUID) because we never persist this map.
     /// Guarded by an unfair lock so `startCheck` can read it without
     /// awaiting an actor.
-    fileprivate struct MountedResource {
+    struct MountedResource {
         let bsdName: String
         let backend: EXT4Backend
         /// Retained `BlockDeviceContext` pointer the load path used to
@@ -157,12 +158,22 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         /// against the same device without going through the backend
         /// (which is mid-mount and has its own lock semantics).
         let contextPtr: UnsafeMutableRawPointer
+        /// Cooperative tri-state mutex coordinating verify (`startCheck`)
+        /// and repair (`RepairXPCService`) so both can't run on the
+        /// same mounted volume concurrently. Default `.idle` ⇒
+        /// filesystem is available for normal operations. See
+        /// `OperationLock` for the contract.
+        let opLock: OperationLock
     }
-    fileprivate static let mountedResources = OSAllocatedUnfairLock<[ObjectIdentifier: MountedResource]>(
+    static let mountedResources = OSAllocatedUnfairLock<[ObjectIdentifier: MountedResource]>(
         initialState: [:])
 
     override init() {
         super.init()
+        // One mach-service listener per process — guarded inside start().
+        // Vends in-process repair to the host app via NSXPCConnection;
+        // see RepairXPCService for the rationale.
+        RepairXPCService.shared.start()
     }
 
 
@@ -251,7 +262,12 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         // started here so block-device callbacks made during mount
         // (superblock read, journal replay) get counted, stopped in
         // EXT4Volume.deactivate.
-        let stats = IOStatsCollector(label: bsdName, log: dlog)
+        // Wrap the per-mount logger as the recorder's emit closure so
+        // the shared `IOStatsRecorder` (in DiskJockeyLibrary) doesn't
+        // need to import any logger type — AppLog stays per-extension.
+        let stats = IOStatsRecorder(label: bsdName, emit: { fields in
+            dlog.event(kind: "io.stats", fields: fields, scope: AppLogScope.stats)
+        })
         let context = BlockDeviceContext(resource: blockDevice, log: dlog, stats: stats)
         let contextPtr = Unmanaged.passRetained(context).toOpaque()
 
@@ -308,7 +324,8 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         // the EXT4Volume releases it in `deactivate`.
         Self.mountedResources.withLock { map in
             map[ObjectIdentifier(resource)] = MountedResource(
-                bsdName: bsdName, backend: backend, contextPtr: contextPtr)
+                bsdName: bsdName, backend: backend,
+                contextPtr: contextPtr, opLock: OperationLock())
         }
         let volInfo = backend.volumeInfo()
         let volID = FSVolume.Identifier()
@@ -507,10 +524,40 @@ extension EXT4FileSystem: FSManageableResourceMaintenanceOperations {
         }
         let bsdName = resolved.bsdName
         let backend = resolved.backend
+        let opLock = resolved.opLock
         let dlog = TaggedLogger(
             log, fields: ["bsd": bsdName], kind: "ext4.fsck",
             scope: AppLogScope.fsck
         )
+
+        // fsck_fskit validates module-option flags against the
+        // extension's `FSCheckOptionSyntax` plist before forwarding,
+        // so any flag we want to honour here MUST also be declared
+        // there. We accept the BSD-style flags Apple's tools use:
+        //   -y : repair without prompting (yes-to-all)
+        //   -n : audit only, never write   (already the default)
+        //   -q : quick check (currently treated as audit-only)
+        // Plain argv contains/`-y` works because FSKit drops fsck_fskit's
+        // canonical short options into taskOptions verbatim. The log
+        // line surfaces both the raw argv and our derived intent so
+        // future debugging doesn't require re-instrumenting.
+        let argv = options.taskOptions
+        let repairRequested = argv.contains("-y")
+
+        // Cooperative tri-state mutex. Reject up front if the volume
+        // is already being verified or repaired. The matching release
+        // sits inside the Task.detached closure below so the lock
+        // tracks the actual operation lifetime, not just this scope.
+        let acquireOp: FsckOperation = repairRequested ? .repair : .verify
+        if let busy = opLock.tryAcquire(acquireOp) {
+            dlog.warn("startCheck rejected: volume busy with \(busy.displayName)")
+            throw POSIXError(.EBUSY)
+        }
+
+        dlog.info("startCheck: bsd=\(bsdName) taskOptions=\(argv) repair=\(repairRequested)")
+        dlog.event(kind: "fsck.start", fields: [
+            "repair": repairRequested ? "true" : "false",
+        ])
 
         // Pin Progress at 100 total units; the tracker bumps
         // `completedUnitCount` per phase as the Rust crate reports.
@@ -519,31 +566,63 @@ extension EXT4FileSystem: FSManageableResourceMaintenanceOperations {
         // would be best-effort no-op.
         let progress = Progress(totalUnitCount: 100)
 
-        dlog.event(kind: "fsck.start", fields: [:])
-
         // "directory" dominates because that's where the Rust crate
         // walks every entry and reports `done`/`total` against that
         // workload — see `FsckProgressTracker` for the full slicing.
         let tracker = FsckProgressTracker()
 
+        // Throttle fsck.progress emission. The Rust crate calls
+        // onProgress once per directory walked + once per inode batch
+        // — on a multi-thousand-dir volume that's thousands of
+        // callbacks per second. Each emit lands on the host's main
+        // actor (LogTailService → applyExtensionEvent → SwiftUI
+        // rerender), so unthrottled emission floods the runloop and
+        // beachballs the UI. NSProgress.completedUnitCount is updated
+        // every callback (cheap KVO write), so the FSKit-side progress
+        // bar stays smooth — only the structured event going to the
+        // host is rate-limited. Mirror of the throttle in
+        // RepairXPCService.
+        let appGroupDefaults = UserDefaults(suiteName: AppLog.groupIdentifier)
+        let verbose = appGroupDefaults?.bool(forKey: "verboseRepairLog") ?? false
+        let minIntervalNs: UInt64 = verbose ? 100_000_000 : 1_000_000_000  // 10 Hz vs 1 Hz
+        var lastEmitMonotonic: UInt64 = 0
+        var lastPhase: String = ""
+
         // Detached so the closure isn't tied to any actor; the C
-        // callbacks fire on Rust's worker thread anyway.
+        // callbacks fire on Rust's worker thread anyway. The opLock
+        // release happens here (not at the throw point) because the
+        // operation continues asynchronously.
         Task.detached {
+            defer { opLock.release() }
             let result = backend.runFsck(
+                repair: repairRequested,
                 onProgress: { phase, done, total in
-                    // Emit the structured event verbatim — the host
-                    // app's `AttachedDisksModel` consumes phase/done/
-                    // total directly.
-                    dlog.event(kind: "fsck.progress", fields: [
-                        "phase": phase,
-                        "done":  "\(done)",
-                        "total": "\(total)",
-                    ])
+                    // Throttle. Phase change always emits (so the user
+                    // sees the pipeline advance) and the first emit
+                    // bypasses the time gate (so the progress bar
+                    // appears immediately). All other emits are gated
+                    // to the throttle interval.
+                    let now = monotonicNanos()
+                    let phaseChanged = phase != lastPhase
+                    let intervalElapsed = lastEmitMonotonic == 0
+                        || (now &- lastEmitMonotonic) >= minIntervalNs
+                    if phaseChanged || intervalElapsed {
+                        lastEmitMonotonic = now
+                        lastPhase = phase
+                        dlog.event(kind: "fsck.progress", fields: [
+                            "phase": phase,
+                            "done":  "\(done)",
+                            "total": "\(total)",
+                        ])
+                    }
                     // Compute and apply progress. NSProgress is
                     // thread-safe for `completedUnitCount` writes;
                     // KVO observers receive notifications on the
                     // posting thread, which UI code on the host side
-                    // hops to the main queue itself.
+                    // hops to the main queue itself. We update this
+                    // unconditionally — it's an atomic int64 write,
+                    // not a UI rerender, so it doesn't contribute to
+                    // the main-actor flood.
                     let units = tracker.observe(
                         phase: phase, done: done, total: total)
                     progress.completedUnitCount = units
