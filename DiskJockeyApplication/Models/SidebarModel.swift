@@ -7,7 +7,6 @@ public enum SidebarItem: Hashable {
     /// A direct-linked network mount (host app + FileProvider extension,
     /// no backend). Lives in `DirectMountRegistry`.
     case directMount(UUID)
-    case addMount
     case logs
     /// Read-only sidebar entry for a disk currently or previously
     /// mounted by the system (e.g. an ext4 partition or image handled

@@ -164,6 +164,14 @@ public final class DirectMountRegistry: ObservableObject {
     /// failed op repopulates.
     @Published public private(set) var mountErrors: [String: MountConnectionError] = [:]
 
+    /// Fires from `applyExtensionEvent` whenever a `mount.error` is
+    /// recorded — gives subscribers (today: `OAuthRefreshSupervisor`)
+    /// a chance to react in real time. Distinct from observing the
+    /// `mountErrors` `@Published` because we want the trigger only on
+    /// new errors, not on dismiss/clear, and we want the per-event
+    /// payload (not the cumulative dictionary).
+    public var onMountError: ((_ domainID: String, _ error: MountConnectionError) -> Void)?
+
     private let configStore: MountConfigStore
     private let policyStore: MountPolicyStore
     private let keychain: MountKeychain
@@ -594,12 +602,14 @@ public final class DirectMountRegistry: ObservableObject {
             stats.absorb(IOCounters(fields: fields))
             mountStats[mountID] = stats
         case "mount.error":
-            mountErrors[mountID] = MountConnectionError(
+            let err = MountConnectionError(
                 summary: fields["summary"] ?? "Mount error",
                 detail:  fields["detail"]  ?? "",
                 op:      fields["op"]      ?? "?",
                 path:    fields["path"]
             )
+            mountErrors[mountID] = err
+            onMountError?(mountID, err)
         case "mount.error.cleared":
             mountErrors.removeValue(forKey: mountID)
         default:

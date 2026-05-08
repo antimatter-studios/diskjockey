@@ -262,6 +262,102 @@ enum FSKitAttachController {
         }
     }
 
+    /// Probe the first KB or so of a file to identify which FSKit
+    /// driver should mount it. Returns "ext4" or "ntfs" when confident,
+    /// `nil` otherwise — caller is expected to fall back to asking
+    /// the user. Only handles raw partition images (no MBR/GPT
+    /// container parsing); whole-disk images would land in the nil
+    /// branch and prompt explicitly.
+    static func detectFSType(at url: URL) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+
+        // NTFS: bytes [3, 11) of sector 0 are "NTFS    " (OEM ID).
+        if let head = try? handle.read(upToCount: 16), head.count >= 11 {
+            let oem = head.subdata(in: 3..<11)
+            if oem == Data("NTFS    ".utf8) { return "ntfs" }
+        }
+
+        // ext4: superblock magic 0xEF53 at byte offset 1080 (0x438),
+        // little-endian.
+        do {
+            try handle.seek(toOffset: 1080)
+            if let magic = try handle.read(upToCount: 2),
+               magic.count == 2, magic[0] == 0x53, magic[1] == 0xEF {
+                return "ext4"
+            }
+        } catch {
+            return nil
+        }
+
+        return nil
+    }
+
+    /// Single entry point for "user pointed us at a disk image, mount
+    /// it." Used by both the sidebar "Add Disk Image" button and the
+    /// drag-and-drop handler. Probes for fs type; if probing fails,
+    /// asks the user which driver to use.
+    static func attachUserPickedImage(at url: URL, logRepository: LogRepository? = nil) {
+        let fsType: String
+        if let detected = detectFSType(at: url) {
+            fsType = detected
+        } else {
+            let pick = NSAlert()
+            pick.messageText = "Couldn't detect filesystem"
+            pick.informativeText = "\(url.lastPathComponent) doesn't look like a raw ext4 or NTFS partition image. Pick a driver to try anyway, or cancel."
+            pick.addButton(withTitle: "Mount as ext4")
+            pick.addButton(withTitle: "Mount as NTFS")
+            pick.addButton(withTitle: "Cancel")
+            switch pick.runModal() {
+            case .alertFirstButtonReturn:  fsType = "ext4"
+            case .alertSecondButtonReturn: fsType = "ntfs"
+            default: return
+            }
+        }
+
+        let fallbackName = url.deletingPathExtension().lastPathComponent
+        let alert = NSAlert()
+        alert.messageText = "Mount as…"
+        alert.informativeText = "Volume will appear at /Volumes/<name> (\(fsType.uppercased()))"
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        input.stringValue = fallbackName
+        alert.accessoryView = input
+        alert.addButton(withTitle: "Mount")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        let name = input.stringValue.trimmingCharacters(in: .whitespaces)
+        logRepository?.logFSKit(
+            "attach (\(fsType)) requested: \(url.path) -> /Volumes/\(name)", category: "info")
+        Task { @MainActor in
+            do {
+                try await FSKitMountService.shared.attach(
+                    imagePath: url.path, name: name, fsType: fsType)
+                logRepository?.logFSKit(
+                    "mounted /Volumes/\(name) from \(url.path) (\(fsType))", category: "info")
+            } catch {
+                logRepository?.logFSKit(
+                    "mount /Volumes/\(name) failed: \(error.localizedDescription)",
+                    category: "error")
+                let fail = NSAlert(error: error)
+                fail.runModal()
+            }
+        }
+    }
+
+    /// Open a file picker then route through `attachUserPickedImage`.
+    /// Sidebar "Add Disk Image" button entry point.
+    static func promptAndAttachAuto(logRepository: LogRepository? = nil) {
+        let panel = NSOpenPanel()
+        panel.title = "Choose a disk image"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Pick a disk image to mount. Filesystem will be detected automatically."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        attachUserPickedImage(at: url, logRepository: logRepository)
+    }
+
     static func promptAndAttach(fsType: String, logRepository: LogRepository? = nil) {
         let display = fsType.uppercased()
         let panel = NSOpenPanel()
