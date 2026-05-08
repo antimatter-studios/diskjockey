@@ -35,6 +35,15 @@ public final class AppContainer: ObservableObject {
     /// backend handshake).
     public let directMountRegistry: DirectMountRegistry
 
+    /// Watches `mount.error` events from the FileProvider extension
+    /// for a dead-OAuth-refresh-token signal and auto-runs
+    /// re-authorisation (browser opens, new tokens land in the
+    /// keychain, the FileProvider domain is cycled). Eliminates the
+    /// "Sign in again in mount settings" manual step for Dropbox /
+    /// Google Drive / OneDrive mounts. Owned here so it lives as long
+    /// as `directMountRegistry` does.
+    public let oauthRefreshSupervisor: OAuthRefreshSupervisor
+
     /// Enumerates system-mounted disks (ext4 / ntfs via our FSKit
     /// extensions) so the sidebar can show them. Read-only.
     public let attachedDisks: AttachedDisksModel = AttachedDisksModel()
@@ -70,6 +79,21 @@ public final class AppContainer: ObservableObject {
         let symlinks = SymlinkManager(access: home)
         self.symlinkManager = symlinks
         self.directMountRegistry = DirectMountRegistry(symlinks: symlinks)
+
+        // OAuth refresh-token recovery. Hooks the registry's
+        // mount.error firehose; when the underlying error is a
+        // dead-refresh signal (`oauth_reauth_required` /
+        // `invalid_grant`), the supervisor opens the browser, runs
+        // the same flow as initial sign-in, and writes the new tokens
+        // back. Set up before LogTailService.start() so the very
+        // first event after launch can already trigger recovery.
+        let supervisor = OAuthRefreshSupervisor(
+            registry: self.directMountRegistry
+        )
+        self.oauthRefreshSupervisor = supervisor
+        self.directMountRegistry.onMountError = { [weak supervisor] domainID, err in
+            supervisor?.handleMountError(domainID: domainID, error: err)
+        }
 
         // Sweep stale `<picked>/<name>` symlinks whose targets no
         // longer exist (domain removed while app was closed, extension

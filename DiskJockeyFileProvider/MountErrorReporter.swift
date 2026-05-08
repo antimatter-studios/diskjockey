@@ -141,8 +141,14 @@ func humaniseMountError(op: String, raw: String) -> String {
 
     // ── OAuth (Dropbox / GDrive / OneDrive) ───────────────────────
 
-    if s.contains("invalid_grant") || s.contains("invalid refresh token") {
-        return "OAuth refresh token is no longer valid. Re-authenticate in the mount settings."
+    if s.contains("oauth_reauth_required") || s.contains("invalid_grant") || s.contains("invalid refresh token") {
+        // The host app's OAuthRefreshSupervisor watches for this same
+        // signal and opens the browser automatically — the user
+        // shouldn't normally see this banner for more than the time
+        // it takes to grant consent. The wording stays informative in
+        // case auto-recovery is unavailable (e.g. OAuthClients.json
+        // not configured) so the user still knows the manual path.
+        return "OAuth refresh token expired — re-authorising in your browser. If a tab doesn't open, sign in again from the mount settings."
     }
     if s.contains("invalid_client") {
         return "OAuth client credentials are wrong. Check the client ID and secret."

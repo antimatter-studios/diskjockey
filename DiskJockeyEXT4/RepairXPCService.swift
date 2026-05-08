@@ -258,7 +258,7 @@ final class RepairXPCService: NSObject {
         // Phase boundaries (`done == total`) and phase changes
         // always emit regardless of throttle so the pipeline advance
         // remains visible.
-        let appGroupDefaults = UserDefaults(suiteName: "group.com.antimatterstudios.diskjockey")
+        let appGroupDefaults = UserDefaults(suiteName: AppLog.groupIdentifier)
         let verbose = appGroupDefaults?.bool(forKey: "verboseRepairLog") ?? false
         var lastEmitMonotonic: UInt64 = 0
         var lastPhase: String = ""
