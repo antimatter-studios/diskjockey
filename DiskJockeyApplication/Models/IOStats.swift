@@ -135,6 +135,13 @@ public struct IOSample: Equatable, Hashable, Sendable, Identifiable {
 public struct IOStats: Equatable, Hashable, Sendable {
     public static let sampleCap = 120
 
+    /// How many seconds of history the sparkline should show. Older
+    /// samples stay in `samples` (capped by `sampleCap`) so changing
+    /// this constant doesn't lose data, but the rendered window is
+    /// fixed so the chart doesn't compress an ever-growing time range
+    /// into the same pixel width as the buffer fills.
+    public static let displayWindowSeconds: TimeInterval = 60.0
+
     /// Maximum age (in seconds) of the latest sample before the live
     /// throughput readout is treated as stale and reported as 0. Set
     /// just above the extensions' 1 Hz emit cadence so a single
@@ -224,27 +231,52 @@ public struct IOStats: Equatable, Hashable, Sendable {
         isStale(at: now) ? 0 : (samples.last?.bdevWriteBytesPerSec ?? 0)
     }
 
-    /// Peak throughput observed in the buffered sample window — used
-    /// by the sparkline as its y-axis scale. MUST stay consistent
-    /// with the raw `samples` array passed alongside it: if peak
-    /// returns 0 while `samples` still contains a 352 KB/s reading,
-    /// the sparkline path computes `y = h - (352000/1) * h`, which
-    /// is a huge negative number, and the stroke is drawn far above
-    /// its frame (SwiftUI doesn't clip Path strokes by default).
-    /// The historical peak is therefore reported as-is regardless of
-    /// the staleness check that gates `current*BytesPerSec` — the
-    /// chart shows the historical signal with a correct y-scale; only
-    /// the live readout decays to zero.
-    public var peakReadBytesPerSec: Double {
-        samples.map { $0.readBytesPerSec }.max() ?? 0
+    /// Sub-slice of `samples` whose timestamp falls within the rolling
+    /// display window ending at `now`. The slice is monotonic in time
+    /// (samples are append-only) so we binary-search the cutoff. Used
+    /// by the detail view so the sparkline shows a fixed time range
+    /// (last 60s by default) instead of compressing the whole buffer
+    /// into the chart width as samples accumulate.
+    public func recentSamples(at now: Date = Date(),
+                              window: TimeInterval = IOStats.displayWindowSeconds) -> ArraySlice<IOSample> {
+        guard !samples.isEmpty else { return samples[0..<0] }
+        let cutoff = now.addingTimeInterval(-window)
+        var lo = 0
+        var hi = samples.count
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if samples[mid].timestamp < cutoff {
+                lo = mid + 1
+            } else {
+                hi = mid
+            }
+        }
+        return samples[lo...]
     }
-    public var peakWriteBytesPerSec: Double {
-        samples.map { $0.writeBytesPerSec }.max() ?? 0
+
+    /// Peak throughput observed inside the display window — used by
+    /// the sparkline as its y-axis scale. Window-scoped (not all-time)
+    /// so a one-off spike that's already scrolled past doesn't squash
+    /// the currently-visible signal flat against the baseline. MUST
+    /// stay consistent with the sample array passed alongside it: if
+    /// peak returns 0 while the slice still contains a 352 KB/s
+    /// reading, the sparkline path computes `y = h - (352000/1) * h`,
+    /// which is a huge negative number, and the stroke is drawn far
+    /// above its frame (SwiftUI doesn't clip Path strokes by default).
+    public func peakReadBytesPerSec(at now: Date = Date(),
+                                    window: TimeInterval = IOStats.displayWindowSeconds) -> Double {
+        recentSamples(at: now, window: window).map { $0.readBytesPerSec }.max() ?? 0
     }
-    public var peakBdevReadBytesPerSec: Double {
-        samples.map { $0.bdevReadBytesPerSec }.max() ?? 0
+    public func peakWriteBytesPerSec(at now: Date = Date(),
+                                     window: TimeInterval = IOStats.displayWindowSeconds) -> Double {
+        recentSamples(at: now, window: window).map { $0.writeBytesPerSec }.max() ?? 0
     }
-    public var peakBdevWriteBytesPerSec: Double {
-        samples.map { $0.bdevWriteBytesPerSec }.max() ?? 0
+    public func peakBdevReadBytesPerSec(at now: Date = Date(),
+                                        window: TimeInterval = IOStats.displayWindowSeconds) -> Double {
+        recentSamples(at: now, window: window).map { $0.bdevReadBytesPerSec }.max() ?? 0
+    }
+    public func peakBdevWriteBytesPerSec(at now: Date = Date(),
+                                         window: TimeInterval = IOStats.displayWindowSeconds) -> Double {
+        recentSamples(at: now, window: window).map { $0.bdevWriteBytesPerSec }.max() ?? 0
     }
 }

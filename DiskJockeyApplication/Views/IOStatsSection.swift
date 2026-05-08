@@ -43,7 +43,7 @@ struct IOStatsSection: View {
     private func content(now: Date) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("I/O activity")
+                Text("File activity")
                     .font(.headline)
                 Spacer()
                 if let last = stats.lastUpdate {
@@ -57,21 +57,25 @@ struct IOStatsSection: View {
                 }
             }
 
-            // Live throughput row — current rate + sparkline side by side
+            // Live throughput row — current rate + sparkline side by side.
+            // Sparkline reads only the windowed slice so it shows a fixed
+            // time range (last `displayWindowSeconds`) instead of the
+            // whole buffer compressed into the chart width.
+            let window = stats.recentSamples(at: now)
             HStack(spacing: 14) {
                 throughputCard(
                     title: "Read",
                     bytesPerSec: stats.currentReadBytesPerSec(at: now),
-                    samples: stats.samples.map { $0.readBytesPerSec },
-                    peak: stats.peakReadBytesPerSec,
+                    samples: window.map { $0.readBytesPerSec },
+                    peak: stats.peakReadBytesPerSec(at: now),
                     color: .blue,
                     icon: "arrow.down.circle.fill"
                 )
                 throughputCard(
                     title: "Write",
                     bytesPerSec: stats.currentWriteBytesPerSec(at: now),
-                    samples: stats.samples.map { $0.writeBytesPerSec },
-                    peak: stats.peakWriteBytesPerSec,
+                    samples: window.map { $0.writeBytesPerSec },
+                    peak: stats.peakWriteBytesPerSec(at: now),
                     color: .orange,
                     icon: "arrow.up.circle.fill"
                 )
@@ -122,7 +126,7 @@ struct IOStatsSection: View {
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.tertiary)
                 Spacer()
-                Text("\(samples.count)/\(IOStats.sampleCap) samples")
+                Text("last \(Int(IOStats.displayWindowSeconds))s · \(samples.count) samples")
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.tertiary)
             }
@@ -202,6 +206,7 @@ struct IOStatsSection: View {
     @ViewBuilder
     private func physicalTrack(now: Date) -> some View {
         let c = stats.cumulative
+        let window = stats.recentSamples(at: now)
         VStack(alignment: .leading, spacing: 6) {
             Text("Physical I/O (block device)")
                 .font(.subheadline.weight(.semibold))
@@ -209,16 +214,16 @@ struct IOStatsSection: View {
                 throughputCard(
                     title: "Bdev read",
                     bytesPerSec: stats.currentBdevReadBytesPerSec(at: now),
-                    samples: stats.samples.map { $0.bdevReadBytesPerSec },
-                    peak: stats.peakBdevReadBytesPerSec,
+                    samples: window.map { $0.bdevReadBytesPerSec },
+                    peak: stats.peakBdevReadBytesPerSec(at: now),
                     color: .teal,
                     icon: "internaldrive"
                 )
                 throughputCard(
                     title: "Bdev write",
                     bytesPerSec: stats.currentBdevWriteBytesPerSec(at: now),
-                    samples: stats.samples.map { $0.bdevWriteBytesPerSec },
-                    peak: stats.peakBdevWriteBytesPerSec,
+                    samples: window.map { $0.bdevWriteBytesPerSec },
+                    peak: stats.peakBdevWriteBytesPerSec(at: now),
                     color: .purple,
                     icon: "internaldrive.fill"
                 )

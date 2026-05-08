@@ -19,9 +19,19 @@ final class EXT4Item: FSItem {
     /// Full path within the ext4 filesystem (e.g. "/etc/passwd")
     let path: String
 
-    init(inode: UInt32, path: String) {
+    /// Inode of the directory this item lives in. `nil` only for the
+    /// root directory — its parent is `FSItemIDParentOfRoot` (1), a
+    /// constant FSKit defines, so we don't need to store it.
+    /// FSKit's standard attribute set requires `parentID` (bit 9);
+    /// every code path that constructs an EXT4Item already knows the
+    /// parent dir, so we thread it through here rather than doing a
+    /// second stat at attribute-fetch time.
+    let parentInode: UInt32?
+
+    init(inode: UInt32, path: String, parentInode: UInt32?) {
         self.inode = inode
         self.path = path
+        self.parentInode = parentInode
         super.init()
     }
 }

@@ -24,7 +24,7 @@ public enum FsckStatus: Equatable, Hashable {
 }
 
 /// Where this disk sits in its lifecycle. Drives sidebar visual + the
-/// conditional third line ("Verifying disk…", "Offline since …").
+/// conditional third line ("Verifying disk…").
 ///
 ///   - `.mounting` — created from extension events (probe / loadResource /
 ///     fsck.start) but not yet visible in `/sbin/mount`. The preview-row
@@ -32,13 +32,25 @@ public enum FsckStatus: Equatable, Hashable {
 ///     gets created on probe so the user sees "something is happening"
 ///     during the multi-minute fsck window before the path appears.
 ///   - `.live` — currently in `/sbin/mount`.
-///   - `.offline(since:)` — was live, has dropped out. Kept in the
-///     sidebar so the user can read the partition log to investigate
-///     why a disk disappeared.
+///   - `.repairing` — intentionally unmounted by us for an in-flight
+///     repair pass. Survives the `/sbin/mount` poll AND DA's
+///     "disappeared" event so the user keeps seeing the row (with a
+///     "Repairing…" badge + live fsck progress) instead of having
+///     the disk silently vanish mid-operation.
+///   - `.repairFailed(message)` — terminal state when the unmount /
+///     fsck / remount pipeline couldn't finish. Tells the user "the
+///     in-app repair couldn't complete; reattach the disk to start
+///     fresh" and stays visible until the row is replaced by a real
+///     mount-table entry on next replug.
+///
+/// Disks that drop out of `/sbin/mount` AND aren't in one of the
+/// preserved-states above are removed from the sidebar entirely on
+/// the next refresh().
 public enum AttachedDiskStatus: Equatable, Hashable {
     case mounting
     case live
-    case offline(since: Date)
+    case repairing
+    case repairFailed(String)
 }
 
 public struct AttachedDisk: Identifiable, Equatable, Hashable {
@@ -63,8 +75,7 @@ public struct AttachedDisk: Identifiable, Equatable, Hashable {
     /// guarantees row continuity in that case.
     public var bsd: String?
     /// e.g. "/Volumes/inline-vol". Empty for `.mounting` preview rows
-    /// that haven't reached mount(8) yet, and for `.offline` rows
-    /// where we keep the last known path in `lastMountPath` instead.
+    /// that haven't reached mount(8) yet.
     public var mountPath: String
     public var devicePath: String            // e.g. "/dev/disk5"
     public var fsType: String                // e.g. "ext4"
@@ -76,11 +87,6 @@ public struct AttachedDisk: Identifiable, Equatable, Hashable {
     public var isWritable: Bool
     /// Lifecycle state. See `AttachedDiskStatus`.
     public var status: AttachedDiskStatus = .live
-    /// Last `mountPath` we saw this disk at. Survives the transition to
-    /// `.offline` (where `mountPath` is cleared) and across app
-    /// restarts via the persistence cache. Lets the detail view show
-    /// "was at /Volumes/Foo" for offline rows.
-    public var lastMountPath: String?
     /// Latest dirty/fsck status for this volume. Keyed into the model
     /// by correlating `fields["bsd"]` (e.g. "disk5") with this disk's
     /// devicePath tail.
@@ -101,6 +107,16 @@ public struct AttachedDisk: Identifiable, Equatable, Hashable {
     /// `refresh()`. The detail view's I/O activity section reads
     /// straight from here.
     public var ioStats: IOStats = IOStats()
+    /// Latest `repaired_count` from a `fsck.done` event. nil until a
+    /// repair pass has actually run.
+    public var lastRepairedCount: UInt64? = nil
+
+    /// Latest `anomalies` count from a `fsck.done` event. nil until
+    /// the first verify/repair finishes. > 0 after a verify means the
+    /// volume has on-disk inconsistencies the user should run repair
+    /// against; the detail view surfaces a "Repair recommended" hint
+    /// when this is non-zero AND no repair has happened since.
+    public var lastAnomaliesFound: UInt64? = nil
 
     /// Sidebar + detail-header icon. Baseline is the generic external-
     /// drive glyph; when `fsType` names a filesystem that only ships on
@@ -137,7 +153,6 @@ public struct AttachedDisk: Identifiable, Equatable, Hashable {
                 name: String,
                 isWritable: Bool,
                 status: AttachedDiskStatus = .live,
-                lastMountPath: String? = nil,
                 fsckStatus: FsckStatus = .unknown,
                 info: [String: String] = [:],
                 partitionLog: [AttachedDiskLogLine] = [],
@@ -151,7 +166,6 @@ public struct AttachedDisk: Identifiable, Equatable, Hashable {
         self.name = name
         self.isWritable = isWritable
         self.status = status
-        self.lastMountPath = lastMountPath ?? (mountPath.isEmpty ? nil : mountPath)
         self.fsckStatus = fsckStatus
         self.info = info
         self.partitionLog = partitionLog
@@ -220,15 +234,9 @@ public final class AttachedDisksModel: ObservableObject {
     ///   - currently in mount(8) (status = .live)
     ///   - extension events have arrived for the BSD but mount(8)
     ///     hasn't caught up (status = .mounting)
-    ///   - was live earlier this session, has dropped out
-    ///     (status = .offline)
-    ///   - was live in a previous session and persisted via UserDefaults
-    ///     (status = .offline, restored from disk on init)
-    /// Any mutation triggers `persist()` via didSet so the offline
-    /// roster survives an app restart.
-    @Published public private(set) var disks: [AttachedDisk] = [] {
-        didSet { persist() }
-    }
+    /// A disk that drops out of mount(8) is removed from the array on
+    /// the next refresh() — there's no offline roster.
+    @Published public private(set) var disks: [AttachedDisk] = []
 
     /// Scopes the per-mount detail-view log hides. Empty by default —
     /// the per-mount pane is the right place to see the full picture
@@ -262,24 +270,8 @@ public final class AttachedDisksModel: ObservableObject {
     private var pendingLogs: [String: [AttachedDiskLogLine]] = [:]
     private static let logCap = 500
 
-    /// JSON file holding the persisted history of disks we've seen
-    /// with a `stableIdentity`. Restored at launch as `.offline` rows
-    /// so the user can investigate a disk that was unmounted before
-    /// the app was last quit, or so a still-mounted disk reattaches
-    /// to its existing row before mount(8) re-enumeration completes.
-    /// Rows without `stableIdentity` (e.g. ext4 disks where we can't
-    /// read the UUID) are NOT persisted — the BSD they're keyed on
-    /// is meaningless across reboots.
-    ///
-    /// Stored in the App Group container — same dir tree as the NDJSON
-    /// logs (see `AppLog.groupIdentifier`). Inspectable with `cat`,
-    /// wipeable with `rm`, no UserDefaults voodoo. Schema is versioned
-    /// so a future field addition can either migrate or skip cleanly.
-    private static let persistenceFilename = "AttachedDisks.v1.json"
-
     public init(pollInterval: TimeInterval = 3.0) {
         self.pollInterval = pollInterval
-        self.disks = Self.loadPersisted()
     }
 
     public func start() {
@@ -295,148 +287,19 @@ public final class AttachedDisksModel: ObservableObject {
         timer = nil
     }
 
-    // MARK: - Persistence
-
-    /// Snapshot of the bare-minimum fields needed to recreate a disk's
-    /// sidebar row across an app restart. Deliberately doesn't include
-    /// partitionLog / ioStats / fsckStatus — those are session-scoped
-    /// and would be misleading if rendered from a previous run.
-    ///
-    /// `stableIdentity` is optional: rows that have it survive replug
-    /// + reboot. Rows without it (no `volume.info` yet, e.g. a disk
-    /// already mounted from a prior session) are still persisted so
-    /// the sidebar isn't empty after a relaunch — they just won't
-    /// coalesce across a BSD change. The fallback is keyed on `bsd`
-    /// so an in-session restart works.
-    private struct PersistedRow: Codable {
-        let stableIdentity: String?
-        let lastBsd: String?
-        let lastMountPath: String?
-        let lastDevicePath: String
-        let fsType: String
-        let name: String
-        let lastSeenAt: Date
-        let info: [String: String]
-    }
-
-    /// Versioned envelope for the JSON file. Lets us add fields to
-    /// `PersistedRow` later (or migrate the row shape) without
-    /// silently corrupting an old cache — a bumped `version` triggers
-    /// a clean discard rather than a half-decoded mess.
-    private struct PersistedSnapshot: Codable {
-        let version: Int
-        let savedAt: Date
-        let rows: [PersistedRow]
-    }
-
-    /// Resolve the on-disk path for the snapshot file. Returns nil only
-    /// if the App Group container isn't accessible, which would mean
-    /// the entitlement is misconfigured — we fall back to skipping
-    /// persistence rather than dropping the file in `tmp` where it
-    /// would silently disappear.
-    private static func persistenceURL() -> URL? {
-        let fm = FileManager.default
-        guard let base = fm.containerURL(
-            forSecurityApplicationGroupIdentifier: AppLog.groupIdentifier
-        ) else { return nil }
-        return base.appendingPathComponent(persistenceFilename, isDirectory: false)
-    }
-
-    private static func loadPersisted() -> [AttachedDisk] {
-        guard let url = persistenceURL() else {
-            AppLog.shared.warn("AttachedDisks: persistence URL unavailable (app group entitlement?) — starting with empty history")
-            return []
-        }
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            AppLog.shared.info("AttachedDisks: no persisted history at \(url.path) (first launch?)")
-            return []
-        }
-        do {
-            let data = try Data(contentsOf: url)
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            let snapshot = try decoder.decode(PersistedSnapshot.self, from: data)
-            AppLog.shared.info("AttachedDisks: loaded \(snapshot.rows.count) persisted rows (savedAt=\(snapshot.savedAt))")
-            return snapshot.rows.map { row in
-                AttachedDisk(
-                    stableIdentity: row.stableIdentity,
-                    bsd: row.lastBsd,
-                    mountPath: "",
-                    devicePath: row.lastDevicePath,
-                    fsType: row.fsType,
-                    name: row.name,
-                    isWritable: true,
-                    status: .offline(since: row.lastSeenAt),
-                    lastMountPath: row.lastMountPath,
-                    info: row.info
-                )
-            }
-        } catch {
-            AppLog.shared.warn("AttachedDisks: failed to decode \(url.lastPathComponent) — \(error.localizedDescription)")
-            return []
-        }
-    }
-
-    /// Snapshot the current `disks` to the App Group JSON file. Called
-    /// from didSet of `disks` so any mutation that goes through the
-    /// published property (refresh, applyEvent, applyLogLine, forget)
-    /// gets saved.
-    ///
-    /// Saved if EITHER `stableIdentity` (best — survives replug) OR
-    /// `bsd` (good enough within a session) is known. Rows with
-    /// neither are noise — they're transient parse failures that
-    /// haven't reached the model's identity-tracking logic yet.
-    ///
-    /// Atomic write: encode → tmp file → rename. A partial write or
-    /// crash mid-encode leaves the previous valid snapshot in place
-    /// rather than a truncated file the next launch can't decode.
-    private func persist() {
-        guard let url = Self.persistenceURL() else { return }
-        let rows: [PersistedRow] = disks.compactMap { d in
-            let hasStable = !(d.stableIdentity ?? "").isEmpty
-            let hasBsd = !(d.bsd ?? "").isEmpty
-            guard hasStable || hasBsd else { return nil }
-            let lastSeen: Date
-            switch d.status {
-            case .offline(let since): lastSeen = since
-            case .live, .mounting:    lastSeen = Date()
-            }
-            return PersistedRow(
-                stableIdentity: d.stableIdentity,
-                lastBsd: d.bsd,
-                lastMountPath: d.lastMountPath ?? (d.mountPath.isEmpty ? nil : d.mountPath),
-                lastDevicePath: d.devicePath,
-                fsType: d.fsType,
-                name: d.name,
-                lastSeenAt: lastSeen,
-                info: d.info
-            )
-        }
-        let snapshot = PersistedSnapshot(version: 1, savedAt: Date(), rows: rows)
-        do {
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(snapshot)
-            try data.write(to: url, options: .atomic)
-        } catch {
-            AppLog.shared.warn("AttachedDisks: persist failed — \(error.localizedDescription)")
-        }
-    }
-
     public func refresh() {
         let fresh = Self.enumerate(fsTypesOfInterest: fsTypesOfInterest)
         var merged: [AttachedDisk] = []
         var consumedIndices: Set<Int> = []  // indices into `disks` we've already merged
-        let now = Date()
 
         // For each fresh mount(8) entry, find the best-matching existing
         // row and merge state forward (or create a new live row).
         // Cascade: stableIdentity → bsd → mountPath. The first match
         // wins and that prior index is consumed so it isn't carried
-        // again as a stale offline entry. This is what lets a disk
-        // unplugged + replugged with a different BSD coalesce back
-        // onto its original sidebar row.
+        // again. Within a session this is mostly a no-op (mount(8)
+        // entries are stable while a disk stays plugged in) — its job
+        // is to preserve `.mounting` preview rows' partition log /
+        // ioStats / fsckStatus across the transition to `.live`.
         for f in fresh {
             if let idx = matchPriorIndex(for: f, in: disks, excluding: consumedIndices) {
                 consumedIndices.insert(idx)
@@ -447,7 +310,6 @@ public final class AttachedDisksModel: ObservableObject {
                 copy.fsType = f.fsType
                 copy.name = f.name
                 copy.isWritable = f.isWritable
-                copy.lastMountPath = f.mountPath
                 copy.status = .live
                 // Overlay statvfs-baseline info onto whatever the
                 // extension previously published — extension keys win
@@ -462,20 +324,20 @@ public final class AttachedDisksModel: ObservableObject {
             }
         }
 
-        // Anything that didn't get consumed wasn't in mount(8): either
-        // a `.mounting` preview that hasn't reached mount-table yet
-        // (keep as-is), or a previously-`.live` row that just dropped
-        // out (flip to `.offline`).
+        // Carry forward rows whose status implies "intentionally not
+        // in mount(8) right now":
+        //   - .mounting    — preview before the kernel publishes
+        //   - .repairing   — we unmounted the volume to run fsck
+        //   - .repairFailed — terminal state, kept until replug
+        // Anything else that didn't match (a prior `.live` row no
+        // longer in `/sbin/mount`) is dropped: the disk is unplugged.
         for (i, prior) in disks.enumerated() where !consumedIndices.contains(i) {
-            var carried = prior
             switch prior.status {
+            case .mounting, .repairing, .repairFailed:
+                merged.append(prior)
             case .live:
-                carried.status = .offline(since: now)
-                carried.mountPath = ""  // no longer mounted there
-            case .mounting, .offline:
-                break  // preserve as-is
+                continue
             }
-            merged.append(carried)
         }
 
         // Replay queued events / log lines for any row whose bsd is now
@@ -502,14 +364,105 @@ public final class AttachedDisksModel: ObservableObject {
         guard merged != disks else { return }
 
         let oldIDs = Set(disks.map { $0.id })
-        let newIDs = Set(merged.map { $0.id })
         for added in merged where !oldIDs.contains(added.id) && added.status == .live {
             AppLog.shared.info("attached: \(added.fsType) at \(added.mountPath) (\(added.devicePath))")
         }
-        for (i, prior) in disks.enumerated() where !consumedIndices.contains(i) && prior.status == .live && newIDs.contains(prior.id) {
-            AppLog.shared.info("detached: \(prior.lastMountPath ?? prior.mountPath) (kept in sidebar as offline)")
+        for (i, prior) in disks.enumerated() where !consumedIndices.contains(i) && prior.status == .live {
+            AppLog.shared.info("detached: \(prior.mountPath) (removed from sidebar)")
         }
         disks = merged
+    }
+
+    /// Drop every row matching `bsd` from the sidebar immediately,
+    /// regardless of what `/sbin/mount` reports. Intended for callers
+    /// that have authoritative "this device is gone" information from
+    /// outside the mount table (DiskArbitration disappearance, mostly).
+    ///
+    /// Also fires `diskutil unmount force` against the matching mount
+    /// path. The motivation: FSKit extensions whose `unmount` would
+    /// have flushed bytes to disk can't actually do so once the device
+    /// is gone, so the kernel may keep the mount entry alive as a
+    /// zombie. The zombie blocks future mounts on the same path /
+    /// device, and `mount(8)` keeps reporting it for minutes (or
+    /// indefinitely) until the kernel times the FS out. Forcing the
+    /// unmount here cleans the mount table immediately.
+    /// Best-effort: if the entry is already gone, diskutil exits
+    /// non-zero and we log + move on.
+    ///
+    /// Why this can't just lean on `refresh()`: polling can't drop
+    /// the row until the kernel removes the mount entry, and the
+    /// kernel can sit on the zombie indefinitely. We trust the DA
+    /// event instead — the disk is physically gone, so the row goes
+    /// and the mount table gets nudged.
+    public func removeDisk(byBSD bsd: String) {
+        let stale = disks.first { $0.bsd == bsd }
+        // Repair / repair-failed rows are intentionally off mount(8)
+        // for the duration of our own pipeline — DA fires
+        // "disappeared" the moment we unmount, but we want to keep
+        // the row on screen so the user can see the fsck progress
+        // and any subsequent failure state. Skip the row drop AND
+        // the force-unmount sweep in those cases.
+        if let stale = stale {
+            switch stale.status {
+            case .repairing, .repairFailed:
+                AppLog.shared.info("DA disappearance ignored — bsd=\(bsd) is in \(stale.status) (repair pipeline owns this row)")
+                return
+            case .live, .mounting:
+                break
+            }
+        }
+        let before = disks.count
+        disks.removeAll { $0.bsd == bsd }
+        pendingEvents.removeValue(forKey: bsd)
+        pendingLogs.removeValue(forKey: bsd)
+        if disks.count != before {
+            AppLog.shared.info("detached: bsd=\(bsd) (DA disappearance — row dropped)")
+        }
+        // Best-effort cleanup of any lingering mount entry. Run
+        // detached so the diskutil call doesn't block this method
+        // (which is on the main actor — UI shouldn't wait on a
+        // subprocess for an op that's allowed to silently fail).
+        if let stale = stale {
+            Self.forceUnmountStale(mountPath: stale.mountPath, bsd: bsd)
+        }
+    }
+
+    /// Update the lifecycle status of the row matching `id`. Used by
+    /// the repair pipeline to flip rows into / out of `.repairing`
+    /// while keeping every other field intact.
+    public func setStatus(_ status: AttachedDiskStatus, forID id: String) {
+        guard let idx = disks.firstIndex(where: { $0.id == id }) else { return }
+        disks[idx].status = status
+    }
+
+    /// Detached helper that fires `diskutil unmount force <mountPath>`
+    /// to clear a zombie mount entry. Errors are logged at INFO (not
+    /// ERROR) — the caller's expectation is "if there's a zombie,
+    /// kill it; if there isn't, no problem."
+    private nonisolated static func forceUnmountStale(mountPath: String, bsd: String) {
+        Task.detached {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
+            p.arguments = ["unmount", "force", mountPath]
+            let pipe = Pipe()
+            p.standardOutput = pipe
+            p.standardError = pipe
+            do {
+                try p.run()
+                p.waitUntilExit()
+                let rc = p.terminationStatus
+                let out = (try? pipe.fileHandleForReading.readToEnd())
+                    .flatMap { String(data: $0, encoding: .utf8) }?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if rc == 0 {
+                    AppLog.shared.info("zombie mount cleanup: bsd=\(bsd) path=\(mountPath) — diskutil unmount force succeeded")
+                } else {
+                    AppLog.shared.info("zombie mount cleanup: bsd=\(bsd) path=\(mountPath) — diskutil exit=\(rc) (likely already gone): \(out)")
+                }
+            } catch {
+                AppLog.shared.info("zombie mount cleanup: bsd=\(bsd) — could not spawn diskutil: \(error.localizedDescription)")
+            }
+        }
     }
 
     /// Find the strongest match for a fresh mount(8) row in the existing
@@ -532,7 +485,7 @@ public final class AttachedDisksModel: ObservableObject {
         }
         // 3. mountPath, for rows that have no bsd (rare — e.g. an
         // extension we didn't probe). Only matches against rows where
-        // mountPath is currently set; offline rows clear it.
+        // mountPath is currently set.
         if !f.mountPath.isEmpty {
             for (i, p) in prior.enumerated() where !excluded.contains(i) {
                 if p.mountPath == f.mountPath && !p.mountPath.isEmpty { return i }
@@ -541,14 +494,15 @@ public final class AttachedDisksModel: ObservableObject {
         return nil
     }
 
-    /// Drop a disk row entirely. Triggered by the user's "Forget" action
-    /// in the detail view — typically used on offline rows once the
-    /// user has finished investigating, but allowed on live rows too
-    /// (the next refresh() will resurrect a live row anyway).
+    /// Drop a disk row entirely. Triggered by the user's "Forget"
+    /// action — useful for clearing a `.mounting` preview row stuck
+    /// in limbo (FSKit extension probed a BSD that never reached
+    /// mount(8)). Live rows can be forgotten too but the next refresh()
+    /// will resurrect them.
     public func forget(id: String) {
         guard let idx = disks.firstIndex(where: { $0.id == id }) else { return }
         let removed = disks.remove(at: idx)
-        AppLog.shared.info("forgot: \(removed.lastMountPath ?? removed.mountPath) (id=\(removed.id))")
+        AppLog.shared.info("forgot: \(removed.mountPath) (id=\(removed.id))")
     }
 
     /// Strip "/dev/" prefix off a devicePath. Uses prefix match so
@@ -595,10 +549,24 @@ public final class AttachedDisksModel: ObservableObject {
                 pendingEvents[bsd, default: []].append((kind: kind, fields: fields))
                 return
             }
-            // No row yet — create a preview. fsType comes from the
-            // event kind prefix ("ext4.probe", "ntfs.load", …) when
-            // available, otherwise blank until volume.info arrives.
-            let fsType = Self.fsTypeFromEventKind(kind) ?? ""
+            // No row yet. Only create a preview when we can name an
+            // fsType — either from the event's `kind` ("ext4.probe" →
+            // ext4) or from a `fs` field on a `volume.info` event.
+            // Without a real fsType, this would be a phantom Local
+            // Drives row (e.g. an FSKit extension probe of an empty
+            // SD-reader slot emits a kind we can't decode and no `fs`
+            // field). Empty-fsType events get queued — if a real
+            // structured event with fsType info arrives later we
+            // create the row and replay the queue. Empty drives
+            // belong in the Empty Drives sidebar section sourced from
+            // RawDisksModel, not here.
+            let inferredFs = Self.fsTypeFromEventKind(kind)
+            let fieldFs = (kind == "volume.info") ? fields["fs"] : nil
+            let fsType = inferredFs ?? fieldFs ?? ""
+            guard !fsType.isEmpty else {
+                pendingEvents[bsd, default: []].append((kind: kind, fields: fields))
+                return
+            }
             let preview = AttachedDisk(
                 bsd: bsd,
                 mountPath: "",
@@ -610,7 +578,7 @@ public final class AttachedDisksModel: ObservableObject {
             )
             disks.append(preview)
             idx = disks.count - 1
-            AppLog.shared.info("preview row added for \(bsd) (\(fsType.isEmpty ? "fs unknown" : fsType))")
+            AppLog.shared.info("preview row added for \(bsd) (\(fsType))")
         }
         Self.applyEventInPlace(kind: kind, fields: fields, to: &disks[idx])
     }
@@ -632,31 +600,18 @@ public final class AttachedDisksModel: ObservableObject {
         if let existing = disks.firstIndex(where: { $0.bsd == bsd }) {
             idx = existing
         } else {
-            // Skip preview-row creation for whole-disk BSDs — see
-            // applyExtensionEvent for the reasoning. Queue the line so
-            // it replays into a `.live` row if one ever appears.
-            if Self.isWholeDiskBSD(bsd) {
-                pendingLogs[bsd, default: []].append(entry)
-                if pendingLogs[bsd]!.count > Self.logCap {
-                    pendingLogs[bsd]!.removeFirst(pendingLogs[bsd]!.count - Self.logCap)
-                }
-                return
+            // No row yet, no fsType to infer (log lines don't carry
+            // one). Always queue rather than creating a preview — same
+            // rule as applyExtensionEvent now uses for empty-fsType
+            // events. Old behaviour created a "fs unknown" preview
+            // that lingered in Local Drives forever for empty SD-reader
+            // probe noise; the queue gets replayed when (if) a real
+            // structured event with fsType arrives.
+            pendingLogs[bsd, default: []].append(entry)
+            if pendingLogs[bsd]!.count > Self.logCap {
+                pendingLogs[bsd]!.removeFirst(pendingLogs[bsd]!.count - Self.logCap)
             }
-            // Create a preview keyed on this bsd. Plain log lines
-            // don't carry a kind, so we can't infer fsType yet —
-            // leave it blank and let the next structured event fill
-            // it in.
-            let preview = AttachedDisk(
-                bsd: bsd,
-                mountPath: "",
-                devicePath: "/dev/\(bsd)",
-                fsType: "",
-                name: bsd,
-                isWritable: true,
-                status: .mounting
-            )
-            disks.append(preview)
-            idx = disks.count - 1
+            return
         }
         disks[idx].partitionLog.append(entry)
         if disks[idx].partitionLog.count > Self.logCap {
@@ -744,6 +699,12 @@ public final class AttachedDisksModel: ObservableObject {
         case "fsck.done":
             let dirtyCleared = (fields["dirty_cleared"] ?? "false") == "true"
             let logfileBytes = UInt64(fields["logfile_bytes"] ?? "0") ?? 0
+            if let raw = fields["repaired_count"], let n = UInt64(raw) {
+                disk.lastRepairedCount = n
+            }
+            if let raw = fields["anomalies"], let n = UInt64(raw) {
+                disk.lastAnomaliesFound = n
+            }
             newStatus = .completed(dirtyCleared: dirtyCleared, logfileBytes: logfileBytes)
         case "fsck.failed":
             newStatus = .failed(fields["error"] ?? "unknown error")

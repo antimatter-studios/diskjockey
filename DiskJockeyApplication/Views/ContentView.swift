@@ -50,7 +50,15 @@ struct ContentView: View {
     private var detailView: some View {
         switch sidebarModel.selectedItem {
         case .directMount(let id):
+            // .id(id) forces SwiftUI to treat each mount as a distinct
+            // view identity. Without it, switching between two
+            // .directMount cases reuses the same view instance and the
+            // detail's @State (actionError, isPerformingAction, etc.)
+            // bleeds across mounts — the user sees a previous mount's
+            // error banner on a new mount's pane. Same fix applied to
+            // .attachedDisk and .rawDisk below.
             DirectMountDetailView(mountID: id, container: container)
+                .id(id)
         case .logs:
             LogView()
                 .environmentObject(container.appLogModel)
@@ -63,8 +71,10 @@ struct ContentView: View {
             )
         case .attachedDisk(let diskID):
             AttachedDiskDetailView(diskID: diskID, container: container)
+                .id(diskID)
         case .rawDisk(let bsd):
             RawDiskDetailView(bsdName: bsd, container: container)
+                .id(bsd)
         case nil:
             // First-run case: no folder approved yet. Use the full
             // detail pane to explain what we're about to do before
@@ -142,7 +152,14 @@ private struct SidebarView: View {
                 }
 
                 if !rawDisks.formatableDisks.isEmpty {
-                    Section("Unformatted Disks") {
+                    // "Empty Drives" rather than "Unformatted Disks" —
+                    // covers both the no-media-inserted case (whole-disk
+                    // BSDs for empty SD-reader bays, USB hub card slots)
+                    // and unformatted/raw partitions. Local Drives now
+                    // only ever lists partitions with a real filesystem,
+                    // so empty bays consistently land here instead of
+                    // appearing as phantom Local Drives rows.
+                    Section("Empty Drives") {
                         ForEach(rawDisks.formatableDisks) { disk in
                             RawDiskSidebarRow(disk: disk)
                                 .tag(SidebarItem.rawDisk(disk.bsdName))
@@ -258,73 +275,103 @@ private struct AttachedDiskSidebarRow: View {
     let disk: AttachedDisk
 
     var body: some View {
-        HStack(spacing: 8) {
-            ZStack(alignment: .bottomTrailing) {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 8) {
                 PersonalityIconView(disk.icon)
-                    .foregroundStyle(isOffline ? .tertiary : .secondary)
-                    .frame(width: 20, height: 20)
-                if isOffline {
-                    // Small unplug overlay so an offline row reads as
-                    // "this disk is no longer attached" at a glance.
-                    Image("tabler-bolt-horizontal-circle-fill")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary, Color(NSColor.windowBackgroundColor))
-                        .offset(x: 2, y: 2)
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(disk.name)
-                    .font(.body)
-                    .foregroundStyle(isOffline ? .secondary : .primary)
-                    .lineLimit(1)
-                Text(secondaryLine)
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                // Third line — only shown while the disk is in a
-                // transitional / non-ready state (currently: fsck
-                // running). Click into the row to see the live
-                // fsck.progress lines streaming in the partition log.
-                if let transient = transientLine {
-                    Text(transient)
-                        .font(.caption2)
-                        .foregroundStyle(.orange)
-                        .lineLimit(1)
-                }
-            }
-
-            Spacer()
-
-            if !disk.isWritable && !isOffline {
-                Image("tabler-lock-fill")
-                    .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .help("Mounted read-only — writes are not allowed")
+                    .frame(width: 20, height: 20)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(disk.name)
+                        .font(.body)
+                        .lineLimit(1)
+                    Text(secondaryLine)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                    // Third line — only shown while the disk is in a
+                    // transitional / non-ready state (currently: fsck
+                    // running). Click into the row to see the live
+                    // fsck.progress lines streaming in the partition log.
+                    if let transient = transientLine {
+                        Text(transient)
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer()
+
+                if !disk.isWritable {
+                    Image("tabler-lock-fill")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .help("Mounted read-only — writes are not allowed")
+                }
+
+                Circle()
+                    .fill(dotColor)
+                    .frame(width: 7, height: 7)
+                    .help(tooltip)
             }
 
-            Circle()
-                .fill(dotColor)
-                .frame(width: 7, height: 7)
-                .help(tooltip)
+            // At-a-glance fullness gauge. Driven by total_size /
+            // free_size from disk.info (statvfs, refreshed each poll
+            // cycle). Hidden on rows whose filesystem hasn't reported
+            // a total size yet — a flat-zero bar reads as "empty disk",
+            // which is the wrong story for an unknown one.
+            if let frac = usedFraction {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 1.5)
+                            .fill(Color.blue.opacity(0.18))
+                        RoundedRectangle(cornerRadius: 1.5)
+                            .fill(Color.blue)
+                            .frame(width: geo.size.width * frac)
+                    }
+                }
+                .frame(height: 3)
+                .help(fillTooltip)
+            }
         }
         .padding(.vertical, 2)
-        .opacity(isOffline ? 0.65 : 1.0)
     }
 
-    private var isOffline: Bool {
-        if case .offline = disk.status { return true }
+    /// Fraction of the volume currently in use, in [0, 1]. Nil when we
+    /// don't yet have a total size to anchor against (preview rows,
+    /// fs types statvfs returns nothing for) — caller hides the bar.
+    private var usedFraction: Double? {
+        guard let total = UInt64(disk.info["total_size"] ?? ""),
+              let free = UInt64(disk.info["free_size"] ?? ""),
+              total > 0 else { return nil }
+        let used = total > free ? total - free : 0
+        return min(1.0, max(0.0, Double(used) / Double(total)))
+    }
+
+    private var fillTooltip: String {
+        guard let frac = usedFraction else { return "" }
+        return "\(Int(frac * 100))% full"
+    }
+
+    private var isFsckRunning: Bool {
+        if case .running = disk.fsckStatus { return true }
         return false
     }
 
     private var secondaryLine: String {
+        if isFsckRunning {
+            return "\(disk.fsType) · running fsck"
+        }
         switch disk.status {
         case .mounting:
             return "\(disk.fsType) · mounting…"
         case .live:
             return "\(disk.fsType) · \(disk.devicePath)"
-        case .offline(let since):
-            return "\(disk.fsType) · offline · " + Self.relativeTime.localizedString(for: since, relativeTo: Date())
+        case .repairing:
+            return "\(disk.fsType) · repairing…"
+        case .repairFailed:
+            return "\(disk.fsType) · repair failed"
         }
     }
 
@@ -332,10 +379,8 @@ private struct AttachedDiskSidebarRow: View {
     /// states the user wants visibility into:
     ///   - active fsck (highest priority — show progress %)
     ///   - .mounting preview (the disk has been detected but mount(8)
-    ///     hasn't reported it yet — typically inside the fsck/load
-    ///     window)
+    ///     hasn't reached it yet)
     private var transientLine: String? {
-        if isOffline { return nil }
         if case .running(let phase, let done, let total) = disk.fsckStatus {
             if total > 0 {
                 let pct = Int((Double(done) / Double(total)) * 100)
@@ -349,17 +394,8 @@ private struct AttachedDiskSidebarRow: View {
         return nil
     }
 
-    /// Cached so we don't allocate a fresh formatter on every row body.
-    /// Output is "5 min ago" / "2 hr ago" — short enough to fit the
-    /// caption row without truncation on a typical sidebar width.
-    private static let relativeTime: RelativeDateTimeFormatter = {
-        let f = RelativeDateTimeFormatter()
-        f.unitsStyle = .short
-        return f
-    }()
-
     private var dotColor: Color {
-        if isOffline { return .gray }
+        if isFsckRunning { return .orange }
         switch disk.fsckStatus {
         case .unknown:       return .green
         case .clean:         return .green
@@ -371,11 +407,17 @@ private struct AttachedDiskSidebarRow: View {
     }
 
     private var tooltip: String {
+        if case .running(let phase, _, _) = disk.fsckStatus {
+            let where_ = disk.mountPath.isEmpty ? "" : " at \(disk.mountPath)"
+            return "Running fsck\(where_) (\(phase))"
+        }
         switch disk.status {
         case .mounting:
             return "Mounting at \(disk.mountPath)…"
-        case .offline(let since):
-            return "Offline (was at \(disk.mountPath)) — last seen \(since.formatted(date: .abbreviated, time: .shortened))"
+        case .repairing:
+            return "Repairing \(disk.mountPath) — volume is temporarily offline"
+        case .repairFailed(let msg):
+            return "Repair failed: \(msg)"
         case .live:
             let base = "Mounted at \(disk.mountPath)"
             switch disk.fsckStatus {

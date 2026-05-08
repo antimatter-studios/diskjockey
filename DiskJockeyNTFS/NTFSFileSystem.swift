@@ -14,6 +14,7 @@
 
 import FSKit
 import Foundation
+import DiskJockeyLibrary
 
 /// Single logging surface — fans out to os_log + NDJSON file (tailed
 /// by host app UI) via AppLog's configured sinks.
@@ -126,7 +127,7 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
     /// in-process pointer is a stable, unique handle. Guarded by an
     /// unfair lock so `startCheck` can read it without awaiting an
     /// actor. Mirror of the EXT4 extension's `mountedResources`.
-    fileprivate struct MountedResource {
+    struct MountedResource {
         let bsdName: String
         let volume: NTFSVolume
         /// Retained `NTFSBlockDeviceContext` pointer the load path used
@@ -137,12 +138,20 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         /// `cfg.size_bytes` captured at load time so format can rebuild
         /// the cfg without re-reading from the resource.
         let cfgSizeBytes: UInt64
+        /// Cooperative tri-state mutex coordinating verify and repair
+        /// on this volume. Mirror of EXT4's opLock — see
+        /// `OperationLock` for the contract.
+        let opLock: OperationLock
     }
-    fileprivate static let mountedResources = OSAllocatedUnfairLock<[ObjectIdentifier: MountedResource]>(
+    static let mountedResources = OSAllocatedUnfairLock<[ObjectIdentifier: MountedResource]>(
         initialState: [:])
 
     override init() {
         super.init()
+        // Mach-service listener for the host app's in-process repair
+        // bridge. Idempotent — start() guards against a second
+        // FSUnaryFileSystem instance double-registering.
+        RepairXPCService.shared.start()
     }
 
     // MARK: - Probe
@@ -266,7 +275,12 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         // The block-device callbacks made during fsck + RW remount in
         // `NTFSVolume.activate` flow through the SAME context object
         // we hand to FSKit here, so they get counted too.
-        let stats = IOStatsCollector(label: bsdName, log: dlog)
+        // Wrap the per-mount logger as the recorder's emit closure so
+        // the shared `IOStatsRecorder` (in DiskJockeyLibrary) doesn't
+        // need to import any logger type — AppLog stays per-extension.
+        let stats = IOStatsRecorder(label: bsdName, emit: { fields in
+            dlog.event(kind: "io.stats", fields: fields, scope: AppLogScope.stats)
+        })
         let context = NTFSBlockDeviceContext(resource: blockDevice, log: dlog, stats: stats)
         let contextPtr = Unmanaged.passRetained(context).toOpaque()
 
@@ -329,7 +343,8 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         Self.mountedResources.withLock { map in
             map[ObjectIdentifier(resource)] = MountedResource(
                 bsdName: bsdName, volume: volume,
-                contextPtr: contextPtr, cfgSizeBytes: cfgSizeBytes)
+                contextPtr: contextPtr, cfgSizeBytes: cfgSizeBytes,
+                opLock: OperationLock())
         }
         // Begin emitting `io.stats` heartbeats now. The collector
         // self-suppresses idle ticks.
@@ -405,10 +420,20 @@ extension NTFSFileSystem: FSManageableResourceMaintenanceOperations {
         }
         let bsdName = resolved.bsdName
         let volume = resolved.volume
+        let opLock = resolved.opLock
         let dlog = TaggedLogger(
             log, fields: ["bsd": bsdName], kind: "ntfs.fsck",
             scope: AppLogScope.fsck
         )
+
+        // Cooperative tri-state mutex. NTFS verify is currently the
+        // only flavor (`runFsck` is read-only on this side; a future
+        // repair pass would acquire `.repair` instead). Reject
+        // up-front if the volume is busy.
+        if let busy = opLock.tryAcquire(.verify) {
+            dlog.warn("startCheck rejected: volume busy with \(busy.displayName)")
+            throw POSIXError(.EBUSY)
+        }
 
         // Pin Progress at 100 total units; the tracker bumps
         // `completedUnitCount` per phase as the rust crate reports.
@@ -420,19 +445,41 @@ extension NTFSFileSystem: FSManageableResourceMaintenanceOperations {
 
         let tracker = FsckProgressTracker()
 
+        // Throttle fsck.progress emission. Mirror of the throttle in
+        // EXT4FileSystem.startCheck — see that comment for the
+        // rationale. Without this, every callback hops to the host's
+        // main actor and beachballs the UI on a multi-thousand-record
+        // volume. NSProgress.completedUnitCount keeps updating every
+        // callback so the FSKit-side bar stays smooth.
+        let appGroupDefaults = UserDefaults(suiteName: AppLog.groupIdentifier)
+        let verbose = appGroupDefaults?.bool(forKey: "verboseRepairLog") ?? false
+        let minIntervalNs: UInt64 = verbose ? 100_000_000 : 1_000_000_000
+        var lastEmitMonotonic: UInt64 = 0
+        var lastPhase: String = ""
+
         // Detached so the closure isn't tied to any actor; the C
         // callbacks fire on rust's worker thread anyway. Concurrent
         // reads/writes on the volume will fail while fsck runs (we drop
         // bridgeFS before the dirty check) — that's expected; fsck
-        // temporarily takes the volume offline.
+        // temporarily takes the volume offline. opLock release sits
+        // here because the operation continues asynchronously.
         Task.detached {
+            defer { opLock.release() }
             let result = volume.runFsck(
                 onProgress: { phase, done, total in
-                    dlog.event(kind: "fsck.progress", fields: [
-                        "phase": phase,
-                        "done":  "\(done)",
-                        "total": "\(total)",
-                    ])
+                    let now = monotonicNanos()
+                    let phaseChanged = phase != lastPhase
+                    let intervalElapsed = lastEmitMonotonic == 0
+                        || (now &- lastEmitMonotonic) >= minIntervalNs
+                    if phaseChanged || intervalElapsed {
+                        lastEmitMonotonic = now
+                        lastPhase = phase
+                        dlog.event(kind: "fsck.progress", fields: [
+                            "phase": phase,
+                            "done":  "\(done)",
+                            "total": "\(total)",
+                        ])
+                    }
                     let units = tracker.observe(phase: phase, done: done, total: total)
                     progress.completedUnitCount = units
                 },

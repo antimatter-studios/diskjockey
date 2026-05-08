@@ -82,6 +82,21 @@
 				<integer>0</integer>
 				<key>FSfileObjectsAreCaseSensitive</key>
 				<false/>
+				<!--
+					Tells Disk Utility's First Aid that verify and
+					repair are supported. fsck_fskit is the generic
+					FSKit fsck dispatcher; the `-t ntfs` arg routes
+					into our extension's startCheck. See the matching
+					comment in DiskJockeyEXT4/Info.plist for context.
+				-->
+				<key>FSVerificationExecutable</key>
+				<string>fsck_fskit</string>
+				<key>FSVerificationArguments</key>
+				<string>-t ntfs -n</string>
+				<key>FSRepairExecutable</key>
+				<string>fsck_fskit</string>
+				<key>FSRepairArguments</key>
+				<string>-t ntfs -y</string>
 			</dict>
 		</dict>
 		<key>FSRequiresSecurityScopedPathURLResources</key>

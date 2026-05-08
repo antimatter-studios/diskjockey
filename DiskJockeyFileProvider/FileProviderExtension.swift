@@ -79,12 +79,27 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFile
             self.directClient = nil
         }
 
-        // Pass the int32 mountID through so the collector can poll
-        // Go-side transport counters via NetworkFSDriver.getStats.
-        self.stats = IOStatsCollector(
+        // The shared IOStatsRecorder (in DiskJockeyLibrary) is generic
+        // — it doesn't know about NetworkFSDriver. We inject:
+        //   • emit: the per-extension logger so AppLog stays local,
+        //   • preflush: the Go-side transport counter overlay (every
+        //     tick we pull the authoritative byte/op totals from
+        //     networkfs_get_stats and write them onto the snapshot
+        //     before the duplicate-suppression check).
+        let goMountID = FileProviderDirectClient.mountID(for: mountID)
+        let mlogCopy = mlog
+        self.stats = IOStatsRecorder(
             label: mountID,
-            mountID: FileProviderDirectClient.mountID(for: mountID),
-            log: mlog
+            emit: { fields in
+                mlogCopy.event(kind: "io.stats", fields: fields)
+            },
+            preflush: { counters in
+                let go = NetworkFSDriver.getStats(mountID: goMountID)
+                counters.bytesRead = go.bytesRead
+                counters.bytesWritten = go.bytesWritten
+                counters.opsRead = go.opsRead
+                counters.opsWritten = go.opsWritten
+            }
         )
 
         super.init()

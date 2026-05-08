@@ -112,6 +112,26 @@
 				<integer>0</integer>
 				<key>FSfileObjectsAreCaseSensitive</key>
 				<true/>
+				<!--
+					These four keys are what tells Disk Utility's
+					First Aid that this filesystem supports verify +
+					repair. Without them, the First Aid button is
+					disabled even when the FSCheckOptionSyntax
+					declares the flags we accept. Apple's built-in
+					modules (msdos, exfat) declare the equivalents
+					pointing at fsck_msdos / fsck_exfat. Third-party
+					FSKit modules use `fsck_fskit` (the generic FSKit
+					fsck dispatcher), which needs `-t <fstype>` so
+					it knows which module to dispatch into.
+				-->
+				<key>FSVerificationExecutable</key>
+				<string>fsck_fskit</string>
+				<key>FSVerificationArguments</key>
+				<string>-t ext4 -n</string>
+				<key>FSRepairExecutable</key>
+				<string>fsck_fskit</string>
+				<key>FSRepairArguments</key>
+				<string>-t ext4 -y</string>
 			</dict>
 		</dict>
 		<key>FSRequiresSecurityScopedPathURLResources</key>
