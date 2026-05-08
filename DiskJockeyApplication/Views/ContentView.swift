@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import DiskJockeyLibrary
 
 struct ContentView: View {
@@ -6,10 +7,6 @@ struct ContentView: View {
 
     @StateObject private var sidebarModel = SidebarModel()
     @State private var showingAddMount = false
-    /// Driven by the custom sidebar-toggle button so we can group it
-    /// next to "+" instead of macOS's auto toggle, which lands at the
-    /// sidebar/detail boundary (visually marooned in the middle).
-    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
 
     // Observed so the detail pane swaps out of the setup view the
     // moment the user picks a folder.
@@ -21,12 +18,11 @@ struct ContentView: View {
     }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
+        NavigationSplitView {
             SidebarView(
                 container: container,
                 sidebarModel: sidebarModel,
-                showingAddMount: $showingAddMount,
-                columnVisibility: $columnVisibility
+                showingAddMount: $showingAddMount
             )
             .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
         } detail: {
@@ -44,6 +40,29 @@ struct ContentView: View {
             )
             .frame(minWidth: 520, minHeight: 460)
         }
+        // Drag a disk image anywhere onto the window → same flow as the
+        // "Add Disk Image" sidebar button. We accept .fileURL rather
+        // than a specific UTType so any extension (.img, .raw, .bin,
+        // partition exports) goes through the auto-probe path.
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            handleDroppedImages(providers)
+        }
+    }
+
+    private func handleDroppedImages(_ providers: [NSItemProvider]) -> Bool {
+        var handled = false
+        for provider in providers {
+            guard provider.canLoadObject(ofClass: URL.self) else { continue }
+            handled = true
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                guard let url else { return }
+                Task { @MainActor in
+                    FSKitAttachController.attachUserPickedImage(
+                        at: url, logRepository: container.logRepository)
+                }
+            }
+        }
+        return handled
     }
 
     @ViewBuilder
@@ -63,12 +82,6 @@ struct ContentView: View {
             LogView()
                 .environmentObject(container.appLogModel)
                 .environmentObject(container.logRepository)
-        case .addMount:
-            ContentUnavailableView(
-                "Add a Mount",
-                image: "tabler-externaldrive-badge-plus",
-                description: Text("Click the + button to add a new mount")
-            )
         case .attachedDisk(let diskID):
             AttachedDiskDetailView(diskID: diskID, container: container)
                 .id(diskID)
@@ -103,7 +116,6 @@ private struct SidebarView: View {
     let container: AppContainer
     @ObservedObject var sidebarModel: SidebarModel
     @Binding var showingAddMount: Bool
-    @Binding var columnVisibility: NavigationSplitViewVisibility
 
     @ObservedObject private var attachedDisks: AttachedDisksModel
     @ObservedObject private var directMountRegistry: DirectMountRegistry
@@ -111,12 +123,10 @@ private struct SidebarView: View {
 
     init(container: AppContainer,
          sidebarModel: SidebarModel,
-         showingAddMount: Binding<Bool>,
-         columnVisibility: Binding<NavigationSplitViewVisibility>) {
+         showingAddMount: Binding<Bool>) {
         self.container = container
         self.sidebarModel = sidebarModel
         self._showingAddMount = showingAddMount
-        self._columnVisibility = columnVisibility
         self.attachedDisks = container.attachedDisks
         self.directMountRegistry = container.directMountRegistry
         self.rawDisks = container.rawDisks
@@ -140,15 +150,34 @@ private struct SidebarView: View {
                             .tag(SidebarItem.directMount(mount.id))
                         }
                     }
+
+                    Button(action: { showingAddMount = true }) {
+                        Label("Add Network Drive", image: "tabler-plus")
+                            .foregroundStyle(Color.accentColor)
+                    }
+                    .buttonStyle(.plain)
                 }
 
-                if !attachedDisks.disks.isEmpty {
-                    Section("Local Drives") {
+                Section("Local Drives") {
+                    if attachedDisks.disks.isEmpty {
+                        Text("No local volumes mounted")
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
+                    } else {
                         ForEach(attachedDisks.disks) { disk in
                             AttachedDiskSidebarRow(disk: disk)
                                 .tag(SidebarItem.attachedDisk(disk.id))
                         }
                     }
+
+                    Button(action: {
+                        FSKitAttachController.promptAndAttachAuto(
+                            logRepository: container.logRepository)
+                    }) {
+                        Label("Add Disk Image", image: "tabler-plus")
+                            .foregroundStyle(Color.accentColor)
+                    }
+                    .buttonStyle(.plain)
                 }
 
                 if !rawDisks.formatableDisks.isEmpty {
@@ -173,37 +202,10 @@ private struct SidebarView: View {
                 }
             }
             .listStyle(.sidebar)
-            // Drop the auto sidebar toggle — macOS plants it at the
-            // sidebar/detail boundary (looks orphaned in the middle of
-            // the titlebar). We provide a custom one in the same
-            // navigation group as "+" below.
+            // Drop the auto sidebar toggle — sidebar is always visible
+            // and we don't want the orphan button macOS plants at the
+            // sidebar/detail boundary.
             .toolbar(removing: .sidebarToggle)
-            .toolbar {
-                // `.navigation` anchors both buttons to the leading
-                // edge of the unified titlebar (left of the pane
-                // boundary). Detail views supply their own
-                // `.primaryAction` group on the trailing edge.
-                ToolbarItemGroup(placement: .navigation) {
-                    Button(action: { toggleSidebar() }) {
-                        Image("tabler-sidebar-toggle")
-                    }
-                    .help("Show / Hide Sidebar")
-
-                    Button(action: { showingAddMount = true }) {
-                        Image("tabler-plus")
-                    }
-                    .help("Add Mount")
-                }
-            }
-        }
-    }
-
-    /// Toggle between sidebar-visible and detail-only. `.automatic`
-    /// resolves to `.all` on macOS when the window is wide enough, so
-    /// we only need a binary flip.
-    private func toggleSidebar() {
-        withAnimation {
-            columnVisibility = (columnVisibility == .detailOnly) ? .all : .detailOnly
         }
     }
 }
