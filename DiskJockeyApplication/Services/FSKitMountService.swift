@@ -136,8 +136,6 @@ final class FSKitMountService {
     ///
     /// Chosen over NSAppleScript directly because osascript lives outside
     /// the host app sandbox and handles the privilege escalation cleanly.
-    /// Eventual replacement: an SMAppService privileged helper (see
-    /// FB follow-up).
     ///
     /// `arguments` are quoted defensively. The caller is expected to pass
     /// absolute paths only — `validateMountName` already rules out the
@@ -156,11 +154,12 @@ final class FSKitMountService {
     /// Same admin escalation as `runAsAdmin`, but accepts a pre-built
     /// shell command string. Used by callers that need to chain
     /// multiple commands inside the SAME admin scope (e.g. `mkdir &&
-    /// mount`) so the user only sees one auth prompt.
+    /// mount`, or `unmount && fsck_fskit`) so the user only sees
+    /// one auth prompt.
     ///
     /// The caller is responsible for shell-quoting individual arguments
     /// in `command` (use `shellQuote`).
-    private static func runShellAsAdmin(command: String) async throws {
+    static func runShellAsAdmin(command: String) async throws {
         let appleScript = "do shell script \(Self.appleScriptQuote(command)) " +
                           "with administrator privileges"
 
@@ -186,6 +185,14 @@ final class FSKitMountService {
                 // "user cancelled" from "mount itself failed".
                 if msg.contains("User canceled") || msg.contains("(-128)") {
                     continuation.resume(throwing: FSKitError.authorizationDenied(stderr: msg))
+                } else if msg.contains("(-60005)")
+                    || msg.localizedCaseInsensitiveContains("name or password was incorrect") {
+                    // -60005 = "incorrect username or password" from
+                    // SecurityFoundation. The osascript exits with
+                    // rc=1 in this case, but the actionable problem
+                    // for the user is "type your password again."
+                    continuation.resume(throwing: FSKitError.authorizationDenied(
+                        stderr: "Wrong password. Try again."))
                 } else {
                     continuation.resume(
                         throwing: FSKitError.processFailed(
@@ -204,7 +211,7 @@ final class FSKitMountService {
         }
     }
 
-    private static func shellQuote(_ s: String) -> String {
+    static func shellQuote(_ s: String) -> String {
         "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 

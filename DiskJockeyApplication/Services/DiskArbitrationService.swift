@@ -151,11 +151,25 @@ final class DiskArbitrationService {
         guard let bsd = desc[kDADiskDescriptionMediaBSDNameKey as String] as? String else {
             return
         }
+        // Repair pipeline owns rows in `.repairing` state — it
+        // intentionally drove the unmount and is about to call
+        // `mount(bsd:)` to bring the volume back. Keep the cached
+        // `DADisk` alive so the upcoming DADiskMount finds it, and
+        // skip the row removal so the user keeps seeing the row.
+        if let row = attachedDisks?.disks.first(where: { $0.bsd == bsd }),
+           case .repairing = row.status {
+            AppLog.shared.info("DA disappeared during repair: bsd=\(bsd) — preserving cached DADisk for remount")
+            return
+        }
         disksByBSD.removeValue(forKey: bsd)
         AppLog.shared.info("DA disappeared: bsd=\(bsd)")
-        // No model action needed — the next refresh() poll will see
-        // the BSD missing from /sbin/mount and flip the row to
-        // .offline via the existing detached-row path.
+        // Drop the sidebar row immediately. We can't trust `refresh()`
+        // alone — when an FSKit extension's `unmount` stalls or errors
+        // against the now-missing device, the mount entry lingers in
+        // `/sbin/mount` as a zombie and the row would never go away.
+        // DA's disappearance is authoritative: the device is
+        // physically gone, the row must reflect that.
+        attachedDisks?.removeDisk(byBSD: bsd)
     }
 
     // MARK: - Manual mount
