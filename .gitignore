@@ -18,8 +18,9 @@ diskjockey-backend/test-mount/mount*/
 lib/
 .wip/
 
-# Workgroup coordination state
-.claude/workgroup/
+# Claude Code session-local data: memory db, settings.local.json,
+# scheduled tasks, worktrees, workgroup coordination state.
+.claude/
 
 # OAuth client credentials — bundle resource read at runtime by
 # OAuthClientConfig. The .example.json template IS tracked; the live
