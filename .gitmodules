@@ -10,3 +10,21 @@
 [submodule "vendor/tabler-icons"]
 	path = vendor/tabler-icons
 	url = https://github.com/tabler/tabler-icons.git
+[submodule "vendor/rust-fs-core"]
+	path = vendor/rust-fs-core
+	url = https://github.com/antimatter-studios/rust-fs-core
+[submodule "vendor/rust-img-qcow2"]
+	path = vendor/rust-img-qcow2
+	url = https://github.com/antimatter-studios/rust-img-qcow2
+[submodule "vendor/rust-partitions"]
+	path = vendor/rust-partitions
+	url = https://github.com/antimatter-studios/rust-partitions
+[submodule "vendor/rust-img-vhd"]
+	path = vendor/rust-img-vhd
+	url = https://github.com/antimatter-studios/rust-img-vhd
+[submodule "vendor/rust-img-vhdx"]
+	path = vendor/rust-img-vhdx
+	url = https://github.com/antimatter-studios/rust-img-vhdx
+[submodule "vendor/rust-img-vmdk"]
+	path = vendor/rust-img-vmdk
+	url = https://github.com/antimatter-studios/rust-img-vmdk
