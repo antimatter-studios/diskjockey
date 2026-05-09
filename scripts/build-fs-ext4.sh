@@ -212,8 +212,15 @@ lipo -create \
     "${EXT4_SRC}/target/x86_64-apple-darwin/release/libfs_ext4.a" \
     -output "${EXT4_OUT}/libfs_ext4.a"
 
-# Copy headers
+# Copy headers. fs_core.h + qcow2.h come from the sister vendor crates;
+# their #[no_mangle] symbols are baked into libfs_ext4.a (am-fs-core +
+# am-img-qcow2 are deps of fs-ext4) so consumers can call them through
+# the same .a. Headers are read-only mirrors — edits belong upstream.
 cp "${EXT4_SRC}/include/fs_ext4.h" "${EXT4_OUT}/include/fs_ext4.h"
+FS_CORE_HDR="${SRCROOT}/vendor/rust-fs-core/include/fs_core.h"
+QCOW2_HDR="${SRCROOT}/vendor/rust-img-qcow2/include/qcow2.h"
+[ -f "$FS_CORE_HDR" ] && cp "$FS_CORE_HDR" "${EXT4_OUT}/include/fs_core.h"
+[ -f "$QCOW2_HDR" ] && cp "$QCOW2_HDR" "${EXT4_OUT}/include/qcow2.h"
 
 emit_version_manifest "fs_ext4" "${EXT4_SRC}" "${EXT4_OUT}/VERSION.txt"
 

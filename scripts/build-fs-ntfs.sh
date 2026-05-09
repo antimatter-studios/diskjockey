@@ -212,8 +212,15 @@ lipo -create \
     "${NTFS_SRC}/target/x86_64-apple-darwin/release/libfs_ntfs.a" \
     -output "${NTFS_OUT}/libfs_ntfs.a"
 
-# Copy headers
+# Copy headers. fs_core.h + qcow2.h come from the sister vendor crates;
+# their #[no_mangle] symbols are baked into libfs_ntfs.a (am-fs-core +
+# am-img-qcow2 are deps of fs-ntfs) so consumers can call them through
+# the same .a. Headers are read-only mirrors — edits belong upstream.
 cp "${NTFS_SRC}/include/fs_ntfs.h" "${NTFS_OUT}/include/fs_ntfs.h"
+FS_CORE_HDR="${SRCROOT}/vendor/rust-fs-core/include/fs_core.h"
+QCOW2_HDR="${SRCROOT}/vendor/rust-img-qcow2/include/qcow2.h"
+[ -f "$FS_CORE_HDR" ] && cp "$FS_CORE_HDR" "${NTFS_OUT}/include/fs_core.h"
+[ -f "$QCOW2_HDR" ] && cp "$QCOW2_HDR" "${NTFS_OUT}/include/qcow2.h"
 
 emit_version_manifest "fs_ntfs" "${NTFS_SRC}" "${NTFS_OUT}/VERSION.txt"
 
