@@ -110,6 +110,21 @@ final class NTFSBlockDeviceContext {
             return EIO
         }
     }
+
+    /// Flush kernel buffer cache to disk. Mirrors EXT4's BlockDeviceContext.flush.
+    /// fs_ntfs's own callback shape (`fs_ntfs_blockdev_cfg_t`) has no flush
+    /// field, so this is only reached through the qcow2-stacking path
+    /// (FsCoreCallbackCfg.flush) — qcow2 needs the explicit flush after
+    /// metadata writes for crash safety.
+    func flush() -> Int32 {
+        do {
+            try resource.metadataFlush()
+            return 0
+        } catch {
+            log.error("bdev metadataFlush error: \(error.localizedDescription)", scope: AppLogScope.io)
+            return EIO
+        }
+    }
 }
 
 @objc(NTFSFileSystem)
@@ -294,26 +309,79 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         let isWritable = blockDevice.isWritable
         let cfgSizeBytes = blockDevice.blockCount * blockDevice.blockSize
 
-        var cfg = fs_ntfs_blockdev_cfg_t()
-        cfg.read = { ctx, buf, offset, length in
-            guard let ctx = ctx, let buf = buf else { return EIO }
-            let context = Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
-            return context.read(into: buf, offset: off_t(offset), length: Int(length))
+        // Peek 4 bytes for QCOW2 magic. If matched, stack a qcow2 reader
+        // before NTFS instead of feeding raw resource bytes to fs_ntfs.
+        // The initial mount during loadResource is always RO (the kernel
+        // FD on FSBlockDeviceResource isn't truly writable until
+        // loadResource returns). When the resource is writable,
+        // NTFSVolume.activate's deferred remount switches to
+        // fs_ntfs_mount_rw_with_fs_core_device. fsck is skipped on the
+        // qcow2 path — fs_ntfs has no fs_core variant of
+        // fs_ntfs_fsck_with_callbacks yet, so RW open will simply fail
+        // on a dirty $LogFile; recovery requires a Windows VM.
+        var magic = [UInt8](repeating: 0, count: 4)
+        let magicRC = magic.withUnsafeMutableBufferPointer { buf -> Int32 in
+            return context.read(into: buf.baseAddress!, offset: 0, length: 4)
         }
-        cfg.write = nil
-        cfg.context = contextPtr
-        cfg.size_bytes = cfgSizeBytes
+        let isQcow2 = magicRC == 0
+            && magic[0] == 0x51 && magic[1] == 0x46
+            && magic[2] == 0x49 && magic[3] == 0xfb
 
-        dlog.info("calling fs_ntfs_mount_with_callbacks (RO during load) size=\(cfg.size_bytes) blockSize=\(blockDevice.blockSize)")
+        let bridgeFS: OpaquePointer?
+        if isQcow2 {
+            dlog.info("QCOW2 magic detected on resource — stacking qcow2 reader before NTFS mount (RO during load; activate will remount RW if writable=\(isWritable))")
 
-        guard let bridgeFS = fs_ntfs_mount_with_callbacks(&cfg) else {
+            var coreCfg = FsCoreCallbackCfg()
+            coreCfg.read = { ctx, offset, buf, len in
+                guard let ctx = ctx, let buf = buf else { return EIO }
+                let context = Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                return context.read(into: UnsafeMutableRawPointer(buf), offset: off_t(offset), length: Int(len))
+            }
+            coreCfg.write = nil   // RO mount; qcow2 RO is enough for fs_ntfs RO mount
+            coreCfg.flush = nil
+            coreCfg.ctx = contextPtr
+            coreCfg.size = cfgSizeBytes
+
+            guard let innerHandle = withUnsafePointer(to: &coreCfg, { fs_core_device_from_callbacks($0) }) else {
+                let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
+                dlog.error("fs_core_device_from_callbacks failed for qcow2 backing: \(err)")
+                Unmanaged<NTFSBlockDeviceContext>.fromOpaque(contextPtr).release()
+                replyHandler(nil, POSIXError(.EIO))
+                return
+            }
+            guard let qcow2Handle = qcow2_open_on_device(innerHandle) else {
+                let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
+                dlog.error("qcow2_open_on_device failed: \(err)")
+                Unmanaged<NTFSBlockDeviceContext>.fromOpaque(contextPtr).release()
+                replyHandler(nil, POSIXError(.EIO))
+                return
+            }
+            dlog.info("calling fs_ntfs_mount_with_fs_core_device (qcow2 stacked, RO)")
+            bridgeFS = fs_ntfs_mount_with_fs_core_device(qcow2Handle)
+            fs_core_device_close(qcow2Handle)
+        } else {
+            var cfg = fs_ntfs_blockdev_cfg_t()
+            cfg.read = { ctx, buf, offset, length in
+                guard let ctx = ctx, let buf = buf else { return EIO }
+                let context = Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                return context.read(into: buf, offset: off_t(offset), length: Int(length))
+            }
+            cfg.write = nil
+            cfg.context = contextPtr
+            cfg.size_bytes = cfgSizeBytes
+
+            dlog.info("calling fs_ntfs_mount_with_callbacks (RO during load) size=\(cfg.size_bytes) blockSize=\(blockDevice.blockSize)")
+            bridgeFS = fs_ntfs_mount_with_callbacks(&cfg)
+        }
+
+        guard let bridgeFS = bridgeFS else {
             let err = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
-            dlog.error("fs_ntfs mount failed (RO): \(err)")
+            dlog.error("fs_ntfs mount failed (RO\(isQcow2 ? ", qcow2" : "")): \(err)")
             Unmanaged<NTFSBlockDeviceContext>.fromOpaque(contextPtr).release()
             replyHandler(nil, POSIXError(.EIO))
             return
         }
-        dlog.info("fs_ntfs mount succeeded (RO during load; will remount RW in activate if writable)")
+        dlog.info("fs_ntfs mount succeeded (RO during load\(isQcow2 ? ", qcow2-backed" : ""); will remount RW in activate if writable\(isQcow2 ? " — qcow2 path skips fsck" : ""))")
 
         var volInfo = fs_ntfs_volume_info_t()
         fs_ntfs_get_volume_info(bridgeFS, &volInfo)
@@ -333,7 +401,15 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             contextPtr: contextPtr,
             cfgSizeBytes: cfgSizeBytes,
             bsdName: bsdName,
+            // qcow2-backed NTFS now has its own deferred RW remount path
+            // (NTFSVolume.performDeferredQcow2RwRemount) that goes through
+            // fs_ntfs_mount_rw_with_fs_core_device instead of the
+            // callback-based fsck+remount. fsck itself is skipped on the
+            // qcow2 path because there's no fs_core variant of
+            // fs_ntfs_fsck_with_callbacks yet — RW open will fail loudly
+            // on a dirty $LogFile.
             requiresFsckRemount: isWritable,
+            isQcow2: isQcow2,
             stats: stats
         )
         // Stash volume + bsdName + contextPtr + size so `startCheck`

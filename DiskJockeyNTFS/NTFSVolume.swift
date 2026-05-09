@@ -49,6 +49,12 @@ final class NTFSVolume: FSVolume,
     /// callbacks, and remount RW. Mirror of EXT4's `requiresJournalReplay`.
     private var requiresFsckRemount: Bool
 
+    /// True when the resource the volume sits on is a QCOW2 container.
+    /// QCOW2-backed mounts skip the callback-based fsck path during the
+    /// deferred remount (no fs_core variant of fs_ntfs_fsck_with_callbacks
+    /// exists yet) and remount RW directly via fs_ntfs_mount_rw_with_fs_core_device.
+    private let isQcow2: Bool
+
     /// Per-mount I/O counter aggregator. Owns the 1 Hz `io.stats`
     /// emitter that the host app's AttachedDisksModel ingests. Started
     /// in `NTFSFileSystem.loadResource`, stopped in `deactivate`.
@@ -66,6 +72,7 @@ final class NTFSVolume: FSVolume,
          cfgSizeBytes: UInt64,
          bsdName: String,
          requiresFsckRemount: Bool,
+         isQcow2: Bool = false,
          stats: IOStatsCollector) {
         self.bridgeFS = bridgeFS
         self.blockDevice = blockDevice
@@ -73,6 +80,7 @@ final class NTFSVolume: FSVolume,
         self.cfgSizeBytes = cfgSizeBytes
         self.bsdName = bsdName
         self.requiresFsckRemount = requiresFsckRemount
+        self.isQcow2 = isQcow2
         self.stats = stats
         super.init(volumeID: volumeID, volumeName: volumeName)
     }
@@ -227,7 +235,11 @@ final class NTFSVolume: FSVolume,
     func activate(options: FSTaskOptions) async throws -> FSItem {
         log.info("volume: activate", scope: AppLogScope.lifecycle)
         if requiresFsckRemount {
-            performDeferredFsckAndRwRemount()
+            if isQcow2 {
+                performDeferredQcow2RwRemount()
+            } else {
+                performDeferredFsckAndRwRemount()
+            }
             requiresFsckRemount = false
         }
         return item(forRecordNumber: 5, path: "/", parentRecordNumber: nil)
@@ -386,6 +398,105 @@ final class NTFSVolume: FSVolume,
     /// the host app's `AttachedDisksModel` consumes. Distinct from
     /// startCheck's emissions in scope (`lifecycle` vs `fsck`) but
     /// identical in shape.
+    /// QCOW2-backed counterpart to `performDeferredFsckAndRwRemount`.
+    /// fs_ntfs has no fs_core variant of `_fsck_with_callbacks` /
+    /// `_is_dirty_with_callbacks` yet, so we skip the dirty check + fsck
+    /// step entirely and just remount RW through the qcow2 stack.
+    /// `fs_ntfs_mount_rw_with_fs_core_device` itself rejects volumes with
+    /// a non-empty `$LogFile` (the underlying ntfs crate refuses to write
+    /// over an unrecovered log) — if that happens the user has to mount
+    /// the qcow2 in a Windows VM to clean up. Logged explicitly so we
+    /// can tell that case apart from any other RW-mount failure.
+    private func performDeferredQcow2RwRemount() {
+        let dlog = TaggedLogger(log, fields: ["bsd": bsdName], kind: "ntfs.activate",
+                                scope: AppLogScope.lifecycle)
+        dlog.info("performing qcow2 deferred RW remount (fsck skipped — no fs_core variant)")
+
+        if let oldFs = bridgeFS {
+            fs_ntfs_umount(oldFs)
+            bridgeFS = nil
+        }
+
+        var coreCfg = FsCoreCallbackCfg()
+        coreCfg.read = { ctx, offset, buf, len in
+            guard let ctx = ctx, let buf = buf else { return EIO }
+            let context = Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+            return context.read(into: UnsafeMutableRawPointer(buf), offset: off_t(offset), length: Int(len))
+        }
+        coreCfg.write = { ctx, offset, buf, len in
+            guard let ctx = ctx, let buf = buf else { return EIO }
+            let context = Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+            return context.write(from: UnsafeRawPointer(buf), offset: off_t(offset), length: Int(len))
+        }
+        coreCfg.flush = { ctx in
+            guard let ctx = ctx else { return EIO }
+            let context = Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+            return context.flush()
+        }
+        coreCfg.ctx = contextPtr
+        coreCfg.size = cfgSizeBytes
+
+        guard let innerHandle = withUnsafePointer(to: &coreCfg, { fs_core_device_from_callbacks($0) }) else {
+            let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
+            dlog.error("fs_core_device_from_callbacks failed for qcow2 RW remount: \(err)")
+            // Re-mount RO so the volume stays usable (read-only).
+            fallbackRemountRo()
+            return
+        }
+
+        guard let qcow2Handle = qcow2_open_rw_on_device(innerHandle) else {
+            let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
+            dlog.error("qcow2_open_rw_on_device failed during RW remount: \(err)")
+            fallbackRemountRo()
+            return
+        }
+
+        if let newFs = fs_ntfs_mount_rw_with_fs_core_device(qcow2Handle) {
+            bridgeFS = newFs
+            fs_core_device_close(qcow2Handle)
+            dlog.info("qcow2 RW remount succeeded")
+            dlog.event(kind: "volume.dirty_check_skipped", fields: ["reason": "qcow2-no-fs-core-fsck-yet"],
+                       scope: AppLogScope.volume)
+        } else {
+            let err = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
+            dlog.error("fs_ntfs_mount_rw_with_fs_core_device failed: \(err) (likely $LogFile not clean — needs Windows VM to recover)")
+            fs_core_device_close(qcow2Handle)
+            fallbackRemountRo()
+        }
+    }
+
+    /// Rebuild a read-only qcow2-stacked mount when the RW path fails.
+    /// Keeps the volume usable (browsable) instead of leaving `bridgeFS`
+    /// nil and every subsequent op failing with EIO.
+    private func fallbackRemountRo() {
+        let dlog = TaggedLogger(log, fields: ["bsd": bsdName], kind: "ntfs.activate",
+                                scope: AppLogScope.lifecycle)
+        var coreCfg = FsCoreCallbackCfg()
+        coreCfg.read = { ctx, offset, buf, len in
+            guard let ctx = ctx, let buf = buf else { return EIO }
+            let context = Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+            return context.read(into: UnsafeMutableRawPointer(buf), offset: off_t(offset), length: Int(len))
+        }
+        coreCfg.write = nil
+        coreCfg.flush = nil
+        coreCfg.ctx = contextPtr
+        coreCfg.size = cfgSizeBytes
+
+        guard let inner = withUnsafePointer(to: &coreCfg, { fs_core_device_from_callbacks($0) }) else {
+            dlog.error("RO fallback: fs_core_device_from_callbacks failed; volume is unusable until next mount")
+            return
+        }
+        guard let qcow2 = qcow2_open_on_device(inner) else {
+            dlog.error("RO fallback: qcow2_open_on_device failed; volume is unusable until next mount")
+            return
+        }
+        bridgeFS = fs_ntfs_mount_with_fs_core_device(qcow2)
+        fs_core_device_close(qcow2)
+        if bridgeFS != nil {
+            dlog.info("RO fallback remount succeeded")
+        }
+    }
+
     private func performDeferredFsckAndRwRemount() {
         let dlog = TaggedLogger(log, fields: ["bsd": bsdName], kind: "ntfs.activate",
                                 scope: AppLogScope.lifecycle)
