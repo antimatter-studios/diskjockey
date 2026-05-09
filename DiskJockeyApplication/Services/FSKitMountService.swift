@@ -262,20 +262,40 @@ enum FSKitAttachController {
         }
     }
 
+    /// Container types we recognise wrapping a filesystem. The extension
+    /// itself unwraps the container (peeks the same magic on its
+    /// FSBlockDeviceResource and stacks the appropriate reader before
+    /// handing the device down to the FS driver). Host only needs the
+    /// label so we can prompt the user for the inner FS.
+    enum DetectedContainer { case qcow2 }
+
     /// Probe the first KB or so of a file to identify which FSKit
-    /// driver should mount it. Returns "ext4" or "ntfs" when confident,
-    /// `nil` otherwise — caller is expected to fall back to asking
-    /// the user. Only handles raw partition images (no MBR/GPT
-    /// container parsing); whole-disk images would land in the nil
-    /// branch and prompt explicitly.
-    static func detectFSType(at url: URL) -> String? {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+    /// driver should mount it. Returns `(fsType, container)` —
+    /// - `fsType` is a known FSKit short name ("ext4"/"ntfs") when the
+    ///   filesystem is directly recognisable at offset 0;
+    /// - `container` is set when the file is a known disk-image
+    ///   wrapper (qcow2) and the inner filesystem can't be sniffed
+    ///   from raw bytes.
+    /// Both nil → unknown raw image, caller falls back to user pick.
+    static func detectFSType(at url: URL) -> (fsType: String?, container: DetectedContainer?) {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return (nil, nil) }
         defer { try? handle.close() }
 
-        // NTFS: bytes [3, 11) of sector 0 are "NTFS    " (OEM ID).
+        // QCOW2: 4-byte big-endian magic "QFI\xfb" (0x51 0x46 0x49 0xfb)
+        // at offset 0. Inner FS lives at *virtual* offset 0 of the
+        // container, which the host can't reach without linking the
+        // qcow2 reader — so we just label the wrapper and let the
+        // caller prompt for inner FS.
         if let head = try? handle.read(upToCount: 16), head.count >= 11 {
+            if head.count >= 4
+                && head[0] == 0x51 && head[1] == 0x46
+                && head[2] == 0x49 && head[3] == 0xFB {
+                return (nil, .qcow2)
+            }
+
+            // NTFS: bytes [3, 11) of sector 0 are "NTFS    " (OEM ID).
             let oem = head.subdata(in: 3..<11)
-            if oem == Data("NTFS    ".utf8) { return "ntfs" }
+            if oem == Data("NTFS    ".utf8) { return ("ntfs", nil) }
         }
 
         // ext4: superblock magic 0xEF53 at byte offset 1080 (0x438),
@@ -284,13 +304,13 @@ enum FSKitAttachController {
             try handle.seek(toOffset: 1080)
             if let magic = try handle.read(upToCount: 2),
                magic.count == 2, magic[0] == 0x53, magic[1] == 0xEF {
-                return "ext4"
+                return ("ext4", nil)
             }
         } catch {
-            return nil
+            return (nil, nil)
         }
 
-        return nil
+        return (nil, nil)
     }
 
     /// Single entry point for "user pointed us at a disk image, mount
@@ -298,13 +318,20 @@ enum FSKitAttachController {
     /// drag-and-drop handler. Probes for fs type; if probing fails,
     /// asks the user which driver to use.
     static func attachUserPickedImage(at url: URL, logRepository: LogRepository? = nil) {
+        let detected = detectFSType(at: url)
         let fsType: String
-        if let detected = detectFSType(at: url) {
-            fsType = detected
+        if let direct = detected.fsType {
+            fsType = direct
         } else {
             let pick = NSAlert()
-            pick.messageText = "Couldn't detect filesystem"
-            pick.informativeText = "\(url.lastPathComponent) doesn't look like a raw ext4 or NTFS partition image. Pick a driver to try anyway, or cancel."
+            switch detected.container {
+            case .qcow2:
+                pick.messageText = "QCOW2 disk image detected"
+                pick.informativeText = "\(url.lastPathComponent) is a QCOW2 container. Pick the filesystem the guest formatted inside it (typically ext4 for Linux VMs, NTFS for Windows VMs)."
+            case .none:
+                pick.messageText = "Couldn't detect filesystem"
+                pick.informativeText = "\(url.lastPathComponent) doesn't look like a raw ext4 or NTFS partition image. Pick a driver to try anyway, or cancel."
+            }
             pick.addButton(withTitle: "Mount as ext4")
             pick.addButton(withTitle: "Mount as NTFS")
             pick.addButton(withTitle: "Cancel")
