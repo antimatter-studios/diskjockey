@@ -271,51 +271,128 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         let context = BlockDeviceContext(resource: blockDevice, log: dlog, stats: stats)
         let contextPtr = Unmanaged.passRetained(context).toOpaque()
 
-        var cfg = fs_ext4_blockdev_cfg_t()
-        cfg.read = { ctx, buf, offset, length in
-            guard let ctx = ctx, let buf = buf else { return EIO }
-            let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
-            return context.read(into: buf, offset: off_t(offset), length: Int(length))
+        // Peek the first 4 bytes of the resource for QCOW2 magic
+        // (0x51 0x46 0x49 0xfb at offset 0). When matched, we don't hand
+        // the resource directly to fs_ext4 — instead we lift it to an
+        // FsCoreDevice via fs_core_device_from_callbacks, stack a qcow2
+        // reader on top via qcow2_open_rw_on_device, and mount ext4 on
+        // the resulting *virtual* device. The qcow2 layer translates
+        // every virtual-offset I/O into the right cluster lookup.
+        var magic = [UInt8](repeating: 0, count: 4)
+        let magicRC = magic.withUnsafeMutableBufferPointer { buf -> Int32 in
+            return context.read(into: buf.baseAddress!, offset: 0, length: 4)
         }
-        cfg.write = { ctx, buf, offset, length in
-            guard let ctx = ctx, let buf = buf else { return EIO }
-            let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
-            return context.write(from: buf, offset: off_t(offset), length: Int(length))
-        }
-        cfg.flush = { ctx in
-            guard let ctx = ctx else { return EIO }
-            let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
-            return context.flush()
-        }
-        cfg.context = contextPtr
-        cfg.size_bytes = blockDevice.blockCount * blockDevice.blockSize
-        cfg.block_size = UInt32(blockDevice.blockSize)
-
-        // Branch on `FSBlockDeviceResource.isWritable`: macOS opens removable
-        // media (SD, USB) read-only by default unless the user mounts it
-        // writable. Calling fs_ext4_mount_rw_with_callbacks against a
-        // read-only resource produces "Bad file descriptor" on the first
-        // metadata write during journal replay and the mount aborts. Fall
-        // back to the v0.1.2 read-only entry point in that case so the user
-        // still gets a working (read-only) volume.
+        let isQcow2 = magicRC == 0
+            && magic[0] == 0x51 && magic[1] == 0x46
+            && magic[2] == 0x49 && magic[3] == 0xfb
         let isWritable = blockDevice.isWritable
         let bridgeFS: OpaquePointer?
-        if isWritable {
-            dlog.info("calling fs_ext4_mount_rw_with_callbacks_lazy (deferred journal replay) size=\(cfg.size_bytes) blocksize=\(cfg.block_size)")
-            bridgeFS = fs_ext4_mount_rw_with_callbacks_lazy(&cfg)
+
+        if isQcow2 {
+            dlog.info("QCOW2 magic detected on resource — stacking qcow2 reader before ext4 mount (isWritable=\(isWritable))")
+
+            // Build an FsCoreCallbackCfg that forwards into the SAME
+            // BlockDeviceContext via the same Unmanaged ptr the direct
+            // mount would use. Trampolines have a different shape than
+            // fs_ext4's callbacks (offset+buf+len ordering, len: usize)
+            // so we declare them locally rather than reuse the cfg above.
+            var coreCfg = FsCoreCallbackCfg()
+            coreCfg.read = { ctx, offset, buf, len in
+                guard let ctx = ctx, let buf = buf else { return EIO }
+                let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                return context.read(into: UnsafeMutableRawPointer(buf), offset: off_t(offset), length: Int(len))
+            }
+            coreCfg.write = isWritable ? { ctx, offset, buf, len in
+                guard let ctx = ctx, let buf = buf else { return EIO }
+                let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                return context.write(from: UnsafeRawPointer(buf), offset: off_t(offset), length: Int(len))
+            } : nil
+            coreCfg.flush = { ctx in
+                guard let ctx = ctx else { return EIO }
+                let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                return context.flush()
+            }
+            coreCfg.ctx = contextPtr
+            coreCfg.size = blockDevice.blockCount * blockDevice.blockSize
+
+            guard let innerHandle = withUnsafePointer(to: &coreCfg, { fs_core_device_from_callbacks($0) }) else {
+                let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
+                dlog.error("fs_core_device_from_callbacks failed for qcow2 backing: \(err)")
+                Unmanaged<BlockDeviceContext>.fromOpaque(contextPtr).release()
+                replyHandler(nil, POSIXError(.EIO))
+                return
+            }
+
+            // Stack the qcow2 reader. Ownership of `innerHandle` transfers
+            // into the qcow2 layer regardless of success/failure (NULL
+            // return means the qcow2 entry already freed the inner).
+            let qcow2Handle: OpaquePointer? = isWritable
+                ? qcow2_open_rw_on_device(innerHandle)
+                : qcow2_open_on_device(innerHandle)
+            guard let qcow2Handle = qcow2Handle else {
+                let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
+                dlog.error("qcow2_open\(isWritable ? "_rw" : "")_on_device failed: \(err)")
+                Unmanaged<BlockDeviceContext>.fromOpaque(contextPtr).release()
+                replyHandler(nil, POSIXError(.EIO))
+                return
+            }
+
+            // fs_ext4_mount_with_fs_core_device_lazy clones an Arc<dyn
+            // BlockDevice> from the handle, so closing our outer handle
+            // afterwards is fine — the mount keeps its own reference and
+            // the qcow2 layer + callbacks stay alive until umount.
+            dlog.info("calling fs_ext4_mount_with_fs_core_device\(isWritable ? "_lazy" : "") (qcow2 stacked)")
+            bridgeFS = isWritable
+                ? fs_ext4_mount_with_fs_core_device_lazy(qcow2Handle)
+                : fs_ext4_mount_with_fs_core_device(qcow2Handle)
+            fs_core_device_close(qcow2Handle)
         } else {
-            dlog.info("resource is not writable — falling back to fs_ext4_mount_with_callbacks (RO) size=\(cfg.size_bytes) blocksize=\(cfg.block_size)")
-            bridgeFS = fs_ext4_mount_with_callbacks(&cfg)
+            // Direct ext4 mount: callbacks point at BlockDeviceContext, no
+            // container layer in between. This is the historical path.
+            var cfg = fs_ext4_blockdev_cfg_t()
+            cfg.read = { ctx, buf, offset, length in
+                guard let ctx = ctx, let buf = buf else { return EIO }
+                let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                return context.read(into: buf, offset: off_t(offset), length: Int(length))
+            }
+            cfg.write = { ctx, buf, offset, length in
+                guard let ctx = ctx, let buf = buf else { return EIO }
+                let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                return context.write(from: buf, offset: off_t(offset), length: Int(length))
+            }
+            cfg.flush = { ctx in
+                guard let ctx = ctx else { return EIO }
+                let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                return context.flush()
+            }
+            cfg.context = contextPtr
+            cfg.size_bytes = blockDevice.blockCount * blockDevice.blockSize
+            cfg.block_size = UInt32(blockDevice.blockSize)
+
+            // Branch on `FSBlockDeviceResource.isWritable`: macOS opens removable
+            // media (SD, USB) read-only by default unless the user mounts it
+            // writable. Calling fs_ext4_mount_rw_with_callbacks against a
+            // read-only resource produces "Bad file descriptor" on the first
+            // metadata write during journal replay and the mount aborts. Fall
+            // back to the v0.1.2 read-only entry point in that case so the user
+            // still gets a working (read-only) volume.
+            if isWritable {
+                dlog.info("calling fs_ext4_mount_rw_with_callbacks_lazy (deferred journal replay) size=\(cfg.size_bytes) blocksize=\(cfg.block_size)")
+                bridgeFS = fs_ext4_mount_rw_with_callbacks_lazy(&cfg)
+            } else {
+                dlog.info("resource is not writable — falling back to fs_ext4_mount_with_callbacks (RO) size=\(cfg.size_bytes) blocksize=\(cfg.block_size)")
+                bridgeFS = fs_ext4_mount_with_callbacks(&cfg)
+            }
         }
 
         guard let bridgeFS = bridgeFS else {
             let err = fs_ext4_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
-            dlog.error("mount failed in fs_ext4 (\(isWritable ? "rw" : "ro")): \(err)")
+            dlog.error("mount failed in fs_ext4 (\(isWritable ? "rw" : "ro")\(isQcow2 ? ", qcow2" : "")): \(err)")
             Unmanaged<BlockDeviceContext>.fromOpaque(contextPtr).release()
             replyHandler(nil, POSIXError(.EIO))
             return
         }
-        dlog.info("fs_ext4 mount succeeded (\(isWritable ? "rw, replay deferred" : "ro"))")
+        dlog.info("fs_ext4 mount succeeded (\(isWritable ? "rw, replay deferred" : "ro")\(isQcow2 ? ", qcow2-backed" : ""))")
 
         let backend = EXT4Backend(bridgeFS: bridgeFS)
         // Stash backend + bsdName + contextPtr so `startCheck` and
