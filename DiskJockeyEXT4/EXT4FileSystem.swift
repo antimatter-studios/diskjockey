@@ -271,31 +271,23 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         let context = BlockDeviceContext(resource: blockDevice, log: dlog, stats: stats)
         let contextPtr = Unmanaged.passRetained(context).toOpaque()
 
-        // Peek the first 4 bytes of the resource for QCOW2 magic
-        // (0x51 0x46 0x49 0xfb at offset 0). When matched, we don't hand
-        // the resource directly to fs_ext4 — instead we lift it to an
-        // FsCoreDevice via fs_core_device_from_callbacks, stack a qcow2
-        // reader on top via qcow2_open_rw_on_device, and mount ext4 on
-        // the resulting *virtual* device. The qcow2 layer translates
-        // every virtual-offset I/O into the right cluster lookup.
-        var magic = [UInt8](repeating: 0, count: 4)
-        let magicRC = magic.withUnsafeMutableBufferPointer { buf -> Int32 in
-            return context.read(into: buf.baseAddress!, offset: 0, length: 4)
-        }
-        let isQcow2 = magicRC == 0
-            && magic[0] == 0x51 && magic[1] == 0x46
-            && magic[2] == 0x49 && magic[3] == 0xfb
+        // Detect a known disk-image container at offset 0 (QCOW2,
+        // VHDX, VMDK, dynamic/differencing VHD) or at the trailing
+        // 512-byte footer (fixed VHD). When matched, we don't hand
+        // the resource directly to fs_ext4 — instead we lift it to
+        // an FsCoreDevice via fs_core_device_from_callbacks, stack
+        // the appropriate container reader on top, and mount ext4
+        // on the resulting *virtual* device. The container reader
+        // translates every virtual-offset I/O into the right
+        // physical lookup.
+        let containerKind = Self.detectContainer(context: context,
+                                                 sizeBytes: blockDevice.blockCount * blockDevice.blockSize)
         let isWritable = blockDevice.isWritable
         let bridgeFS: OpaquePointer?
 
-        if isQcow2 {
-            dlog.info("QCOW2 magic detected on resource — stacking qcow2 reader before ext4 mount (isWritable=\(isWritable))")
+        if let kind = containerKind {
+            dlog.info("\(kind) magic detected on resource — stacking \(kind) reader before ext4 mount (isWritable=\(isWritable))")
 
-            // Build an FsCoreCallbackCfg that forwards into the SAME
-            // BlockDeviceContext via the same Unmanaged ptr the direct
-            // mount would use. Trampolines have a different shape than
-            // fs_ext4's callbacks (offset+buf+len ordering, len: usize)
-            // so we declare them locally rather than reuse the cfg above.
             var coreCfg = FsCoreCallbackCfg()
             coreCfg.read = { ctx, offset, buf, len in
                 guard let ctx = ctx, let buf = buf else { return EIO }
@@ -317,35 +309,36 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
 
             guard let innerHandle = withUnsafePointer(to: &coreCfg, { fs_core_device_from_callbacks($0) }) else {
                 let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
-                dlog.error("fs_core_device_from_callbacks failed for qcow2 backing: \(err)")
+                dlog.error("fs_core_device_from_callbacks failed for \(kind) backing: \(err)")
                 Unmanaged<BlockDeviceContext>.fromOpaque(contextPtr).release()
                 replyHandler(nil, POSIXError(.EIO))
                 return
             }
 
-            // Stack the qcow2 reader. Ownership of `innerHandle` transfers
-            // into the qcow2 layer regardless of success/failure (NULL
-            // return means the qcow2 entry already freed the inner).
-            let qcow2Handle: OpaquePointer? = isWritable
-                ? qcow2_open_rw_on_device(innerHandle)
-                : qcow2_open_on_device(innerHandle)
-            guard let qcow2Handle = qcow2Handle else {
+            // Stack the container reader. Ownership of `innerHandle`
+            // transfers into the container layer regardless of
+            // success/failure (NULL means the container entry freed
+            // the inner before returning).
+            let containerHandle: OpaquePointer? = Self.openContainer(
+                kind: kind, inner: innerHandle, writable: isWritable)
+            guard let containerHandle = containerHandle else {
                 let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
-                dlog.error("qcow2_open\(isWritable ? "_rw" : "")_on_device failed: \(err)")
+                dlog.error("\(kind)_open\(isWritable ? "_rw" : "")_on_device failed: \(err)")
                 Unmanaged<BlockDeviceContext>.fromOpaque(contextPtr).release()
                 replyHandler(nil, POSIXError(.EIO))
                 return
             }
 
             // fs_ext4_mount_with_fs_core_device_lazy clones an Arc<dyn
-            // BlockDevice> from the handle, so closing our outer handle
-            // afterwards is fine — the mount keeps its own reference and
-            // the qcow2 layer + callbacks stay alive until umount.
-            dlog.info("calling fs_ext4_mount_with_fs_core_device\(isWritable ? "_lazy" : "") (qcow2 stacked)")
+            // BlockDevice> from the handle, so closing our outer
+            // handle afterwards is fine — the mount keeps its own
+            // reference and the container layer + callbacks stay
+            // alive until umount.
+            dlog.info("calling fs_ext4_mount_with_fs_core_device\(isWritable ? "_lazy" : "") (\(kind) stacked)")
             bridgeFS = isWritable
-                ? fs_ext4_mount_with_fs_core_device_lazy(qcow2Handle)
-                : fs_ext4_mount_with_fs_core_device(qcow2Handle)
-            fs_core_device_close(qcow2Handle)
+                ? fs_ext4_mount_with_fs_core_device_lazy(containerHandle)
+                : fs_ext4_mount_with_fs_core_device(containerHandle)
+            fs_core_device_close(containerHandle)
         } else {
             // Direct ext4 mount: callbacks point at BlockDeviceContext, no
             // container layer in between. This is the historical path.
@@ -387,12 +380,14 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
 
         guard let bridgeFS = bridgeFS else {
             let err = fs_ext4_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
-            dlog.error("mount failed in fs_ext4 (\(isWritable ? "rw" : "ro")\(isQcow2 ? ", qcow2" : "")): \(err)")
+            let suffix = containerKind.map { ", \($0)" } ?? ""
+            dlog.error("mount failed in fs_ext4 (\(isWritable ? "rw" : "ro")\(suffix)): \(err)")
             Unmanaged<BlockDeviceContext>.fromOpaque(contextPtr).release()
             replyHandler(nil, POSIXError(.EIO))
             return
         }
-        dlog.info("fs_ext4 mount succeeded (\(isWritable ? "rw, replay deferred" : "ro")\(isQcow2 ? ", qcow2-backed" : ""))")
+        let suffix = containerKind.map { ", \($0)-backed" } ?? ""
+        dlog.info("fs_ext4 mount succeeded (\(isWritable ? "rw, replay deferred" : "ro")\(suffix))")
 
         let backend = EXT4Backend(bridgeFS: bridgeFS)
         // Stash backend + bsdName + contextPtr so `startCheck` and
@@ -479,6 +474,70 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
     }
 
     func didFinishLoading() {
+    }
+
+    // MARK: - Container detection helpers
+
+    /// Disk-image container kinds we know how to unwrap onto an
+    /// FsCoreDevice before mounting ext4 on the resulting virtual
+    /// device. Mirrored on the NTFS side (NTFSFileSystem.swift).
+    enum ContainerKind: String, CustomStringConvertible {
+        case qcow2, vhd, vhdx, vmdk
+        var description: String { rawValue }
+    }
+
+    /// Probe the resource (offset 0 + trailing footer) for a known
+    /// container magic. Returns nil when the bytes look like a raw
+    /// partition image (or some unknown format that fs_ext4 can
+    /// reject more cleanly than we can guess).
+    static func detectContainer(context: BlockDeviceContext, sizeBytes: UInt64) -> ContainerKind? {
+        // Offset 0 covers QCOW2, VHDX, VMDK, dynamic / differencing VHD.
+        var head = [UInt8](repeating: 0, count: 16)
+        let rc = head.withUnsafeMutableBufferPointer { buf -> Int32 in
+            return context.read(into: buf.baseAddress!, offset: 0, length: 16)
+        }
+        if rc == 0 {
+            // QCOW2: 51 46 49 fb
+            if head[0] == 0x51 && head[1] == 0x46
+                && head[2] == 0x49 && head[3] == 0xFB { return .qcow2 }
+            // VHDX: "vhdxfile"
+            let vhdx: [UInt8] = [0x76, 0x68, 0x64, 0x78, 0x66, 0x69, 0x6c, 0x65]
+            if Array(head.prefix(8)) == vhdx { return .vhdx }
+            // VMDK: "KDMV"
+            let vmdk: [UInt8] = [0x4b, 0x44, 0x4d, 0x56]
+            if Array(head.prefix(4)) == vmdk { return .vmdk }
+            // Dynamic / differencing VHD: footer copy at offset 0
+            let conectix: [UInt8] = [0x63, 0x6f, 0x6e, 0x65, 0x63, 0x74, 0x69, 0x78]
+            if Array(head.prefix(8)) == conectix { return .vhd }
+        }
+
+        // Fixed VHD: footer-only at file_size - 512.
+        if sizeBytes >= 512 {
+            var footer = [UInt8](repeating: 0, count: 8)
+            let frc = footer.withUnsafeMutableBufferPointer { buf -> Int32 in
+                return context.read(into: buf.baseAddress!,
+                                    offset: off_t(sizeBytes - 512),
+                                    length: 8)
+            }
+            let conectix: [UInt8] = [0x63, 0x6f, 0x6e, 0x65, 0x63, 0x74, 0x69, 0x78]
+            if frc == 0 && footer == conectix { return .vhd }
+        }
+
+        return nil
+    }
+
+    /// Construct the right `*_open*_on_device` call for the kind +
+    /// writability. Consumes `inner` — on NULL return the called
+    /// function has already freed it per the C ABI contract.
+    static func openContainer(kind: ContainerKind,
+                              inner: OpaquePointer,
+                              writable: Bool) -> OpaquePointer? {
+        switch kind {
+        case .qcow2: return writable ? qcow2_open_rw_on_device(inner) : qcow2_open_on_device(inner)
+        case .vhd:   return writable ? vhd_open_rw_on_device(inner)   : vhd_open_on_device(inner)
+        case .vhdx:  return writable ? vhdx_open_rw_on_device(inner)  : vhdx_open_on_device(inner)
+        case .vmdk:  return writable ? vmdk_open_rw_on_device(inner)  : vmdk_open_on_device(inner)
+        }
     }
 
     /// Render the `s_creator_os` field. The ext4 spec defines five
