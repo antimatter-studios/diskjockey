@@ -57,6 +57,14 @@ final class NTFSVolume: FSVolume,
     /// nil = raw NTFS partition image.
     private let containerKind: NTFSContainerKind?
 
+    /// Set when this volume is one partition of a larger device
+    /// (raw whole-disk image OR a container holding a partition table).
+    /// When non-nil, the deferred RW remount + fsck path slices the
+    /// (possibly container-wrapped) device at [offset, offset+length)
+    /// before mounting fs_ntfs.
+    private let partitionOffset: UInt64?
+    private let partitionLength: UInt64?
+
     /// Per-mount I/O counter aggregator. Owns the 1 Hz `io.stats`
     /// emitter that the host app's AttachedDisksModel ingests. Started
     /// in `NTFSFileSystem.loadResource`, stopped in `deactivate`.
@@ -75,6 +83,8 @@ final class NTFSVolume: FSVolume,
          bsdName: String,
          requiresFsckRemount: Bool,
          containerKind: NTFSContainerKind? = nil,
+         partitionOffset: UInt64? = nil,
+         partitionLength: UInt64? = nil,
          stats: IOStatsCollector) {
         self.bridgeFS = bridgeFS
         self.blockDevice = blockDevice
@@ -83,6 +93,8 @@ final class NTFSVolume: FSVolume,
         self.bsdName = bsdName
         self.requiresFsckRemount = requiresFsckRemount
         self.containerKind = containerKind
+        self.partitionOffset = partitionOffset
+        self.partitionLength = partitionLength
         self.stats = stats
         super.init(volumeID: volumeID, volumeName: volumeName)
     }
@@ -237,7 +249,10 @@ final class NTFSVolume: FSVolume,
     func activate(options: FSTaskOptions) async throws -> FSItem {
         log.info("volume: activate", scope: AppLogScope.lifecycle)
         if requiresFsckRemount {
-            if containerKind != nil {
+            // Container-backed OR partition-sliced volumes use the fs_core
+            // device chain for the deferred RW remount. Plain whole-disk
+            // raw NTFS images use the historical callback-based path.
+            if containerKind != nil || partitionOffset != nil {
                 performDeferredContainerRwRemount()
             } else {
                 performDeferredFsckAndRwRemount()
@@ -513,17 +528,39 @@ final class NTFSVolume: FSVolume,
             dlog.error("fs_core_device_from_callbacks failed (rw=\(rw)): \(err)")
             return nil
         }
-        guard let kind = containerKind else {
-            dlog.error("buildContainerHandle called on non-container volume; freeing inner handle")
-            fs_core_device_close(inner)
+
+        var stacked: OpaquePointer = inner
+        if let kind = containerKind {
+            guard let h = NTFSContainerKind.open(kind: kind, inner: stacked, writable: rw) else {
+                let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
+                dlog.error("\(kind)_open\(rw ? "_rw" : "")_on_device failed: \(err)")
+                return nil
+            }
+            stacked = h
+        }
+
+        if let off = partitionOffset, let len = partitionLength, off > 0 || len > 0 {
+            guard let s = (rw ? fs_core_device_slice_rw(stacked, off, len)
+                              : fs_core_device_slice_ro(stacked, off, len)) else {
+                let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
+                dlog.error("fs_core_device_slice_\(rw ? "rw" : "ro") failed: \(err)")
+                fs_core_device_close(stacked)
+                return nil
+            }
+            fs_core_device_close(stacked)  // slice keeps its own Arc
+            return s
+        }
+
+        if containerKind == nil {
+            // No container, no partition slice — the deferred-remount path
+            // shouldn't have been called. Free + return nil so the caller
+            // can fall back to the callback-based path.
+            dlog.error("buildContainerHandle called on plain whole-disk volume; freeing handle")
+            fs_core_device_close(stacked)
             return nil
         }
-        let handle = NTFSContainerKind.open(kind: kind, inner: inner, writable: rw)
-        if handle == nil {
-            let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
-            dlog.error("\(kind)_open\(rw ? "_rw" : "")_on_device failed: \(err)")
-        }
-        return handle
+
+        return stacked
     }
 
     /// Rebuild a read-only container-stacked mount when the RW path

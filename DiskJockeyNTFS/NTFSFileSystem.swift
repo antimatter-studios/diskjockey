@@ -163,6 +163,22 @@ enum NTFSContainerKind: String, CustomStringConvertible {
         return nil
     }
 
+    /// Parse a `key=value` mount option out of FSTaskOptions.taskOptions.
+    /// Mirrors EXT4FileSystem.taskOption for cross-extension consistency.
+    static func taskOption<T>(_ name: String,
+                              from argv: [String],
+                              parser: (String) -> T?) -> T? {
+        for raw in argv {
+            for pair in raw.split(separator: ",") {
+                let kv = pair.split(separator: "=", maxSplits: 1).map(String.init)
+                if kv.count == 2 && kv[0] == name {
+                    if let v = parser(kv[1]) { return v }
+                }
+            }
+        }
+        return nil
+    }
+
     /// Construct the right `*_open*_on_device` call. Consumes `inner`.
     static func open(kind: NTFSContainerKind,
                      inner: OpaquePointer,
@@ -367,9 +383,21 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         // dirty-check + fsck via the matching `_with_fs_core_device`
         // entry points.
         let containerKind = NTFSContainerKind.detect(context: context, sizeBytes: cfgSizeBytes)
+
+        // Partition-aware mount: when the host attaches this resource
+        // for a specific partition, it passes `partition_offset=N` +
+        // `partition_length=M` task options. We slice the
+        // (possibly container-wrapped) device at that range and mount
+        // ntfs on the slice. NTFSVolume captures the same offset/length
+        // so its deferred RW remount + fsck rebuild the same chain.
+        let argv = options.taskOptions
+        let partitionOffset: UInt64? = NTFSContainerKind.taskOption("partition_offset", from: argv) { UInt64($0) }
+        let partitionLength: UInt64? = NTFSContainerKind.taskOption("partition_length", from: argv) { UInt64($0) }
+
+        let needsFsCorePath = (containerKind != nil) || (partitionOffset != nil) || (partitionLength != nil)
         let bridgeFS: OpaquePointer?
-        if let kind = containerKind {
-            dlog.info("\(kind) magic detected on resource — stacking \(kind) reader before NTFS mount (RO during load; activate will remount RW with fsck if writable=\(isWritable))")
+        if needsFsCorePath {
+            dlog.info("fs_core mount path: container=\(containerKind.map(String.init(describing:)) ?? "raw") partition_offset=\(partitionOffset ?? 0) partition_length=\(partitionLength ?? 0) (RO during load; activate will remount RW with fsck if writable=\(isWritable))")
 
             var coreCfg = FsCoreCallbackCfg()
             coreCfg.read = { ctx, offset, buf, len in
@@ -382,23 +410,45 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             coreCfg.ctx = contextPtr
             coreCfg.size = cfgSizeBytes
 
-            guard let innerHandle = withUnsafePointer(to: &coreCfg, { fs_core_device_from_callbacks($0) }) else {
+            guard let callbackHandle = withUnsafePointer(to: &coreCfg, { fs_core_device_from_callbacks($0) }) else {
                 let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
-                dlog.error("fs_core_device_from_callbacks failed for \(kind) backing: \(err)")
+                dlog.error("fs_core_device_from_callbacks failed: \(err)")
                 Unmanaged<NTFSBlockDeviceContext>.fromOpaque(contextPtr).release()
                 replyHandler(nil, POSIXError(.EIO))
                 return
             }
-            guard let containerHandle = NTFSContainerKind.open(kind: kind, inner: innerHandle, writable: false) else {
-                let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
-                dlog.error("\(kind)_open_on_device failed: \(err)")
-                Unmanaged<NTFSBlockDeviceContext>.fromOpaque(contextPtr).release()
-                replyHandler(nil, POSIXError(.EIO))
-                return
+
+            var stacked: OpaquePointer = callbackHandle
+            if let kind = containerKind {
+                guard let h = NTFSContainerKind.open(kind: kind, inner: stacked, writable: false) else {
+                    let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
+                    dlog.error("\(kind)_open_on_device failed: \(err)")
+                    Unmanaged<NTFSBlockDeviceContext>.fromOpaque(contextPtr).release()
+                    replyHandler(nil, POSIXError(.EIO))
+                    return
+                }
+                stacked = h
             }
-            dlog.info("calling fs_ntfs_mount_with_fs_core_device (\(kind) stacked, RO)")
-            bridgeFS = fs_ntfs_mount_with_fs_core_device(containerHandle)
-            fs_core_device_close(containerHandle)
+
+            var mountHandle: OpaquePointer = stacked
+            var preMountClose: [OpaquePointer] = []
+            if let offset = partitionOffset, let length = partitionLength, offset > 0 || length > 0 {
+                guard let s = fs_core_device_slice_ro(stacked, offset, length) else {
+                    let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
+                    dlog.error("fs_core_device_slice_ro failed: \(err)")
+                    fs_core_device_close(stacked)
+                    Unmanaged<NTFSBlockDeviceContext>.fromOpaque(contextPtr).release()
+                    replyHandler(nil, POSIXError(.EIO))
+                    return
+                }
+                preMountClose.append(stacked)
+                mountHandle = s
+            }
+
+            dlog.info("calling fs_ntfs_mount_with_fs_core_device (RO during load)")
+            bridgeFS = fs_ntfs_mount_with_fs_core_device(mountHandle)
+            fs_core_device_close(mountHandle)
+            for h in preMountClose { fs_core_device_close(h) }
         } else {
             var cfg = fs_ntfs_blockdev_cfg_t()
             cfg.read = { ctx, buf, offset, length in
@@ -449,6 +499,8 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             // stacked container handle.
             requiresFsckRemount: isWritable,
             containerKind: containerKind,
+            partitionOffset: partitionOffset,
+            partitionLength: partitionLength,
             stats: stats
         )
         // Stash volume + bsdName + contextPtr + size so `startCheck`
