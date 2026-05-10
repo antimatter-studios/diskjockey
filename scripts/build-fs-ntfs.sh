@@ -219,8 +219,14 @@ lipo -create \
 cp "${NTFS_SRC}/include/fs_ntfs.h" "${NTFS_OUT}/include/fs_ntfs.h"
 FS_CORE_HDR="${SRCROOT}/vendor/rust-fs-core/include/fs_core.h"
 QCOW2_HDR="${SRCROOT}/vendor/rust-img-qcow2/include/qcow2.h"
+VHD_HDR="${SRCROOT}/vendor/rust-img-vhd/include/vhd.h"
+VHDX_HDR="${SRCROOT}/vendor/rust-img-vhdx/include/vhdx.h"
+VMDK_HDR="${SRCROOT}/vendor/rust-img-vmdk/include/vmdk.h"
 [ -f "$FS_CORE_HDR" ] && cp "$FS_CORE_HDR" "${NTFS_OUT}/include/fs_core.h"
 [ -f "$QCOW2_HDR" ] && cp "$QCOW2_HDR" "${NTFS_OUT}/include/qcow2.h"
+[ -f "$VHD_HDR" ] && cp "$VHD_HDR" "${NTFS_OUT}/include/vhd.h"
+[ -f "$VHDX_HDR" ] && cp "$VHDX_HDR" "${NTFS_OUT}/include/vhdx.h"
+[ -f "$VMDK_HDR" ] && cp "$VMDK_HDR" "${NTFS_OUT}/include/vmdk.h"
 
 emit_version_manifest "fs_ntfs" "${NTFS_SRC}" "${NTFS_OUT}/VERSION.txt"
 
