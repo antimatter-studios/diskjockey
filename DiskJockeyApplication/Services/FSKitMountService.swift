@@ -12,6 +12,39 @@ import DiskJockeyLibrary
 /// The bundled DiskJockeyEXT4 FSKit extension must be registered with
 /// pluginkit (which happens automatically once the host app has launched
 /// at least once with the embedded .appex in place).
+/// JSON shape emitted by the staged `diskprobe` CLI binary. Mirrors the
+/// schema the binary documents in its own usage block. Codable keys map
+/// to snake_case JSON via a custom CodingKeys table.
+struct DiskProbeResult: Decodable {
+    let path: String
+    let container: String
+    let containerSizeBytes: UInt64
+    let table: String   // "gpt" | "mbr" | "none"
+    let partitions: [Partition]
+
+    struct Partition: Decodable {
+        let index: Int
+        let start: UInt64
+        let length: UInt64
+        let fsKind: String  // "ext4" | "ntfs" | "fat32" | "exfat" | "fat16" | "hfs_plus" | "apfs" | "linux_swap" | "iso9660" | "squashfs" | "unknown"
+        let typeByte: Int
+        let typeGuid: String
+        let label: String?
+
+        enum CodingKeys: String, CodingKey {
+            case index, start, length, label
+            case fsKind = "fs_kind"
+            case typeByte = "type_byte"
+            case typeGuid = "type_guid"
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case path, container, table, partitions
+        case containerSizeBytes = "container_size_bytes"
+    }
+}
+
 @MainActor
 final class FSKitMountService {
     static let shared = FSKitMountService()
@@ -46,7 +79,12 @@ final class FSKitMountService {
     ///   - name: volume name — becomes the mount point under /Volumes.
     ///   - fsType: FSKit short name (e.g. `ext4`, `ntfs`). Must correspond to
     ///     a registered FSModule the system can dispatch to.
-    func attach(imagePath source: String, name: String, fsType: String) async throws {
+    ///   - mountOptions: optional `-o` task-options string passed verbatim
+    ///     to mount(8). Used for partition slicing (`partition_offset=N,
+    ///     partition_length=M,container=K`); the matching extension reads
+    ///     these via FSTaskOptions.taskOptions.
+    func attach(imagePath source: String, name: String, fsType: String,
+                mountOptions: String? = nil) async throws {
         try Self.validateMountName(name)
         let mountPoint = "/Volumes/\(name)"
 
@@ -69,10 +107,106 @@ final class FSKitMountService {
         // `mkdir -p` is idempotent on an existing empty directory, so
         // running it unconditionally is safe and removes the
         // sandbox-vs-privileged split.
-        let shellCmd = "/bin/mkdir -p \(Self.shellQuote(mountPoint)) && "
+        var shellCmd = "/bin/mkdir -p \(Self.shellQuote(mountPoint)) && "
             + "/sbin/mount -F -t \(Self.shellQuote(fsType)) "
-            + "\(Self.shellQuote(source)) \(Self.shellQuote(mountPoint))"
+        if let opts = mountOptions, !opts.isEmpty {
+            shellCmd += "-o \(Self.shellQuote(opts)) "
+        }
+        shellCmd += "\(Self.shellQuote(source)) \(Self.shellQuote(mountPoint))"
         try await Self.runShellAsAdmin(command: shellCmd)
+    }
+
+    /// Multi-partition attach: probe the image's partition table, then
+    /// mount every partition we have a driver for in a single privileged
+    /// shell invocation. Partitions whose FS we don't ship (FAT32 /
+    /// exFAT / HFS+ / APFS / linux_swap / iso9660 / squashfs) are skipped
+    /// with a log line — the caller decides whether to surface that to
+    /// the user.
+    ///
+    /// `mountPointPrefix` is the base name; partitions land at
+    /// `/Volumes/<prefix>-pN`. Returns the list of mount points actually
+    /// attached.
+    func attachAllPartitions(imagePath source: String,
+                             mountPointPrefix: String,
+                             partitions: [DiskProbeResult.Partition]) async throws -> [String] {
+        try Self.validateMountName(mountPointPrefix)
+        var pieces: [String] = []
+        var mounts: [String] = []
+        for part in partitions {
+            let fs: String
+            switch part.fsKind {
+            case "ext4", "ext3", "ext2": fs = "ext4"
+            case "ntfs": fs = "ntfs"
+            default:
+                logger.info("skip partition \(part.index) (\(part.fsKind, privacy: .public)): no shipped FSKit driver")
+                continue
+            }
+            let name = "\(mountPointPrefix)-p\(part.index)"
+            try Self.validateMountName(name)
+            let mountPoint = "/Volumes/\(name)"
+            mounts.append(mountPoint)
+            pieces.append("/bin/mkdir -p \(Self.shellQuote(mountPoint))")
+            pieces.append(
+                "/sbin/mount -F -t \(Self.shellQuote(fs)) "
+                + "-o \(Self.shellQuote("partition_offset=\(part.start),partition_length=\(part.length)")) "
+                + "\(Self.shellQuote(source)) \(Self.shellQuote(mountPoint))"
+            )
+        }
+        if mounts.isEmpty {
+            logger.info("attachAllPartitions \(source, privacy: .public): nothing supported (\(partitions.count) partitions seen)")
+            return []
+        }
+        let shellCmd = pieces.joined(separator: " && ")
+        logger.info("attachAllPartitions \(source, privacy: .public): mounting \(mounts.count, privacy: .public) partitions in one privileged batch")
+        try await Self.runShellAsAdmin(command: shellCmd)
+        return mounts
+    }
+
+    /// Run the staged diskprobe binary against `path` and return its
+    /// JSON-decoded result. Throws if the binary is missing or fails.
+    static func runDiskProbe(at path: String) throws -> DiskProbeResult {
+        guard let probe = locateDiskProbeBinary() else {
+            throw FSKitError.processFailed(exitCode: -1, stderr: "diskprobe binary not found in app bundle or lib/diskprobe/")
+        }
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: probe)
+        proc.arguments = [path]
+        let stdout = Pipe()
+        let stderr = Pipe()
+        proc.standardOutput = stdout
+        proc.standardError = stderr
+        try proc.run()
+        proc.waitUntilExit()
+        let outData = stdout.fileHandleForReading.readDataToEndOfFile()
+        if proc.terminationStatus != 0 {
+            let err = String(data: stderr.fileHandleForReading.readDataToEndOfFile(),
+                             encoding: .utf8) ?? ""
+            throw FSKitError.processFailed(exitCode: proc.terminationStatus, stderr: err)
+        }
+        return try JSONDecoder().decode(DiskProbeResult.self, from: outData)
+    }
+
+    /// Find the diskprobe binary. Checks (in order):
+    ///   1. App bundle Resources (the shipped path)
+    ///   2. `lib/diskprobe/diskprobe` relative to the project root, by
+    ///      walking up from this source file. Lets dev builds work
+    ///      without an Xcode "Copy Files" build phase.
+    private static func locateDiskProbeBinary() -> String? {
+        if let url = Bundle.main.url(forResource: "diskprobe", withExtension: nil),
+           FileManager.default.isExecutableFile(atPath: url.path) {
+            return url.path
+        }
+        // Walk up from #filePath looking for "lib/diskprobe/diskprobe".
+        var dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        for _ in 0..<8 {
+            let candidate = dir.appendingPathComponent("lib/diskprobe/diskprobe").path
+            if FileManager.default.isExecutableFile(atPath: candidate) {
+                return candidate
+            }
+            dir = dir.deletingLastPathComponent()
+            if dir.path == "/" { break }
+        }
+        return nil
     }
 
     // MARK: - Detach
@@ -350,9 +484,21 @@ enum FSKitAttachController {
 
     /// Single entry point for "user pointed us at a disk image, mount
     /// it." Used by both the sidebar "Add Disk Image" button and the
-    /// drag-and-drop handler. Probes for fs type; if probing fails,
-    /// asks the user which driver to use.
+    /// drag-and-drop handler. First probes the partition table via the
+    /// staged diskprobe binary — if there's an MBR/GPT with supported
+    /// partitions, mounts each one separately at /Volumes/<name>-pN.
+    /// Falls back to whole-device mount when probe fails or finds no
+    /// partition table.
     static func attachUserPickedImage(at url: URL, logRepository: LogRepository? = nil) {
+        // Try multi-partition path first.
+        if let probe = try? FSKitMountService.runDiskProbe(at: url.path),
+           probe.table != "none",
+           !probe.partitions.isEmpty {
+            attachMultiPartition(url: url, probe: probe, logRepository: logRepository)
+            return
+        }
+
+        // Single-FS fallback (original path).
         let detected = detectFSType(at: url)
         let fsType: String
         if let direct = detected.fsType {
@@ -400,6 +546,69 @@ enum FSKitAttachController {
             } catch {
                 logRepository?.logFSKit(
                     "mount /Volumes/\(name) failed: \(error.localizedDescription)",
+                    category: "error")
+                let fail = NSAlert(error: error)
+                fail.runModal()
+            }
+        }
+    }
+
+    /// Multi-partition flow. Show the user the partition list (with
+    /// supported / skipped breakdown) and mount everything we can in
+    /// one privileged shell invocation.
+    private static func attachMultiPartition(url: URL,
+                                             probe: DiskProbeResult,
+                                             logRepository: LogRepository?) {
+        let supportedKinds: Set<String> = ["ext4", "ext3", "ext2", "ntfs"]
+        let supported = probe.partitions.filter { supportedKinds.contains($0.fsKind) }
+        let skipped = probe.partitions.filter { !supportedKinds.contains($0.fsKind) }
+
+        if supported.isEmpty {
+            let alert = NSAlert()
+            alert.messageText = "No supported partitions"
+            alert.informativeText = "\(url.lastPathComponent) has \(probe.partitions.count) partition(s) (\(probe.table.uppercased())) but none are ext4/ext3/ext2/NTFS — DiskJockey doesn't ship a driver for the rest yet (FAT32/exFAT/HFS+/APFS/Linux swap)."
+            alert.runModal()
+            return
+        }
+
+        let lines = probe.partitions.map { p -> String in
+            let support = supportedKinds.contains(p.fsKind) ? "✓" : "—"
+            let label = p.label.flatMap { $0.isEmpty ? nil : " \"\($0)\"" } ?? ""
+            let mb = String(format: "%.1f", Double(p.length) / (1024 * 1024))
+            return "  \(support) p\(p.index): \(p.fsKind)\(label), \(mb) MiB"
+        }.joined(separator: "\n")
+
+        let fallback = url.deletingPathExtension().lastPathComponent
+        let alert = NSAlert()
+        alert.messageText = "\(probe.partitions.count) partition\(probe.partitions.count == 1 ? "" : "s") detected (\(probe.table.uppercased()))"
+        var info = "\(url.lastPathComponent) (\(probe.container)):\n\(lines)\n\nWill mount \(supported.count) supported partition\(supported.count == 1 ? "" : "s") at /Volumes/<name>-pN."
+        if !skipped.isEmpty {
+            info += "\n\(skipped.count) partition\(skipped.count == 1 ? "" : "s") skipped (no driver)."
+        }
+        alert.informativeText = info
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        input.stringValue = fallback
+        alert.accessoryView = input
+        alert.addButton(withTitle: "Mount All")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        let prefix = input.stringValue.trimmingCharacters(in: .whitespaces)
+        logRepository?.logFSKit(
+            "attach-all-partitions \(probe.container) \(supported.count)p: \(url.path) -> /Volumes/\(prefix)-pN",
+            category: "info")
+        Task { @MainActor in
+            do {
+                let mounted = try await FSKitMountService.shared.attachAllPartitions(
+                    imagePath: url.path,
+                    mountPointPrefix: prefix,
+                    partitions: probe.partitions)
+                logRepository?.logFSKit(
+                    "mounted \(mounted.count) partition(s): \(mounted.joined(separator: ", "))",
+                    category: "info")
+            } catch {
+                logRepository?.logFSKit(
+                    "attach-all-partitions failed: \(error.localizedDescription)",
                     category: "error")
                 let fail = NSAlert(error: error)
                 fail.runModal()
