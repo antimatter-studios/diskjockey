@@ -49,11 +49,13 @@ final class NTFSVolume: FSVolume,
     /// callbacks, and remount RW. Mirror of EXT4's `requiresJournalReplay`.
     private var requiresFsckRemount: Bool
 
-    /// True when the resource the volume sits on is a QCOW2 container.
-    /// QCOW2-backed mounts skip the callback-based fsck path during the
-    /// deferred remount (no fs_core variant of fs_ntfs_fsck_with_callbacks
-    /// exists yet) and remount RW directly via fs_ntfs_mount_rw_with_fs_core_device.
-    private let isQcow2: Bool
+    /// Set when the resource sits inside a known disk-image container
+    /// (qcow2, vhd, vhdx, vmdk). Container-backed mounts use the
+    /// `_with_fs_core_device` family for dirty check + fsck + RW
+    /// remount in the deferred path; the underlying device cannot be
+    /// reopened by path so the callback-based fsck flow doesn't apply.
+    /// nil = raw NTFS partition image.
+    private let containerKind: NTFSContainerKind?
 
     /// Per-mount I/O counter aggregator. Owns the 1 Hz `io.stats`
     /// emitter that the host app's AttachedDisksModel ingests. Started
@@ -72,7 +74,7 @@ final class NTFSVolume: FSVolume,
          cfgSizeBytes: UInt64,
          bsdName: String,
          requiresFsckRemount: Bool,
-         isQcow2: Bool = false,
+         containerKind: NTFSContainerKind? = nil,
          stats: IOStatsCollector) {
         self.bridgeFS = bridgeFS
         self.blockDevice = blockDevice
@@ -80,7 +82,7 @@ final class NTFSVolume: FSVolume,
         self.cfgSizeBytes = cfgSizeBytes
         self.bsdName = bsdName
         self.requiresFsckRemount = requiresFsckRemount
-        self.isQcow2 = isQcow2
+        self.containerKind = containerKind
         self.stats = stats
         super.init(volumeID: volumeID, volumeName: volumeName)
     }
@@ -235,8 +237,8 @@ final class NTFSVolume: FSVolume,
     func activate(options: FSTaskOptions) async throws -> FSItem {
         log.info("volume: activate", scope: AppLogScope.lifecycle)
         if requiresFsckRemount {
-            if isQcow2 {
-                performDeferredQcow2RwRemount()
+            if containerKind != nil {
+                performDeferredContainerRwRemount()
             } else {
                 performDeferredFsckAndRwRemount()
             }
@@ -398,32 +400,34 @@ final class NTFSVolume: FSVolume,
     /// the host app's `AttachedDisksModel` consumes. Distinct from
     /// startCheck's emissions in scope (`lifecycle` vs `fsck`) but
     /// identical in shape.
-    /// QCOW2-backed counterpart to `performDeferredFsckAndRwRemount`.
-    /// Tears down the RO mount, builds a writable qcow2-stacked
-    /// FsCoreDevice, runs the dirty check + fsck via the
-    /// `_with_fs_core_device` family, then remounts RW. Mirrors the
-    /// callback-based path but keeps the qcow2 layer in the chain.
-    private func performDeferredQcow2RwRemount() {
+    /// Container-backed counterpart to `performDeferredFsckAndRwRemount`.
+    /// Tears down the RO mount, builds a writable container-stacked
+    /// FsCoreDevice (qcow2 / vhd / vhdx / vmdk), runs the dirty check
+    /// + fsck via the `_with_fs_core_device` family, then remounts RW.
+    /// Mirrors the callback-based path exactly; only the device source
+    /// differs.
+    private func performDeferredContainerRwRemount() {
         let dlog = TaggedLogger(log, fields: ["bsd": bsdName], kind: "ntfs.activate",
                                 scope: AppLogScope.lifecycle)
-        dlog.info("performing qcow2 deferred RW remount (with fsck via fs_core_device)")
+        let kindLabel = containerKind.map { "\($0)" } ?? "container"
+        dlog.info("performing \(kindLabel) deferred RW remount (with fsck via fs_core_device)")
 
         if let oldFs = bridgeFS {
             fs_ntfs_umount(oldFs)
             bridgeFS = nil
         }
 
-        // Build a writable qcow2-stacked FsCoreDevice. We rebuild it
+        // Build a writable container-stacked FsCoreDevice. We rebuild it
         // for each step (dirty check, fsck, mount) because each
         // `_with_fs_core_device` entry borrows the handle's inner Arc;
-        // they're cheap (just callback wrapping + qcow2 header parse).
-        guard let qcow2Handle = buildQcow2Handle(rw: true, dlog: dlog) else {
+        // they're cheap (just callback wrapping + container header parse).
+        guard let containerHandle = buildContainerHandle(rw: true, dlog: dlog) else {
             fallbackRemountRo()
             return
         }
 
         // Step 1: dirty check.
-        let dirtyRC = fs_ntfs_is_dirty_with_fs_core_device(qcow2Handle)
+        let dirtyRC = fs_ntfs_is_dirty_with_fs_core_device(containerHandle)
         let wasDirty: Bool
         switch dirtyRC {
         case 0:
@@ -435,7 +439,7 @@ final class NTFSVolume: FSVolume,
         default:
             let err = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
             dlog.error("fs_ntfs_is_dirty_with_fs_core_device rc=\(dirtyRC) err=\(err)")
-            fs_core_device_close(qcow2Handle)
+            fs_core_device_close(containerHandle)
             fallbackRemountRo()
             return
         }
@@ -446,13 +450,13 @@ final class NTFSVolume: FSVolume,
             var logfileBytes: UInt64 = 0
             var dirtyCleared: UInt8 = 0
             let rc = fs_ntfs_fsck_with_fs_core_device(
-                qcow2Handle, nil, nil, &logfileBytes, &dirtyCleared
+                containerHandle, nil, nil, &logfileBytes, &dirtyCleared
             )
             if rc != 0 {
                 let err = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
                 dlog.event(kind: "fsck.failed", fields: ["error": err],
                            level: .error, scope: AppLogScope.fsck)
-                fs_core_device_close(qcow2Handle)
+                fs_core_device_close(containerHandle)
                 fallbackRemountRo()
                 return
             }
@@ -463,14 +467,14 @@ final class NTFSVolume: FSVolume,
         }
 
         // Step 3: remount RW. Reuse the same handle — fsck only borrowed.
-        if let newFs = fs_ntfs_mount_rw_with_fs_core_device(qcow2Handle) {
+        if let newFs = fs_ntfs_mount_rw_with_fs_core_device(containerHandle) {
             bridgeFS = newFs
-            fs_core_device_close(qcow2Handle)
-            dlog.info("qcow2 RW remount succeeded\(wasDirty ? " (post-fsck)" : "")")
+            fs_core_device_close(containerHandle)
+            dlog.info("\(kindLabel) RW remount succeeded\(wasDirty ? " (post-fsck)" : "")")
         } else {
             let err = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
             dlog.error("fs_ntfs_mount_rw_with_fs_core_device failed: \(err)")
-            fs_core_device_close(qcow2Handle)
+            fs_core_device_close(containerHandle)
             fallbackRemountRo()
         }
     }
@@ -479,7 +483,7 @@ final class NTFSVolume: FSVolume,
     /// callback-backed device. Caller owns + closes the returned
     /// handle. Returns nil on failure (logged + the inner devices
     /// released by the C ABI's ownership-transfer rules).
-    private func buildQcow2Handle(rw: Bool, dlog: TaggedLogger) -> OpaquePointer? {
+    private func buildContainerHandle(rw: Bool, dlog: TaggedLogger) -> OpaquePointer? {
         var coreCfg = FsCoreCallbackCfg()
         coreCfg.read = { ctx, offset, buf, len in
             guard let ctx = ctx, let buf = buf else { return EIO }
@@ -509,41 +513,31 @@ final class NTFSVolume: FSVolume,
             dlog.error("fs_core_device_from_callbacks failed (rw=\(rw)): \(err)")
             return nil
         }
-        let qcow2 = rw ? qcow2_open_rw_on_device(inner) : qcow2_open_on_device(inner)
-        if qcow2 == nil {
-            let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
-            dlog.error("qcow2_open\(rw ? "_rw" : "")_on_device failed: \(err)")
+        guard let kind = containerKind else {
+            dlog.error("buildContainerHandle called on non-container volume; freeing inner handle")
+            fs_core_device_close(inner)
+            return nil
         }
-        return qcow2
+        let handle = NTFSContainerKind.open(kind: kind, inner: inner, writable: rw)
+        if handle == nil {
+            let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
+            dlog.error("\(kind)_open\(rw ? "_rw" : "")_on_device failed: \(err)")
+        }
+        return handle
     }
 
-    /// Rebuild a read-only qcow2-stacked mount when the RW path fails.
-    /// Keeps the volume usable (browsable) instead of leaving `bridgeFS`
-    /// nil and every subsequent op failing with EIO.
+    /// Rebuild a read-only container-stacked mount when the RW path
+    /// fails. Keeps the volume usable (browsable) instead of leaving
+    /// `bridgeFS` nil and every subsequent op failing with EIO.
     private func fallbackRemountRo() {
         let dlog = TaggedLogger(log, fields: ["bsd": bsdName], kind: "ntfs.activate",
                                 scope: AppLogScope.lifecycle)
-        var coreCfg = FsCoreCallbackCfg()
-        coreCfg.read = { ctx, offset, buf, len in
-            guard let ctx = ctx, let buf = buf else { return EIO }
-            let context = Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
-            return context.read(into: UnsafeMutableRawPointer(buf), offset: off_t(offset), length: Int(len))
-        }
-        coreCfg.write = nil
-        coreCfg.flush = nil
-        coreCfg.ctx = contextPtr
-        coreCfg.size = cfgSizeBytes
-
-        guard let inner = withUnsafePointer(to: &coreCfg, { fs_core_device_from_callbacks($0) }) else {
-            dlog.error("RO fallback: fs_core_device_from_callbacks failed; volume is unusable until next mount")
+        guard let containerHandle = buildContainerHandle(rw: false, dlog: dlog) else {
+            dlog.error("RO fallback: buildContainerHandle failed; volume is unusable until next mount")
             return
         }
-        guard let qcow2 = qcow2_open_on_device(inner) else {
-            dlog.error("RO fallback: qcow2_open_on_device failed; volume is unusable until next mount")
-            return
-        }
-        bridgeFS = fs_ntfs_mount_with_fs_core_device(qcow2)
-        fs_core_device_close(qcow2)
+        bridgeFS = fs_ntfs_mount_with_fs_core_device(containerHandle)
+        fs_core_device_close(containerHandle)
         if bridgeFS != nil {
             dlog.info("RO fallback remount succeeded")
         }
