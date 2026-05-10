@@ -267,7 +267,17 @@ enum FSKitAttachController {
     /// FSBlockDeviceResource and stacks the appropriate reader before
     /// handing the device down to the FS driver). Host only needs the
     /// label so we can prompt the user for the inner FS.
-    enum DetectedContainer { case qcow2 }
+    enum DetectedContainer { case qcow2, vhd, vhdx, vmdk
+
+        var label: String {
+            switch self {
+            case .qcow2: return "QCOW2"
+            case .vhd:   return "VHD"
+            case .vhdx:  return "VHDX"
+            case .vmdk:  return "VMDK"
+            }
+        }
+    }
 
     /// Probe the first KB or so of a file to identify which FSKit
     /// driver should mount it. Returns `(fsType, container)` —
@@ -281,21 +291,46 @@ enum FSKitAttachController {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return (nil, nil) }
         defer { try? handle.close() }
 
-        // QCOW2: 4-byte big-endian magic "QFI\xfb" (0x51 0x46 0x49 0xfb)
-        // at offset 0. Inner FS lives at *virtual* offset 0 of the
-        // container, which the host can't reach without linking the
-        // qcow2 reader — so we just label the wrapper and let the
-        // caller prompt for inner FS.
+        // Container detection at offset 0:
+        //   QCOW2 — "QFI\xfb"     (51 46 49 fb)
+        //   VHDX  — "vhdxfile"    (8 bytes)
+        //   VMDK  — "KDMV"        (4 bytes; monolithicSparse)
+        //   VHD   — footer-at-end with "conectix" cookie. Dynamic /
+        //           differencing VHDs also have a footer COPY at offset
+        //           0; fixed VHDs only have the trailing footer. Probing
+        //           the trailing 512 covers all three modes.
         if let head = try? handle.read(upToCount: 16), head.count >= 11 {
             if head.count >= 4
                 && head[0] == 0x51 && head[1] == 0x46
                 && head[2] == 0x49 && head[3] == 0xFB {
                 return (nil, .qcow2)
             }
+            if head.count >= 8 && head.subdata(in: 0..<8) == Data("vhdxfile".utf8) {
+                return (nil, .vhdx)
+            }
+            if head.count >= 4 && head.subdata(in: 0..<4) == Data("KDMV".utf8) {
+                return (nil, .vmdk)
+            }
+            // Dynamic / differencing VHD: footer copy at offset 0 too.
+            if head.count >= 8 && head.subdata(in: 0..<8) == Data("conectix".utf8) {
+                return (nil, .vhd)
+            }
 
             // NTFS: bytes [3, 11) of sector 0 are "NTFS    " (OEM ID).
             let oem = head.subdata(in: 3..<11)
             if oem == Data("NTFS    ".utf8) { return ("ntfs", nil) }
+        }
+
+        // Fixed VHD: footer at file_size - 512, cookie "conectix".
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+           let size = (attrs[.size] as? NSNumber)?.uint64Value, size >= 512 {
+            do {
+                try handle.seek(toOffset: size - 512)
+                if let footer = try handle.read(upToCount: 8),
+                   footer == Data("conectix".utf8) {
+                    return (nil, .vhd)
+                }
+            } catch { /* fall through to ext4 probe */ }
         }
 
         // ext4: superblock magic 0xEF53 at byte offset 1080 (0x438),
@@ -325,9 +360,9 @@ enum FSKitAttachController {
         } else {
             let pick = NSAlert()
             switch detected.container {
-            case .qcow2:
-                pick.messageText = "QCOW2 disk image detected"
-                pick.informativeText = "\(url.lastPathComponent) is a QCOW2 container. Pick the filesystem the guest formatted inside it (typically ext4 for Linux VMs, NTFS for Windows VMs)."
+            case .some(let kind):
+                pick.messageText = "\(kind.label) disk image detected"
+                pick.informativeText = "\(url.lastPathComponent) is a \(kind.label) container. Pick the filesystem the guest formatted inside it (typically ext4 for Linux VMs, NTFS for Windows VMs)."
             case .none:
                 pick.messageText = "Couldn't detect filesystem"
                 pick.informativeText = "\(url.lastPathComponent) doesn't look like a raw ext4 or NTFS partition image. Pick a driver to try anyway, or cancel."
