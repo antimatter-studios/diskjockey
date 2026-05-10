@@ -128,19 +128,76 @@ final class FSKitMountService {
     /// attached.
     func attachAllPartitions(imagePath source: String,
                              mountPointPrefix: String,
-                             partitions: [DiskProbeResult.Partition]) async throws -> [String] {
+                             partitions: [DiskProbeResult.Partition],
+                             container: String = "raw") async throws -> [String] {
         try Self.validateMountName(mountPointPrefix)
+
+        // Classify partitions by which driver mounts them.
+        //
+        //   - ext4/ext3/ext2/NTFS  -> our DiskJockey extensions (callback
+        //     + slice path; works with raw OR container source).
+        //   - FAT16/FAT32          -> Apple's mount_msdos.
+        //   - exFAT                -> Apple's mount_exfat.
+        //   - HFS+                 -> Apple's mount_hfs.
+        //   - APFS                 -> Apple's mount_apfs.
+        //
+        // Apple's drivers want a real /dev/diskN node, which we synthesize
+        // by `hdiutil attach -nomount` of the source. hdiutil DOESN'T
+        // understand qcow2/vhd/vhdx/vmdk — so when the source is a
+        // container with Apple-driver partitions we skip those with a
+        // log message and tell the user to convert to raw if they want
+        // them mounted.
+        struct Classified {
+            var ourPartitions: [(part: DiskProbeResult.Partition, fs: String)] = []
+            var applePartitions: [(part: DiskProbeResult.Partition, fs: String)] = []
+            var skipped: [DiskProbeResult.Partition] = []
+        }
+        var c = Classified()
+        for part in partitions {
+            switch part.fsKind {
+            case "ext4", "ext3", "ext2": c.ourPartitions.append((part, "ext4"))
+            case "ntfs":                  c.ourPartitions.append((part, "ntfs"))
+            case "fat32", "fat16":
+                if container == "raw" { c.applePartitions.append((part, "msdos")) }
+                else { c.skipped.append(part) }
+            case "exfat":
+                if container == "raw" { c.applePartitions.append((part, "exfat")) }
+                else { c.skipped.append(part) }
+            case "hfs_plus":
+                if container == "raw" { c.applePartitions.append((part, "hfs")) }
+                else { c.skipped.append(part) }
+            case "apfs":
+                if container == "raw" { c.applePartitions.append((part, "apfs")) }
+                else { c.skipped.append(part) }
+            default:                     c.skipped.append(part)
+            }
+        }
+        for s in c.skipped {
+            logger.info("skip partition \(s.index) (\(s.fsKind, privacy: .public)): no driver path (container=\(container, privacy: .public))")
+        }
+
+        // Apple-driver partitions need an hdiutil-attached parent.
+        var hdiutilSlices: [Int: String] = [:]   // partition index -> /dev/diskNsM
+        var hdiutilParent: String?
+        if !c.applePartitions.isEmpty {
+            let result = try Self.runHdiutilAttach(at: source)
+            hdiutilParent = result.parentDevice
+            // hdiutil returns slices in arbitrary order; we map them by
+            // their numeric suffix back to the partition index. MBR + GPT
+            // primary partitions follow the convention "diskNs(index+1)".
+            for slice in result.slices {
+                if let idx = Self.sliceNumber(of: slice) {
+                    hdiutilSlices[idx - 1] = slice
+                }
+            }
+            logger.info("hdiutil attach \(source, privacy: .public) -> \(result.parentDevice, privacy: .public) (\(result.slices.count, privacy: .public) slices)")
+        }
+
+        // Build the privileged shell command — every supported partition
+        // mounts in one sudo prompt.
         var pieces: [String] = []
         var mounts: [String] = []
-        for part in partitions {
-            let fs: String
-            switch part.fsKind {
-            case "ext4", "ext3", "ext2": fs = "ext4"
-            case "ntfs": fs = "ntfs"
-            default:
-                logger.info("skip partition \(part.index) (\(part.fsKind, privacy: .public)): no shipped FSKit driver")
-                continue
-            }
+        for (part, fs) in c.ourPartitions {
             let name = "\(mountPointPrefix)-p\(part.index)"
             try Self.validateMountName(name)
             let mountPoint = "/Volumes/\(name)"
@@ -152,14 +209,113 @@ final class FSKitMountService {
                 + "\(Self.shellQuote(source)) \(Self.shellQuote(mountPoint))"
             )
         }
+        for (part, fs) in c.applePartitions {
+            guard let dev = hdiutilSlices[part.index] else {
+                logger.error("apple partition \(part.index) (\(part.fsKind, privacy: .public)): no hdiutil slice mapped (parent=\(hdiutilParent ?? "?", privacy: .public))")
+                continue
+            }
+            let name = "\(mountPointPrefix)-p\(part.index)"
+            try Self.validateMountName(name)
+            let mountPoint = "/Volumes/\(name)"
+            mounts.append(mountPoint)
+            pieces.append("/bin/mkdir -p \(Self.shellQuote(mountPoint))")
+            pieces.append("/sbin/mount -t \(Self.shellQuote(fs)) \(Self.shellQuote(dev)) \(Self.shellQuote(mountPoint))")
+        }
+
         if mounts.isEmpty {
-            logger.info("attachAllPartitions \(source, privacy: .public): nothing supported (\(partitions.count) partitions seen)")
+            // Nothing to mount — clean up the hdiutil attach if we made one.
+            if let parent = hdiutilParent {
+                _ = try? await Self.runHdiutilDetach(parent)
+            }
+            logger.info("attachAllPartitions \(source, privacy: .public): nothing supported (\(partitions.count) partitions seen, \(c.skipped.count) skipped)")
             return []
         }
+
         let shellCmd = pieces.joined(separator: " && ")
-        logger.info("attachAllPartitions \(source, privacy: .public): mounting \(mounts.count, privacy: .public) partitions in one privileged batch")
-        try await Self.runShellAsAdmin(command: shellCmd)
+        logger.info("attachAllPartitions \(source, privacy: .public): mounting \(mounts.count, privacy: .public) partitions (\(c.ourPartitions.count) ours + \(c.applePartitions.count) apple) in one privileged batch")
+        do {
+            try await Self.runShellAsAdmin(command: shellCmd)
+        } catch {
+            // Mount failed mid-batch — make sure we don't leak the
+            // hdiutil attach.
+            if let parent = hdiutilParent {
+                _ = try? await Self.runHdiutilDetach(parent)
+            }
+            throw error
+        }
         return mounts
+    }
+
+    /// hdiutil-attach result. The parent is the whole-disk node, slices
+    /// are individual partition nodes (each is mountable via Apple's
+    /// driver).
+    struct HdiutilAttachResult {
+        let parentDevice: String       // e.g. "/dev/disk5"
+        let slices: [String]           // e.g. ["/dev/disk5s1", "/dev/disk5s2"]
+    }
+
+    /// Run `hdiutil attach -nomount -plist <path>` and parse the output.
+    /// Doesn't need admin — hdiutil sets up a dev node we can read but
+    /// not mount without privilege. The actual `mount` call (admin) is
+    /// chained into the same privileged shell as our extension mounts.
+    static func runHdiutilAttach(at path: String) throws -> HdiutilAttachResult {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
+        proc.arguments = ["attach", "-nomount", "-plist", path]
+        let outPipe = Pipe()
+        let errPipe = Pipe()
+        proc.standardOutput = outPipe
+        proc.standardError = errPipe
+        try proc.run()
+        proc.waitUntilExit()
+        guard proc.terminationStatus == 0 else {
+            let err = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(),
+                             encoding: .utf8) ?? ""
+            throw FSKitError.processFailed(exitCode: proc.terminationStatus, stderr: err)
+        }
+        let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+        guard let plist = try PropertyListSerialization.propertyList(
+                from: outData, options: [], format: nil) as? [String: Any],
+              let entities = plist["system-entities"] as? [[String: Any]] else {
+            throw FSKitError.processFailed(exitCode: -1, stderr: "hdiutil plist parse failed")
+        }
+        // Whole-disk parent: dev-entry has no `s` suffix (or has
+        // FDisk_partition_scheme / GUID_partition_scheme content-hint).
+        // Slices: dev-entry contains "sN" suffix.
+        var parent: String?
+        var slices: [String] = []
+        for entity in entities {
+            guard let dev = entity["dev-entry"] as? String else { continue }
+            // Parent: ends in "diskN" with no slice suffix.
+            if dev.range(of: #"^/dev/disk\d+$"#, options: .regularExpression) != nil {
+                parent = dev
+            } else if dev.range(of: #"^/dev/disk\d+s\d+$"#, options: .regularExpression) != nil {
+                slices.append(dev)
+            }
+        }
+        guard let parent = parent else {
+            throw FSKitError.processFailed(exitCode: -1, stderr: "hdiutil attached but no parent /dev/diskN found")
+        }
+        return HdiutilAttachResult(parentDevice: parent, slices: slices)
+    }
+
+    /// Detach a previously-attached hdiutil device. Best-effort — if the
+    /// device has dependent mounts or is already gone we throw the
+    /// hdiutil error so the caller can decide.
+    static func runHdiutilDetach(_ device: String) async throws {
+        try await Self.runAsAdmin(executable: "/usr/bin/hdiutil",
+                                  arguments: ["detach", device])
+    }
+
+    /// Extract the trailing slice number from a /dev/diskNsM path, or
+    /// nil if the path doesn't match. Used to map hdiutil's slice list
+    /// back to diskprobe's partition indices (s1 -> index 0, s2 -> 1, …).
+    static func sliceNumber(of devEntry: String) -> Int? {
+        guard let range = devEntry.range(of: #"s(\d+)$"#, options: .regularExpression) else {
+            return nil
+        }
+        let digits = devEntry[range].dropFirst()
+        return Int(digits)
     }
 
     /// Run the staged diskprobe binary against `path` and return its
@@ -559,31 +715,57 @@ enum FSKitAttachController {
     private static func attachMultiPartition(url: URL,
                                              probe: DiskProbeResult,
                                              logRepository: LogRepository?) {
-        let supportedKinds: Set<String> = ["ext4", "ext3", "ext2", "ntfs"]
-        let supported = probe.partitions.filter { supportedKinds.contains($0.fsKind) }
-        let skipped = probe.partitions.filter { !supportedKinds.contains($0.fsKind) }
+        // DiskJockey-shipped drivers: ext4 + NTFS via the FSKit
+        // extensions. Apple-shipped drivers reachable via hdiutil:
+        // FAT16/FAT32 (mount_msdos), exFAT (mount_exfat), HFS+
+        // (mount_hfs), APFS (mount_apfs). Apple drivers ONLY work
+        // when the source is raw — hdiutil doesn't understand
+        // qcow2/vhd/vhdx/vmdk so partitions inside containers route
+        // only to our extensions.
+        let ourKinds: Set<String> = ["ext4", "ext3", "ext2", "ntfs"]
+        let appleKinds: Set<String> = ["fat32", "fat16", "exfat", "hfs_plus", "apfs"]
+        let containerSupportsApple = (probe.container == "raw")
+        func isSupported(_ p: DiskProbeResult.Partition) -> Bool {
+            if ourKinds.contains(p.fsKind) { return true }
+            if appleKinds.contains(p.fsKind) && containerSupportsApple { return true }
+            return false
+        }
+        let supported = probe.partitions.filter(isSupported)
+        let skipped = probe.partitions.filter { !isSupported($0) }
 
         if supported.isEmpty {
             let alert = NSAlert()
-            alert.messageText = "No supported partitions"
-            alert.informativeText = "\(url.lastPathComponent) has \(probe.partitions.count) partition(s) (\(probe.table.uppercased())) but none are ext4/ext3/ext2/NTFS — DiskJockey doesn't ship a driver for the rest yet (FAT32/exFAT/HFS+/APFS/Linux swap)."
+            alert.messageText = "No mountable partitions"
+            var msg = "\(url.lastPathComponent) has \(probe.partitions.count) partition(s) (\(probe.table.uppercased())) but none can be mounted."
+            if !containerSupportsApple {
+                let appleInside = probe.partitions.filter { appleKinds.contains($0.fsKind) }
+                if !appleInside.isEmpty {
+                    msg += " \(appleInside.count) FAT32/exFAT/HFS+/APFS partition(s) need the source to be raw (hdiutil doesn't read \(probe.container)). Convert with `qemu-img convert -O raw`."
+                }
+            }
+            alert.informativeText = msg
             alert.runModal()
             return
         }
 
         let lines = probe.partitions.map { p -> String in
-            let support = supportedKinds.contains(p.fsKind) ? "✓" : "—"
+            let support = isSupported(p) ? "✓" : "—"
             let label = p.label.flatMap { $0.isEmpty ? nil : " \"\($0)\"" } ?? ""
             let mb = String(format: "%.1f", Double(p.length) / (1024 * 1024))
-            return "  \(support) p\(p.index): \(p.fsKind)\(label), \(mb) MiB"
+            let driver: String
+            if ourKinds.contains(p.fsKind) { driver = " — DiskJockey driver" }
+            else if appleKinds.contains(p.fsKind) && containerSupportsApple { driver = " — Apple driver via hdiutil" }
+            else if appleKinds.contains(p.fsKind) { driver = " — needs raw source" }
+            else { driver = " — no driver" }
+            return "  \(support) p\(p.index): \(p.fsKind)\(label), \(mb) MiB\(driver)"
         }.joined(separator: "\n")
 
         let fallback = url.deletingPathExtension().lastPathComponent
         let alert = NSAlert()
         alert.messageText = "\(probe.partitions.count) partition\(probe.partitions.count == 1 ? "" : "s") detected (\(probe.table.uppercased()))"
-        var info = "\(url.lastPathComponent) (\(probe.container)):\n\(lines)\n\nWill mount \(supported.count) supported partition\(supported.count == 1 ? "" : "s") at /Volumes/<name>-pN."
+        var info = "\(url.lastPathComponent) (\(probe.container)):\n\(lines)\n\nWill mount \(supported.count) partition\(supported.count == 1 ? "" : "s") at /Volumes/<name>-pN."
         if !skipped.isEmpty {
-            info += "\n\(skipped.count) partition\(skipped.count == 1 ? "" : "s") skipped (no driver)."
+            info += "\n\(skipped.count) partition\(skipped.count == 1 ? "" : "s") skipped."
         }
         alert.informativeText = info
         let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
@@ -602,7 +784,8 @@ enum FSKitAttachController {
                 let mounted = try await FSKitMountService.shared.attachAllPartitions(
                     imagePath: url.path,
                     mountPointPrefix: prefix,
-                    partitions: probe.partitions)
+                    partitions: probe.partitions,
+                    container: probe.container)
                 logRepository?.logFSKit(
                     "mounted \(mounted.count) partition(s): \(mounted.joined(separator: ", "))",
                     category: "info")
