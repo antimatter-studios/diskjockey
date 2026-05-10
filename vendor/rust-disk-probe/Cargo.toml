@@ -1,0 +1,23 @@
+[package]
+name = "diskprobe"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "CLI: open a disk image (raw or qcow2/vhd/vhdx/vmdk container), probe its partition table, emit JSON."
+
+[[bin]]
+name = "diskprobe"
+path = "src/main.rs"
+
+[dependencies]
+am-fs-core = { path = "../rust-fs-core", version = "0.1" }
+am-img-qcow2 = { path = "../rust-img-qcow2", version = "0.2" }
+am-img-vhd = { path = "../rust-img-vhd", version = "0.2" }
+am-img-vhdx = { path = "../rust-img-vhdx", version = "0.2" }
+am-img-vmdk = { path = "../rust-img-vmdk", version = "0.2" }
+am-partitions = { path = "../rust-partitions", version = "0.1" }
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
