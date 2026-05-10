@@ -282,11 +282,30 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         // physical lookup.
         let containerKind = Self.detectContainer(context: context,
                                                  sizeBytes: blockDevice.blockCount * blockDevice.blockSize)
+        // Partition-aware mount: when the host attached this resource
+        // for a specific partition, it passes `partition_offset=N` +
+        // `partition_length=M` task options. We slice the
+        // (possibly container-wrapped) device at that range and mount
+        // ext4 on the slice. Without these options, we mount the whole
+        // device as today (single-FS image).
+        let argv = options.taskOptions
+        let partitionOffset: UInt64? = Self.taskOption("partition_offset", from: argv) { UInt64($0) }
+        let partitionLength: UInt64? = Self.taskOption("partition_length", from: argv) { UInt64($0) }
         let isWritable = blockDevice.isWritable
         let bridgeFS: OpaquePointer?
 
-        if let kind = containerKind {
-            dlog.info("\(kind) magic detected on resource — stacking \(kind) reader before ext4 mount (isWritable=\(isWritable))")
+        if partitionOffset != nil || partitionLength != nil {
+            dlog.info("partition mount requested: offset=\(partitionOffset ?? 0) length=\(partitionLength ?? 0) container=\(containerKind.map(String.init(describing:)) ?? "raw")")
+        }
+
+        // Lift to fs_core whenever any of (container, partition slice)
+        // applies — both shape changes need the FsCoreDevice handle
+        // chain. The historical "direct callback mount" path stays as
+        // the fallback for plain whole-disk ext4 images.
+        let needsFsCorePath = (containerKind != nil) || (partitionOffset != nil) || (partitionLength != nil)
+
+        if needsFsCorePath {
+            dlog.info("fs_core mount path: container=\(containerKind.map(String.init(describing:)) ?? "raw") partition_offset=\(partitionOffset ?? 0) partition_length=\(partitionLength ?? 0) writable=\(isWritable)")
 
             var coreCfg = FsCoreCallbackCfg()
             coreCfg.read = { ctx, offset, buf, len in
@@ -307,26 +326,47 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             coreCfg.ctx = contextPtr
             coreCfg.size = blockDevice.blockCount * blockDevice.blockSize
 
-            guard let innerHandle = withUnsafePointer(to: &coreCfg, { fs_core_device_from_callbacks($0) }) else {
+            guard let callbackHandle = withUnsafePointer(to: &coreCfg, { fs_core_device_from_callbacks($0) }) else {
                 let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
-                dlog.error("fs_core_device_from_callbacks failed for \(kind) backing: \(err)")
+                dlog.error("fs_core_device_from_callbacks failed: \(err)")
                 Unmanaged<BlockDeviceContext>.fromOpaque(contextPtr).release()
                 replyHandler(nil, POSIXError(.EIO))
                 return
             }
 
-            // Stack the container reader. Ownership of `innerHandle`
-            // transfers into the container layer regardless of
-            // success/failure (NULL means the container entry freed
-            // the inner before returning).
-            let containerHandle: OpaquePointer? = Self.openContainer(
-                kind: kind, inner: innerHandle, writable: isWritable)
-            guard let containerHandle = containerHandle else {
-                let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
-                dlog.error("\(kind)_open\(isWritable ? "_rw" : "")_on_device failed: \(err)")
-                Unmanaged<BlockDeviceContext>.fromOpaque(contextPtr).release()
-                replyHandler(nil, POSIXError(.EIO))
-                return
+            // Stack container reader on top of the callback handle.
+            // Ownership transfers (container layer frees inner on NULL).
+            var stackedHandle: OpaquePointer = callbackHandle
+            if let kind = containerKind {
+                guard let h = Self.openContainer(kind: kind, inner: stackedHandle, writable: isWritable) else {
+                    let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
+                    dlog.error("\(kind)_open\(isWritable ? "_rw" : "")_on_device failed: \(err)")
+                    Unmanaged<BlockDeviceContext>.fromOpaque(contextPtr).release()
+                    replyHandler(nil, POSIXError(.EIO))
+                    return
+                }
+                stackedHandle = h
+            }
+
+            // Slice the (possibly container-wrapped) device when the
+            // host requested a specific partition. The slice borrows
+            // the parent's Arc, so closing the parent afterwards is
+            // safe — the slice keeps it alive.
+            var mountHandle: OpaquePointer = stackedHandle
+            var preMountClose: [OpaquePointer] = []
+            if let offset = partitionOffset, let length = partitionLength, offset > 0 || length > 0 {
+                guard let s = (isWritable
+                                ? fs_core_device_slice_rw(stackedHandle, offset, length)
+                                : fs_core_device_slice_ro(stackedHandle, offset, length)) else {
+                    let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
+                    dlog.error("fs_core_device_slice_\(isWritable ? "rw" : "ro") failed: \(err)")
+                    fs_core_device_close(stackedHandle)
+                    Unmanaged<BlockDeviceContext>.fromOpaque(contextPtr).release()
+                    replyHandler(nil, POSIXError(.EIO))
+                    return
+                }
+                preMountClose.append(stackedHandle)  // stacked is now superseded; close after mount
+                mountHandle = s
             }
 
             // fs_ext4_mount_with_fs_core_device_lazy clones an Arc<dyn
@@ -334,11 +374,12 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             // handle afterwards is fine — the mount keeps its own
             // reference and the container layer + callbacks stay
             // alive until umount.
-            dlog.info("calling fs_ext4_mount_with_fs_core_device\(isWritable ? "_lazy" : "") (\(kind) stacked)")
+            dlog.info("calling fs_ext4_mount_with_fs_core_device\(isWritable ? "_lazy" : "")")
             bridgeFS = isWritable
-                ? fs_ext4_mount_with_fs_core_device_lazy(containerHandle)
-                : fs_ext4_mount_with_fs_core_device(containerHandle)
-            fs_core_device_close(containerHandle)
+                ? fs_ext4_mount_with_fs_core_device_lazy(mountHandle)
+                : fs_ext4_mount_with_fs_core_device(mountHandle)
+            fs_core_device_close(mountHandle)
+            for h in preMountClose { fs_core_device_close(h) }
         } else {
             // Direct ext4 mount: callbacks point at BlockDeviceContext, no
             // container layer in between. This is the historical path.
@@ -538,6 +579,24 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         case .vhdx:  return writable ? vhdx_open_rw_on_device(inner)  : vhdx_open_on_device(inner)
         case .vmdk:  return writable ? vmdk_open_rw_on_device(inner)  : vmdk_open_on_device(inner)
         }
+    }
+
+    /// Parse a `key=value` mount option out of FSTaskOptions.taskOptions.
+    /// `mount -F -t ext4 -o foo=1,bar=2 …` may surface either as one
+    /// comma-separated string or as multiple entries depending on FSKit
+    /// version; we handle both by splitting each entry on commas.
+    static func taskOption<T>(_ name: String,
+                              from argv: [String],
+                              parser: (String) -> T?) -> T? {
+        for raw in argv {
+            for pair in raw.split(separator: ",") {
+                let kv = pair.split(separator: "=", maxSplits: 1).map(String.init)
+                if kv.count == 2 && kv[0] == name {
+                    if let v = parser(kv[1]) { return v }
+                }
+            }
+        }
+        return nil
     }
 
     /// Render the `s_creator_os` field. The ext4 spec defines five
