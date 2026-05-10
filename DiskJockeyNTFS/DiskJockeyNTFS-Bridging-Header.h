@@ -17,5 +17,8 @@
 // pulling in a separate static archive.
 #import "fs_core.h"
 #import "qcow2.h"
+#import "vhd.h"
+#import "vhdx.h"
+#import "vmdk.h"
 
 #endif
