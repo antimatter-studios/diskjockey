@@ -39,6 +39,16 @@
                ReferencedContainer = "container:DiskJockey.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "501F02662E058C51009EBB59"
+               BuildableName = "DiskJockeyLibraryTests.xctest"
+               BlueprintName = "DiskJockeyLibraryTests"
+               ReferencedContainer = "container:DiskJockey.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction

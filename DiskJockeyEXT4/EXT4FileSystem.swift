@@ -168,6 +168,47 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
     static let mountedResources = OSAllocatedUnfairLock<[ObjectIdentifier: MountedResource]>(
         initialState: [:])
 
+    /// Shared parent-death watchdog for fsck / repair / format. See
+    /// `DetachedOperationWatchdog` for the rationale. The `onExpire`
+    /// closure logs + exits the process so `storagekitd` respawns the
+    /// appex cleanly.
+    static let watchdog: DetachedOperationWatchdog = {
+        DetachedOperationWatchdog(
+            label: "ext4",
+            defaultDeadline: 30
+        ) { pending, deadline in
+            log.error(
+                "watchdog: \(pending) op(s) still pending after \(Int(deadline))s — exiting (EX_TEMPFAIL) so storagekitd respawns",
+                scope: AppLogScope.lifecycle
+            )
+            exit(Int32(EX_TEMPFAIL))
+        }
+    }()
+
+    /// Thin wrappers preserved so call sites (this file, RepairXPCService)
+    /// don't need to know about the underlying class.
+    static func enterOperation() { watchdog.enter() }
+    static func exitOperation() { watchdog.leave() }
+
+    /// Called from `EXT4Volume.deactivate` after the volume's normal
+    /// teardown. Consults the App Group default
+    /// `ext4WatchdogDeadlineSeconds` to allow runtime extension for
+    /// slow-disk diagnostics without recompiling.
+    static func scheduleWatchdogIfNeeded() {
+        let defaults = UserDefaults(suiteName: AppLog.groupIdentifier)
+        let configured = defaults?.double(forKey: "ext4WatchdogDeadlineSeconds") ?? 0
+        let deadline: TimeInterval? = configured > 0 ? configured : nil
+        let pending = watchdog.pending
+        let scheduled = watchdog.scheduleExpiryIfNeeded(deadline: deadline)
+        if scheduled {
+            let effective = deadline ?? watchdog.defaultDeadline
+            log.warn(
+                "deactivate: \(pending) detached op(s) still in flight; watchdog will exit appex in \(Int(effective))s if not done",
+                scope: AppLogScope.lifecycle
+            )
+        }
+    }
+
     override init() {
         super.init()
         // One mach-service listener per process — guarded inside start().
@@ -787,8 +828,16 @@ extension EXT4FileSystem: FSManageableResourceMaintenanceOperations {
         // callbacks fire on Rust's worker thread anyway. The opLock
         // release happens here (not at the throw point) because the
         // operation continues asynchronously.
+        //
+        // Wrapped with `enter/exitOperation` so the parent-death
+        // watchdog (see `scheduleWatchdogIfNeeded`) knows fsck is
+        // still in flight if the mount tears down mid-pass.
+        Self.enterOperation()
         Task.detached {
-            defer { opLock.release() }
+            defer {
+                opLock.release()
+                Self.exitOperation()
+            }
             let result = backend.runFsck(
                 repair: repairRequested,
                 onProgress: { phase, done, total in
@@ -908,7 +957,13 @@ extension EXT4FileSystem: FSManageableResourceMaintenanceOperations {
             "label": label ?? "",
         ])
 
+        // Track in the parent-death watchdog counter — same rationale
+        // as fsck. mkfs runs entirely inside the Rust crate with no
+        // cancel hook, so if the mount goes away mid-format we want
+        // the watchdog to exit the appex once the deadline elapses.
+        Self.enterOperation()
         Task.detached {
+            defer { Self.exitOperation() }
             // Build a fresh blockdev cfg pointing at the same
             // BlockDeviceContext the live mount is using. The cfg's
             // read/write/flush callbacks dispatch through the same C

@@ -252,6 +252,13 @@ final class EXT4Volume: FSVolume,
             Unmanaged<BlockDeviceContext>.fromOpaque(ctx).release()
             blockDeviceContext = nil
         }
+        // Parent-death watchdog: if fsck / repair / format is still
+        // running in a detached Task, schedule a hard exit so the
+        // appex doesn't become a CPU-burning zombie that wedges
+        // storagekitd for every other StorageKit consumer on the Mac.
+        // No-op when nothing is in flight; see EXT4FileSystem for the
+        // counter + deadline logic.
+        EXT4FileSystem.scheduleWatchdogIfNeeded()
     }
 
     // MARK: - File attributes (async)

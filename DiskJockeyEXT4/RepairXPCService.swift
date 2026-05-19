@@ -158,11 +158,18 @@ final class RepairXPCService: NSObject {
     /// Decode the request file, run the repair, write the result.
     /// Always cleans up the in-flight file at the end.
     private func handleRequest(at processingURL: URL) {
+        // Track in the parent-death watchdog counter: repair runs
+        // synchronously inside `runFsck`, which holds the per-handle
+        // state lock and has no cancel hook on the Rust side. If the
+        // host or mount goes away mid-repair, the watchdog will exit
+        // the appex once the deadline elapses.
+        EXT4FileSystem.enterOperation()
         defer {
             // Best-effort cleanup. If unlink fails the next start() will
             // see a stale processing entry and re-process; idempotent on
             // the result side because `result-<uuid>.json` overwrites.
             try? FileManager.default.removeItem(at: processingURL)
+            EXT4FileSystem.exitOperation()
         }
 
         let request: RepairRequest
