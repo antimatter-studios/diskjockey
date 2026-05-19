@@ -212,21 +212,17 @@ lipo -create \
     "${NTFS_SRC}/target/x86_64-apple-darwin/release/libfs_ntfs.a" \
     -output "${NTFS_OUT}/libfs_ntfs.a"
 
-# Copy headers. fs_core.h + qcow2.h come from the sister vendor crates;
-# their #[no_mangle] symbols are baked into libfs_ntfs.a (am-fs-core +
-# am-img-qcow2 are deps of fs-ntfs) so consumers can call them through
-# the same .a. Headers are read-only mirrors — edits belong upstream.
+# Copy fs_ntfs.h alongside the static lib. fs_core.h comes from the
+# sister fs-core crate (still a transitive Cargo dep, so its symbols
+# ride into libfs_ntfs.a). The disk-image container headers
+# (qcow2.h / vhd.h / vhdx.h / vmdk.h) are NOT copied here — those
+# crates are built separately into lib/img_*/ by
+# scripts/build-img-containers.sh, and consumers link each .a
+# individually. See `feedback_no_cross_domain_bundling` for why we
+# don't bundle them through this lib.
 cp "${NTFS_SRC}/include/fs_ntfs.h" "${NTFS_OUT}/include/fs_ntfs.h"
 FS_CORE_HDR="${SRCROOT}/vendor/rust-fs-core/include/fs_core.h"
-QCOW2_HDR="${SRCROOT}/vendor/rust-img-qcow2/include/qcow2.h"
-VHD_HDR="${SRCROOT}/vendor/rust-img-vhd/include/vhd.h"
-VHDX_HDR="${SRCROOT}/vendor/rust-img-vhdx/include/vhdx.h"
-VMDK_HDR="${SRCROOT}/vendor/rust-img-vmdk/include/vmdk.h"
 [ -f "$FS_CORE_HDR" ] && cp "$FS_CORE_HDR" "${NTFS_OUT}/include/fs_core.h"
-[ -f "$QCOW2_HDR" ] && cp "$QCOW2_HDR" "${NTFS_OUT}/include/qcow2.h"
-[ -f "$VHD_HDR" ] && cp "$VHD_HDR" "${NTFS_OUT}/include/vhd.h"
-[ -f "$VHDX_HDR" ] && cp "$VHDX_HDR" "${NTFS_OUT}/include/vhdx.h"
-[ -f "$VMDK_HDR" ] && cp "$VMDK_HDR" "${NTFS_OUT}/include/vmdk.h"
 
 emit_version_manifest "fs_ntfs" "${NTFS_SRC}" "${NTFS_OUT}/VERSION.txt"
 

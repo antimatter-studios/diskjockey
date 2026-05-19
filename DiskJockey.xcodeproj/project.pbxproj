@@ -935,6 +935,10 @@
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(SRCROOT)/lib/fs_ext4/include",
+					"$(SRCROOT)/lib/img_qcow2/include",
+					"$(SRCROOT)/lib/img_vhd/include",
+					"$(SRCROOT)/lib/img_vhdx/include",
+					"$(SRCROOT)/lib/img_vmdk/include",
 				);
 				INFOPLIST_FILE = DiskJockeyEXT4/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = DiskJockeyEXT4;
@@ -947,12 +951,20 @@
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(SRCROOT)/lib/fs_ext4",
+					"$(SRCROOT)/lib/img_qcow2",
+					"$(SRCROOT)/lib/img_vhd",
+					"$(SRCROOT)/lib/img_vhdx",
+					"$(SRCROOT)/lib/img_vmdk",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0.1;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-lfs_ext4",
+					"-lqcow2",
+					"-lvhd",
+					"-lvhdx",
+					"-lvmdk",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.ext4;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1465,6 +1477,10 @@
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(SRCROOT)/lib/fs_ext4/include",
+					"$(SRCROOT)/lib/img_qcow2/include",
+					"$(SRCROOT)/lib/img_vhd/include",
+					"$(SRCROOT)/lib/img_vhdx/include",
+					"$(SRCROOT)/lib/img_vmdk/include",
 				);
 				INFOPLIST_FILE = DiskJockeyEXT4/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = DiskJockeyEXT4;
@@ -1477,12 +1493,20 @@
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(SRCROOT)/lib/fs_ext4",
+					"$(SRCROOT)/lib/img_qcow2",
+					"$(SRCROOT)/lib/img_vhd",
+					"$(SRCROOT)/lib/img_vhdx",
+					"$(SRCROOT)/lib/img_vmdk",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0.1;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-lfs_ext4",
+					"-lqcow2",
+					"-lvhd",
+					"-lvhdx",
+					"-lvmdk",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.ext4;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1512,6 +1536,10 @@
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(SRCROOT)/lib/fs_ntfs/include",
+					"$(SRCROOT)/lib/img_qcow2/include",
+					"$(SRCROOT)/lib/img_vhd/include",
+					"$(SRCROOT)/lib/img_vhdx/include",
+					"$(SRCROOT)/lib/img_vmdk/include",
 				);
 				INFOPLIST_FILE = DiskJockeyNTFS/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = DiskJockeyNTFS;
@@ -1524,12 +1552,20 @@
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(SRCROOT)/lib/fs_ntfs",
+					"$(SRCROOT)/lib/img_qcow2",
+					"$(SRCROOT)/lib/img_vhd",
+					"$(SRCROOT)/lib/img_vhdx",
+					"$(SRCROOT)/lib/img_vmdk",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0.1;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-lfs_ntfs",
+					"-lqcow2",
+					"-lvhd",
+					"-lvhdx",
+					"-lvmdk",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.ntfs;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1559,6 +1595,10 @@
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(SRCROOT)/lib/fs_ntfs/include",
+					"$(SRCROOT)/lib/img_qcow2/include",
+					"$(SRCROOT)/lib/img_vhd/include",
+					"$(SRCROOT)/lib/img_vhdx/include",
+					"$(SRCROOT)/lib/img_vmdk/include",
 				);
 				INFOPLIST_FILE = DiskJockeyNTFS/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = DiskJockeyNTFS;
@@ -1571,12 +1611,20 @@
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(SRCROOT)/lib/fs_ntfs",
+					"$(SRCROOT)/lib/img_qcow2",
+					"$(SRCROOT)/lib/img_vhd",
+					"$(SRCROOT)/lib/img_vhdx",
+					"$(SRCROOT)/lib/img_vmdk",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0.1;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-lfs_ntfs",
+					"-lqcow2",
+					"-lvhd",
+					"-lvhdx",
+					"-lvmdk",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.ntfs;
 				PRODUCT_NAME = "$(TARGET_NAME)";

@@ -25,10 +25,11 @@ NETWORKFS_DRIVERS := ftp sftp smb dropbox webdav gdrive s3 onedrive
 .PHONY: all proto clean \
 	vendor-fs-ext4 vendor-fs-ext4-force vendor-fs-ext4-clean \
 	vendor-fs-ntfs vendor-fs-ntfs-force vendor-fs-ntfs-clean \
+	vendor-img-containers vendor-img-containers-force vendor-img-containers-clean \
 	vendor-gonetworkfs vendor-gonetworkfs-force vendor-gonetworkfs-clean vendor-gonetworkfs-add \
 	vendor-all clean-all pins pins-check
 
-all: vendor-fs-ext4 vendor-fs-ntfs vendor-gonetworkfs proto
+all: vendor-fs-ext4 vendor-fs-ntfs vendor-img-containers vendor-gonetworkfs proto
 
 proto: proto-fileprovider
 
@@ -36,7 +37,7 @@ proto-fileprovider:
 	@echo "\nGenerating fileprovider protocol definitions...\n"
 	protoc -I=${DISKJOCKEY_LIB}/Protobuf --swift_opt=Visibility=Public --swift_out=${DISKJOCKEY_LIB}/ $(FILEPROVIDER_PROTO_SRC)
 
-clean: vendor-fs-ext4-clean vendor-fs-ntfs-clean vendor-gonetworkfs-clean
+clean: vendor-fs-ext4-clean vendor-fs-ntfs-clean vendor-img-containers-clean vendor-gonetworkfs-clean
 	@echo "\nCleaning up...\n"
 	rm -f ./${DISKJOCKEY_LIB}/Protobuf/${FILEPROVIDER_PROTOCOL}.pb.swift
 
@@ -78,6 +79,23 @@ vendor-fs-ntfs-force:
 
 vendor-fs-ntfs-clean:
 	rm -rf $(NTFS_OUT)
+
+# Disk-image container readers (am-img-qcow2/vhd/vhdx/vmdk). Each crate
+# builds to its own universal static lib at lib/img_<name>/. Consumers
+# (DiskJockeyEXT4, DiskJockeyNTFS) link each .a individually — they are
+# NOT bundled into libfs_ext4.a or libfs_ntfs.a. See
+# `feedback_no_cross_domain_bundling` in the project memory for why.
+vendor-img-containers:
+	@echo "\nBuilding disk-image container libs via scripts/build-img-containers.sh...\n"
+	@SRCROOT=. ./scripts/build-img-containers.sh
+
+vendor-img-containers-force:
+	@echo "\nForce rebuilding disk-image container libs...\n"
+	@rm -f lib/img_qcow2/.build-stamp lib/img_vhd/.build-stamp lib/img_vhdx/.build-stamp lib/img_vmdk/.build-stamp
+	@$(MAKE) vendor-img-containers
+
+vendor-img-containers-clean:
+	rm -rf lib/img_qcow2 lib/img_vhd lib/img_vhdx lib/img_vmdk
 
 # go-networkfs builds each driver from NETWORKFS_DRIVERS plus a combined libnetworkfs.a
 # dispatcher. Xcode build phases may override DRIVERS via env var to trim the
