@@ -494,63 +494,35 @@ final class EXT4Volume: FSVolume,
             return data.count
         }
 
-        // IMPORTANT: `fs_ext4_write_file` replaces the WHOLE file. To
-        // emulate partial / offset writes we read-modify-write: stat the
-        // current size, build a buffer of `max(currentSize, offset+len)`,
-        // splice the new bytes in at `offset`, then call writeFile with
-        // the merged buffer. This is O(filesize) per write and slow on
-        // large files.
+        // Streaming positional write — costs O(data.count), not
+        // O(filesize). Previous implementation used `fs_ext4_write_file`
+        // (whole-file replace) plus a Swift-side read-modify-write to
+        // emulate partial writes; that path was O(N²) for large copies
+        // and also tripped the Rust journal-writer's descriptor-block
+        // overflow at the ~1 MiB mark (every changed block had to fit
+        // in a single descriptor block). `pwrite` only journals the
+        // blocks actually touched.
         //
-        // The Rust crate's TODO list says "appends / partial writes are
-        // follow-up work" — once it exposes a streaming write, this
-        // method should call straight through without round-tripping
-        // existing contents.
-
-        guard let attr = backend.stat(path: ext4Item.path) else {
-            throw POSIXError(.ENOENT)
-        }
-
-        let currentSize = attr.size
+        // The file is guaranteed to exist here: FSKit dispatches
+        // `write()` only after `createItem` has returned successfully.
+        // Empty writes short-circuit so we don't pass a nil base ptr
+        // through the FFI.
         let writeOffset = UInt64(offset)
         let writeLen = UInt64(data.count)
-        let newEnd = writeOffset + writeLen
+        if writeLen == 0 { return 0 }
 
-        // Fast path: rewriting from offset 0 fully replaces or extends the
-        // file. Skip the read-modify-write step entirely.
-        if writeOffset == 0 && writeLen >= currentSize {
-            let written: Int64 = data.withUnsafeBytes { rawBuf -> Int64 in
-                guard let base = rawBuf.baseAddress else { return -1 }
-                return backend.writeFile(path: ext4Item.path, data: base, length: writeLen)
-            }
-            if written < 0 { throw Self.posixError(from: backend) }
-            return Int(writeLen)
+        let written: Int64 = data.withUnsafeBytes { rawBuf -> Int64 in
+            guard let base = rawBuf.baseAddress else { return -1 }
+            return backend.pwrite(path: ext4Item.path,
+                                  offset: writeOffset,
+                                  data: base,
+                                  length: writeLen)
         }
-
-        // Slow path: read-modify-write.
-        let mergedSize = max(currentSize, newEnd)
-        let bufferSize = Int(mergedSize)
-        let buf = UnsafeMutableRawPointer.allocate(byteCount: bufferSize, alignment: 8)
-        defer { buf.deallocate() }
-        memset(buf, 0, bufferSize)
-
-        if currentSize > 0 {
-            let read = backend.readFile(path: ext4Item.path,
-                                         offset: 0,
-                                         length: currentSize,
-                                         buffer: buf)
-            if read < 0 || UInt64(read) < currentSize {
-                throw Self.posixError(from: backend)
-            }
+        if written < 0 {
+            let msg = fs_ext4_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
+            log.error("write: backend.pwrite rc=\(written) path=\"\(ext4Item.path)\" offset=\(writeOffset) length=\(writeLen) errno=\(backend.lastErrno()) — \(msg)", scope: AppLogScope.io)
+            throw Self.posixError(from: backend)
         }
-
-        data.withUnsafeBytes { rawBuf in
-            if let base = rawBuf.baseAddress, !rawBuf.isEmpty {
-                memcpy(buf.advanced(by: Int(writeOffset)), base, data.count)
-            }
-        }
-
-        let written = backend.writeFile(path: ext4Item.path, data: buf, length: mergedSize)
-        if written < 0 { throw Self.posixError(from: backend) }
         return data.count
     }
 
