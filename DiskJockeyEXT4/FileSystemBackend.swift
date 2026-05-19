@@ -125,9 +125,18 @@ protocol FileSystemBackend: AnyObject {
 
     /// Replace the contents of `path` with `length` bytes from `data`.
     /// Returns the new size on success, or -1 on error.
-    /// NOTE: this REPLACES the whole file. Callers needing partial writes
-    /// must do read-modify-write themselves.
+    /// NOTE: this REPLACES the whole file. Use `pwrite` for partial /
+    /// streaming writes; `writeFile` is the "save-as" / whole-file-replace
+    /// primitive.
     func writeFile(path: String, data: UnsafeRawPointer, length: UInt64) -> Int64
+
+    /// Positional streaming write: splice `length` bytes from `data` into
+    /// `path` at byte `offset`. Costs O(length), not O(filesize) — unlike
+    /// `writeFile` which rewrites the entire file. Returns the new file
+    /// size on success, or -1 on error. The file must already exist.
+    /// Cap: 1 GiB per call (chunk if you have more).
+    func pwrite(path: String, offset: UInt64,
+                data: UnsafeRawPointer, length: UInt64) -> Int64
 
     /// Remove a non-directory file. Returns true on success.
     func unlink(path: String) -> Bool

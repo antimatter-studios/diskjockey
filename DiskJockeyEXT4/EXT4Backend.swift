@@ -203,6 +203,17 @@ final class EXT4Backend: FileSystemBackend {
         }
     }
 
+    /// Positional streaming write — see `FileSystemBackend.pwrite` doc.
+    /// Returned size is the new file size, not the bytes written; the
+    /// volume layer translates that back to `data.count`.
+    func pwrite(path: String, offset: UInt64,
+                data: UnsafeRawPointer, length: UInt64) -> Int64 {
+        state.withLock { fs in
+            guard let fs = fs else { return Int64(-1) }
+            return fs_ext4_pwrite(fs, path, data, length, offset)
+        }
+    }
+
     func unlink(path: String) -> Bool {
         state.withLock { fs in
             guard let fs = fs else { return false }
