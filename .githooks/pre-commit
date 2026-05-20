@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+#
+# Pre-commit hook — fast safety checks that catch the failure modes
+# that have actually burned us before. Runs in <1 s on a typical commit.
+#
+# Enable once per clone:
+#   ./scripts/install-hooks.sh
+# or:
+#   git config core.hooksPath .githooks
+#
+# Skip for a single WIP commit (use sparingly):
+#   git commit --no-verify
+#
+# What's NOT here (deliberately):
+#   - `xcodebuild` — too slow for every commit; CI catches it
+#   - `swift-format lint` — needs a project `.swift-format` config that
+#     matches the existing 4-space style first; the default config
+#     flags every line in the codebase. Enable when ready.
+
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+# Files staged for THIS commit (added/modified, not deleted).
+# Use a read loop instead of mapfile because macOS ships bash 3.2 which
+# doesn't have mapfile, and the shebang resolves to /usr/bin/env bash =
+# the system bash on dev machines without homebrew bash on PATH.
+STAGED=()
+while IFS= read -r line; do
+    STAGED+=("$line")
+done < <(git diff --cached --name-only --diff-filter=ACM)
+if [ ${#STAGED[@]} -eq 0 ]; then
+    exit 0
+fi
+
+fail=0
+
+# -----------------------------------------------------------------------------
+# Garbage-file guard
+# -----------------------------------------------------------------------------
+# Files that almost never belong in a commit. The patterns match basenames,
+# not paths, so any depth is covered.
+#
+# Why these specifically:
+#   - macOS metadata (.DS_Store) appears spontaneously when Finder visits a
+#     folder; if .gitignore misses it once, it leaks into the repo.
+#   - .env / credentials / *.key etc. are the file types that, if pushed by
+#     accident, force a credential rotation. Better to refuse the commit.
+#
+# Per file: exact basename match OR glob extension match, case-insensitive.
+
+declare -a GARBAGE_PATTERNS=(
+    '.DS_Store'
+    'Thumbs.db'
+    '.env'        '.env.*'
+    '*.key'       '*.pem'       '*.p12'    '*.pfx'    '*.keystore'  '*.jks'
+    'id_rsa'      'id_ed25519'  'id_dsa'   'id_ecdsa'
+    '*credentials*'  '*secret*'
+    '*-adminsdk-*.json'  'service-account*.json'
+    '*.orig'      '*.rej'
+)
+
+for path in "${STAGED[@]}"; do
+    base=$(basename "$path")
+    for pat in "${GARBAGE_PATTERNS[@]}"; do
+        # shellcheck disable=SC2053  # glob match against basename, intentional
+        if [[ "$base" == $pat ]]; then
+            echo "[pre-commit] refusing to commit garbage / sensitive file: $path"
+            echo "[pre-commit]   matched pattern: $pat"
+            echo "[pre-commit]   if intentional, bypass with: git commit --no-verify"
+            echo "[pre-commit]   if accidental,   unstage with: git restore --staged \"$path\""
+            fail=1
+        fi
+    done
+done
+
+# -----------------------------------------------------------------------------
+# Large-binary guard
+# -----------------------------------------------------------------------------
+# >10 MiB files are almost always a screenshot, video, or build artifact
+# that shouldn't be tracked. Catches the case where someone forgot to add
+# a fixture to .gitignore.
+#
+# `git diff --cached --numstat` only reports text diffs, so for binaries
+# we fall back to filesystem size.
+
+MAX_BYTES=$((10 * 1024 * 1024))
+for path in "${STAGED[@]}"; do
+    [[ -f "$path" ]] || continue
+    sz=$(stat -f '%z' "$path" 2>/dev/null || stat -c '%s' "$path" 2>/dev/null || echo 0)
+    if (( sz > MAX_BYTES )); then
+        sz_mb=$(( sz / 1024 / 1024 ))
+        echo "[pre-commit] refusing to commit large file: $path  (${sz_mb} MiB)"
+        echo "[pre-commit]   limit is 10 MiB. If this is a real asset, consider"
+        echo "[pre-commit]   Git LFS or storing outside the repo. Bypass with:"
+        echo "[pre-commit]     git commit --no-verify"
+        fail=1
+    fi
+done
+
+# -----------------------------------------------------------------------------
+# Trailing whitespace check (additive)
+# -----------------------------------------------------------------------------
+# Only inspects lines THIS commit is adding — pre-existing trailing
+# whitespace in untouched lines doesn't block work. Catches the case
+# where someone's editor strips trailing whitespace except on
+# whitespace-only lines, leaving "    \n" empty-with-indent lines.
+
+ws_offenders=$(git diff --cached --check 2>&1 || true)
+if [[ -n "$ws_offenders" ]]; then
+    echo "[pre-commit] whitespace issues on lines this commit adds:"
+    echo "$ws_offenders" | sed 's/^/  /'
+    echo "[pre-commit]   fix with your editor's trim-trailing-whitespace, or:"
+    echo "[pre-commit]     git diff --cached --check"
+    fail=1
+fi
+
+if (( fail != 0 )); then
+    exit 1
+fi
+
+echo "[pre-commit] OK"
