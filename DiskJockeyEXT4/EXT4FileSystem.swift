@@ -476,10 +476,17 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         // `startFormat` (both called without a resource handle) can
         // find them. The contextPtr lifecycle matches the volume's;
         // the EXT4Volume releases it in `deactivate`.
+        // Single OperationLock instance shared between the
+        // MountedResource record (consulted by startCheck +
+        // RepairXPCService) and the EXT4Volume (consulted as a
+        // pre-flight EBUSY guard on every user-facing FS op).
+        // The lock IS the quiesce: when it's non-idle, no caller
+        // outside the holder may read or write the volume.
+        let opLock = OperationLock()
         Self.mountedResources.withLock { map in
             map[ObjectIdentifier(resource)] = MountedResource(
                 bsdName: bsdName, backend: backend,
-                contextPtr: contextPtr, opLock: OperationLock())
+                contextPtr: contextPtr, opLock: opLock)
         }
         let volInfo = backend.volumeInfo()
         let volID = FSVolume.Identifier()
@@ -489,7 +496,8 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             backend: backend,
             blockDeviceContext: contextPtr,
             requiresJournalReplay: isWritable,
-            stats: stats
+            stats: stats,
+            opLock: opLock
         )
         // Begin emitting `io.stats` heartbeats now that the volume
         // exists. The collector self-suppresses idle ticks.

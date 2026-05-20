@@ -42,6 +42,22 @@ final class EXT4Volume: FSVolume,
     /// in `EXT4FileSystem.loadResource`, stopped in `deactivate`.
     private let stats: IOStatsCollector
 
+    /// Shared cooperative mutex coordinating verify / repair / normal
+    /// FS access. Same instance is held by the `MountedResource` record
+    /// (consulted by `startCheck` and `RepairXPCService`). User-facing
+    /// FS ops here check `opLock.current` as their first instruction —
+    /// if non-idle, throw EBUSY so the caller (Finder, Spotlight, `cp`)
+    /// gets a fast, recognisable "disk in use" signal rather than
+    /// blocking on the backend lock for the verify duration.
+    ///
+    /// The contract: while verify or repair is in flight, NOBODY
+    /// outside that operation may read or write the filesystem. Verify
+    /// itself doesn't pass through these gates — its dispatch is
+    /// `startCheck` → `backend.runFsck` → `fs_ext4_fsck_run`, which
+    /// reads the device internally via the Rust crate's private
+    /// methods rather than the user-facing FFI gated below.
+    private let opLock: OperationLock
+
     /// Track items by file ID for reclamation. Guarded by `itemsLock` — an
     /// `OSAllocatedUnfairLock` is used (rather than `NSLock`) so the class
     /// is Sendable-safe under Swift 6 strict concurrency; holding an unfair
@@ -116,12 +132,28 @@ final class EXT4Volume: FSVolume,
          backend: FileSystemBackend,
          blockDeviceContext: UnsafeMutableRawPointer? = nil,
          requiresJournalReplay: Bool,
-         stats: IOStatsCollector) {
+         stats: IOStatsCollector,
+         opLock: OperationLock) {
         self.backend = backend
         self.blockDeviceContext = blockDeviceContext
         self.requiresJournalReplay = requiresJournalReplay
         self.stats = stats
+        self.opLock = opLock
         super.init(volumeID: volumeID, volumeName: volumeName)
+    }
+
+    /// EBUSY guard: throw if verify or repair holds the OperationLock.
+    /// Called as the first instruction in every user-facing FS op —
+    /// keeps the quiesce contract explicit and gives callers a fast
+    /// recognisable error instead of blocking on the backend lock.
+    private func ensureIdle() throws {
+        if let current = opLock.current {
+            log.info(
+                "EBUSY: refusing op — \(current.displayName) in progress",
+                scope: AppLogScope.io
+            )
+            throw POSIXError(.EBUSY)
+        }
     }
 
     // MARK: - Item management
@@ -265,6 +297,7 @@ final class EXT4Volume: FSVolume,
 
     func attributes(_ desiredAttributes: FSItem.GetAttributesRequest,
                     of item: FSItem) async throws -> FSItem.Attributes {
+        try ensureIdle()
         guard let ext4Item = item as? EXT4Item else {
             throw POSIXError(.EBADF)
         }
@@ -284,6 +317,7 @@ final class EXT4Volume: FSVolume,
 
     func setAttributes(_ newAttributes: FSItem.SetAttributesRequest,
                        on item: FSItem) async throws -> FSItem.Attributes {
+        try ensureIdle()
         guard let ext4Item = item as? EXT4Item else {
             throw POSIXError(.EBADF)
         }
@@ -348,6 +382,7 @@ final class EXT4Volume: FSVolume,
 
     func lookupItem(named name: FSFileName,
                     inDirectory directory: FSItem) async throws -> (FSItem, FSFileName) {
+        try ensureIdle()
         guard let dirItem = directory as? EXT4Item else {
             throw POSIXError(.EBADF)
         }
@@ -373,6 +408,7 @@ final class EXT4Volume: FSVolume,
                             verifier: FSDirectoryVerifier,
                             attributes: FSItem.GetAttributesRequest?,
                             packer: FSDirectoryEntryPacker) async throws -> FSDirectoryVerifier {
+        try ensureIdle()
         guard let dirItem = directory as? EXT4Item else {
             throw POSIXError(.EBADF)
         }
@@ -473,6 +509,7 @@ final class EXT4Volume: FSVolume,
     // MARK: - File read/write (async)
 
     func write(contents data: Data, to item: FSItem, at offset: off_t) async throws -> Int {
+        try ensureIdle()
         let t0 = monotonicNanos()
         do {
             let n = try await writeImpl(contents: data, to: item, at: offset)
@@ -528,6 +565,7 @@ final class EXT4Volume: FSVolume,
 
     func read(from item: FSItem, at offset: off_t, length: Int,
               into buffer: FSMutableFileDataBuffer) async throws -> Int {
+        try ensureIdle()
         let t0 = monotonicNanos()
         do {
             let n = try await readImpl(from: item, at: offset, length: length, into: buffer)
@@ -572,6 +610,7 @@ final class EXT4Volume: FSVolume,
     // MARK: - Symlink (async)
 
     func readSymbolicLink(_ item: FSItem) async throws -> FSFileName {
+        try ensureIdle()
         guard let ext4Item = item as? EXT4Item else {
             throw POSIXError(.EBADF)
         }
@@ -588,6 +627,7 @@ final class EXT4Volume: FSVolume,
     func createItem(named name: FSFileName, type: FSItem.ItemType,
                     inDirectory directory: FSItem,
                     attributes: FSItem.SetAttributesRequest) async throws -> (FSItem, FSFileName) {
+        try ensureIdle()
         guard let dirItem = directory as? EXT4Item else {
             throw POSIXError(.EBADF)
         }
@@ -671,6 +711,7 @@ final class EXT4Volume: FSVolume,
     func createSymbolicLink(named name: FSFileName, inDirectory directory: FSItem,
                             attributes: FSItem.SetAttributesRequest,
                             linkContents contents: FSFileName) async throws -> (FSItem, FSFileName) {
+        try ensureIdle()
         guard let dirItem = directory as? EXT4Item else {
             throw POSIXError(.EBADF)
         }
@@ -690,6 +731,7 @@ final class EXT4Volume: FSVolume,
 
     func createLink(to item: FSItem, named name: FSFileName,
                     inDirectory directory: FSItem) async throws -> FSFileName {
+        try ensureIdle()
         guard let dirItem = directory as? EXT4Item,
               let ext4Item = item as? EXT4Item else {
             throw POSIXError(.EBADF)
@@ -706,6 +748,7 @@ final class EXT4Volume: FSVolume,
 
     func removeItem(_ item: FSItem, named name: FSFileName,
                     fromDirectory directory: FSItem) async throws {
+        try ensureIdle()
         guard let dirItem = directory as? EXT4Item else {
             throw POSIXError(.EBADF)
         }
@@ -738,6 +781,7 @@ final class EXT4Volume: FSVolume,
                     named sourceName: FSFileName, to destinationName: FSFileName,
                     inDirectory destinationDirectory: FSItem,
                     overItem: FSItem?) async throws -> FSFileName {
+        try ensureIdle()
         guard let srcDir = sourceDirectory as? EXT4Item,
               let dstDir = destinationDirectory as? EXT4Item else {
             throw POSIXError(.EBADF)
@@ -779,6 +823,7 @@ final class EXT4Volume: FSVolume,
     // MARK: - Sync (async)
 
     func synchronize(flags: FSSyncFlags) async throws {
+        try ensureIdle()
         // The backend's flush is a no-op while writes go straight to the
         // device, but we still call it so that future batching backends
         // can hook here without a contract change.
