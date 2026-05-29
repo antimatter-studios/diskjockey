@@ -7,6 +7,10 @@ struct ContentView: View {
 
     @StateObject private var sidebarModel = SidebarModel()
     @State private var showingAddMount = false
+    /// Pending disk image — set when the user drops an image file onto the
+    /// window. Presents `DiskImageInspectorView` in the detail pane until
+    /// the user mounts or cancels.
+    @State private var pendingDiskImage: (url: URL, probe: DiskProbeResult)?
 
     // Observed so the detail pane swaps out of the setup view the
     // moment the user picks a folder.
@@ -50,19 +54,26 @@ struct ContentView: View {
     }
 
     private func handleDroppedImages(_ providers: [NSItemProvider]) -> Bool {
-        // Single-image only — every other attach surface (sidebar
-        // button, file picker) is single-image, and routing every
-        // dropped URL through `attachUserPickedImage` would stack
-        // modal alerts and admin prompts in parallel. Take the first
-        // resolvable URL and ignore the rest.
         guard let provider = providers.first(where: { $0.canLoadObject(ofClass: URL.self) }) else {
             return false
         }
         _ = provider.loadObject(ofClass: URL.self) { url, _ in
             guard let url else { return }
             Task { @MainActor in
-                FSKitAttachController.attachUserPickedImage(
-                    at: url, logRepository: container.logRepository)
+                // SwiftPartitionProbe reads directly through the URL (no subprocess,
+                // works inside the sandbox). Falls back to agent probe for container
+                // formats (QCOW2/VHD/VHDX/VMDK) — agent is unsandboxed so it can
+                // open the file even though the child-process diskprobe cannot.
+                var probe = SwiftPartitionProbe.probe(at: url)
+                if probe == nil {
+                    probe = try? await DJAgentClient.shared.probeImage(atPath: url.path)
+                }
+                if let probe {
+                    pendingDiskImage = (url: url, probe: probe)
+                } else {
+                    FSKitAttachController.attachUserPickedImage(
+                        at: url, logRepository: container.logRepository)
+                }
             }
         }
         return true
@@ -70,6 +81,20 @@ struct ContentView: View {
 
     @ViewBuilder
     private var detailView: some View {
+        if let pending = pendingDiskImage {
+            DiskImageInspectorView(
+                url: pending.url,
+                probe: pending.probe,
+                logRepository: container.logRepository,
+                onDismiss: { pendingDiskImage = nil }
+            )
+        } else {
+            sidebarDetailView
+        }
+    }
+
+    @ViewBuilder
+    private var sidebarDetailView: some View {
         switch sidebarModel.selectedItem {
         case .directMount(let id):
             // .id(id) forces SwiftUI to treat each mount as a distinct

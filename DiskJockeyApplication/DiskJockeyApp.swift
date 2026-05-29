@@ -33,6 +33,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("Starting Disk Jockey...")
+        DJAgentClient.register()
         setupMainMenu()
         showMainWindow()
         setupErrorObservation()

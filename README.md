@@ -346,7 +346,7 @@ Vendored submodules — all permissively licensed, see [`docs/intellectual-prope
 ### One-time setup
 
 ```bash
-git clone https://github.com/christhomas/diskjockey.git
+git clone https://github.com/antimatter-studios/diskjockey.git
 cd diskjockey
 git submodule update --init --recursive
 ```

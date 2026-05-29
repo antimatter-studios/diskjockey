@@ -241,8 +241,15 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         replyHandler: @escaping (FSProbeResult?, (any Error)?) -> Void
     ) {
         log.info("probe called", scope: AppLogScope.probe)
+        // FSPathURLResource (file-backed) support is not yet implemented for NTFS.
+        // Decline gracefully so fskitd can report a clean failure.
+        if let fileResource = resource as? FSPathURLResource {
+            log.info("probe: FSPathURLResource not yet supported for NTFS — not recognized (file=\(fileResource.url.lastPathComponent))", scope: AppLogScope.probe)
+            replyHandler(.notRecognized, nil)
+            return
+        }
         guard let blockDevice = resource as? FSBlockDeviceResource else {
-            log.warn("probe: resource is not a block device — not recognized", scope: AppLogScope.probe)
+            log.warn("probe: unsupported resource type — not recognized", scope: AppLogScope.probe)
             replyHandler(.notRecognized, nil)
             return
         }

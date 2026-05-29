@@ -21,7 +21,14 @@ let log = AppLog(source: "ext4", sinks: AppLog.defaultSinks(source: "ext4"))
 /// state, so it dispatches into this class via an `Unmanaged`
 /// pointer and we do the actual logging here — where regular Swift
 /// capture semantics apply.
-final class BlockDeviceContext {
+/// Common interface for both block-device and file-backed I/O contexts.
+/// Allows detectContainer and the fs_core callback closures to be written once
+/// and dispatched to whichever concrete context is in use at load time.
+protocol DeviceReadable: AnyObject {
+    func read(into buf: UnsafeMutableRawPointer, offset: off_t, length: Int) -> Int32
+}
+
+final class BlockDeviceContext: DeviceReadable {
     let resource: FSBlockDeviceResource
     let blockSize: Int
     let log: TaggedLogger
@@ -133,6 +140,74 @@ final class BlockDeviceContext {
     }
 }
 
+/// File-backed I/O context for FSPathURLResource mounts.
+/// Analogous to BlockDeviceContext but reads/writes a plain file via pread/pwrite.
+/// Used when fskitd invokes `mount -F -t ext4 /path/to/file.qcow2 /Volumes/name`.
+final class FileDeviceContext: DeviceReadable {
+    let fileURL: URL
+    let fileSize: UInt64
+    let writable: Bool
+    let log: TaggedLogger
+    let stats: IOStatsCollector
+    private let fd: Int32
+    private let securityScoped: Bool
+
+    init(url: URL, writable: Bool, log: TaggedLogger, stats: IOStatsCollector) throws {
+        self.fileURL = url
+        self.writable = writable
+        self.log = log
+        self.stats = stats
+        self.securityScoped = url.startAccessingSecurityScopedResource()
+        let flags: Int32 = writable ? O_RDWR : O_RDONLY
+        let descriptor = Darwin.open(url.path, flags)
+        guard descriptor >= 0 else {
+            if securityScoped { url.stopAccessingSecurityScopedResource() }
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .ENOENT)
+        }
+        self.fd = descriptor
+        var st = Darwin.stat()
+        guard Darwin.fstat(descriptor, &st) == 0 else {
+            Darwin.close(descriptor)
+            if securityScoped { url.stopAccessingSecurityScopedResource() }
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        self.fileSize = UInt64(bitPattern: Int64(st.st_size))
+    }
+
+    deinit {
+        Darwin.close(fd)
+        if securityScoped { fileURL.stopAccessingSecurityScopedResource() }
+    }
+
+    func read(into buf: UnsafeMutableRawPointer, offset: off_t, length: Int) -> Int32 {
+        let t0 = monotonicNanos()
+        let n = pread(fd, buf, length, offset)
+        if n < 0 || n < length {
+            log.error("file read short: off=\(offset) len=\(length) got=\(n)", scope: AppLogScope.io)
+            stats.recordBdevRead(bytes: 0, latencyNs: monotonicNanos() &- t0, error: true)
+            return EIO
+        }
+        stats.recordBdevRead(bytes: length, latencyNs: monotonicNanos() &- t0, error: false)
+        return 0
+    }
+
+    func write(from buf: UnsafeRawPointer, offset: off_t, length: Int) -> Int32 {
+        let t0 = monotonicNanos()
+        let n = pwrite(fd, buf, length, offset)
+        if n < 0 || n < length {
+            log.error("file write short: off=\(offset) len=\(length) got=\(n)", scope: AppLogScope.io)
+            stats.recordBdevWrite(bytes: 0, latencyNs: monotonicNanos() &- t0, error: true)
+            return EIO
+        }
+        stats.recordBdevWrite(bytes: length, latencyNs: monotonicNanos() &- t0, error: false)
+        return 0
+    }
+
+    func flush() -> Int32 {
+        return Darwin.fsync(fd) == 0 ? 0 : EIO
+    }
+}
+
 @objc(EXT4FileSystem)
 final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
 
@@ -152,12 +227,10 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
     struct MountedResource {
         let bsdName: String
         let backend: EXT4Backend
-        /// Retained `BlockDeviceContext` pointer the load path used to
-        /// drive the FSBlockDeviceResource via C callbacks. Carried so
-        /// `startFormat` can build a fresh `fs_ext4_blockdev_cfg_t`
-        /// against the same device without going through the backend
-        /// (which is mid-mount and has its own lock semantics).
-        let contextPtr: UnsafeMutableRawPointer
+        /// Retained `BlockDeviceContext` pointer for block-device mounts;
+        /// nil for file-backed (FSPathURLResource) mounts where startFormat
+        /// is not supported. Used by startFormat to rebuild the blockdev cfg.
+        let contextPtr: UnsafeMutableRawPointer?
         /// Cooperative tri-state mutex coordinating verify (`startCheck`)
         /// and repair (`RepairXPCService`) so both can't run on the
         /// same mounted volume concurrently. Default `.idle` ⇒
@@ -223,8 +296,14 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         replyHandler: @escaping (FSProbeResult?, (any Error)?) -> Void
     ) {
         log.info("probe called", scope: AppLogScope.probe)
+
+        if let fileResource = resource as? FSPathURLResource {
+            probeFileResource(fileResource, replyHandler: replyHandler)
+            return
+        }
+
         guard let blockDevice = resource as? FSBlockDeviceResource else {
-            log.warn("probe: resource is not a block device — not recognized", scope: AppLogScope.probe)
+            log.warn("probe: unsupported resource type — not recognized", scope: AppLogScope.probe)
             replyHandler(.notRecognized, nil)
             return
         }
@@ -277,8 +356,14 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         replyHandler: @escaping (FSVolume?, (any Error)?) -> Void
     ) {
         log.info("loadResource called", scope: AppLogScope.lifecycle)
+
+        if let fileResource = resource as? FSPathURLResource {
+            loadFileResource(fileResource, resource: resource, options: options, replyHandler: replyHandler)
+            return
+        }
+
         guard let blockDevice = resource as? FSBlockDeviceResource else {
-            log.error("loadResource: resource is not a block device — EINVAL", scope: AppLogScope.lifecycle)
+            log.error("loadResource: unsupported resource type — EINVAL", scope: AppLogScope.lifecycle)
             replyHandler(nil, POSIXError(.EINVAL))
             return
         }
@@ -576,44 +661,272 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         var description: String { rawValue }
     }
 
-    /// Probe the resource (offset 0 + trailing footer) for a known
-    /// container magic. Returns nil when the bytes look like a raw
-    /// partition image (or some unknown format that fs_ext4 can
-    /// reject more cleanly than we can guess).
-    static func detectContainer(context: BlockDeviceContext, sizeBytes: UInt64) -> ContainerKind? {
-        // Offset 0 covers QCOW2, VHDX, VMDK, dynamic / differencing VHD.
+    /// Probe for a known container magic using any DeviceReadable context.
+    /// Returns nil for raw partition images (fs_ext4 handles those directly).
+    static func detectContainer<C: DeviceReadable>(context: C, sizeBytes: UInt64) -> ContainerKind? {
         var head = [UInt8](repeating: 0, count: 16)
         let rc = head.withUnsafeMutableBufferPointer { buf -> Int32 in
-            return context.read(into: buf.baseAddress!, offset: 0, length: 16)
+            context.read(into: buf.baseAddress!, offset: 0, length: 16)
         }
         if rc == 0 {
-            // QCOW2: 51 46 49 fb
             if head[0] == 0x51 && head[1] == 0x46
                 && head[2] == 0x49 && head[3] == 0xFB { return .qcow2 }
-            // VHDX: "vhdxfile"
             let vhdx: [UInt8] = [0x76, 0x68, 0x64, 0x78, 0x66, 0x69, 0x6c, 0x65]
             if Array(head.prefix(8)) == vhdx { return .vhdx }
-            // VMDK: "KDMV"
             let vmdk: [UInt8] = [0x4b, 0x44, 0x4d, 0x56]
             if Array(head.prefix(4)) == vmdk { return .vmdk }
-            // Dynamic / differencing VHD: footer copy at offset 0
             let conectix: [UInt8] = [0x63, 0x6f, 0x6e, 0x65, 0x63, 0x74, 0x69, 0x78]
             if Array(head.prefix(8)) == conectix { return .vhd }
         }
-
-        // Fixed VHD: footer-only at file_size - 512.
         if sizeBytes >= 512 {
             var footer = [UInt8](repeating: 0, count: 8)
             let frc = footer.withUnsafeMutableBufferPointer { buf -> Int32 in
-                return context.read(into: buf.baseAddress!,
-                                    offset: off_t(sizeBytes - 512),
-                                    length: 8)
+                context.read(into: buf.baseAddress!, offset: off_t(sizeBytes - 512), length: 8)
             }
             let conectix: [UInt8] = [0x63, 0x6f, 0x6e, 0x65, 0x63, 0x74, 0x69, 0x78]
             if frc == 0 && footer == conectix { return .vhd }
         }
-
         return nil
+    }
+
+    // MARK: - File resource (FSPathURLResource) probe + load
+
+    private func probeFileResource(
+        _ resource: FSPathURLResource,
+        replyHandler: @escaping (FSProbeResult?, (any Error)?) -> Void
+    ) {
+        let url = resource.url
+        let dlog = TaggedLogger(log, fields: ["file": url.lastPathComponent],
+                                kind: "ext4.probe", scope: AppLogScope.probe)
+        dlog.info("probe FSPathURLResource: \(url.path)")
+
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+
+        let fd = Darwin.open(url.path, O_RDONLY)
+        guard fd >= 0 else {
+            dlog.warn("probe: cannot open file (errno=\(errno)) — not recognized")
+            replyHandler(.notRecognized, nil)
+            return
+        }
+        defer { Darwin.close(fd) }
+
+        // Check for known container magic at offset 0
+        var hdr = [UInt8](repeating: 0, count: 16)
+        let n = hdr.withUnsafeMutableBufferPointer { buf in pread(fd, buf.baseAddress!, 16, 0) }
+        if n >= 8 {
+            let qcow2Magic: [UInt8] = [0x51, 0x46, 0x49, 0xFB]
+            let vhdxMagic: [UInt8]  = [0x76, 0x68, 0x64, 0x78, 0x66, 0x69, 0x6c, 0x65]
+            let vmdkMagic: [UInt8]  = [0x4b, 0x44, 0x4d, 0x56]
+            let conectix: [UInt8]   = [0x63, 0x6f, 0x6e, 0x65, 0x63, 0x74, 0x69, 0x78]
+            if Array(hdr.prefix(4)) == qcow2Magic {
+                dlog.info("probe: qcow2 container → usable as ext4")
+                replyHandler(.usable(name: "ext4", containerID: FSContainerIdentifier(uuid: UUID())), nil)
+                return
+            }
+            if Array(hdr.prefix(8)) == vhdxMagic {
+                dlog.info("probe: vhdx container → usable as ext4")
+                replyHandler(.usable(name: "ext4", containerID: FSContainerIdentifier(uuid: UUID())), nil)
+                return
+            }
+            if Array(hdr.prefix(8)) == conectix {
+                dlog.info("probe: vhd (dynamic) → usable as ext4")
+                replyHandler(.usable(name: "ext4", containerID: FSContainerIdentifier(uuid: UUID())), nil)
+                return
+            }
+            if Array(hdr.prefix(4)) == vmdkMagic {
+                dlog.info("probe: vmdk container → usable as ext4")
+                replyHandler(.usable(name: "ext4", containerID: FSContainerIdentifier(uuid: UUID())), nil)
+                return
+            }
+        }
+
+        // Fixed VHD: "conectix" in the last 512 bytes
+        var st = Darwin.stat()
+        if Darwin.fstat(fd, &st) == 0 && st.st_size >= 512 {
+            var footer = [UInt8](repeating: 0, count: 8)
+            let fr = footer.withUnsafeMutableBufferPointer { buf in
+                pread(fd, buf.baseAddress!, 8, off_t(st.st_size) - 512)
+            }
+            let conectix: [UInt8] = [0x63, 0x6f, 0x6e, 0x65, 0x63, 0x74, 0x69, 0x78]
+            if fr == 8 && footer == conectix {
+                dlog.info("probe: vhd (fixed) footer → usable as ext4")
+                replyHandler(.usable(name: "ext4", containerID: FSContainerIdentifier(uuid: UUID())), nil)
+                return
+            }
+        }
+
+        // Raw ext4 superblock at offset 1024 (need 136 bytes for name + UUID)
+        var sb = [UInt8](repeating: 0, count: 136)
+        let nr = sb.withUnsafeMutableBufferPointer { buf in pread(fd, buf.baseAddress!, 136, 1024) }
+        guard nr >= 58 else {
+            dlog.info("probe: file too small for ext4 superblock — not recognized")
+            replyHandler(.notRecognized, nil)
+            return
+        }
+        let magic = UInt16(sb[56]) | (UInt16(sb[57]) << 8)
+        guard magic == 0xEF53 else {
+            dlog.info("probe: no ext4 magic or known container — not recognized")
+            replyHandler(.notRecognized, nil)
+            return
+        }
+        let rawName = String(bytes: sb[120..<136].prefix(while: { $0 != 0 }), encoding: .utf8) ?? ""
+        let volumeName = rawName.isEmpty ? "ext4" : rawName
+        let uuidBytes = Array(sb[104..<120])
+        let containerID = FSContainerIdentifier(uuid: NSUUID(uuidBytes: uuidBytes) as UUID)
+        dlog.info("probe: raw ext4 superblock in file — volume \"\(volumeName)\"")
+        replyHandler(.usable(name: volumeName, containerID: containerID), nil)
+    }
+
+    private func loadFileResource(
+        _ fileResource: FSPathURLResource,
+        resource: FSResource,
+        options: FSTaskOptions,
+        replyHandler: @escaping (FSVolume?, (any Error)?) -> Void
+    ) {
+        let url = fileResource.url
+        let isWritable = fileResource.isWritable
+        let label = url.lastPathComponent
+        let dlog = TaggedLogger(log, fields: ["file": label],
+                                kind: "ext4.load", scope: AppLogScope.lifecycle)
+        dlog.info("loadResource file: \(url.path) writable=\(isWritable) taskOptions=\(options.taskOptions)")
+
+        let stats = IOStatsRecorder(label: label, emit: { fields in
+            dlog.event(kind: "io.stats", fields: fields, scope: AppLogScope.stats)
+        })
+
+        let context: FileDeviceContext
+        do {
+            context = try FileDeviceContext(url: url, writable: isWritable, log: dlog, stats: stats)
+        } catch {
+            dlog.error("loadResource: cannot open file — \(error.localizedDescription)")
+            replyHandler(nil, error)
+            return
+        }
+
+        // Retain the context as AnyObject so EXT4Volume.deactivate() can release it
+        // via Unmanaged<AnyObject>.fromOpaque(ctx).release() without type-casting.
+        let contextPtr = Unmanaged<AnyObject>.passRetained(context as AnyObject).toOpaque()
+
+        let sizeBytes = context.fileSize
+        let containerKind = Self.detectContainer(context: context, sizeBytes: sizeBytes)
+        let argv = options.taskOptions
+        let partitionOffset: UInt64? = Self.taskOption("partition_offset", from: argv) { UInt64($0) }
+        let partitionLength: UInt64? = Self.taskOption("partition_length", from: argv) { UInt64($0) }
+
+        dlog.info("file mount: size=\(sizeBytes) container=\(containerKind.map(String.init(describing:)) ?? "raw") offset=\(partitionOffset ?? 0) length=\(partitionLength ?? 0) writable=\(isWritable)")
+
+        var coreCfg = FsCoreCallbackCfg()
+        coreCfg.read = { ctx, offset, buf, len in
+            guard let ctx = ctx, let buf = buf else { return EIO }
+            return Unmanaged<FileDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                .read(into: UnsafeMutableRawPointer(buf), offset: off_t(offset), length: Int(len))
+        }
+        coreCfg.write = isWritable ? { ctx, offset, buf, len in
+            guard let ctx = ctx, let buf = buf else { return EIO }
+            return Unmanaged<FileDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                .write(from: UnsafeRawPointer(buf), offset: off_t(offset), length: Int(len))
+        } : nil
+        coreCfg.flush = { ctx in
+            guard let ctx = ctx else { return EIO }
+            return Unmanaged<FileDeviceContext>.fromOpaque(ctx).takeUnretainedValue().flush()
+        }
+        coreCfg.ctx = contextPtr
+        coreCfg.size = sizeBytes
+
+        guard let callbackHandle = withUnsafePointer(to: &coreCfg, { fs_core_device_from_callbacks($0) }) else {
+            let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
+            dlog.error("fs_core_device_from_callbacks failed: \(err)")
+            Unmanaged<AnyObject>.fromOpaque(contextPtr).release()
+            replyHandler(nil, POSIXError(.EIO))
+            return
+        }
+
+        var stackedHandle: OpaquePointer = callbackHandle
+        if let kind = containerKind {
+            guard let h = Self.openContainer(kind: kind, inner: stackedHandle, writable: isWritable) else {
+                let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
+                dlog.error("\(kind)_open\(isWritable ? "_rw" : "")_on_device failed: \(err)")
+                Unmanaged<AnyObject>.fromOpaque(contextPtr).release()
+                replyHandler(nil, POSIXError(.EIO))
+                return
+            }
+            stackedHandle = h
+        }
+
+        var mountHandle: OpaquePointer = stackedHandle
+        var preMountClose: [OpaquePointer] = []
+        if let offset = partitionOffset, let length = partitionLength, offset > 0 || length > 0 {
+            guard let s = (isWritable
+                            ? fs_core_device_slice_rw(stackedHandle, offset, length)
+                            : fs_core_device_slice_ro(stackedHandle, offset, length)) else {
+                let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
+                dlog.error("fs_core_device_slice_\(isWritable ? "rw" : "ro") failed: \(err)")
+                fs_core_device_close(stackedHandle)
+                Unmanaged<AnyObject>.fromOpaque(contextPtr).release()
+                replyHandler(nil, POSIXError(.EIO))
+                return
+            }
+            preMountClose.append(stackedHandle)
+            mountHandle = s
+        }
+
+        dlog.info("calling fs_ext4_mount_with_fs_core_device\(isWritable ? "_lazy" : "")")
+        let bridgeFS = isWritable
+            ? fs_ext4_mount_with_fs_core_device_lazy(mountHandle)
+            : fs_ext4_mount_with_fs_core_device(mountHandle)
+        fs_core_device_close(mountHandle)
+        for h in preMountClose { fs_core_device_close(h) }
+
+        guard let bridgeFS = bridgeFS else {
+            let err = fs_ext4_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
+            dlog.error("fs_ext4 file mount failed: \(err)")
+            Unmanaged<AnyObject>.fromOpaque(contextPtr).release()
+            replyHandler(nil, POSIXError(.EIO))
+            return
+        }
+        let suffix = containerKind.map { ", \($0)-backed" } ?? ""
+        dlog.info("fs_ext4 file mount succeeded (\(isWritable ? "rw, replay deferred" : "ro")\(suffix))")
+
+        let backend = EXT4Backend(bridgeFS: bridgeFS)
+        let opLock = OperationLock()
+        // nil contextPtr in MountedResource: startFormat is not supported for file mounts
+        // (no FSBlockDeviceResource to rebuild the format blockdev cfg against).
+        Self.mountedResources.withLock { map in
+            map[ObjectIdentifier(resource)] = MountedResource(
+                bsdName: url.path, backend: backend,
+                contextPtr: nil, opLock: opLock)
+        }
+
+        let volInfo = backend.volumeInfo()
+        let volID = FSVolume.Identifier()
+        let volume = EXT4Volume(
+            volumeID: volID,
+            volumeName: FSFileName(string: volInfo.name),
+            backend: backend,
+            blockDeviceContext: contextPtr,  // held here so deactivate() releases FileDeviceContext
+            requiresJournalReplay: isWritable,
+            stats: stats,
+            opLock: opLock
+        )
+        stats.start()
+
+        containerStatus = .ready
+        dlog.info("volume ready: \"\(volInfo.name)\" blocks=\(volInfo.totalBlocks) free=\(volInfo.freeBlocks) dirty=\(volInfo.mountedDirty)")
+        var infoFields: [String: String] = [
+            "fs": "ext4",
+            "volume_name": volInfo.name,
+            "block_size": "\(volInfo.blockSize)",
+            "total_blocks": "\(volInfo.totalBlocks)",
+            "free_blocks": "\(volInfo.freeBlocks)",
+            "total_inodes": "\(volInfo.totalInodes)",
+            "free_inodes": "\(volInfo.freeInodes)",
+        ]
+        if let v = volInfo.uuid { infoFields["volume_uuid"] = v }
+        dlog.event(kind: "volume.info", fields: infoFields, scope: AppLogScope.volume)
+        dlog.event(kind: volInfo.mountedDirty ? "volume.dirty" : "volume.clean",
+                   fields: [:], scope: AppLogScope.volume)
+        replyHandler(volume, nil)
     }
 
     /// Construct the right `*_open*_on_device` call for the kind +
@@ -943,6 +1256,10 @@ extension EXT4FileSystem: FSManageableResourceMaintenanceOperations {
             )
             throw POSIXError(.ENOTSUP)
         }
+        guard let resolvedContextPtr = resolved.contextPtr else {
+            log.error("startFormat: not supported for file-backed mounts", scope: AppLogScope.fsck)
+            throw POSIXError(.ENOTSUP)
+        }
         let bsdName = resolved.bsdName
         let dlog = TaggedLogger(
             log, fields: ["bsd": bsdName], kind: "ext4.format",
@@ -980,7 +1297,7 @@ extension EXT4FileSystem: FSManageableResourceMaintenanceOperations {
             // would. Safety caveat: if the volume is mounted, the
             // kernel buffer cache is now stale. Unmount-after-format
             // is the user's responsibility (see doc).
-            let bdc = resolved.contextPtr
+            let bdc = resolvedContextPtr
             var cfg = fs_ext4_blockdev_cfg_t()
             cfg.read = { ctx, buf, offset, length in
                 guard let ctx = ctx, let buf = buf else { return EIO }
