@@ -8,6 +8,14 @@
 
 /* Begin PBXBuildFile section */
 		022580FD53834B63CA736B5E /* ErofsVolume.swift in Sources */ = {isa = PBXBuildFile; fileRef = 425C54678D107E1DAA3C3C5D /* ErofsVolume.swift */; };
+		DJVD0000000000000110 /* DJVirtualDiskService.iig in Sources */ = {isa = PBXBuildFile; fileRef = DJVD0000000000000101 /* DJVirtualDiskService.iig */; };
+		DJVD0000000000000111 /* DJVirtualDiskDevice.iig in Sources */ = {isa = PBXBuildFile; fileRef = DJVD0000000000000102 /* DJVirtualDiskDevice.iig */; };
+		DJVD0000000000000112 /* DJVirtualDiskUserClient.iig in Sources */ = {isa = PBXBuildFile; fileRef = DJVD0000000000000103 /* DJVirtualDiskUserClient.iig */; };
+		DJVD0000000000000113 /* DJVirtualDiskService.cpp in Sources */ = {isa = PBXBuildFile; fileRef = DJVD0000000000000104 /* DJVirtualDiskService.cpp */; };
+		DJVD0000000000000114 /* DJVirtualDiskDevice.cpp in Sources */ = {isa = PBXBuildFile; fileRef = DJVD0000000000000105 /* DJVirtualDiskDevice.cpp */; };
+		DJVD0000000000000115 /* DJVirtualDiskUserClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = DJVD0000000000000106 /* DJVirtualDiskUserClient.cpp */; };
+		DJVD0000000000000116 /* DKRustStubs.c in Sources */ = {isa = PBXBuildFile; fileRef = DJVD0000000000000107 /* DKRustStubs.c */; };
+		DJVD0000000000000117 /* BlockStorageDeviceDriverKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DJVD0000000000000108 /* BlockStorageDeviceDriverKit.framework */; };
 		027139E38C99564FE69885EA /* NTFSVolume.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FAA4308D6EB33A49E406790 /* NTFSVolume.swift */; };
 		02A5ECFB350AC0A504E975EB /* FSKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EA52B7280D02F6F8D737A4DF /* FSKit.framework */; };
 		05A11A3D8A16DAA84A31911B /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 429A2D79E6781D9640B98F5E /* Cocoa.framework */; };
@@ -204,6 +212,15 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		DJVD0000000000000100 /* DiskJockeyVirtualDisk.dext */ = {isa = PBXFileReference; explicitFileType = "wrapper.driver-extension"; includeInIndex = 0; path = DiskJockeyVirtualDisk.dext; sourceTree = BUILT_PRODUCTS_DIR; };
+		DJVD0000000000000101 /* DJVirtualDiskService.iig */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.iig; path = DiskJockeyVirtualDisk/DJVirtualDiskService.iig; sourceTree = "<group>"; };
+		DJVD0000000000000102 /* DJVirtualDiskDevice.iig */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.iig; path = DiskJockeyVirtualDisk/DJVirtualDiskDevice.iig; sourceTree = "<group>"; };
+		DJVD0000000000000103 /* DJVirtualDiskUserClient.iig */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.iig; path = DiskJockeyVirtualDisk/DJVirtualDiskUserClient.iig; sourceTree = "<group>"; };
+		DJVD0000000000000104 /* DJVirtualDiskService.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = DiskJockeyVirtualDisk/DJVirtualDiskService.cpp; sourceTree = "<group>"; };
+		DJVD0000000000000105 /* DJVirtualDiskDevice.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = DiskJockeyVirtualDisk/DJVirtualDiskDevice.cpp; sourceTree = "<group>"; };
+		DJVD0000000000000106 /* DJVirtualDiskUserClient.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = DiskJockeyVirtualDisk/DJVirtualDiskUserClient.cpp; sourceTree = "<group>"; };
+		DJVD0000000000000107 /* DKRustStubs.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = DiskJockeyVirtualDisk/DKRustStubs.c; sourceTree = "<group>"; };
+		DJVD0000000000000108 /* BlockStorageDeviceDriverKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = BlockStorageDeviceDriverKit.framework; path = System/DriverKit/System/Library/Frameworks/BlockStorageDeviceDriverKit.framework; sourceTree = SDKROOT; };
 		0BC347BB938FDDB740155389 /* DiskJockeyEXT4.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; path = DiskJockeyEXT4.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		0E5062D8CC66429138B1AE0E /* DiskJockeyEROFS.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = DiskJockeyEROFS.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		0FC57EEA658C5ABB35712078 /* DiskJockeyEROFS.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = DiskJockeyEROFS.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -510,6 +527,7 @@
 				0E5062D8CC66429138B1AE0E /* DiskJockeyEROFS.appex */,
 				AAE6646EB538E75EF79C7AA6 /* DiskJockeySQUASHFS.appex */,
 				0FC57EEA658C5ABB35712078 /* DiskJockeyEROFS.appex */,
+				DJVD0000000000000100 /* DiskJockeyVirtualDisk.dext */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -574,6 +592,23 @@
 			productName = DiskJockeySQUASHFS;
 			productReference = AAE6646EB538E75EF79C7AA6 /* DiskJockeySQUASHFS.appex */;
 			productType = "com.apple.product-type.extensionkit-extension";
+		};
+		DJVD0000000000000130 /* DiskJockeyVirtualDisk */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DJVD0000000000000142 /* Build configuration list for PBXNativeTarget "DiskJockeyVirtualDisk" */;
+			buildPhases = (
+				DJVD0000000000000120 /* Sources */,
+				DJVD0000000000000121 /* Frameworks */,
+				DJVD0000000000000122 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = DiskJockeyVirtualDisk;
+			productName = DiskJockeyVirtualDisk;
+			productReference = DJVD0000000000000100 /* DiskJockeyVirtualDisk.dext */;
+			productType = "com.apple.product-type.driver-extension";
 		};
 		501F02422E058BAF009EBB59 /* DiskJockeyFileProvider */ = {
 			isa = PBXNativeTarget;
@@ -823,6 +858,7 @@
 				CB73CCD381CDA3B886DE3658 /* DiskJockeyNTFS */,
 				3652767A4E95F56A42259420 /* DiskJockeySQUASHFS */,
 				8E3B20692D9B65313AFCAF97 /* DiskJockeyEROFS */,
+				DJVD0000000000000130 /* DiskJockeyVirtualDisk */,
 			);
 		};
 /* End PBXProject section */
@@ -923,6 +959,36 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+
+		DJVD0000000000000120 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DJVD0000000000000110 /* DJVirtualDiskService.iig in Sources */,
+				DJVD0000000000000111 /* DJVirtualDiskDevice.iig in Sources */,
+				DJVD0000000000000112 /* DJVirtualDiskUserClient.iig in Sources */,
+				DJVD0000000000000113 /* DJVirtualDiskService.cpp in Sources */,
+				DJVD0000000000000114 /* DJVirtualDiskDevice.cpp in Sources */,
+				DJVD0000000000000115 /* DJVirtualDiskUserClient.cpp in Sources */,
+				DJVD0000000000000116 /* DKRustStubs.c in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DJVD0000000000000121 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DJVD0000000000000117 /* BlockStorageDeviceDriverKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DJVD0000000000000122 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		501F023F2E058BAF009EBB59 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -1096,6 +1162,85 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		DJVD0000000000000140 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
+				CLANG_CXX_LIBRARY = "libc++";
+				CODE_SIGN_ENTITLEMENTS = DiskJockeyVirtualDisk/DiskJockeyVirtualDisk.entitlements;
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = NO;
+				DEVELOPMENT_TEAM = 43UMKXZ8P4;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(DERIVED_SOURCES_DIR)",
+					"$(DERIVED_SOURCES_DIR)/$(PRODUCT_NAME)",
+					"$(SRCROOT)/DiskJockeyVirtualDisk",
+				);
+				INFOPLIST_FILE = DiskJockeyVirtualDisk/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = DiskJockeyVirtualDisk;
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SDKROOT)/System/DriverKit/usr/lib/system",
+				);
+				ONLY_ACTIVE_ARCH = YES;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lsystem_kernel",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.virtualdisk;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SDKROOT = driverkit;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = driverkit;
+			};
+			name = Debug;
+		};
+
+		DJVD0000000000000141 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
+				CLANG_CXX_LIBRARY = "libc++";
+				CODE_SIGN_ENTITLEMENTS = DiskJockeyVirtualDisk/DiskJockeyVirtualDisk.entitlements;
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = NO;
+				DEVELOPMENT_TEAM = 43UMKXZ8P4;
+				GCC_OPTIMIZATION_LEVEL = s;
+				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(DERIVED_SOURCES_DIR)",
+					"$(DERIVED_SOURCES_DIR)/$(PRODUCT_NAME)",
+					"$(SRCROOT)/DiskJockeyVirtualDisk",
+				);
+				INFOPLIST_FILE = DiskJockeyVirtualDisk/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = DiskJockeyVirtualDisk;
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SDKROOT)/System/DriverKit/usr/lib/system",
+				);
+				ONLY_ACTIVE_ARCH = YES;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lsystem_kernel",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.virtualdisk;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SDKROOT = driverkit;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = driverkit;
+			};
+			name = Release;
+		};
 		0768422891ABC91AC33637F6 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1939,6 +2084,16 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+
+		DJVD0000000000000142 /* Build configuration list for PBXNativeTarget "DiskJockeyVirtualDisk" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DJVD0000000000000140 /* Debug */,
+				DJVD0000000000000141 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		501F02542E058BAF009EBB59 /* Build configuration list for PBXNativeTarget "DiskJockeyFileProvider" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
