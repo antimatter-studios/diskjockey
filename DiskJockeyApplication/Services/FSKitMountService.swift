@@ -105,22 +105,6 @@ final class FSKitMountService {
             return
         }
 
-        // File-backed single-FS mount via hdiutil + Disk Arbitration.
-        // hdiutil creates a block device; DA probes it and invokes FSKit for ext4/NTFS.
-        // The volume label determines the actual mount point (name param is advisory).
-        let detected = FSKitAttachController.detectFSType(at: URL(fileURLWithPath: source)).container
-        if detected == .qcow2 || detected == .vhdx {
-            // Attempt FSPathURLResource mount via file:// URL.
-            // fskitd on macOS 26 may route file:// URLs to FSPathURLResource
-            // rather than failing as it does for bare file paths.
-            let mountPoint = "/Volumes/\(name)"
-            let fileURL = "file://\(source)"
-            logger.info("attach (FSPathURL) \(fsType, privacy: .public) \(fileURL, privacy: .public) -> \(mountPoint, privacy: .public)")
-            try await DJAgentClient.shared.mountFSKit(
-                source: fileURL, mountPoint: mountPoint, fsType: fsType,
-                partitionOffset: 0, partitionLength: 0)
-            return
-        }
         logger.info("attach (hdiutil) \(fsType, privacy: .public) \(source, privacy: .public)")
         let hdiResult = try await Self.runHdiutilAttach(at: source)
         guard let daSession = DASessionCreate(kCFAllocatorDefault) else {
@@ -243,31 +227,11 @@ final class FSKitMountService {
             return mounted
         }
 
-        // Try FSPathURLResource path for QCOW2/VHDX.
-        // fskitd on macOS 26 may route file:// URLs to FSPathURLResource
-        // rather than failing as it does for bare file paths.
-        let fsCompatible = c.supported.filter { ["ext4", "ntfs"].contains($0.fs) }
-        if fsCompatible.isEmpty { return [] }
-        var mounted: [String] = []
-        for (part, fs) in fsCompatible {
-            let name = "\(mountPointPrefix)-p\(part.index)"
-            let mp = "/Volumes/\(name)"
-            let fileURL = "file://\(source)"
-            do {
-                logger.info("FSPathURL mount \(fs, privacy: .public) \(fileURL, privacy: .public) -> \(mp, privacy: .public) offset=\(part.start) length=\(part.length)")
-                try await DJAgentClient.shared.mountFSKit(
-                    source: fileURL, mountPoint: mp, fsType: fs,
-                    partitionOffset: Int64(part.start), partitionLength: Int64(part.length))
-                mounted.append(mp)
-            } catch {
-                logger.error("FSPathURL mount \(mp, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
-            }
-        }
-        if mounted.isEmpty {
-            throw FSKitError.processFailed(exitCode: -1,
-                stderr: "\(container.uppercased()): FSPathURLResource mount failed. This format may require a DriverKit block device driver.")
-        }
-        return mounted
+        // Container formats (QCOW2/VHDX/VMDK) require a DriverKit block device
+        // driver to mount — deferred to v2. The UI prevents users from reaching
+        // this path (DiskImageInspectorView shows "coming in a future update").
+        throw FSKitError.processFailed(exitCode: -1,
+            stderr: "\(container.uppercased()): mounting requires a future update.")
     }
 
     /// hdiutil-attach result. The parent is the whole-disk node, slices
