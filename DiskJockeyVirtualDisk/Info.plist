@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+
+    <key>CFBundleIdentifier</key>
+    <string>com.antimatterstudios.diskjockey.virtualdisk</string>
+
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+
+    <key>CFBundleName</key>
+    <string>DiskJockeyVirtualDisk</string>
+
+    <key>CFBundlePackageType</key>
+    <string>DEXT</string>
+
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+
+    <key>CFBundleVersion</key>
+    <string>1</string>
+
+    <!-- Human-readable usage description shown in System Settings → Privacy.
+         Keep this concise and accurate. -->
+    <key>OSBundleUsageDescription</key>
+    <string>DiskJockey virtual disk driver provides block device access to QCOW2 and VHDX disk image files.</string>
+
+    <!-- IOKit personality for the manager service.
+         Matches IOUserResources (always present after IOKit init) so the
+         dext starts once at activation — no physical hardware required. -->
+    <key>IOKitPersonalities</key>
+    <dict>
+        <key>DJVirtualDiskManager</key>
+        <dict>
+            <!-- Match any system with IOKit up (software-only virtual device). -->
+            <key>IOProviderClass</key>
+            <string>IOUserResources</string>
+
+            <key>IOResourceMatch</key>
+            <string>IOKit</string>
+
+            <!-- DriverKit class that implements this personality. -->
+            <key>IOUserClass</key>
+            <string>DJVirtualDiskService</string>
+
+            <!-- Kernel-side IOService wrapper for DriverKit. -->
+            <key>IOClass</key>
+            <string>IOUserService</string>
+
+            <!-- The IOUserServer that hosts this dext process.
+                 Must match CFBundleIdentifier. -->
+            <key>IOUserServerName</key>
+            <string>com.antimatterstudios.diskjockey.virtualdisk</string>
+
+            <!-- Entitlement that any process needs to open our IOUserClient.
+                 DiskJockeyAgent must have com.apple.developer.driverkit.userclient-access
+                 with value ["com.antimatterstudios.diskjockey.virtualdisk"], OR the
+                 dext entitlement com.apple.developer.driverkit.allow-any-userclient-access
+                 can bypass this check during development. -->
+            <key>IOServiceDEXTEntitlements</key>
+            <array>
+                <string>com.apple.developer.driverkit.userclient-access</string>
+            </array>
+
+            <!-- Prevent another driver from stealing this match. -->
+            <key>IOMatchCategory</key>
+            <string>com.antimatterstudios.diskjockey.virtualdisk</string>
+
+            <!-- KPI used by this dext (IOUserService requires iokit). -->
+            <key>CFBundleIdentifierKernel</key>
+            <string>com.apple.kpi.iokit</string>
+        </dict>
+    </dict>
+</dict>
+</plist>
