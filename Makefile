@@ -130,6 +130,11 @@ vendor-all: vendor-fs-ext4 vendor-fs-ntfs vendor-gonetworkfs
 
 clean-all: clean vendor-fs-ext4-clean vendor-fs-ntfs-clean vendor-gonetworkfs-clean
 
+# Install the DiskJockeyAgent LaunchAgent from the DerivedData build (dev only).
+# No /Applications copy needed, no admin prompt. Re-run after each build.
+install-agent:
+	@scripts/install-agent-dev.sh
+
 # ---------------------------------------------------------------------------
 # Vendor-pin manifest
 # ---------------------------------------------------------------------------

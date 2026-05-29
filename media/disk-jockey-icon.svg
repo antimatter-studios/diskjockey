@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="Hard drive icon">
+  
+  <rect x="205" y="161" width="614" height="701" rx="100" fill="#111111"></rect>
+  
+  <circle cx="512" cy="439" r="218" fill="#f4f4f4"></circle>
+  
+  <g fill="#f4f4f4"><circle cx="580" cy="532" r="31"></circle><circle cx="406" cy="687" r="49"></circle><polygon points="557.7,510.5 370.7,653.0 435.7,726.0 598.8,556.7"></polygon></g>
+  <g fill="#111111"><circle cx="580" cy="532" r="19"></circle><circle cx="406" cy="687" r="37"></circle><polygon points="566.3,518.8 379.3,661.4 428.4,716.4 591.5,547.1"></polygon></g>
+  
+  <circle cx="512" cy="437" r="74" fill="#111111"></circle>
+  <circle cx="512" cy="437" r="24" fill="#f4f4f4"></circle>
+  
+  <circle cx="641" cy="777" r="26" fill="#f4f4f4"></circle>
+  <circle cx="723" cy="777" r="25" fill="#f4f4f4"></circle>
+</svg>

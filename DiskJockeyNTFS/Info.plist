@@ -110,7 +110,7 @@
 		<key>FSSupportsGenericURLResources</key>
 		<false/>
 		<key>FSSupportsPathURLs</key>
-		<false/>
+		<true/>
 		<key>FSSupportsServerURLs</key>
 		<false/>
 	</dict>

@@ -281,7 +281,7 @@ final class EXT4Volume: FSVolume,
         stats.stop()
         backend.shutdown()
         if let ctx = blockDeviceContext {
-            Unmanaged<BlockDeviceContext>.fromOpaque(ctx).release()
+            Unmanaged<AnyObject>.fromOpaque(ctx).release()
             blockDeviceContext = nil
         }
         // Parent-death watchdog: if fsck / repair / format is still

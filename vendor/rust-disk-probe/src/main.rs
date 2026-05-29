@@ -46,8 +46,8 @@ use fs_core::ffi::{
 };
 use partitions::capi::{
     partitions_count, partitions_get, partitions_list_free, partitions_probe,
-    partitions_sniff, partitions_table_kind, FsKindCode, PartitionInfo, PartitionList,
-    TableKindCode,
+    partitions_sniff, partitions_sniff_device, partitions_table_kind, FsKindCode, PartitionInfo,
+    PartitionList, TableKindCode,
 };
 
 // Force the container-reader rlibs to be linked. We only call into them
@@ -292,15 +292,15 @@ fn main() {
     let mut list: *mut PartitionList = ptr::null_mut();
     let rc = unsafe { partitions_probe(dev, &mut list) };
     if rc != fs_core::ffi::FsCoreErrorCode::Ok || list.is_null() {
-        // Probe can fail on a device with no partition table at all
-        // (e.g. a single-FS .img). Emit a JSON object with table=none
-        // and empty partitions so the caller can fall back to whole-
-        // device sniff.
+        // No partition table — sniff the whole device as one filesystem.
+        let sniffed = unsafe { partitions_sniff_device(dev, dev_size) };
+        let dev_fs_label = if sniffed >= 0 { fs_kind_label(sniffed) } else { "unknown" };
         let json = format!(
-            "{{\"path\":\"{}\",\"container\":\"{}\",\"container_size_bytes\":{},\"table\":\"none\",\"partitions\":[]}}",
+            "{{\"path\":\"{}\",\"container\":\"{}\",\"container_size_bytes\":{},\"table\":\"none\",\"device_fs_kind\":\"{}\",\"partitions\":[]}}",
             json_escape(&path),
             container.label(),
-            dev_size
+            dev_size,
+            dev_fs_label,
         );
         println!("{json}");
         unsafe { fs_core_device_close(dev) };
@@ -322,6 +322,9 @@ fn main() {
             _pad: [0u8; 7],
             label: ptr::null(),
             label_len: 0,
+            bootable: 0,
+            _pad2: [0u8; 7],
+            attributes: 0,
         };
         let grc = unsafe { partitions_get(list, i, &mut info) };
         if grc != fs_core::ffi::FsCoreErrorCode::Ok {

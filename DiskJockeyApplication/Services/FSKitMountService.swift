@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import OSLog
+import DiskArbitration
 import DiskJockeyLibrary
 
 /// Mounts ext4 images / block devices via macOS 26's `mount -F` path, which
@@ -20,6 +21,9 @@ struct DiskProbeResult: Decodable {
     let container: String
     let containerSizeBytes: UInt64
     let table: String   // "gpt" | "mbr" | "none"
+    /// Only present when `table == "none"` — filesystem type of the whole
+    /// device when no partition table was found (e.g. a single-FS image).
+    let deviceFsKind: String?
     let partitions: [Partition]
 
     struct Partition: Decodable {
@@ -42,6 +46,7 @@ struct DiskProbeResult: Decodable {
     enum CodingKeys: String, CodingKey {
         case path, container, table, partitions
         case containerSizeBytes = "container_size_bytes"
+        case deviceFsKind = "device_fs_kind"
     }
 }
 
@@ -86,164 +91,183 @@ final class FSKitMountService {
     func attach(imagePath source: String, name: String, fsType: String,
                 mountOptions: String? = nil) async throws {
         try Self.validateMountName(name)
-        let mountPoint = "/Volumes/\(name)"
 
-        // /Volumes/ is root-owned; a sandboxed app can't `mkdir` there
-        // and the FileManager.createDirectory call would fail before we
-        // even reached the privileged escalation. Defer the mount-point
-        // creation into the admin shell command so it runs with the
-        // privileges that already need to exist for `mount -F` itself.
-        // Pre-flight existence check via stat is allowed inside the
-        // sandbox (it's a read), so we still surface a clean error if
-        // the mount point is already a live mount.
-        if FileManager.default.fileExists(atPath: mountPoint) {
-            let contents = (try? FileManager.default.contentsOfDirectory(atPath: mountPoint)) ?? []
-            if !contents.isEmpty {
-                throw FSKitError.mountPointInUse(mountPoint)
+        // Block device path — use DA directly, no root needed.
+        // diskarbitrationd handles privilege and invokes the appropriate
+        // driver (Apple or FSKit extension) based on fs probing.
+        if source.hasPrefix("/dev/") {
+            guard let session = DASessionCreate(kCFAllocatorDefault) else {
+                throw FSKitError.processFailed(exitCode: -1, stderr: "Failed to create DA session")
+            }
+            DASessionSetDispatchQueue(session, .global(qos: .userInitiated))
+            logger.info("attach (DA) \(source, privacy: .public)")
+            try await Self.mountSliceWithDA(source, session: session)
+            return
+        }
+
+        // File-backed single-FS mount via hdiutil + Disk Arbitration.
+        // hdiutil creates a block device; DA probes it and invokes FSKit for ext4/NTFS.
+        // The volume label determines the actual mount point (name param is advisory).
+        let detected = FSKitAttachController.detectFSType(at: URL(fileURLWithPath: source)).container
+        if detected == .qcow2 || detected == .vhdx {
+            // Attempt FSPathURLResource mount via file:// URL.
+            // fskitd on macOS 26 may route file:// URLs to FSPathURLResource
+            // rather than failing as it does for bare file paths.
+            let mountPoint = "/Volumes/\(name)"
+            let fileURL = "file://\(source)"
+            logger.info("attach (FSPathURL) \(fsType, privacy: .public) \(fileURL, privacy: .public) -> \(mountPoint, privacy: .public)")
+            try await DJAgentClient.shared.mountFSKit(
+                source: fileURL, mountPoint: mountPoint, fsType: fsType,
+                partitionOffset: 0, partitionLength: 0)
+            return
+        }
+        logger.info("attach (hdiutil) \(fsType, privacy: .public) \(source, privacy: .public)")
+        let hdiResult = try await Self.runHdiutilAttach(at: source)
+        guard let daSession = DASessionCreate(kCFAllocatorDefault) else {
+            _ = try? await Self.runHdiutilDetach(hdiResult.parentDevice)
+            throw FSKitError.processFailed(exitCode: -1, stderr: "Failed to create DA session")
+        }
+        DASessionSetDispatchQueue(daSession, .global(qos: .userInitiated))
+        // Mount slices if image has a partition table; otherwise mount the whole-disk device.
+        let targets = hdiResult.slices.isEmpty ? [hdiResult.parentDevice] : hdiResult.slices
+        var mountedCount = 0
+        var lastError: Error?
+        for target in targets {
+            do {
+                try await Self.mountSliceWithDA(target, session: daSession)
+                mountedCount += 1
+            } catch {
+                logger.error("DA mount \(target, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+                lastError = error
             }
         }
-
-        logger.info("attach \(fsType, privacy: .public) \(source, privacy: .public) -> \(mountPoint, privacy: .public)")
-        // `mkdir -p` is idempotent on an existing empty directory, so
-        // running it unconditionally is safe and removes the
-        // sandbox-vs-privileged split.
-        var shellCmd = "/bin/mkdir -p \(Self.shellQuote(mountPoint)) && "
-            + "/sbin/mount -F -t \(Self.shellQuote(fsType)) "
-        if let opts = mountOptions, !opts.isEmpty {
-            shellCmd += "-o \(Self.shellQuote(opts)) "
+        if mountedCount == 0 {
+            _ = try? await Self.runHdiutilDetach(hdiResult.parentDevice)
+            throw lastError ?? FSKitError.processFailed(exitCode: -1, stderr: "All DA mounts failed")
         }
-        shellCmd += "\(Self.shellQuote(source)) \(Self.shellQuote(mountPoint))"
-        try await Self.runShellAsAdmin(command: shellCmd)
     }
 
     /// Multi-partition attach: probe the image's partition table, then
-    /// mount every partition we have a driver for in a single privileged
-    /// shell invocation. Partitions whose FS we don't ship (FAT32 /
-    /// exFAT / HFS+ / APFS / linux_swap / iso9660 / squashfs) are skipped
-    /// with a log line — the caller decides whether to surface that to
-    /// the user.
+    /// mount every supported partition via Disk Arbitration (no root).
+    /// diskarbitrationd handles the privileged mount(2) and invokes
+    /// Apple drivers (FAT32/exFAT/HFS+/APFS) or our FSKit extensions
+    /// (ext4/NTFS) depending on what probing discovers on each slice.
     ///
-    /// `mountPointPrefix` is the base name; partitions land at
-    /// `/Volumes/<prefix>-pN`. Returns the list of mount points actually
-    /// attached.
+    /// For raw images: hdiutil attach turns the file into block devices,
+    /// then DA mounts each slice. The fd-inheritance path (`imageURL`)
+    /// lets hdiutil read the file via our in-process security-scoped
+    /// access instead of needing its own open() permission.
+    ///
+    /// For container images (qcow2/vhd/vhdx/vmdk): Apple drivers need
+    /// block devices and are skipped. Our FSKit extensions handle the
+    /// container format internally.
+    ///
+    /// Returns the actual mount paths chosen by DA (based on volume label),
+    /// which may differ from the mountPointPrefix-pN prediction.
     func attachAllPartitions(imagePath source: String,
+                             imageURL: URL? = nil,
                              mountPointPrefix: String,
                              partitions: [DiskProbeResult.Partition],
                              container: String = "raw") async throws -> [String] {
         try Self.validateMountName(mountPointPrefix)
 
-        // Classify partitions by which driver mounts them.
-        //
-        //   - ext4/ext3/ext2/NTFS  -> our DiskJockey extensions (callback
-        //     + slice path; works with raw OR container source).
-        //   - FAT16/FAT32          -> Apple's mount_msdos.
-        //   - exFAT                -> Apple's mount_exfat.
-        //   - HFS+                 -> Apple's mount_hfs.
-        //   - APFS                 -> Apple's mount_apfs.
-        //
-        // Apple's drivers want a real /dev/diskN node, which we synthesize
-        // by `hdiutil attach -nomount` of the source. hdiutil DOESN'T
-        // understand qcow2/vhd/vhdx/vmdk — so when the source is a
-        // container with Apple-driver partitions we skip those with a
-        // log message and tell the user to convert to raw if they want
-        // them mounted.
+        let hdiutilCompatible = container == "raw" || container == "vhd" || container == "vmdk"
+
         struct Classified {
-            var ourPartitions: [(part: DiskProbeResult.Partition, fs: String)] = []
-            var applePartitions: [(part: DiskProbeResult.Partition, fs: String)] = []
+            var supported: [(part: DiskProbeResult.Partition, fs: String)] = []
             var skipped: [DiskProbeResult.Partition] = []
         }
         var c = Classified()
         for part in partitions {
             switch part.fsKind {
-            case "ext4", "ext3", "ext2": c.ourPartitions.append((part, "ext4"))
-            case "ntfs":                  c.ourPartitions.append((part, "ntfs"))
+            case "ext4", "ext3", "ext2": c.supported.append((part, "ext4"))
+            case "ntfs":                  c.supported.append((part, "ntfs"))
             case "fat32", "fat16":
-                if container == "raw" { c.applePartitions.append((part, "msdos")) }
+                if hdiutilCompatible { c.supported.append((part, "msdos")) }
                 else { c.skipped.append(part) }
             case "exfat":
-                if container == "raw" { c.applePartitions.append((part, "exfat")) }
+                if hdiutilCompatible { c.supported.append((part, "exfat")) }
                 else { c.skipped.append(part) }
             case "hfs_plus":
-                if container == "raw" { c.applePartitions.append((part, "hfs")) }
+                if hdiutilCompatible { c.supported.append((part, "hfs")) }
                 else { c.skipped.append(part) }
             case "apfs":
-                if container == "raw" { c.applePartitions.append((part, "apfs")) }
+                if hdiutilCompatible { c.supported.append((part, "apfs")) }
                 else { c.skipped.append(part) }
             default:                     c.skipped.append(part)
             }
         }
         for s in c.skipped {
-            logger.info("skip partition \(s.index) (\(s.fsKind, privacy: .public)): no driver path (container=\(container, privacy: .public))")
+            logger.info("skip partition \(s.index) (\(s.fsKind, privacy: .public)): no driver (container=\(container, privacy: .public))")
         }
+        if c.supported.isEmpty { return [] }
 
-        // Apple-driver partitions need an hdiutil-attached parent.
-        var hdiutilSlices: [Int: String] = [:]   // partition index -> /dev/diskNsM
-        var hdiutilParent: String?
-        if !c.applePartitions.isEmpty {
-            let result = try Self.runHdiutilAttach(at: source)
-            hdiutilParent = result.parentDevice
-            // hdiutil returns slices in arbitrary order; we map them by
-            // their numeric suffix back to the partition index. MBR + GPT
-            // primary partitions follow the convention "diskNs(index+1)".
-            for slice in result.slices {
-                if let idx = Self.sliceNumber(of: slice) {
-                    hdiutilSlices[idx - 1] = slice
+        if hdiutilCompatible {
+            // Attach image as block devices, then mount each slice via DA —
+            // no root required. The fd-inheritance path avoids the sandbox
+            // block that prevents hdiutil from opening security-scoped URLs.
+            let hdiResult = try await Self.runHdiutilAttach(at: source, imageURL: imageURL)
+            logger.info("hdiutil attach \(source, privacy: .public) -> \(hdiResult.parentDevice, privacy: .public) (\(hdiResult.slices.count, privacy: .public) slices)")
+
+            var sliceByIndex: [Int: String] = [:]
+            for slice in hdiResult.slices {
+                if let n = Self.sliceNumber(of: slice) { sliceByIndex[n - 1] = slice }
+            }
+
+            guard let session = DASessionCreate(kCFAllocatorDefault) else {
+                _ = try? await Self.runHdiutilDetach(hdiResult.parentDevice)
+                throw FSKitError.processFailed(exitCode: -1, stderr: "Failed to create DA session")
+            }
+            DASessionSetDispatchQueue(session, .global(qos: .userInitiated))
+
+            var mounted: [String] = []
+            for (part, _) in c.supported {
+                guard let slice = sliceByIndex[part.index] else {
+                    logger.error("no hdiutil slice for partition \(part.index) (\(part.fsKind, privacy: .public))")
+                    continue
+                }
+                do {
+                    try await Self.mountSliceWithDA(slice, session: session)
+                    let mp = Self.mountedPath(of: slice, session: session) ?? slice
+                    logger.info("DA mounted \(slice, privacy: .public) -> \(mp, privacy: .public)")
+                    mounted.append(mp)
+                } catch {
+                    logger.error("DA mount \(slice, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
                 }
             }
-            logger.info("hdiutil attach \(source, privacy: .public) -> \(result.parentDevice, privacy: .public) (\(result.slices.count, privacy: .public) slices)")
+
+            if mounted.isEmpty {
+                _ = try? await Self.runHdiutilDetach(hdiResult.parentDevice)
+                logger.info("attachAllPartitions \(source, privacy: .public): all DA mounts failed")
+            }
+            return mounted
         }
 
-        // Build the privileged shell command — every supported partition
-        // mounts in one sudo prompt.
-        var pieces: [String] = []
-        var mounts: [String] = []
-        for (part, fs) in c.ourPartitions {
+        // Try FSPathURLResource path for QCOW2/VHDX.
+        // fskitd on macOS 26 may route file:// URLs to FSPathURLResource
+        // rather than failing as it does for bare file paths.
+        let fsCompatible = c.supported.filter { ["ext4", "ntfs"].contains($0.fs) }
+        if fsCompatible.isEmpty { return [] }
+        var mounted: [String] = []
+        for (part, fs) in fsCompatible {
             let name = "\(mountPointPrefix)-p\(part.index)"
-            try Self.validateMountName(name)
-            let mountPoint = "/Volumes/\(name)"
-            mounts.append(mountPoint)
-            pieces.append("/bin/mkdir -p \(Self.shellQuote(mountPoint))")
-            pieces.append(
-                "/sbin/mount -F -t \(Self.shellQuote(fs)) "
-                + "-o \(Self.shellQuote("partition_offset=\(part.start),partition_length=\(part.length)")) "
-                + "\(Self.shellQuote(source)) \(Self.shellQuote(mountPoint))"
-            )
-        }
-        for (part, fs) in c.applePartitions {
-            guard let dev = hdiutilSlices[part.index] else {
-                logger.error("apple partition \(part.index) (\(part.fsKind, privacy: .public)): no hdiutil slice mapped (parent=\(hdiutilParent ?? "?", privacy: .public))")
-                continue
+            let mp = "/Volumes/\(name)"
+            let fileURL = "file://\(source)"
+            do {
+                logger.info("FSPathURL mount \(fs, privacy: .public) \(fileURL, privacy: .public) -> \(mp, privacy: .public) offset=\(part.start) length=\(part.length)")
+                try await DJAgentClient.shared.mountFSKit(
+                    source: fileURL, mountPoint: mp, fsType: fs,
+                    partitionOffset: Int64(part.start), partitionLength: Int64(part.length))
+                mounted.append(mp)
+            } catch {
+                logger.error("FSPathURL mount \(mp, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
             }
-            let name = "\(mountPointPrefix)-p\(part.index)"
-            try Self.validateMountName(name)
-            let mountPoint = "/Volumes/\(name)"
-            mounts.append(mountPoint)
-            pieces.append("/bin/mkdir -p \(Self.shellQuote(mountPoint))")
-            pieces.append("/sbin/mount -t \(Self.shellQuote(fs)) \(Self.shellQuote(dev)) \(Self.shellQuote(mountPoint))")
         }
-
-        if mounts.isEmpty {
-            // Nothing to mount — clean up the hdiutil attach if we made one.
-            if let parent = hdiutilParent {
-                _ = try? await Self.runHdiutilDetach(parent)
-            }
-            logger.info("attachAllPartitions \(source, privacy: .public): nothing supported (\(partitions.count) partitions seen, \(c.skipped.count) skipped)")
-            return []
+        if mounted.isEmpty {
+            throw FSKitError.processFailed(exitCode: -1,
+                stderr: "\(container.uppercased()): FSPathURLResource mount failed. This format may require a DriverKit block device driver.")
         }
-
-        let shellCmd = pieces.joined(separator: " && ")
-        logger.info("attachAllPartitions \(source, privacy: .public): mounting \(mounts.count, privacy: .public) partitions (\(c.ourPartitions.count) ours + \(c.applePartitions.count) apple) in one privileged batch")
-        do {
-            try await Self.runShellAsAdmin(command: shellCmd)
-        } catch {
-            // Mount failed mid-batch — make sure we don't leak the
-            // hdiutil attach.
-            if let parent = hdiutilParent {
-                _ = try? await Self.runHdiutilDetach(parent)
-            }
-            throw error
-        }
-        return mounts
+        return mounted
     }
 
     /// hdiutil-attach result. The parent is the whole-disk node, slices
@@ -254,57 +278,12 @@ final class FSKitMountService {
         let slices: [String]           // e.g. ["/dev/disk5s1", "/dev/disk5s2"]
     }
 
-    /// Run `hdiutil attach -nomount -plist <path>` and parse the output.
-    /// Doesn't need admin — hdiutil sets up a dev node we can read but
-    /// not mount without privilege. The actual `mount` call (admin) is
-    /// chained into the same privileged shell as our extension mounts.
-    static func runHdiutilAttach(at path: String) throws -> HdiutilAttachResult {
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
-        proc.arguments = ["attach", "-nomount", "-plist", path]
-        let outPipe = Pipe()
-        let errPipe = Pipe()
-        proc.standardOutput = outPipe
-        proc.standardError = errPipe
-        try proc.run()
-        proc.waitUntilExit()
-        guard proc.terminationStatus == 0 else {
-            let err = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(),
-                             encoding: .utf8) ?? ""
-            throw FSKitError.processFailed(exitCode: proc.terminationStatus, stderr: err)
-        }
-        let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
-        guard let plist = try PropertyListSerialization.propertyList(
-                from: outData, options: [], format: nil) as? [String: Any],
-              let entities = plist["system-entities"] as? [[String: Any]] else {
-            throw FSKitError.processFailed(exitCode: -1, stderr: "hdiutil plist parse failed")
-        }
-        // Whole-disk parent: dev-entry has no `s` suffix (or has
-        // FDisk_partition_scheme / GUID_partition_scheme content-hint).
-        // Slices: dev-entry contains "sN" suffix.
-        var parent: String?
-        var slices: [String] = []
-        for entity in entities {
-            guard let dev = entity["dev-entry"] as? String else { continue }
-            // Parent: ends in "diskN" with no slice suffix.
-            if dev.range(of: #"^/dev/disk\d+$"#, options: .regularExpression) != nil {
-                parent = dev
-            } else if dev.range(of: #"^/dev/disk\d+s\d+$"#, options: .regularExpression) != nil {
-                slices.append(dev)
-            }
-        }
-        guard let parent = parent else {
-            throw FSKitError.processFailed(exitCode: -1, stderr: "hdiutil attached but no parent /dev/diskN found")
-        }
-        return HdiutilAttachResult(parentDevice: parent, slices: slices)
+    static func runHdiutilAttach(at path: String, imageURL: URL? = nil) async throws -> HdiutilAttachResult {
+        return try await DJAgentClient.shared.attachImage(atPath: path)
     }
 
-    /// Detach a previously-attached hdiutil device. Best-effort — if the
-    /// device has dependent mounts or is already gone we throw the
-    /// hdiutil error so the caller can decide.
     static func runHdiutilDetach(_ device: String) async throws {
-        try await Self.runAsAdmin(executable: "/usr/bin/hdiutil",
-                                  arguments: ["detach", device])
+        try await DJAgentClient.shared.detachDevice(device)
     }
 
     /// Extract the trailing slice number from a /dev/diskNsM path, or
@@ -316,6 +295,50 @@ final class FSKitMountService {
         }
         let digits = devEntry[range].dropFirst()
         return Int(digits)
+    }
+
+    // MARK: - Disk Arbitration helpers
+
+    private final class DACallbackBox {
+        let resume: (Error?) -> Void
+        init(_ resume: @escaping (Error?) -> Void) { self.resume = resume }
+    }
+
+    /// Mount a block device via Disk Arbitration. diskarbitrationd runs as root
+    /// and handles the privileged mount(2) call — the sandboxed app needs no
+    /// elevated privileges. For FSKit-registered filesystems (ext4, NTFS) the
+    /// daemon probes installed extensions and invokes the appropriate one.
+    private static func mountSliceWithDA(_ bsdName: String, session: DASession) async throws {
+        let devName = bsdName.hasPrefix("/dev/") ? String(bsdName.dropFirst(5)) : bsdName
+        guard let disk = DADiskCreateFromBSDName(kCFAllocatorDefault, session, devName) else {
+            throw FSKitError.processFailed(exitCode: -1, stderr: "DA: no disk object for \(bsdName)")
+        }
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            let box = DACallbackBox { err in
+                if let err { cont.resume(throwing: err) } else { cont.resume() }
+            }
+            let ptr = Unmanaged.passRetained(box).toOpaque()
+            DADiskMount(disk, nil, DADiskMountOptions(kDADiskMountOptionDefault), { (_, dissenter, ctx) in
+                guard let ctx else { return }
+                let b = Unmanaged<DACallbackBox>.fromOpaque(ctx).takeRetainedValue()
+                if let d = dissenter {
+                    let code = DADissenterGetStatus(d)
+                    let msg = (DADissenterGetStatusString(d) as String?) ?? "DA error \(code)"
+                    b.resume(FSKitError.processFailed(exitCode: code, stderr: msg))
+                } else {
+                    b.resume(nil)
+                }
+            }, ptr)
+        }
+    }
+
+    /// Query the mount path of an already-mounted block device from DA.
+    private static func mountedPath(of bsdName: String, session: DASession) -> String? {
+        let devName = bsdName.hasPrefix("/dev/") ? String(bsdName.dropFirst(5)) : bsdName
+        guard let disk = DADiskCreateFromBSDName(kCFAllocatorDefault, session, devName),
+              let desc = DADiskCopyDescription(disk) as NSDictionary?,
+              let url  = desc[kDADiskDescriptionVolumePathKey] as? URL else { return nil }
+        return url.path
     }
 
     /// Run the staged diskprobe binary against `path` and return its
@@ -367,15 +390,14 @@ final class FSKitMountService {
 
     // MARK: - Detach
 
-    /// Unmount a volume previously attached via `attach(imagePath:name:)`.
+    /// Unmount a volume under /Volumes via NSWorkspace. NSWorkspace routes
+    /// through diskarbitrationd which handles the privileged umount(2) call
+    /// — no root required in the sandboxed app.
     func detach(name: String) async throws {
         try Self.validateMountName(name)
-        let mountPoint = "/Volumes/\(name)"
-        logger.info("detach \(mountPoint, privacy: .public)")
-        try await Self.runAsAdmin(
-            executable: "/sbin/umount",
-            arguments: [mountPoint]
-        )
+        let url = URL(fileURLWithPath: "/Volumes/\(name)")
+        logger.info("detach \(url.path, privacy: .public)")
+        try NSWorkspace.shared.unmountAndEjectDevice(at: url)
     }
 
     // MARK: - Helpers
@@ -419,97 +441,6 @@ final class FSKitMountService {
         }
     }
 
-    /// Run a privileged command via `osascript "do shell script ... with
-    /// administrator privileges"`. macOS presents the auth dialog; the
-    /// user's admin credential is cached for the session so subsequent
-    /// mounts within ~5 minutes skip the prompt.
-    ///
-    /// Chosen over NSAppleScript directly because osascript lives outside
-    /// the host app sandbox and handles the privilege escalation cleanly.
-    ///
-    /// `arguments` are quoted defensively. The caller is expected to pass
-    /// absolute paths only — `validateMountName` already rules out the
-    /// most dangerous shell metacharacters in the mount-name portion.
-    private static func runAsAdmin(executable: String, arguments: [String]) async throws {
-        // Build the shell command. Each argument is single-quoted with any
-        // embedded single-quotes escaped — the standard
-        // `'\''`-terminate-reopen pattern — so shell interpretation of the
-        // user-provided source path / mount name cannot inject flags or
-        // metacharacters.
-        let shellArgs = ([executable] + arguments).map { Self.shellQuote($0) }
-            .joined(separator: " ")
-        try await runShellAsAdmin(command: shellArgs)
-    }
-
-    /// Same admin escalation as `runAsAdmin`, but accepts a pre-built
-    /// shell command string. Used by callers that need to chain
-    /// multiple commands inside the SAME admin scope (e.g. `mkdir &&
-    /// mount`, or `unmount && fsck_fskit`) so the user only sees
-    /// one auth prompt.
-    ///
-    /// The caller is responsible for shell-quoting individual arguments
-    /// in `command` (use `shellQuote`).
-    static func runShellAsAdmin(command: String) async throws {
-        let appleScript = "do shell script \(Self.appleScriptQuote(command)) " +
-                          "with administrator privileges"
-
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            process.arguments = ["-e", appleScript]
-
-            let stderrPipe = Pipe()
-            process.standardError = stderrPipe
-            process.standardOutput = Pipe()
-
-            process.terminationHandler = { proc in
-                if proc.terminationStatus == 0 {
-                    continuation.resume()
-                    return
-                }
-                let data = (try? stderrPipe.fileHandleForReading.readToEnd()) ?? Data()
-                let msg = (String(data: data, encoding: .utf8) ?? "")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                // Exit code 1 + "User canceled" is the cancelled-prompt signal.
-                // Map that to a dedicated error so the UI can distinguish
-                // "user cancelled" from "mount itself failed".
-                if msg.contains("User canceled") || msg.contains("(-128)") {
-                    continuation.resume(throwing: FSKitError.authorizationDenied(stderr: msg))
-                } else if msg.contains("(-60005)")
-                    || msg.localizedCaseInsensitiveContains("name or password was incorrect") {
-                    // -60005 = "incorrect username or password" from
-                    // SecurityFoundation. The osascript exits with
-                    // rc=1 in this case, but the actionable problem
-                    // for the user is "type your password again."
-                    continuation.resume(throwing: FSKitError.authorizationDenied(
-                        stderr: "Wrong password. Try again."))
-                } else {
-                    continuation.resume(
-                        throwing: FSKitError.processFailed(
-                            exitCode: proc.terminationStatus,
-                            stderr: msg
-                        )
-                    )
-                }
-            }
-
-            do {
-                try process.run()
-            } catch {
-                continuation.resume(throwing: error)
-            }
-        }
-    }
-
-    static func shellQuote(_ s: String) -> String {
-        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
-    private static func appleScriptQuote(_ s: String) -> String {
-        "\"" + s
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"") + "\""
-    }
 }
 
 // MARK: - User-facing menu helper
@@ -520,8 +451,6 @@ enum FSKitAttachController {
     /// Meant to be called from a menu item; runs async, surfaces errors via
     /// `NSAlert`.
     /// Prompt the user to pick an active mount under /Volumes and unmount it.
-    /// Uses the same privileged path as attach — osascript triggers the auth
-    /// prompt, which is cached for ~5min after a successful attach.
     static func promptAndDetach(logRepository: LogRepository? = nil) {
         let panel = NSOpenPanel()
         panel.title = "Choose a volume to detach"
@@ -646,19 +575,39 @@ enum FSKitAttachController {
     /// Falls back to whole-device mount when probe fails or finds no
     /// partition table.
     static func attachUserPickedImage(at url: URL, logRepository: LogRepository? = nil) {
-        // Try multi-partition path first.
-        if let probe = try? FSKitMountService.runDiskProbe(at: url.path),
-           probe.table != "none",
-           !probe.partitions.isEmpty {
+        // Try diskprobe first — it handles containers (qcow2/vhd/vhdx/vmdk)
+        // and raw images with MBR/GPT tables or a single filesystem.
+        let probe: DiskProbeResult?
+        do {
+            probe = try FSKitMountService.runDiskProbe(at: url.path)
+        } catch {
+            logRepository?.logFSKit("diskprobe failed for \(url.lastPathComponent): \(error)", category: "warn")
+            probe = nil
+        }
+
+        // Multi-partition path: MBR or GPT with at least one partition.
+        if let probe, probe.table != "none", !probe.partitions.isEmpty {
             attachMultiPartition(url: url, probe: probe, logRepository: logRepository)
             return
         }
 
-        // Single-FS fallback (original path).
+        // Single-FS path. Prefer diskprobe's whole-device sniff (sees through
+        // container formats) then fall back to direct magic-byte detection.
         let detected = detectFSType(at: url)
+        let resolvedFsType: String? = {
+            if let kind = probe?.deviceFsKind, kind != "unknown" {
+                switch kind {
+                case "ext4", "ext3", "ext2": return "ext4"
+                case "ntfs": return "ntfs"
+                default: break
+                }
+            }
+            return detected.fsType
+        }()
+
         let fsType: String
-        if let direct = detected.fsType {
-            fsType = direct
+        if let resolved = resolvedFsType {
+            fsType = resolved
         } else {
             let pick = NSAlert()
             switch detected.container {
@@ -724,7 +673,7 @@ enum FSKitAttachController {
         // only to our extensions.
         let ourKinds: Set<String> = ["ext4", "ext3", "ext2", "ntfs"]
         let appleKinds: Set<String> = ["fat32", "fat16", "exfat", "hfs_plus", "apfs"]
-        let containerSupportsApple = (probe.container == "raw")
+        let containerSupportsApple = ["raw", "vhd", "vmdk"].contains(probe.container)
         func isSupported(_ p: DiskProbeResult.Partition) -> Bool {
             if ourKinds.contains(p.fsKind) { return true }
             if appleKinds.contains(p.fsKind) && containerSupportsApple { return true }
@@ -740,7 +689,7 @@ enum FSKitAttachController {
             if !containerSupportsApple {
                 let appleInside = probe.partitions.filter { appleKinds.contains($0.fsKind) }
                 if !appleInside.isEmpty {
-                    msg += " \(appleInside.count) FAT32/exFAT/HFS+/APFS partition(s) need the source to be raw (hdiutil doesn't read \(probe.container)). Convert with `qemu-img convert -O raw`."
+                    msg += " \(appleInside.count) FAT32/exFAT/HFS+/APFS partition(s) require a raw, VHD, or VMDK source. Convert with a disk-image converter tool (e.g. `qemu-img convert -O raw`)."
                 }
             }
             alert.informativeText = msg
@@ -755,7 +704,7 @@ enum FSKitAttachController {
             let driver: String
             if ourKinds.contains(p.fsKind) { driver = " — DiskJockey driver" }
             else if appleKinds.contains(p.fsKind) && containerSupportsApple { driver = " — Apple driver via hdiutil" }
-            else if appleKinds.contains(p.fsKind) { driver = " — needs raw source" }
+            else if appleKinds.contains(p.fsKind) { driver = " — needs raw/VHD/VMDK source" }
             else { driver = " — no driver" }
             return "  \(support) p\(p.index): \(p.fsKind)\(label), \(mb) MiB\(driver)"
         }.joined(separator: "\n")
@@ -783,6 +732,7 @@ enum FSKitAttachController {
             do {
                 let mounted = try await FSKitMountService.shared.attachAllPartitions(
                     imagePath: url.path,
+                    imageURL: url,
                     mountPointPrefix: prefix,
                     partitions: probe.partitions,
                     container: probe.container)
@@ -809,7 +759,17 @@ enum FSKitAttachController {
         panel.allowsMultipleSelection = false
         panel.message = "Pick a disk image to mount. Filesystem will be detected automatically."
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        attachUserPickedImage(at: url, logRepository: logRepository)
+        Task { @MainActor in
+            var probe: DiskProbeResult? = SwiftPartitionProbe.probe(at: url)
+            if probe == nil {
+                probe = try? await DJAgentClient.shared.probeImage(atPath: url.path)
+            }
+            if let p = probe, p.table != "none", !p.partitions.isEmpty {
+                attachMultiPartition(url: url, probe: p, logRepository: logRepository)
+                return
+            }
+            attachUserPickedImage(at: url, logRepository: logRepository)
+        }
     }
 
     static func promptAndAttach(fsType: String, logRepository: LogRepository? = nil) {
