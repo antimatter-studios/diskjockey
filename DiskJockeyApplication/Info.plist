@@ -37,6 +37,7 @@
 	<true/>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
-
+	<key>NSUSBUsageDescription</key>
+	<string>DiskJockey reads and writes USB drives formatted with EXT4 and NTFS filesystems.</string>
 </dict>
 </plist>

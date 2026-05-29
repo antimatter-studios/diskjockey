@@ -100,9 +100,9 @@ Christopher Thomas, Antimatter Studios — +49 151 61481184 — chris.thomas@ant
 | `com.apple.security.app-sandbox` | ✅ | all targets |
 | `com.apple.developer.fskit.fsmodule` | **TODO: confirm self-service** | EXT4 + NTFS extensions |
 | `com.apple.security.files.user-selected.read-write` | ✅ | main app |
-| `com.apple.security.device.usb` | ⚠️ needs `NSUSBUsageDescription` | main app |
-| `com.apple.security.network.client` + `.server` | ⚠️ justify or remove | main app — needed for File Provider? |
-| `com.apple.security.temporary-exception.mach-lookup.global-name` | 🔴 review risk | main app + FileProvider — needed for agent? |
+| `com.apple.security.device.usb` | ✅ `NSUSBUsageDescription` added | main app |
+| `com.apple.security.network.client` + `.server` | ✅ justified | main app: OAuth loopback listener (NWConnection). FileProvider: cloud sync. |
+| `com.apple.security.temporary-exception.mach-lookup.global-name` | ✅ scoped | main app only (`diskjockey.agent`). FileProvider stale `xpc-bridge` removed. |
 | `com.apple.developer.driverkit.family.storage` | ❌ not in v1 | deferred to v2 |
 
 ---
@@ -110,12 +110,12 @@ Christopher Thomas, Antimatter Studios — +49 151 61481184 — chris.thomas@ant
 ## Pre-Submission Checklist
 
 ### Code
-- [ ] App icon — all sizes filled (done)
-- [ ] `PrivacyInfo.xcprivacy` added to app target
-- [ ] `NSUSBUsageDescription` added to `Info.plist`
-- [ ] `osascript` privilege escalation removed or confirmed not reachable (review `FSKitMountService.swift`)
-- [ ] Temporary exception mach entitlements — justify or remove
-- [ ] Network entitlements — confirm they're actually needed
+- [x] App icon — all sizes filled
+- [x] `PrivacyInfo.xcprivacy` added to app target
+- [x] `NSUSBUsageDescription` added to `Info.plist`
+- [x] `osascript` privilege escalation removed (FSKitMountService + RawDiskDetailView)
+- [x] Temporary exception mach entitlements — scoped to main app agent only; FileProvider `xpc-bridge` removed
+- [x] Network entitlements — justified (OAuth loopback in main app; cloud sync in FileProvider)
 - [ ] `com.apple.developer.fskit.fsmodule` — confirm available in App Store Connect without special request
 - [ ] Build passes `xcodebuild archive` cleanly (arm64 only)
 - [ ] Build passes `xcrun altool` / Xcode Organizer validation with no errors
