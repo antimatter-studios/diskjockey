@@ -37,16 +37,6 @@
 	<true/>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
-	<!--
-	  Required when the sandboxed app drives osascript / Apple Events.
-	  FSKitMountService invokes `osascript ... do shell script "..." with
-	  administrator privileges` to run `/sbin/mount -F -t <fs> <dev>
-	  /Volumes/<name>` under the user's admin auth (Touch ID supported,
-	  credential cached ~5 min). Without this usage description macOS
-	  refuses to bring up the SecurityAgent dialog and the call fails
-	  with errAuthorizationFailed (-60005).
-	-->
-	<key>NSAppleEventsUsageDescription</key>
-	<string>DiskJockey uses Apple Events to mount disks via the system administrator authentication dialog.</string>
+
 </dict>
 </plist>
