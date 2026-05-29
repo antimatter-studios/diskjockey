@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  DiskJockeyVirtualDisk.entitlements
+
+  IMPORTANT: com.apple.developer.driverkit.family.storage is a restricted
+  entitlement that requires an Apple entitlement exception before it can be
+  used in production or on TestFlight. See README.md for submission details.
+
+  The dext will NOT load at runtime without this entitlement being provisioned.
+-->
+<plist version="1.0">
+<dict>
+    <!-- Required for any DriverKit extension. Available without exception
+         as part of the standard DriverKit capability request in the
+         Apple Developer portal. -->
+    <key>com.apple.developer.driverkit</key>
+    <true/>
+
+    <!-- Required to use BlockStorageDeviceDriverKit.framework.
+         STATUS: NEEDS ENTITLEMENT EXCEPTION FROM APPLE.
+         Request via: https://developer.apple.com/contact/request/driverkit-entitlement/
+         Justification: "Virtual block device for mounting QCOW2/VHDX disk image
+         files as /dev/diskN nodes. No physical hardware; storage family needed
+         for IOUserBlockStorageDevice subclassing." -->
+    <key>com.apple.developer.driverkit.family.storage</key>
+    <true/>
+
+    <!-- Allows any process to open our IOUserClient without needing the
+         com.apple.developer.driverkit.userclient-access entitlement.
+         Convenient during development. For production, remove this and add
+         the per-bundle IOServiceDEXTEntitlements check in Info.plist plus
+         the userclient-access entitlement in DiskJockeyAgent.entitlements. -->
+    <key>com.apple.developer.driverkit.allow-any-userclient-access</key>
+    <true/>
+</dict>
+</plist>

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Developer-ID-signed build for direct distribution (NOT App Store). -->
+    <key>method</key>
+    <string>developer-id</string>
+
+    <!-- Match the cert in Keychain: "Developer ID Application: Chris Thomas (43UMKXZ8P4)". -->
+    <key>teamID</key>
+    <string>43UMKXZ8P4</string>
+
+    <key>signingStyle</key>
+    <string>automatic</string>
+
+    <!-- Notarization is a separate post-export step (xcrun notarytool submit + staple).
+         Setting this to true here would inline-call notarytool during exportArchive,
+         which couples the build to network availability and the AC_NOTARY profile.
+         Cleaner to keep export and notarize separate. -->
+    <key>destination</key>
+    <string>export</string>
+
+    <!-- DiskJockey embeds three extensions (EXT4, NTFS, FileProvider).
+         Hardened runtime is required for notarization; enabled at the target
+         level via ENABLE_HARDENED_RUNTIME = YES in project.pbxproj. -->
+</dict>
+</plist>

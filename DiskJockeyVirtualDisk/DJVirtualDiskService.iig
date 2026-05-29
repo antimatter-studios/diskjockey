@@ -1,0 +1,26 @@
+#ifndef DJVirtualDiskService_h
+#define DJVirtualDiskService_h
+
+#include <Availability.h>
+#include <DriverKit/IOService.iig>
+#include <DriverKit/IOUserClient.iig>
+#include "DJVirtualDiskShared.h"
+
+class DJVirtualDiskService : public IOService
+{
+public:
+    virtual kern_return_t
+    Start(IOService * provider) override;
+
+    virtual kern_return_t
+    Stop(IOService * provider) override;
+
+    virtual kern_return_t
+    NewUserClient(uint32_t type, IOUserClient ** userClient) override;
+
+    kern_return_t MountImage(const DJMountRequest * req, uint64_t * outDeviceID) LOCALONLY;
+    kern_return_t UnmountImage(uint64_t deviceID) LOCALONLY;
+    kern_return_t ListMounts(DJMountInfo * outInfos, uint32_t * outCount) LOCALONLY;
+};
+
+#endif /* DJVirtualDiskService_h */
