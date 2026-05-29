@@ -12,10 +12,6 @@
 	</array>
 	<key>com.apple.security.network.client</key>
 	<true/>
-	<key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
-	<array>
-		<string>com.antimatterstudios.diskjockey.xpc-bridge</string>
-	</array>
 	<key>keychain-access-groups</key>
 	<array>
 		<string>$(AppIdentifierPrefix)group.com.antimatterstudios.diskjockey</string>
