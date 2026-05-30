@@ -1271,14 +1271,14 @@ final class NTFSVolume: FSVolume,
         attrs.size = attr.size
         attrs.linkCount = UInt32(attr.link_count)
         attrs.allocSize = attr.size
-        attrs.accessTime = timespec(tv_sec: Int(attr.atime), tv_nsec: 0)
-        attrs.modifyTime = timespec(tv_sec: Int(attr.mtime), tv_nsec: 0)
-        attrs.changeTime = timespec(tv_sec: Int(attr.ctime), tv_nsec: 0)
+        attrs.accessTime = timespec(tv_sec: Int(attr.atime_sec), tv_nsec: Int(attr.atime_nsec))
+        attrs.modifyTime = timespec(tv_sec: Int(attr.mtime_sec), tv_nsec: Int(attr.mtime_nsec))
+        attrs.changeTime = timespec(tv_sec: Int(attr.ctime_sec), tv_nsec: Int(attr.ctime_nsec))
         // NTFS stores StandardInformation::CreationTime as the birth
         // time. The previous code routed it into addedTime (an
         // HFS+/APFS concept), which left FSKit's required birthTime
         // bit unset.
-        attrs.birthTime = timespec(tv_sec: Int(attr.crtime), tv_nsec: 0)
+        attrs.birthTime = timespec(tv_sec: Int(attr.crtime_sec), tv_nsec: Int(attr.crtime_nsec))
         if let id = FSItem.Identifier(rawValue: attr.file_record_number) {
             attrs.fileID = id
         }
