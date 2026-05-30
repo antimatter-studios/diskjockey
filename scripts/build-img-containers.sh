@@ -134,28 +134,51 @@ build_one() {
     echo "${YELLOW}Building img-${name} from ${src_dir}...${NC}"
     cd "${src_dir}"
 
-    # Ensure both targets are installed under whichever toolchain the
-    # crate's rust-toolchain.toml pins (or the active default).
-    for target in aarch64-apple-darwin x86_64-apple-darwin; do
-        if ! rustup target list --installed 2>/dev/null | grep -q "^${target}$"; then
-            echo "${YELLOW}Installing Rust target: ${target}${NC}"
-            rustup target add "${target}"
-        fi
-    done
+    if ! rustup target list --installed 2>/dev/null | grep -q "^aarch64-apple-darwin$"; then
+        echo "${YELLOW}Installing Rust target: aarch64-apple-darwin${NC}"
+        rustup target add aarch64-apple-darwin
+    fi
 
     echo "  Building for arm64..."
     cargo build --release --target aarch64-apple-darwin
 
-    echo "  Building for x86_64..."
-    cargo build --release --target x86_64-apple-darwin
-
     mkdir -p "${out_dir}/include"
 
-    echo "  Creating universal binary..."
-    lipo -create \
-        "${src_dir}/target/aarch64-apple-darwin/release/lib${lib_name}.a" \
-        "${src_dir}/target/x86_64-apple-darwin/release/lib${lib_name}.a" \
-        -output "${out_dir}/lib${lib_name}.a"
+    local raw_lib="${src_dir}/target/aarch64-apple-darwin/release/lib${lib_name}.a"
+
+    # The img crates embed fs-core as a staticlib dep, which causes duplicate C
+    # symbol errors when linked alongside libfs_ext4.a / libfs_ntfs.a (which also
+    # embed fs-core).  Weaken the _fs_core_* C exports in the img lib so ld-prime
+    # picks the strong definitions from the FS lib and never sees a conflict.
+    local llvm_objcopy
+    llvm_objcopy=$(xcrun -f llvm-objcopy 2>/dev/null || \
+                   (brew --prefix llvm 2>/dev/null)/bin/llvm-objcopy)
+    if [ -n "$llvm_objcopy" ] && [ -x "$llvm_objcopy" ]; then
+        local tmp_dir
+        tmp_dir=$(mktemp -d)
+        local FS_CORE_SYMS=(_fs_core_device_close _fs_core_device_flush
+            _fs_core_device_from_callbacks _fs_core_device_is_writable
+            _fs_core_device_read_at _fs_core_device_size_bytes
+            _fs_core_device_slice_ro _fs_core_device_slice_rw
+            _fs_core_device_write_at _fs_core_file_open _fs_core_last_error_message)
+        ( cd "$tmp_dir"
+          ar x "$raw_lib" 2>/dev/null
+          for fs_obj in fs_core-*.o; do
+              [ -f "$fs_obj" ] || continue
+              local weaken_args=()
+              for sym in "${FS_CORE_SYMS[@]}"; do
+                  weaken_args+=(--weaken-symbol="$sym")
+              done
+              "$llvm_objcopy" "${weaken_args[@]}" "$fs_obj" "${fs_obj}.w" && mv "${fs_obj}.w" "$fs_obj"
+          done
+          ar rcs "${out_dir}/lib${lib_name}.a" *.o 2>/dev/null
+        )
+        rm -rf "$tmp_dir"
+        echo "  fs_core symbols weakened (ld-prime dup-symbol fix)"
+    else
+        cp "$raw_lib" "${out_dir}/lib${lib_name}.a"
+        echo "${YELLOW}  WARNING: llvm-objcopy not found; fs_core dup-symbol fix skipped${NC}"
+    fi
 
     # Each crate ships its own header.
     local hdr_src="${src_dir}/include/${header_name}"
@@ -170,7 +193,7 @@ build_one() {
 
     echo "${GREEN}img-${name} build complete${NC}"
     echo "  Static lib:    ${out_dir}/lib${lib_name}.a"
-    echo "  Architectures: $(lipo -info "${out_dir}/lib${lib_name}.a" | cut -d: -f3)"
+    echo "  Architecture:  arm64"
     echo "  Manifest:      ${out_dir}/VERSION.txt"
 }
 
