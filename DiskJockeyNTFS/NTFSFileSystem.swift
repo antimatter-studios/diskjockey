@@ -43,6 +43,30 @@ final class NTFSBlockDeviceContext {
     /// or no-op.
     let stats: IOStatsCollector?
 
+    // In-process block read cache. Every write operation in the `_h`
+    // mutator path re-reads the boot sector and the full 128 KB $UpCase
+    // table via Ntfs::new + read_upcase_table before it can do anything
+    // useful. On a slow device (SD card, USB, disk image on an external
+    // drive) each bdev round-trip costs tens of milliseconds, making a
+    // single 36-byte write take 50+ seconds. Caching reads here keeps
+    // those hot sectors in-process so subsequent writes skip the device
+    // round-trip entirely.
+    //
+    // Key  = (alignedOffset, alignedLength) — the exact aligned region
+    //        that would be sent to resource.read().
+    // Value = the bytes returned by that read.
+    //
+    // Invalidation: any write removes all cache entries whose byte range
+    // overlaps the written region. Sectors untouched by the write (boot
+    // record, $UpCase, unrelated MFT entries) remain cached.
+    private struct CacheKey: Hashable {
+        let offset: Int
+        let length: Int
+    }
+    private let cacheLock = NSLock()
+    private var readCache: [CacheKey: [UInt8]] = [:]
+    private let maxCacheEntries = 512  // ~2.5 MB for 5 KB avg read size
+
     init(resource: FSBlockDeviceResource, log: TaggedLogger, stats: IOStatsCollector? = nil) {
         self.resource = resource
         self.blockSize = Int(resource.blockSize)
@@ -56,6 +80,18 @@ final class NTFSBlockDeviceContext {
         let offsetDelta = Int(offset) - alignedOffset
         let alignedLength = ((offsetDelta + length + bs - 1) / bs) * bs
 
+        let key = CacheKey(offset: alignedOffset, length: alignedLength)
+        cacheLock.lock()
+        let cached = readCache[key]
+        cacheLock.unlock()
+
+        if let cached {
+            cached.withUnsafeBufferPointer { ptr in
+                memcpy(buf, ptr.baseAddress!.advanced(by: offsetDelta), length)
+            }
+            return 0
+        }
+
         let tmp = UnsafeMutableRawPointer.allocate(byteCount: alignedLength, alignment: bs)
         defer { tmp.deallocate() }
 
@@ -68,6 +104,12 @@ final class NTFSBlockDeviceContext {
                 stats?.recordBdevRead(bytes: 0, latencyNs: monotonicNanos() &- t0, error: true)
                 return EIO
             }
+            let bytes = Array(UnsafeBufferPointer(
+                start: tmp.assumingMemoryBound(to: UInt8.self), count: alignedLength))
+            cacheLock.lock()
+            if readCache.count >= maxCacheEntries { readCache.removeAll() }
+            readCache[key] = bytes
+            cacheLock.unlock()
             memcpy(buf, tmp.advanced(by: offsetDelta), length)
             stats?.recordBdevRead(bytes: alignedLength, latencyNs: monotonicNanos() &- t0, error: false)
             return 0
@@ -75,6 +117,15 @@ final class NTFSBlockDeviceContext {
             log.error("bdev read error: off=\(offset) len=\(length) err=\(error.localizedDescription)", scope: AppLogScope.io)
             stats?.recordBdevRead(bytes: 0, latencyNs: monotonicNanos() &- t0, error: true)
             return EIO
+        }
+    }
+
+    private func cacheInvalidate(alignedOffset: Int, alignedLength: Int) {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        let writeEnd = alignedOffset + alignedLength
+        readCache = readCache.filter { key, _ in
+            key.offset + key.length <= alignedOffset || key.offset >= writeEnd
         }
     }
 
@@ -102,6 +153,7 @@ final class NTFSBlockDeviceContext {
             try resource.metadataWrite(from: writeRaw,
                                        startingAt: off_t(alignedOffset),
                                        length: alignedLength)
+            cacheInvalidate(alignedOffset: alignedOffset, alignedLength: alignedLength)
             stats?.recordBdevWrite(bytes: alignedLength, latencyNs: monotonicNanos() &- t0, error: false)
             return 0
         } catch {
@@ -405,57 +457,28 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         let bridgeFS: OpaquePointer?
         if needsFsCorePath {
             dlog.info("fs_core mount path: container=\(containerKind.map(String.init(describing:)) ?? "raw") partition_offset=\(partitionOffset ?? 0) partition_length=\(partitionLength ?? 0) (RO during load; activate will remount RW with fsck if writable=\(isWritable))")
-
-            var coreCfg = FsCoreCallbackCfg()
-            coreCfg.read = { ctx, offset, buf, len in
-                guard let ctx = ctx, let buf = buf else { return EIO }
-                let context = Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
-                return context.read(into: UnsafeMutableRawPointer(buf), offset: off_t(offset), length: Int(len))
-            }
-            coreCfg.write = nil   // RO mount during load
-            coreCfg.flush = nil
-            coreCfg.ctx = contextPtr
-            coreCfg.size = cfgSizeBytes
-
-            guard let callbackHandle = withUnsafePointer(to: &coreCfg, { fs_core_device_from_callbacks($0) }) else {
-                let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
-                dlog.error("fs_core_device_from_callbacks failed: \(err)")
+            do {
+                let mountHandle = try Self.buildFsCoreHandle(
+                    contextPtr: contextPtr,
+                    sizeBytes: cfgSizeBytes,
+                    isWritable: isWritable,
+                    containerKind: containerKind,
+                    partitionOffset: partitionOffset,
+                    partitionLength: partitionLength,
+                    dlog: dlog
+                )
+                // Mirror EXT4's lazy pattern: mount RW so FSKit marks the VFS as
+                // writable. The upgrade-on-mount write may fail (kernel FD not yet
+                // writable), but the Rust crate treats that as best-effort.
+                let ntfsMountFn = isWritable ? fs_ntfs_mount_rw_with_fs_core_device : fs_ntfs_mount_with_fs_core_device
+                dlog.info("calling fs_ntfs_mount_\(isWritable ? "rw_" : "")with_fs_core_device")
+                bridgeFS = ntfsMountFn(mountHandle)
+                fs_core_device_close(mountHandle)
+            } catch {
                 Unmanaged<NTFSBlockDeviceContext>.fromOpaque(contextPtr).release()
-                replyHandler(nil, POSIXError(.EIO))
+                replyHandler(nil, error)
                 return
             }
-
-            var stacked: OpaquePointer = callbackHandle
-            if let kind = containerKind {
-                guard let h = NTFSContainerKind.open(kind: kind, inner: stacked, writable: false) else {
-                    let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
-                    dlog.error("\(kind)_open_on_device failed: \(err)")
-                    Unmanaged<NTFSBlockDeviceContext>.fromOpaque(contextPtr).release()
-                    replyHandler(nil, POSIXError(.EIO))
-                    return
-                }
-                stacked = h
-            }
-
-            var mountHandle: OpaquePointer = stacked
-            var preMountClose: [OpaquePointer] = []
-            if let offset = partitionOffset, let length = partitionLength, offset > 0 || length > 0 {
-                guard let s = fs_core_device_slice_ro(stacked, offset, length) else {
-                    let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
-                    dlog.error("fs_core_device_slice_ro failed: \(err)")
-                    fs_core_device_close(stacked)
-                    Unmanaged<NTFSBlockDeviceContext>.fromOpaque(contextPtr).release()
-                    replyHandler(nil, POSIXError(.EIO))
-                    return
-                }
-                preMountClose.append(stacked)
-                mountHandle = s
-            }
-
-            dlog.info("calling fs_ntfs_mount_with_fs_core_device (RO during load)")
-            bridgeFS = fs_ntfs_mount_with_fs_core_device(mountHandle)
-            fs_core_device_close(mountHandle)
-            for h in preMountClose { fs_core_device_close(h) }
         } else {
             var cfg = fs_ntfs_blockdev_cfg_t()
             cfg.read = { ctx, buf, offset, length in
@@ -463,11 +486,22 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
                 let context = Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
                 return context.read(into: buf, offset: off_t(offset), length: Int(length))
             }
-            cfg.write = nil
+            if isWritable {
+                cfg.write = { ctx, buf, offset, length in
+                    guard let ctx = ctx, let buf = buf else { return EIO }
+                    let context = Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                    return context.write(from: buf, offset: off_t(offset), length: Int(length))
+                }
+            } else {
+                cfg.write = nil
+            }
             cfg.context = contextPtr
             cfg.size_bytes = cfgSizeBytes
 
-            dlog.info("calling fs_ntfs_mount_with_callbacks (RO during load) size=\(cfg.size_bytes) blockSize=\(blockDevice.blockSize)")
+            // Mirror EXT4's lazy pattern: include write callback so FSKit marks
+            // the VFS as writable. The upgrade write may fail during loadResource
+            // (kernel FD not writable yet) but is best-effort in the Rust crate.
+            dlog.info("calling fs_ntfs_mount_with_callbacks (\(isWritable ? "rw lazy" : "ro")) size=\(cfg.size_bytes) blockSize=\(blockDevice.blockSize)")
             bridgeFS = fs_ntfs_mount_with_callbacks(&cfg)
         }
 
@@ -480,7 +514,7 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             return
         }
         let containerSuffix = containerKind.map { ", \($0)-backed" } ?? ""
-        dlog.info("fs_ntfs mount succeeded (RO during load\(containerSuffix); will remount RW in activate if writable)")
+        dlog.info("fs_ntfs mount succeeded (\(isWritable ? "rw lazy" : "ro")\(containerSuffix)\(isWritable ? "; fsck deferred to activate" : ""))")
 
         var volInfo = fs_ntfs_volume_info_t()
         fs_ntfs_get_volume_info(bridgeFS, &volInfo)
@@ -539,6 +573,68 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             "serial_number": "0x\(String(volInfo.serial_number, radix: 16))",
         ], scope: AppLogScope.volume)
         replyHandler(volume, nil)
+    }
+
+    // MARK: - Helpers
+
+    /// Build a FsCore device handle chain: callbacks → optional container → optional partition slice.
+    /// The returned handle must be passed to `fs_ntfs_mount_*` then closed with `fs_core_device_close`.
+    /// Throws `POSIXError(.EIO)` on any step failure (caller releases contextPtr and calls replyHandler).
+    static func buildFsCoreHandle(
+        contextPtr: UnsafeMutableRawPointer,
+        sizeBytes: UInt64,
+        isWritable: Bool,
+        containerKind: NTFSContainerKind?,
+        partitionOffset: UInt64?,
+        partitionLength: UInt64?,
+        dlog: TaggedLogger
+    ) throws -> OpaquePointer {
+        var coreCfg = FsCoreCallbackCfg()
+        coreCfg.read = { ctx, offset, buf, len in
+            guard let ctx = ctx, let buf = buf else { return EIO }
+            return Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                .read(into: UnsafeMutableRawPointer(buf), offset: off_t(offset), length: Int(len))
+        }
+        coreCfg.write = isWritable ? { ctx, offset, buf, len in
+            guard let ctx = ctx, let buf = buf else { return EIO }
+            return Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                .write(from: UnsafeRawPointer(buf), offset: off_t(offset), length: Int(len))
+        } : nil
+        coreCfg.flush = nil
+        coreCfg.ctx = contextPtr
+        coreCfg.size = sizeBytes
+
+        guard let callbackHandle = withUnsafePointer(to: &coreCfg, { fs_core_device_from_callbacks($0) }) else {
+            let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
+            dlog.error("fs_core_device_from_callbacks failed: \(err)")
+            throw POSIXError(.EIO)
+        }
+
+        // Stack container reader on top. Ownership of callbackHandle transfers to the container layer.
+        var stacked: OpaquePointer = callbackHandle
+        if let kind = containerKind {
+            guard let h = NTFSContainerKind.open(kind: kind, inner: stacked, writable: isWritable) else {
+                let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
+                dlog.error("\(kind)_open\(isWritable ? "_rw" : "")_on_device failed: \(err)")
+                throw POSIXError(.EIO)
+            }
+            stacked = h
+        }
+
+        // Slice to a partition range if requested. The slice borrows stacked's Arc,
+        // so we can close stacked immediately — the slice keeps it alive.
+        if let offset = partitionOffset, let length = partitionLength, offset > 0 || length > 0 {
+            let sliceFn = isWritable ? fs_core_device_slice_rw : fs_core_device_slice_ro
+            guard let slice = sliceFn(stacked, offset, length) else {
+                let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
+                dlog.error("fs_core_device_slice_\(isWritable ? "rw" : "ro") failed: \(err)")
+                fs_core_device_close(stacked)
+                throw POSIXError(.EIO)
+            }
+            fs_core_device_close(stacked)
+            return slice
+        }
+        return stacked
     }
 
     // MARK: - Unload

@@ -141,30 +141,34 @@ final class EXT4Backend: FileSystemBackend {
                 backendLogger.error("readDirectory(\(path)): bridgeFS is nil")
                 return nil
             }
-
             guard let iter = fs_ext4_dir_open(fs, path) else {
                 backendLogger.error("readDirectory(\(path)): fs_ext4_dir_open returned nil")
                 return nil
             }
             defer { fs_ext4_dir_close(iter) }
-
-            var entries: [BackendDirectoryEntry] = []
-            while let de = fs_ext4_dir_next(iter) {
-                let name = withUnsafePointer(to: de.pointee.name) { ptr in
-                    ptr.withMemoryRebound(to: CChar.self, capacity: 256) { cstr in
-                        String(cString: cstr)
-                    }
-                }
-                entries.append(BackendDirectoryEntry(
-                    fileID: UInt64(de.pointee.inode),
-                    fileType: Self.convertFileType(
-                        fs_ext4_file_type_t(rawValue: UInt32(de.pointee.file_type))),
-                    name: name
-                ))
-            }
+            let entries = Self.collectEntries(from: iter)
             backendLogger.error("readDirectory(\(path)): returning \(entries.count) entries")
             return entries
         }
+    }
+
+    private static func collectEntries(from iter: OpaquePointer) -> [BackendDirectoryEntry] {
+        var entries: [BackendDirectoryEntry] = []
+        while let de = fs_ext4_dir_next(iter) {
+            entries.append(convertDirEntry(de))
+        }
+        return entries
+    }
+
+    private static func convertDirEntry(_ de: UnsafePointer<fs_ext4_dirent_t>) -> BackendDirectoryEntry {
+        let name = withUnsafePointer(to: de.pointee.name) { ptr in
+            ptr.withMemoryRebound(to: CChar.self, capacity: 256) { String(cString: $0) }
+        }
+        return BackendDirectoryEntry(
+            fileID: UInt64(de.pointee.inode),
+            fileType: convertFileType(fs_ext4_file_type_t(rawValue: UInt32(de.pointee.file_type))),
+            name: name
+        )
     }
 
     func readFile(path: String, offset: UInt64, length: UInt64,

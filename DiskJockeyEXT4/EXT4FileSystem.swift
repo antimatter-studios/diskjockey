@@ -28,6 +28,10 @@ protocol DeviceReadable: AnyObject {
     func read(into buf: UnsafeMutableRawPointer, offset: off_t, length: Int) -> Int32
 }
 
+/// Minimum sector size guaranteed by ATA/NVMe spec; used as the
+/// floor when the device reports 0 for its block size.
+private let minSectorBytes = 512
+
 final class BlockDeviceContext: DeviceReadable {
     let resource: FSBlockDeviceResource
     let blockSize: Int
@@ -46,7 +50,7 @@ final class BlockDeviceContext: DeviceReadable {
     }
 
     func read(into buf: UnsafeMutableRawPointer, offset: off_t, length: Int) -> Int32 {
-        let bs = max(blockSize, 512)
+        let bs = max(blockSize, minSectorBytes)
         let alignedOffset = (Int(offset) / bs) * bs
         let offsetDelta = Int(offset) - alignedOffset
         let alignedLength = ((offsetDelta + length + bs - 1) / bs) * bs
@@ -83,7 +87,7 @@ final class BlockDeviceContext: DeviceReadable {
         // operations for sector-addressed devices.
         let logicalBs = Int(resource.blockSize)
         let physicalBs = Int(resource.physicalBlockSize)
-        let bs = max(logicalBs, physicalBs, 512)
+        let bs = max(logicalBs, physicalBs, minSectorBytes)
         let alignedOffset = (Int(offset) / bs) * bs
         let offsetDelta = Int(offset) - alignedOffset
         let alignedLength = ((offsetDelta + length + bs - 1) / bs) * bs
@@ -432,80 +436,28 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
 
         if needsFsCorePath {
             dlog.info("fs_core mount path: container=\(containerKind.map(String.init(describing:)) ?? "raw") partition_offset=\(partitionOffset ?? 0) partition_length=\(partitionLength ?? 0) writable=\(isWritable)")
-
-            var coreCfg = FsCoreCallbackCfg()
-            coreCfg.read = { ctx, offset, buf, len in
-                guard let ctx = ctx, let buf = buf else { return EIO }
-                let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
-                return context.read(into: UnsafeMutableRawPointer(buf), offset: off_t(offset), length: Int(len))
-            }
-            coreCfg.write = isWritable ? { ctx, offset, buf, len in
-                guard let ctx = ctx, let buf = buf else { return EIO }
-                let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
-                return context.write(from: UnsafeRawPointer(buf), offset: off_t(offset), length: Int(len))
-            } : nil
-            coreCfg.flush = { ctx in
-                guard let ctx = ctx else { return EIO }
-                let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
-                return context.flush()
-            }
-            coreCfg.ctx = contextPtr
-            coreCfg.size = blockDevice.blockCount * blockDevice.blockSize
-
-            guard let callbackHandle = withUnsafePointer(to: &coreCfg, { fs_core_device_from_callbacks($0) }) else {
-                let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
-                dlog.error("fs_core_device_from_callbacks failed: \(err)")
+            do {
+                let mountHandle = try Self.buildFsCoreHandle(
+                    contextPtr: contextPtr,
+                    sizeBytes: blockDevice.blockCount * blockDevice.blockSize,
+                    isWritable: isWritable,
+                    containerKind: containerKind,
+                    partitionOffset: partitionOffset,
+                    partitionLength: partitionLength,
+                    dlog: dlog
+                )
+                // fs_ext4_mount_*_fs_core_device_* clones an Arc<dyn BlockDevice>
+                // from the handle, so closing mountHandle afterwards is safe.
+                dlog.info("calling fs_ext4_mount_with_fs_core_device\(isWritable ? "_lazy" : "")")
+                bridgeFS = isWritable
+                    ? fs_ext4_mount_with_fs_core_device_lazy(mountHandle)
+                    : fs_ext4_mount_with_fs_core_device(mountHandle)
+                fs_core_device_close(mountHandle)
+            } catch {
                 Unmanaged<BlockDeviceContext>.fromOpaque(contextPtr).release()
-                replyHandler(nil, POSIXError(.EIO))
+                replyHandler(nil, error)
                 return
             }
-
-            // Stack container reader on top of the callback handle.
-            // Ownership transfers (container layer frees inner on NULL).
-            var stackedHandle: OpaquePointer = callbackHandle
-            if let kind = containerKind {
-                guard let h = Self.openContainer(kind: kind, inner: stackedHandle, writable: isWritable) else {
-                    let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
-                    dlog.error("\(kind)_open\(isWritable ? "_rw" : "")_on_device failed: \(err)")
-                    Unmanaged<BlockDeviceContext>.fromOpaque(contextPtr).release()
-                    replyHandler(nil, POSIXError(.EIO))
-                    return
-                }
-                stackedHandle = h
-            }
-
-            // Slice the (possibly container-wrapped) device when the
-            // host requested a specific partition. The slice borrows
-            // the parent's Arc, so closing the parent afterwards is
-            // safe — the slice keeps it alive.
-            var mountHandle: OpaquePointer = stackedHandle
-            var preMountClose: [OpaquePointer] = []
-            if let offset = partitionOffset, let length = partitionLength, offset > 0 || length > 0 {
-                guard let s = (isWritable
-                                ? fs_core_device_slice_rw(stackedHandle, offset, length)
-                                : fs_core_device_slice_ro(stackedHandle, offset, length)) else {
-                    let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
-                    dlog.error("fs_core_device_slice_\(isWritable ? "rw" : "ro") failed: \(err)")
-                    fs_core_device_close(stackedHandle)
-                    Unmanaged<BlockDeviceContext>.fromOpaque(contextPtr).release()
-                    replyHandler(nil, POSIXError(.EIO))
-                    return
-                }
-                preMountClose.append(stackedHandle)  // stacked is now superseded; close after mount
-                mountHandle = s
-            }
-
-            // fs_ext4_mount_with_fs_core_device_lazy clones an Arc<dyn
-            // BlockDevice> from the handle, so closing our outer
-            // handle afterwards is fine — the mount keeps its own
-            // reference and the container layer + callbacks stay
-            // alive until umount.
-            dlog.info("calling fs_ext4_mount_with_fs_core_device\(isWritable ? "_lazy" : "")")
-            bridgeFS = isWritable
-                ? fs_ext4_mount_with_fs_core_device_lazy(mountHandle)
-                : fs_ext4_mount_with_fs_core_device(mountHandle)
-            fs_core_device_close(mountHandle)
-            for h in preMountClose { fs_core_device_close(h) }
         } else {
             // Direct ext4 mount: callbacks point at BlockDeviceContext, no
             // container layer in between. This is the historical path.
@@ -659,6 +611,15 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
     enum ContainerKind: String, CustomStringConvertible {
         case qcow2, vhd, vhdx, vmdk
         var description: String { rawValue }
+
+        static let qcow2Magic: [UInt8]    = [0x51, 0x46, 0x49, 0xFB]              // "QFI\xFB"
+        static let vhdxMagic: [UInt8]    = [0x76, 0x68, 0x64, 0x78,
+                                             0x66, 0x69, 0x6c, 0x65]             // "vhdxfile"
+        static let vmdkMagic: [UInt8]    = [0x4b, 0x44, 0x4d, 0x56]             // "KDMV" (LE "VMDK")
+        static let conectixMagic: [UInt8] = [0x63, 0x6f, 0x6e, 0x65,
+                                              0x63, 0x74, 0x69, 0x78]            // "conectix" VHD footer
+        /// Fixed VHD format places the conectix footer in the last 512 bytes.
+        static let vhdFixedFooterOffset: Int = 512
     }
 
     /// Probe for a known container magic using any DeviceReadable context.
@@ -669,22 +630,17 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             context.read(into: buf.baseAddress!, offset: 0, length: 16)
         }
         if rc == 0 {
-            if head[0] == 0x51 && head[1] == 0x46
-                && head[2] == 0x49 && head[3] == 0xFB { return .qcow2 }
-            let vhdx: [UInt8] = [0x76, 0x68, 0x64, 0x78, 0x66, 0x69, 0x6c, 0x65]
-            if Array(head.prefix(8)) == vhdx { return .vhdx }
-            let vmdk: [UInt8] = [0x4b, 0x44, 0x4d, 0x56]
-            if Array(head.prefix(4)) == vmdk { return .vmdk }
-            let conectix: [UInt8] = [0x63, 0x6f, 0x6e, 0x65, 0x63, 0x74, 0x69, 0x78]
-            if Array(head.prefix(8)) == conectix { return .vhd }
+            if Array(head.prefix(4)) == ContainerKind.qcow2Magic   { return .qcow2 }
+            if Array(head.prefix(8)) == ContainerKind.vhdxMagic    { return .vhdx }
+            if Array(head.prefix(4)) == ContainerKind.vmdkMagic    { return .vmdk }
+            if Array(head.prefix(8)) == ContainerKind.conectixMagic { return .vhd }
         }
-        if sizeBytes >= 512 {
+        if sizeBytes >= ContainerKind.vhdFixedFooterOffset {
             var footer = [UInt8](repeating: 0, count: 8)
             let frc = footer.withUnsafeMutableBufferPointer { buf -> Int32 in
-                context.read(into: buf.baseAddress!, offset: off_t(sizeBytes - 512), length: 8)
+                context.read(into: buf.baseAddress!, offset: off_t(sizeBytes) - off_t(ContainerKind.vhdFixedFooterOffset), length: 8)
             }
-            let conectix: [UInt8] = [0x63, 0x6f, 0x6e, 0x65, 0x63, 0x74, 0x69, 0x78]
-            if frc == 0 && footer == conectix { return .vhd }
+            if frc == 0 && footer == ContainerKind.conectixMagic { return .vhd }
         }
         return nil
     }
@@ -715,41 +671,36 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         var hdr = [UInt8](repeating: 0, count: 16)
         let n = hdr.withUnsafeMutableBufferPointer { buf in pread(fd, buf.baseAddress!, 16, 0) }
         if n >= 8 {
-            let qcow2Magic: [UInt8] = [0x51, 0x46, 0x49, 0xFB]
-            let vhdxMagic: [UInt8]  = [0x76, 0x68, 0x64, 0x78, 0x66, 0x69, 0x6c, 0x65]
-            let vmdkMagic: [UInt8]  = [0x4b, 0x44, 0x4d, 0x56]
-            let conectix: [UInt8]   = [0x63, 0x6f, 0x6e, 0x65, 0x63, 0x74, 0x69, 0x78]
-            if Array(hdr.prefix(4)) == qcow2Magic {
+            if Array(hdr.prefix(4)) == ContainerKind.qcow2Magic {
                 dlog.info("probe: qcow2 container → usable as ext4")
                 replyHandler(.usable(name: "ext4", containerID: FSContainerIdentifier(uuid: UUID())), nil)
                 return
             }
-            if Array(hdr.prefix(8)) == vhdxMagic {
+            if Array(hdr.prefix(8)) == ContainerKind.vhdxMagic {
                 dlog.info("probe: vhdx container → usable as ext4")
                 replyHandler(.usable(name: "ext4", containerID: FSContainerIdentifier(uuid: UUID())), nil)
                 return
             }
-            if Array(hdr.prefix(8)) == conectix {
+            if Array(hdr.prefix(8)) == ContainerKind.conectixMagic {
                 dlog.info("probe: vhd (dynamic) → usable as ext4")
                 replyHandler(.usable(name: "ext4", containerID: FSContainerIdentifier(uuid: UUID())), nil)
                 return
             }
-            if Array(hdr.prefix(4)) == vmdkMagic {
+            if Array(hdr.prefix(4)) == ContainerKind.vmdkMagic {
                 dlog.info("probe: vmdk container → usable as ext4")
                 replyHandler(.usable(name: "ext4", containerID: FSContainerIdentifier(uuid: UUID())), nil)
                 return
             }
         }
 
-        // Fixed VHD: "conectix" in the last 512 bytes
+        // Fixed VHD: "conectix" in the last vhdFixedFooterOffset bytes
         var st = Darwin.stat()
-        if Darwin.fstat(fd, &st) == 0 && st.st_size >= 512 {
+        if Darwin.fstat(fd, &st) == 0 && st.st_size >= ContainerKind.vhdFixedFooterOffset {
             var footer = [UInt8](repeating: 0, count: 8)
             let fr = footer.withUnsafeMutableBufferPointer { buf in
-                pread(fd, buf.baseAddress!, 8, off_t(st.st_size) - 512)
+                pread(fd, buf.baseAddress!, 8, off_t(st.st_size) - off_t(ContainerKind.vhdFixedFooterOffset))
             }
-            let conectix: [UInt8] = [0x63, 0x6f, 0x6e, 0x65, 0x63, 0x74, 0x69, 0x78]
-            if fr == 8 && footer == conectix {
+            if fr == 8 && footer == ContainerKind.conectixMagic {
                 dlog.info("probe: vhd (fixed) footer → usable as ext4")
                 replyHandler(.usable(name: "ext4", containerID: FSContainerIdentifier(uuid: UUID())), nil)
                 return
@@ -932,6 +883,70 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
     /// Construct the right `*_open*_on_device` call for the kind +
     /// writability. Consumes `inner` — on NULL return the called
     /// function has already freed it per the C ABI contract.
+    /// Build a FsCore device handle chain: callbacks → optional container → optional partition slice.
+    /// The returned handle must be passed to `fs_ext4_mount_*` then closed with `fs_core_device_close`.
+    /// Throws `POSIXError(.EIO)` on any step failure (caller releases contextPtr and calls replyHandler).
+    static func buildFsCoreHandle(
+        contextPtr: UnsafeMutableRawPointer,
+        sizeBytes: UInt64,
+        isWritable: Bool,
+        containerKind: ContainerKind?,
+        partitionOffset: UInt64?,
+        partitionLength: UInt64?,
+        dlog: TaggedLogger
+    ) throws -> OpaquePointer {
+        var coreCfg = FsCoreCallbackCfg()
+        coreCfg.read = { ctx, offset, buf, len in
+            guard let ctx = ctx, let buf = buf else { return EIO }
+            return Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                .read(into: UnsafeMutableRawPointer(buf), offset: off_t(offset), length: Int(len))
+        }
+        coreCfg.write = isWritable ? { ctx, offset, buf, len in
+            guard let ctx = ctx, let buf = buf else { return EIO }
+            return Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                .write(from: UnsafeRawPointer(buf), offset: off_t(offset), length: Int(len))
+        } : nil
+        coreCfg.flush = { ctx in
+            guard let ctx = ctx else { return EIO }
+            return Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue().flush()
+        }
+        coreCfg.ctx = contextPtr
+        coreCfg.size = sizeBytes
+
+        guard let callbackHandle = withUnsafePointer(to: &coreCfg, { fs_core_device_from_callbacks($0) }) else {
+            let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
+            dlog.error("fs_core_device_from_callbacks failed: \(err)")
+            throw POSIXError(.EIO)
+        }
+
+        // Stack container reader on top. Ownership of callbackHandle transfers to the container layer.
+        var stackedHandle: OpaquePointer = callbackHandle
+        if let kind = containerKind {
+            guard let h = openContainer(kind: kind, inner: stackedHandle, writable: isWritable) else {
+                let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
+                dlog.error("\(kind)_open\(isWritable ? "_rw" : "")_on_device failed: \(err)")
+                throw POSIXError(.EIO)
+            }
+            stackedHandle = h
+        }
+
+        // Slice to a partition range if requested. The slice borrows stackedHandle's Arc,
+        // so we can close stackedHandle immediately — the slice keeps it alive.
+        if let offset = partitionOffset, let length = partitionLength, offset > 0 || length > 0 {
+            guard let slice = (isWritable
+                                ? fs_core_device_slice_rw(stackedHandle, offset, length)
+                                : fs_core_device_slice_ro(stackedHandle, offset, length)) else {
+                let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
+                dlog.error("fs_core_device_slice_\(isWritable ? "rw" : "ro") failed: \(err)")
+                fs_core_device_close(stackedHandle)
+                throw POSIXError(.EIO)
+            }
+            fs_core_device_close(stackedHandle)
+            return slice
+        }
+        return stackedHandle
+    }
+
     static func openContainer(kind: ContainerKind,
                               inner: OpaquePointer,
                               writable: Bool) -> OpaquePointer? {

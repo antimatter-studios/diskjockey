@@ -18,6 +18,10 @@ public struct PersonalityIconView: View {
             Image(name)
                 .resizable()
                 .scaledToFit()
+        @unknown default:
+            Image(systemName: "questionmark.square.dashed")
+                .resizable()
+                .scaledToFit()
         }
     }
 }

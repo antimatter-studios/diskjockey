@@ -21,11 +21,7 @@ class FileProviderItem: NSObject, NSFileProviderItem {
     init(info: DiskJockeyFileItem, parentPath: String) {
         self.info = info
         self.parentPath = parentPath
-        if parentPath == "/" {
-            self.identifierValue = "item-/" + info.name
-        } else {
-            self.identifierValue = "item-" + (parentPath.hasSuffix("/") ? parentPath : parentPath + "/") + info.name
-        }
+        self.identifierValue = "item-" + joinPath(parentPath, info.name)
     }
 
     var itemIdentifier: NSFileProviderItemIdentifier {
@@ -122,5 +118,14 @@ class FileProviderItem: NSObject, NSFileProviderItem {
             metadataVersion: versionString.data(using: .utf8)!
         )
     }
+}
+
+/// Compose a child path under a parent dir, normalising slashes so
+/// "/" + "foo" produces "/foo" and "/dir" + "foo" produces "/dir/foo".
+func joinPath(_ parent: String, _ name: String) -> String {
+    let p = parent.isEmpty ? "/" : parent
+    if p == "/" { return "/" + name }
+    if p.hasSuffix("/") { return p + name }
+    return p + "/" + name
 }
 

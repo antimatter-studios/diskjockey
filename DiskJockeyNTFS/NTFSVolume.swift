@@ -31,9 +31,10 @@ final class NTFSVolume: FSVolume,
     /// Retained block-device callback context (`NTFSBlockDeviceContext`).
     /// Held as an opaque pointer so the C callbacks in `cfg` can deref it
     /// the same way they do during the initial mount in
-    /// `NTFSFileSystem.loadResource`. Lifetime is the volume's lifetime —
-    /// freed in `deactivate`/`unmount`.
-    private let contextPtr: UnsafeMutableRawPointer
+    /// `NTFSFileSystem.loadResource`. Released in `deactivate()` after
+    /// `fs_ntfs_umount` — the Rust handle's captured callbacks are gone by
+    /// then so the pointer is safe to drop.
+    private var contextPtr: UnsafeMutableRawPointer?
 
     /// `cfg.size_bytes` captured at load time (block_count * block_size),
     /// reused when the volume rebuilds the cfg for fsck + RW remount.
@@ -106,6 +107,8 @@ final class NTFSVolume: FSVolume,
     /// value at the top of the 64-bit space, well outside any record
     /// number the NTFS driver would ever assign to a real file.
     private static let appleDoubleGhostRecord: UInt64 = 0xFFFF_FFFF_FFFF_FFFE
+    /// Standard read/write/execute mode for the ghost: owner rw, group r, other r.
+    private static let appleDoubleGhostMode: UInt32 = 0o644
 
     /// Returns true if the basename starts with `._` — macOS Finder /
     /// Desktop Services AppleDouble metadata. We silently swallow
@@ -136,7 +139,7 @@ final class NTFSVolume: FSVolume,
     ) -> FSItem.Attributes {
         let attrs = FSItem.Attributes()
         attrs.type = .file
-        attrs.mode = 0o644
+        attrs.mode = Self.appleDoubleGhostMode
         attrs.flags = 0
         attrs.size = 0
         attrs.allocSize = 0
@@ -644,6 +647,10 @@ final class NTFSVolume: FSVolume,
             fs_ntfs_umount(fs)
             bridgeFS = nil
         }
+        if let ctx = contextPtr {
+            Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).release()
+            contextPtr = nil
+        }
     }
 
     // MARK: - File attributes
@@ -760,26 +767,14 @@ final class NTFSVolume: FSVolume,
             if changeValid { change = Self.filetimeFromTimespec(newAttributes.changeTime) }
             if accessValid { access = Self.filetimeFromTimespec(newAttributes.accessTime) }
 
-            let rc: Int32 = withUnsafePointer(to: &creation) { cPtr in
-                withUnsafePointer(to: &modify) { mPtr in
-                    withUnsafePointer(to: &change) { chPtr in
-                        withUnsafePointer(to: &access) { aPtr in
-                            fs_ntfs_set_times_h(
-                                fs,
-                                ntfsItem.path,
-                                creationValid ? cPtr : nil,
-                                modifyValid ? mPtr : nil,
-                                changeValid ? chPtr : nil,
-                                accessValid ? aPtr : nil
-                            )
-                        }
-                    }
-                }
-            }
-            if rc != 0 {
-                let err = Int32(fs_ntfs_last_errno())
-                throw fs_errorForPOSIXError(err != 0 ? err : EIO)
-            }
+            let rc = Self.applyTimes(
+                fs: fs, path: ntfsItem.path,
+                creation: creation, creationValid: creationValid,
+                modify: modify, modifyValid: modifyValid,
+                change: change, changeValid: changeValid,
+                access: access, accessValid: accessValid
+            )
+            if rc != 0 { throw ntfsLastError() }
             if creationValid { consumed.insert(.addedTime) }
             if modifyValid { consumed.insert(.modifyTime) }
             if changeValid { consumed.insert(.changeTime) }
@@ -1151,9 +1146,7 @@ final class NTFSVolume: FSVolume,
         }
 
         // Ghost AppleDouble — accept the bytes, write nowhere.
-        if Self.isAppleDouble(path: ntfsItem.path) {
-            return data.count
-        }
+        if Self.isAppleDouble(path: ntfsItem.path) { return data.count }
 
         // IMPORTANT: fs_ntfs_write_file_contents_h replaces the WHOLE
         // file. To emulate offset/partial writes we read-modify-write —
@@ -1168,38 +1161,39 @@ final class NTFSVolume: FSVolume,
             throw fs_errorForPOSIXError(ENOENT)
         }
 
-        let currentSize = attr.size
         let writeOffset = UInt64(offset)
         let writeLen = UInt64(data.count)
-        let newEnd = writeOffset + writeLen
 
-        // Fast path: writing from offset 0 fully replaces or extends
-        // the file. Skip the read-modify-write step.
-        if writeOffset == 0 && writeLen >= currentSize {
-            let written: Int64 = data.withUnsafeBytes { rawBuf -> Int64 in
-                guard let base = rawBuf.baseAddress else { return -1 }
-                return fs_ntfs_write_file_contents_h(fs, ntfsItem.path, base, writeLen)
-            }
-            if written < 0 {
-                let err = Int32(fs_ntfs_last_errno())
-                throw fs_errorForPOSIXError(err != 0 ? err : EIO)
-            }
-            return data.count
+        // Fast path: writing from offset 0 fully replaces or extends the
+        // file — skip the read-modify-write step.
+        if writeOffset == 0 && writeLen >= attr.size {
+            return try writeFastPath(fs: fs, path: ntfsItem.path, data: data)
         }
+        return try writeSlowPath(fs: fs, path: ntfsItem.path, data: data,
+                                  currentSize: attr.size, at: writeOffset)
+    }
 
-        // Slow path: read-modify-write.
-        let mergedSize = max(currentSize, newEnd)
-        let bufferSize = Int(mergedSize)
-        let buf = UnsafeMutableRawPointer.allocate(byteCount: bufferSize, alignment: 8)
+    private func writeFastPath(fs: OpaquePointer, path: String, data: Data) throws -> Int {
+        let written: Int64 = data.withUnsafeBytes { rawBuf -> Int64 in
+            guard let base = rawBuf.baseAddress else { return -1 }
+            return fs_ntfs_write_file_contents_h(fs, path, base, UInt64(data.count))
+        }
+        if written < 0 { throw ntfsLastError() }
+        return data.count
+    }
+
+    private func writeSlowPath(
+        fs: OpaquePointer, path: String, data: Data,
+        currentSize: UInt64, at writeOffset: UInt64
+    ) throws -> Int {
+        let mergedSize = max(currentSize, writeOffset + UInt64(data.count))
+        let buf = UnsafeMutableRawPointer.allocate(byteCount: Int(mergedSize), alignment: 8)
         defer { buf.deallocate() }
-        memset(buf, 0, bufferSize)
+        memset(buf, 0, Int(mergedSize))
 
         if currentSize > 0 {
-            let read = fs_ntfs_read_file(fs, ntfsItem.path, buf, 0, currentSize)
-            if read < 0 || UInt64(read) < currentSize {
-                let err = Int32(fs_ntfs_last_errno())
-                throw fs_errorForPOSIXError(err != 0 ? err : EIO)
-            }
+            let read = fs_ntfs_read_file(fs, path, buf, 0, currentSize)
+            if read < 0 || UInt64(read) < currentSize { throw ntfsLastError() }
         }
 
         data.withUnsafeBytes { rawBuf in
@@ -1208,11 +1202,8 @@ final class NTFSVolume: FSVolume,
             }
         }
 
-        let written = fs_ntfs_write_file_contents_h(fs, ntfsItem.path, buf, mergedSize)
-        if written < 0 {
-            let err = Int32(fs_ntfs_last_errno())
-            throw fs_errorForPOSIXError(err != 0 ? err : EIO)
-        }
+        let written = fs_ntfs_write_file_contents_h(fs, path, buf, mergedSize)
+        if written < 0 { throw ntfsLastError() }
         return data.count
     }
 
@@ -1224,6 +1215,36 @@ final class NTFSVolume: FSVolume,
     var truncatesLongNames: Bool { false }
 
     // MARK: - Helpers
+
+    private func ntfsLastError(fallback: Int32 = EIO) -> Error {
+        let err = Int32(fs_ntfs_last_errno())
+        return fs_errorForPOSIXError(err != 0 ? err : fallback)
+    }
+
+    private static func applyTimes(
+        fs: OpaquePointer, path: String,
+        creation: Int64, creationValid: Bool,
+        modify: Int64, modifyValid: Bool,
+        change: Int64, changeValid: Bool,
+        access: Int64, accessValid: Bool
+    ) -> Int32 {
+        var c = creation, m = modify, ch = change, a = access
+        return withUnsafePointer(to: &c) { cPtr in
+            withUnsafePointer(to: &m) { mPtr in
+                withUnsafePointer(to: &ch) { chPtr in
+                    withUnsafePointer(to: &a) { aPtr in
+                        fs_ntfs_set_times_h(
+                            fs, path,
+                            creationValid ? cPtr : nil,
+                            modifyValid ? mPtr : nil,
+                            changeValid ? chPtr : nil,
+                            accessValid ? aPtr : nil
+                        )
+                    }
+                }
+            }
+        }
+    }
 
     static func fsItemType(from bridgeType: fs_ntfs_file_type_t) -> FSItem.ItemType {
         switch bridgeType {
@@ -1265,9 +1286,12 @@ final class NTFSVolume: FSVolume,
         attrs.mode = UInt32(attr.mode)
         attrs.uid = 0
         attrs.gid = 0
-        // NTFS doesn't have BSD inode flags; 0 is correct and marks
-        // bit 5 valid so FSKit accepts the reply.
-        attrs.flags = 0
+        // Map NTFS hidden/system bits → UF_HIDDEN so Finder doesn't display
+        // $MFT, $AttrDef, $Bitmap etc. at the root of every volume.
+        // FILE_ATTRIBUTE_HIDDEN = 0x02, FILE_ATTRIBUTE_SYSTEM = 0x04.
+        let ntfsHiddenSystem: UInt32 = 0x0002 | 0x0004
+        let isHidden = (attr.attributes & ntfsHiddenSystem) != 0
+        attrs.flags = isHidden ? 0x8000 : 0
         attrs.size = attr.size
         attrs.linkCount = UInt32(attr.link_count)
         attrs.allocSize = attr.size

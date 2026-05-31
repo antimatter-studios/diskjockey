@@ -314,77 +314,85 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFile
         // the smallest provider bucket >= long edge, then cache by
         // that bucket so similar requests share a row.
         let sizePx = Int(max(size.width, size.height).rounded(.up))
-
-        let policy = thumbnailPolicy()
         let progress = Progress(totalUnitCount: Int64(itemIdentifiers.count))
+        mlog.info("fetchThumbnails called count=\(itemIdentifiers.count) sizePx=\(sizePx)")
 
-        self.mlog.info("fetchThumbnails called count=\(itemIdentifiers.count) sizePx=\(sizePx)")
-
-        switch policy {
+        switch thumbnailPolicy() {
         case .skip(let reason):
-            self.mlog.info("thumbnails skipped (\(reason)) count=\(itemIdentifiers.count)")
-            for id in itemIdentifiers {
-                perThumbnailCompletionHandler(id, nil, nil)
-                progress.completedUnitCount += 1
-            }
-            completionHandler(nil)
+            mlog.info("thumbnails skipped (\(reason)) count=\(itemIdentifiers.count)")
+            skipAllThumbnails(itemIdentifiers, progress: progress,
+                              perThumbnail: perThumbnailCompletionHandler, completion: completionHandler)
             return progress
-
         case .fetch:
             break
         }
 
         guard let direct = directClient else {
-            // Mount configuration is missing; let Finder fall back to
-            // generic icons rather than surfacing an error per-file.
-            for id in itemIdentifiers {
-                perThumbnailCompletionHandler(id, nil, nil)
-                progress.completedUnitCount += 1
-            }
-            completionHandler(nil)
+            // Mount configuration is missing; let Finder fall back to generic icons.
+            skipAllThumbnails(itemIdentifiers, progress: progress,
+                              perThumbnail: perThumbnailCompletionHandler, completion: completionHandler)
             return progress
         }
 
+        fetchThumbnailsInBackground(
+            items: itemIdentifiers, sizePx: sizePx, direct: direct,
+            progress: progress,
+            perThumbnail: perThumbnailCompletionHandler,
+            completion: completionHandler
+        )
+        return progress
+    }
+
+    private func skipAllThumbnails(
+        _ ids: [NSFileProviderItemIdentifier],
+        progress: Progress,
+        perThumbnail: (NSFileProviderItemIdentifier, Data?, Error?) -> Void,
+        completion: (Error?) -> Void
+    ) {
+        for id in ids {
+            perThumbnail(id, nil, nil)
+            progress.completedUnitCount += 1
+        }
+        completion(nil)
+    }
+
+    private func fetchThumbnailsInBackground(
+        items: [NSFileProviderItemIdentifier],
+        sizePx: Int,
+        direct: FileProviderDirectClient,
+        progress: Progress,
+        perThumbnail: @escaping (NSFileProviderItemIdentifier, Data?, Error?) -> Void,
+        completion: @escaping (Error?) -> Void
+    ) {
         let mountID = self.mountID
         let log = self.mlog
         DispatchQueue.global(qos: .userInitiated).async {
-            var hits = 0
-            var fetches = 0
-            var fails = 0
-            for id in itemIdentifiers {
+            var hits = 0; var fetches = 0; var fails = 0
+            for id in items {
                 let path = self.extractPath(from: id)
-                if let cached = ThumbnailCache.shared.get(
-                    mountID: mountID, path: path, sizePx: sizePx
-                ) {
-                    perThumbnailCompletionHandler(id, cached, nil)
+                if let cached = ThumbnailCache.shared.get(mountID: mountID, path: path, sizePx: sizePx) {
+                    perThumbnail(id, cached, nil)
                     progress.completedUnitCount += 1
                     hits += 1
                     continue
                 }
                 do {
                     let data = try direct.fetchThumbnail(path: path, sizePx: sizePx)
-                    ThumbnailCache.shared.put(
-                        mountID: mountID, path: path,
-                        sizePx: sizePx, data: data
-                    )
-                    perThumbnailCompletionHandler(id, data, nil)
+                    ThumbnailCache.shared.put(mountID: mountID, path: path, sizePx: sizePx, data: data)
+                    perThumbnail(id, data, nil)
                     fetches += 1
                 } catch {
-                    // Drivers without thumbnail support (rc=2) and
-                    // per-file fetch failures both land here — Finder
-                    // gets `nil` data, no surfaced error. We log at
-                    // debug since this is normal for non-image files
-                    // and unsupported drivers.
+                    // Drivers without thumbnail support (rc=2) and per-file fetch failures
+                    // both land here — Finder gets nil data, no surfaced error.
                     log.debug("thumbnail(\(path)) skipped: \("\(error)")")
-                    perThumbnailCompletionHandler(id, nil, nil)
+                    perThumbnail(id, nil, nil)
                     fails += 1
                 }
                 progress.completedUnitCount += 1
             }
             log.info("fetchThumbnails done: cache=\(hits) fetched=\(fetches) failed=\(fails)")
-            completionHandler(nil)
+            completion(nil)
         }
-        return progress
     }
 
     /// Decide whether to attempt thumbnail fetches for this mount on
@@ -420,7 +428,7 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFile
 
         let parentPath = extractPath(from: itemTemplate.parentItemIdentifier)
         let filename = itemTemplate.filename
-        let newPath = Self.joinPath(parentPath, filename)
+        let newPath = joinPath(parentPath, filename)
         let isFolder = (itemTemplate.contentType == .folder)
         self.mlog.info("createItem(\(newPath)) folder=\(isFolder)")
 
@@ -471,7 +479,7 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFile
             "item-" + ((oldPath as NSString).deletingLastPathComponent)
         )
         let newParentPath = extractPath(from: item.parentItemIdentifier)
-        let newPath = Self.joinPath(newParentPath, item.filename)
+        let newPath = joinPath(newParentPath, item.filename)
         let renamed = (changedFields.contains(.filename) || changedFields.contains(.parentItemIdentifier))
             && oldPath != newPath
         let updateContents = changedFields.contains(.contents) && newContents != nil
@@ -542,14 +550,6 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFile
         return Progress()
     }
 
-    /// Compose a child path under a parent dir, normalising slashes so
-    /// "/" + "foo" produces "/foo" and "/dir" + "foo" produces "/dir/foo".
-    private static func joinPath(_ parent: String, _ name: String) -> String {
-        let p = parent.isEmpty ? "/" : parent
-        if p == "/" { return "/" + name }
-        if p.hasSuffix("/") { return p + name }
-        return p + "/" + name
-    }
 
     // MARK: - Enumeration
 
@@ -600,16 +600,15 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFile
         case .mountFailed, .unmountFailed:
             return NSFileProviderError(.serverUnreachable)
         case .operationFailed(_, _, _, let message):
-            // "no such file" / "permission denied" across every
-            // protocol land here with the underlying server's error
-            // text. Parse-free heuristic: anything mentioning
-            // "no such" / "not found" / "does not exist" →
-            // noSuchItem; else generic unreachable.
+            // Parse-free heuristic: server error text varies by protocol (SMB,
+            // WebDAV, SFTP) so we match keywords rather than error codes.
+            // Intentionally loose — false positives map to noSuchItem, which is
+            // a recoverable Finder state, rather than the more alarming serverUnreachable.
             let lower = message.lowercased()
-            if lower.contains("no such") || lower.contains("not found") || lower.contains("does not exist") {
-                return NSFileProviderError(.noSuchItem)
-            }
-            return NSFileProviderError(.serverUnreachable)
+            let looksLikeNotFound = lower.contains("no such")
+                || lower.contains("not found")
+                || lower.contains("does not exist")
+            return NSFileProviderError(looksLikeNotFound ? .noSuchItem : .serverUnreachable)
         case .readFailed:
             return NSFileProviderError(.noSuchItem)
         case .thumbnailFailed:
