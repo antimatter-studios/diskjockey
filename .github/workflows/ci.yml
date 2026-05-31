@@ -72,6 +72,13 @@ jobs:
           key: cargo-${{ runner.os }}-${{ hashFiles('vendor/rust-*/Cargo.lock', 'vendor/rust-*/rust-toolchain.toml') }}
           restore-keys: cargo-${{ runner.os }}-
 
+      # llvm-objcopy is required by build-img-containers.sh to weaken fs_core
+      # symbols in the img crates so they don't clash with those in fs_ext4/ntfs.
+      # macOS runners do not ship it; install from Homebrew only on a cache miss.
+      - name: Install llvm (for objcopy)
+        if: steps.vendor-cache.outputs.cache-hit != 'true'
+        run: brew install llvm
+
       - name: Build vendor libraries
         if: steps.vendor-cache.outputs.cache-hit != 'true'
         run: make vendor-fs-ext4 vendor-fs-ntfs vendor-img-containers vendor-gonetworkfs
