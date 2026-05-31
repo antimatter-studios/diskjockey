@@ -80,14 +80,6 @@ jobs:
       - name: Validate vendor pins
         run: scripts/check-vendor-pins.sh
 
-      # Generate the protobuf Swift bindings if not already present in the tree.
-      - name: Generate protobuf bindings
-        run: |
-          if [ ! -f DiskJockeyLibrary/Protobuf/fileprovider.pb.swift ]; then
-            brew install protobuf swift-protobuf
-            make proto
-          fi
-
       - name: Install xcbeautify
         run: brew install xcbeautify
 
