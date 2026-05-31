@@ -45,7 +45,7 @@ dependencies = [
 
 [[package]]
 name = "am-partitions"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "am-fs-core",
  "crc32fast",
