@@ -35,12 +35,16 @@ jobs:
   archive:
     name: Archive & Export
     runs-on: macos-26
-    env:
-      KEYCHAIN_PATH: ${{ runner.temp }}/app-signing.keychain-db
-      ARCHIVE_PATH:  ${{ runner.temp }}/DiskJockey.xcarchive
-      EXPORT_PATH:   ${{ runner.temp }}/export
 
     steps:
+      - name: Set path variables
+        run: |
+          {
+            echo "KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db"
+            echo "ARCHIVE_PATH=$RUNNER_TEMP/DiskJockey.xcarchive"
+            echo "EXPORT_PATH=$RUNNER_TEMP/export"
+          } >> "$GITHUB_ENV"
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -48,7 +52,7 @@ jobs:
 
       - name: Select Xcode
         run: |
-          XCODE=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          XCODE=$(find /Applications -maxdepth 1 -name 'Xcode*.app' -type d 2>/dev/null | sort -V | tail -1)
           echo "Using Xcode: $XCODE"
           sudo xcode-select -s "$XCODE/Contents/Developer"
           xcodebuild -version
@@ -90,13 +94,6 @@ jobs:
       - name: Build vendor libraries
         if: steps.vendor-cache.outputs.cache-hit != 'true'
         run: make vendor-fs-ext4 vendor-fs-ntfs vendor-img-containers vendor-gonetworkfs
-
-      - name: Generate protobuf bindings
-        run: |
-          if [ ! -f DiskJockeyLibrary/Protobuf/fileprovider.pb.swift ]; then
-            brew install protobuf swift-protobuf
-            make proto
-          fi
 
       # ---------------------------------------------------------------------------
       # Code signing
@@ -197,7 +194,7 @@ jobs:
 
           # altool scans ~/.appstoreconnect/private_keys/ for AuthKey_<ID>.p8
           mkdir -p ~/.appstoreconnect/private_keys
-          echo -n "$ASC_KEY_BASE64" | base64 --decode -o ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
+          echo -n "$ASC_KEY_BASE64" | base64 --decode -o ~/.appstoreconnect/private_keys/AuthKey_"${ASC_KEY_ID}".p8
 
           PKG_PATH=$(find "$EXPORT_PATH" -name '*.pkg' | head -1)
           [ -z "$PKG_PATH" ] && PKG_PATH=$(find "$EXPORT_PATH" -name '*.app' | head -1)
