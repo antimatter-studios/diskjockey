@@ -29,6 +29,59 @@
 			</array>
 		</dict>
 	</array>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleTypeName</key>
+			<string>Disk Image</string>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>img</string>
+				<string>raw</string>
+				<string>bin</string>
+				<string>dd</string>
+				<string>vhd</string>
+				<string>vhdx</string>
+				<string>vmdk</string>
+				<string>qcow2</string>
+			</array>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.antimatterstudios.diskjockey.disk-image</string>
+			</array>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+		</dict>
+	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.antimatterstudios.diskjockey.disk-image</string>
+			<key>UTTypeDescription</key>
+			<string>Disk Image</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>img</string>
+					<string>raw</string>
+					<string>bin</string>
+					<string>dd</string>
+					<string>vhd</string>
+					<string>vhdx</string>
+					<string>vmdk</string>
+					<string>qcow2</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
