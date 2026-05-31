@@ -637,42 +637,7 @@ public final class AttachedDisksModel: ObservableObject {
     /// through the published `disks` property.
     private static func applyEventInPlace(kind: String, fields: [String: String], to disk: inout AttachedDisk) {
         if kind == "volume.info" {
-            var info = fields
-            info.removeValue(forKey: "bsd")
-            if let bytes = materializeTotalSize(from: info) {
-                info["total_size"] = String(bytes)
-            }
-            // Overlay onto existing (statvfs-populated) info rather than
-            // replacing — so free_size from `refresh()` survives alongside
-            // the fs-specific keys the extension emits.
-            for (k, v) in info { disk.info[k] = v }
-            // Promote preview rows: fill in fsType + display name + the
-            // stable identity for cross-session/replug coalescing.
-            if let fs = info["fs"], !fs.isEmpty {
-                disk.fsType = fs
-            }
-            if let volName = info["volume_name"], !volName.isEmpty,
-               (disk.name == disk.bsd || disk.name.isEmpty) {
-                // Only adopt volume_name if the row is still showing
-                // the BSD as a placeholder. Once mount(8) gives us a
-                // real /Volumes path, that's what the user knows the
-                // disk by — don't clobber it with the on-disk label.
-                disk.name = volName
-            }
-            // Strongest identity wins. NTFS emits `serial_number` in
-            // volume.info → survives replug+restart, sidebar row
-            // coalesces back. Ext4 doesn't currently emit its UUID
-            // (the rust FFI struct doesn't expose s_uuid yet) so ext4
-            // disks fall back to BSD-as-identity, which is stable for
-            // a session but not across replug. Prefix-tag so two
-            // filesystems can't collide on the same string.
-            if disk.stableIdentity == nil {
-                if let u = info["volume_uuid"], !u.isEmpty {
-                    disk.stableIdentity = "ext4-uuid:\(u)"
-                } else if let s = info["serial_number"], !s.isEmpty {
-                    disk.stableIdentity = "ntfs-serial:\(s)"
-                }
-            }
+            applyVolumeInfo(fields: fields, to: &disk)
             return
         }
 
@@ -685,19 +650,67 @@ public final class AttachedDisksModel: ObservableObject {
             return
         }
 
-        let newStatus: FsckStatus
+        guard let newStatus = fsckStatus(kind: kind, fields: fields, disk: &disk) else { return }
+        disk.fsckStatus = newStatus
+    }
+
+    // Applies a `volume.info` event payload onto `disk`. Overlays fields,
+    // promotes fsType, adopts volume_name when still showing BSD placeholder,
+    // and assigns stableIdentity on first encounter.
+    private static func applyVolumeInfo(fields: [String: String], to disk: inout AttachedDisk) {
+        var info = fields
+        info.removeValue(forKey: "bsd")
+        if let bytes = materializeTotalSize(from: info) {
+            info["total_size"] = String(bytes)
+        }
+        // Overlay onto existing (statvfs-populated) info rather than
+        // replacing — so free_size from `refresh()` survives alongside
+        // the fs-specific keys the extension emits.
+        for (k, v) in info { disk.info[k] = v }
+        if let fs = info["fs"], !fs.isEmpty {
+            disk.fsType = fs
+        }
+        if let volName = info["volume_name"], !volName.isEmpty,
+           (disk.name == disk.bsd || disk.name.isEmpty) {
+            // Only adopt volume_name if the row is still showing
+            // the BSD as a placeholder. Once mount(8) gives us a
+            // real /Volumes path, that's what the user knows the
+            // disk by — don't clobber it with the on-disk label.
+            disk.name = volName
+        }
+        // Strongest identity wins. NTFS emits `serial_number` in
+        // volume.info → survives replug+restart, sidebar row
+        // coalesces back. Ext4 doesn't currently emit its UUID
+        // (the rust FFI struct doesn't expose s_uuid yet) so ext4
+        // disks fall back to BSD-as-identity, which is stable for
+        // a session but not across replug. Prefix-tag so two
+        // filesystems can't collide on the same string.
+        if disk.stableIdentity == nil {
+            if let u = info["volume_uuid"], !u.isEmpty {
+                disk.stableIdentity = "ext4-uuid:\(u)"
+            } else if let s = info["serial_number"], !s.isEmpty {
+                disk.stableIdentity = "ntfs-serial:\(s)"
+            }
+        }
+    }
+
+    // Returns the new FsckStatus for fsck-family events, or nil for unknown kinds.
+    // Side-effects `disk.lastRepairedCount` and `disk.lastAnomaliesFound` for fsck.done.
+    private static func fsckStatus(
+        kind: String, fields: [String: String], disk: inout AttachedDisk
+    ) -> FsckStatus? {
         switch kind {
         case "volume.clean":
-            newStatus = .clean
+            return .clean
         case "volume.dirty":
-            newStatus = .dirty
+            return .dirty
         case "fsck.start":
-            newStatus = .running(phase: "starting", done: 0, total: 0)
+            return .running(phase: "starting", done: 0, total: 0)
         case "fsck.progress":
             let phase = fields["phase"] ?? "?"
             let done = UInt64(fields["done"] ?? "0") ?? 0
             let total = UInt64(fields["total"] ?? "0") ?? 0
-            newStatus = .running(phase: phase, done: done, total: total)
+            return .running(phase: phase, done: done, total: total)
         case "fsck.done":
             let dirtyCleared = (fields["dirty_cleared"] ?? "false") == "true"
             let logfileBytes = UInt64(fields["logfile_bytes"] ?? "0") ?? 0
@@ -707,13 +720,12 @@ public final class AttachedDisksModel: ObservableObject {
             if let raw = fields["anomalies"], let n = UInt64(raw) {
                 disk.lastAnomaliesFound = n
             }
-            newStatus = .completed(dirtyCleared: dirtyCleared, logfileBytes: logfileBytes)
+            return .completed(dirtyCleared: dirtyCleared, logfileBytes: logfileBytes)
         case "fsck.failed":
-            newStatus = .failed(fields["error"] ?? "unknown error")
+            return .failed(fields["error"] ?? "unknown error")
         default:
-            return
+            return nil
         }
-        disk.fsckStatus = newStatus
     }
 
     /// Runs `/sbin/mount` and parses each line into an AttachedDisk.
