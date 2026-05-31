@@ -131,10 +131,8 @@ final class DiskArbitrationService {
         // modules that fill `FSContainerIdentifier.uuid` on probe (our
         // ext4 + ntfs do this). May be missing on bare msdos volumes
         // without the optional Boot Sector UUID slot.
-        if let uuidRef = desc[kDADiskDescriptionVolumeUUIDKey as String],
-           CFGetTypeID(uuidRef as CFTypeRef) == CFUUIDGetTypeID(),
-           let strRef = CFUUIDCreateString(kCFAllocatorDefault, uuidRef as! CFUUID) {
-            fields["volume_uuid"] = strRef as String
+        if let uuidStr = Self.cfuuidString(from: desc, key: kDADiskDescriptionVolumeUUIDKey as String) {
+            fields["volume_uuid"] = uuidStr
         }
 
         AppLog.shared.info(
@@ -254,5 +252,17 @@ final class DiskArbitrationService {
             return String(raw.dropFirst(2))
         }
         return raw
+    }
+
+    // Safely extracts a CFUUID value from an NSDictionary and returns it as a
+    // String, or nil if the key is absent or not a CFUUID. Avoids the
+    // force-cast `as! CFUUID` by going through CFGetTypeID first.
+    private static func cfuuidString(from dict: NSDictionary, key: String) -> String? {
+        guard let ref = dict[key] else { return nil }
+        let cfRef = ref as CFTypeRef
+        guard CFGetTypeID(cfRef) == CFUUIDGetTypeID() else { return nil }
+        // Type-checked above; the unsafeBitCast is safe here.
+        let uuid = unsafeBitCast(cfRef, to: CFUUID.self)
+        return CFUUIDCreateString(kCFAllocatorDefault, uuid) as String?
     }
 }
