@@ -171,7 +171,7 @@ build_one() {
               done
               "$llvm_objcopy" "${weaken_args[@]}" "$fs_obj" "${fs_obj}.w" && mv "${fs_obj}.w" "$fs_obj"
           done
-          ar rcs "${out_dir}/lib${lib_name}.a" *.o 2>/dev/null
+          ar rcs "${out_dir}/lib${lib_name}.a" *.o
         )
         rm -rf "$tmp_dir"
         echo "  fs_core symbols weakened (ld-prime dup-symbol fix)"
