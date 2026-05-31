@@ -76,6 +76,22 @@ jobs:
         if: steps.vendor-cache.outputs.cache-hit != 'true'
         run: make vendor-fs-ext4 vendor-fs-ntfs vendor-img-containers vendor-gonetworkfs
 
+      # Validate that submodule SHAs in VENDOR_PINS.txt match the checked-out
+      # gitlinks. Ref descriptions (column 3) are skipped — git-describe output
+      # is environment-dependent and differs between local and CI checkouts.
+      - name: Validate vendor pins
+        run: |
+          before=$(git show HEAD:VENDOR_PINS.txt | grep '^vendor/' | awk '{print $1, $2}' | sort)
+          make pins
+          after=$(grep '^vendor/' VENDOR_PINS.txt | awk '{print $1, $2}' | sort)
+          git checkout -- VENDOR_PINS.txt
+          if [ "$before" != "$after" ]; then
+            echo "ERROR: VENDOR_PINS.txt SHAs are stale — run 'make pins' locally and commit"
+            diff <(echo "$before") <(echo "$after")
+            exit 1
+          fi
+          echo "VENDOR_PINS.txt SHAs are up to date."
+
       # Generate the protobuf Swift bindings if not already present in the tree.
       - name: Generate protobuf bindings
         run: |
