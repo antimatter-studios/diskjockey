@@ -115,6 +115,38 @@ if [[ -n "$ws_offenders" ]]; then
     fail=1
 fi
 
+# -----------------------------------------------------------------------------
+# VENDOR_PINS.txt staleness check
+# -----------------------------------------------------------------------------
+# If any submodule gitlink is staged (a vendor bump), VENDOR_PINS.txt must
+# also be staged and its SHA column must match the actual submodule state.
+# This catches "bumped submodule but forgot 'make pins'".
+# The check is delegated to scripts/check-vendor-pins.sh, which is also
+# called by the GitHub Actions CI workflow (single source of truth).
+
+STAGED_SUBMODULES=()
+while IFS= read -r line; do
+    STAGED_SUBMODULES+=("$line")
+done < <(git diff --cached --name-only --diff-filter=ACM | grep '^vendor/' || true)
+
+if [ ${#STAGED_SUBMODULES[@]} -gt 0 ]; then
+    if ! git diff --cached --name-only | grep -q '^VENDOR_PINS\.txt$'; then
+        echo "[pre-commit] submodule(s) staged but VENDOR_PINS.txt is not:"
+        for s in "${STAGED_SUBMODULES[@]}"; do echo "  $s"; done
+        echo "[pre-commit]   run 'make pins' and stage the result before committing"
+        fail=1
+    else
+        # Pass the staged version of VENDOR_PINS.txt to the shared check script.
+        staged_pins=$(mktemp)
+        git show :VENDOR_PINS.txt > "$staged_pins"
+        if ! scripts/check-vendor-pins.sh "$staged_pins"; then
+            echo "[pre-commit]   run 'make pins' and re-stage VENDOR_PINS.txt"
+            fail=1
+        fi
+        rm -f "$staged_pins"
+    fi
+fi
+
 if (( fail != 0 )); then
     exit 1
 fi
