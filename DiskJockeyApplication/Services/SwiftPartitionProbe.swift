@@ -8,12 +8,64 @@ import Foundation
 /// Handles raw .img / .dd files (MBR and GPT). Container formats (QCOW2,
 /// VHD, VHDX, VMDK) are not decompressed here — fall back to diskprobe
 /// for those.
+///
+/// Note: the magic-byte / superblock constants below are the authoritative
+/// source in Swift. Long-term intent is to push filesystem detection into
+/// rust-partitions so the Rust layer owns all signature knowledge.
 enum SwiftPartitionProbe {
-    /// PC BIOS boot sector magic — last two bytes of the 512-byte MBR.
-    private static let mbrSignatureByte0: UInt8 = 0x55
-    private static let mbrSignatureByte1: UInt8 = 0xAA
-    private static let mbrSignatureOffset0 = 510
-    private static let mbrSignatureOffset1 = 511
+
+    // MARK: - Filesystem signature constants
+
+    /// All magic bytes and superblock offsets used by `classify`.
+    /// Grouped by filesystem family so they can be validated against spec.
+    private enum FSMagic {
+        // MBR boot-sector signature — last two bytes of the 512-byte sector.
+        // Ref: IBM PC BIOS convention; same bytes appear in each VBR.
+        static let bootSectorSignature: [UInt8] = [0x55, 0xAA]
+        static let bootSectorSignatureOffset = 510
+
+        // SquashFS magic at offset 0 ("hsqs" LE).
+        static let squashfsBytes: [UInt8] = [0x68, 0x73, 0x71, 0x73]
+
+        // QCOW2: "QFI\xfb" at offset 0 (magic + version marker).
+        static let qcow2Bytes: [UInt8] = [0x51, 0x46, 0x49, 0xFB]
+
+        // ext2/3/4: 0xEF53 little-endian at absolute byte 1080
+        // (superblock starts at 1024; s_magic is at superblock offset 56).
+        static let extSuperblockOffset = 1080
+        static let extMagic: UInt16 = 0xEF53
+        // Superblock-relative offsets for feature flags.
+        static let extSuperblockBase    = 1024
+        static let extCompatFlagOffset  = 0x5C   // s_feature_compat
+        static let extIncompatFlagOffset = 0x60  // s_feature_incompat
+        // ext4 incompatible features that distinguish it from ext2/3.
+        // Ref: fs/ext4/ext4.h EXT4_FEATURE_INCOMPAT_*.
+        static let ext4IncompatFlags: UInt32 =
+            0x0040  // FILETYPE
+          | 0x0080  // RECOVER
+          | 0x0100  // JOURNAL_DEV
+          | 0x0200  // META_BG
+          | 0x1000  // EXTENTS
+          | 0x2000  // 64BIT
+          | 0x4000  // MMP
+          | 0x8000  // FLEX_BG
+        // ext3 compat flag: COMPAT_HAS_JOURNAL.
+        static let ext3HasJournalFlag: UInt32 = 0x0004
+
+        // HFS+: volume header magic 'H+' (0x482B) or 'HX' (0x4858) at offset 1024.
+        static let hfsPlusOffset = 1024
+
+        // APFS: 'NXSB' superblock magic at offset 32.
+        static let apfsOffset = 32
+
+        // Linux swap: "SWAPSPACE2" occupies the last 10 bytes of the first page.
+        // The page size varies by kernel config; probe each common value.
+        static let swapSignature = Array("SWAPSPACE2".utf8)
+        static let swapPageSizes = [4096, 8192, 16384, 32768, 65536]
+
+        // ISO 9660: Primary Volume Descriptor marker 'CD001' at offset 0x8001.
+        static let iso9660Offset = 0x8001
+    }
 
     // MARK: - Top-level entry point
 
@@ -46,7 +98,9 @@ enum SwiftPartitionProbe {
             )
         }
 
-        if sector0[mbrSignatureOffset0] == mbrSignatureByte0 && sector0[mbrSignatureOffset1] == mbrSignatureByte1 {
+        let mbrSigOffset = FSMagic.bootSectorSignatureOffset
+        if sector0[mbrSigOffset] == FSMagic.bootSectorSignature[0] &&
+           sector0[mbrSigOffset + 1] == FSMagic.bootSectorSignature[1] {
             // Protective MBR (single 0xEE entry) means GPT was supposed to be
             // here but the GPT header is missing or unreadable — treat as none.
             let parts = parseMBR(sector0: sector0, handle: handle)
@@ -77,18 +131,13 @@ enum SwiftPartitionProbe {
     // MARK: - Container detection
 
     private static func isContainerFormat(sector0: Data, handle: FileHandle, fileSize: UInt64) -> Bool {
-        // QCOW2
-        if sector0.prefix(4).elementsEqual([0x51, 0x46, 0x49, 0xFB]) { return true }
-        // VHDX
-        if sector0.prefix(8).elementsEqual("vhdxfile".utf8) { return true }
-        // VMDK
-        if sector0.prefix(4).elementsEqual("KDMV".utf8) { return true }
-        // Dynamic VHD header at offset 0
-        if sector0.prefix(8).elementsEqual("conectix".utf8) { return true }
-        // Fixed VHD footer at file end
+        if sector0.prefix(4).elementsEqual(FSMagic.qcow2Bytes)      { return true } // QCOW2
+        if sector0.prefix(8).elementsEqual("vhdxfile".utf8)          { return true } // VHDX
+        if sector0.prefix(4).elementsEqual("KDMV".utf8)              { return true } // VMDK sparse
+        if sector0.prefix(8).elementsEqual("conectix".utf8)          { return true } // Dynamic VHD
         if fileSize >= 512,
            let footer = try? readBytes(handle: handle, at: fileSize - 512, count: 8),
-           footer.elementsEqual("conectix".utf8) { return true }
+           footer.elementsEqual("conectix".utf8)                      { return true } // Fixed VHD
         return false
     }
 
@@ -177,62 +226,83 @@ enum SwiftPartitionProbe {
 
     // MARK: - Filesystem sniffing
 
+    // Internal for unit testing with pre-built Data buffers.
     static func sniffFS(handle: FileHandle, at offset: UInt64, maxBytes: UInt64) -> String {
         guard let buf = try? readBytes(handle: handle, at: offset, count: Int(min(maxBytes, 0x9000))),
               !buf.isEmpty else { return "unknown" }
         return classify(buf)
     }
 
-    private static func classify(_ buf: Data) -> String {
+    // Internal so classify/classifyExt can be unit-tested without a real disk image.
+    static func classify(_ buf: Data) -> String {
         let b = Array(buf)
-        // SquashFS
-        if b.count >= 4 && b[0...3] == [0x68, 0x73, 0x71, 0x73] { return "squashfs" }
 
-        // FAT / NTFS / exFAT: boot sector with 0x55 0xAA signature
-        if b.count >= 512 && b[510] == 0x55 && b[511] == 0xAA {
-            if b.count >= 11 && Data(b[3..<11]) == Data("NTFS    ".utf8)  { return "ntfs" }
-            if b.count >= 11 && Data(b[3..<11]) == Data("EXFAT   ".utf8)  { return "exfat" }
+        if b.count >= 4 && b[0..<4].elementsEqual(FSMagic.squashfsBytes) { return "squashfs" }
+
+        // FAT / NTFS / exFAT: all start with a boot sector ending in 0x55 0xAA.
+        let sigOff = FSMagic.bootSectorSignatureOffset
+        if b.count >= sigOff + 2 &&
+           b[sigOff] == FSMagic.bootSectorSignature[0] &&
+           b[sigOff + 1] == FSMagic.bootSectorSignature[1] {
+            if b.count >= 11 && Data(b[3..<11]) == Data("NTFS    ".utf8)      { return "ntfs"  }
+            if b.count >= 11 && Data(b[3..<11]) == Data("EXFAT   ".utf8)      { return "exfat" }
             if b.count >= 0x5A && Data(b[0x52..<0x5A]) == Data("FAT32   ".utf8) { return "fat32" }
             if b.count >= 0x3E && (Data(b[0x36..<0x3E]) == Data("FAT16   ".utf8) ||
                                    Data(b[0x36..<0x3E]) == Data("FAT12   ".utf8)) { return "fat16" }
         }
 
-        // ext2/3/4: superblock magic 0xEF53 at byte 1080
-        if b.count >= 1082 {
-            let magic = UInt16(b[1080]) | (UInt16(b[1081]) << 8)
-            if magic == 0xEF53 { return classifyExt(b) }
+        // ext2/3/4: superblock magic 0xEF53 at byte 1080.
+        let extOff = FSMagic.extSuperblockOffset
+        if b.count >= extOff + 2 {
+            let magic = UInt16(b[extOff]) | (UInt16(b[extOff + 1]) << 8)
+            if magic == FSMagic.extMagic { return classifyExt(b) }
         }
 
-        // HFS+: 'H+' or 'HX' at offset 1024
-        if b.count >= 1026 && (Data(b[1024..<1026]) == Data("H+".utf8) ||
-                                Data(b[1024..<1026]) == Data("HX".utf8)) { return "hfs_plus" }
+        // HFS+: volume header magic 'H+' or 'HX' at offset 1024.
+        let hfsOff = FSMagic.hfsPlusOffset
+        if b.count >= hfsOff + 2 && (Data(b[hfsOff..<hfsOff+2]) == Data("H+".utf8) ||
+                                      Data(b[hfsOff..<hfsOff+2]) == Data("HX".utf8)) {
+            return "hfs_plus"
+        }
 
-        // APFS: 'NXSB' at offset 32
-        if b.count >= 36 && Data(b[32..<36]) == Data("NXSB".utf8) { return "apfs" }
+        // APFS: 'NXSB' container superblock magic at offset 32.
+        let apfsOff = FSMagic.apfsOffset
+        if b.count >= apfsOff + 4 && Data(b[apfsOff..<apfsOff+4]) == Data("NXSB".utf8) {
+            return "apfs"
+        }
 
-        // Linux swap
-        for page in [4096, 8192, 16384, 32768, 65536] {
-            if b.count >= page && Data(b[(page-10)..<page]) == Data("SWAPSPACE2".utf8) {
+        // Linux swap: "SWAPSPACE2" in the last 10 bytes of the first page.
+        let swapSig = FSMagic.swapSignature
+        for pageSize in FSMagic.swapPageSizes {
+            if b.count >= pageSize &&
+               b[(pageSize - swapSig.count)..<pageSize].elementsEqual(swapSig) {
                 return "linux_swap"
             }
         }
 
-        // ISO 9660
-        if b.count >= 0x8006 && Data(b[0x8001..<0x8006]) == Data("CD001".utf8) { return "iso9660" }
+        // ISO 9660: Primary Volume Descriptor marker 'CD001' at offset 0x8001.
+        let isoOff = FSMagic.iso9660Offset
+        if b.count >= isoOff + 5 && Data(b[isoOff..<isoOff+5]) == Data("CD001".utf8) {
+            return "iso9660"
+        }
 
         return "unknown"
     }
 
-    private static func classifyExt(_ b: [UInt8]) -> String {
-        guard b.count >= 1024 + 0x68 else { return "ext2" }
-        let sb = 1024
-        let incompat = UInt32(b[sb+0x60]) | (UInt32(b[sb+0x61]) << 8) |
-                       (UInt32(b[sb+0x62]) << 16) | (UInt32(b[sb+0x63]) << 24)
-        let compat   = UInt32(b[sb+0x5C]) | (UInt32(b[sb+0x5D]) << 8) |
-                       (UInt32(b[sb+0x5E]) << 16) | (UInt32(b[sb+0x5F]) << 24)
-        let ext4mask: UInt32 = 0x040|0x080|0x100|0x200|0x400|0x1000|0x2000|0x4000|0x8000
-        if incompat & ext4mask != 0 { return "ext4" }
-        if compat & 0x4 != 0 { return "ext3" }
+    // Internal for unit testing alongside classify.
+    static func classifyExt(_ b: [UInt8]) -> String {
+        let sb  = FSMagic.extSuperblockBase
+        let inc = FSMagic.extIncompatFlagOffset
+        let com = FSMagic.extCompatFlagOffset
+        guard b.count >= sb + inc + 4 else { return "ext2" }
+
+        let incompat = UInt32(b[sb+inc])   | (UInt32(b[sb+inc+1]) << 8)
+                     | (UInt32(b[sb+inc+2]) << 16) | (UInt32(b[sb+inc+3]) << 24)
+        let compat   = UInt32(b[sb+com])   | (UInt32(b[sb+com+1]) << 8)
+                     | (UInt32(b[sb+com+2]) << 16) | (UInt32(b[sb+com+3]) << 24)
+
+        if incompat & FSMagic.ext4IncompatFlags  != 0 { return "ext4" }
+        if compat   & FSMagic.ext3HasJournalFlag != 0 { return "ext3" }
         return "ext2"
     }
 
