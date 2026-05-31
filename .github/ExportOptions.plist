@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+
+    <!-- Distribution method: app-store submits to App Store Connect. -->
+    <key>method</key>
+    <string>app-store</string>
+
+    <!--
+        Your 10-character Apple Developer Team ID.
+        In CI this is replaced at runtime by release.yml from the APPLE_TEAM_ID secret.
+        For local export: replace XXXXXXXXXX with your actual team ID.
+    -->
+    <key>teamID</key>
+    <string>XXXXXXXXXX</string>
+
+    <key>signingStyle</key>
+    <string>manual</string>
+
+    <!--
+        Map each bundle ID to its App Store Connect provisioning profile name.
+        Profile names must match exactly what is shown in the Apple Developer portal
+        (Certificates, Identifiers & Profiles > Profiles).
+
+        In CI, matching .provisionprofile files are installed from GitHub secrets by
+        the "Install provisioning profiles" step in release.yml.
+
+        For local export, download the profiles from the portal and double-click to
+        install, then update the names below if they differ.
+    -->
+    <key>provisioningProfiles</key>
+    <dict>
+        <key>com.antimatterstudios.diskjockey</key>
+        <string>DiskJockey App Store</string>
+
+        <key>com.antimatterstudios.diskjockey.ext4</key>
+        <string>DiskJockey EXT4 App Store</string>
+
+        <key>com.antimatterstudios.diskjockey.ntfs</key>
+        <string>DiskJockey NTFS App Store</string>
+
+        <key>com.antimatterstudios.diskjockey.fileprovider</key>
+        <string>DiskJockey FileProvider App Store</string>
+
+        <key>com.antimatterstudios.diskjockey.agent</key>
+        <string>DiskJockey Agent App Store</string>
+    </dict>
+
+    <!-- Bitcode is not supported on macOS. -->
+    <key>uploadBitcode</key>
+    <false/>
+    <key>compileBitcode</key>
+    <false/>
+
+    <!--
+        Strip Swift standard-library symbols from the binary to reduce bundle size.
+        Set to false only if you need on-device symbolication of production crashes
+        without a separately uploaded dSYM bundle.
+    -->
+    <key>stripSwiftSymbols</key>
+    <true/>
+
+</dict>
+</plist>

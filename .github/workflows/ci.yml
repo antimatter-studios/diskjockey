@@ -1,0 +1,107 @@
+name: CI
+
+# Runs on every push and pull request.
+# No code signing — unit + library tests only.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build & Test
+    # macos-26 is the Apple Silicon runner for macOS 26.
+    # Fall back to macos-15 if the runner isn't available in your plan yet.
+    runs-on: macos-26
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Auto-select the newest installed Xcode on the runner.
+      - name: Select Xcode
+        run: |
+          XCODE=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          echo "Using Xcode: $XCODE"
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+
+      - name: Set up Rust (aarch64)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      # lib/ output is cached by vendor pin manifest.
+      # A cache hit skips all Rust + Go compilation.
+      - name: Restore vendor library cache
+        id: vendor-cache
+        uses: actions/cache@v4
+        with:
+          path: lib/
+          key: vendor-${{ runner.os }}-${{ hashFiles('VENDOR_PINS.txt') }}
+
+      # Only restore intermediate Rust artifacts on a vendor cache miss
+      # so the next miss still benefits from incremental compilation.
+      - name: Restore Cargo cache
+        if: steps.vendor-cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            vendor/rust-fs-ext4/target
+            vendor/rust-fs-ntfs/target
+            vendor/rust-img-qcow2/target
+            vendor/rust-img-vhd/target
+            vendor/rust-img-vhdx/target
+            vendor/rust-img-vmdk/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('vendor/rust-*/Cargo.lock', 'vendor/rust-*/rust-toolchain.toml') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - name: Build vendor libraries
+        if: steps.vendor-cache.outputs.cache-hit != 'true'
+        run: make vendor-fs-ext4 vendor-fs-ntfs vendor-img-containers vendor-gonetworkfs
+
+      - name: Validate vendor pins
+        run: make pins-check
+
+      # Generate the protobuf Swift bindings if not already present in the tree.
+      - name: Generate protobuf bindings
+        run: |
+          if [ ! -f DiskJockeyLibrary/Protobuf/fileprovider.pb.swift ]; then
+            brew install protobuf swift-protobuf
+            make proto
+          fi
+
+      - name: Install xcbeautify
+        run: brew install xcbeautify
+
+      # UI tests are excluded — they require a running app and virtual display.
+      - name: Test
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project DiskJockey.xcodeproj \
+            -scheme DiskJockey \
+            -destination 'platform=macOS,arch=arm64' \
+            -skip-testing DiskJockeyUITests \
+            ONLY_ACTIVE_ARCH=YES \
+            ARCHS=arm64 \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_ALLOWED=NO \
+          | xcbeautify --renderer github-actions
