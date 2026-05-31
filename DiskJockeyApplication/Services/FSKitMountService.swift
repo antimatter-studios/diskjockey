@@ -282,7 +282,7 @@ final class FSKitMountService {
                 if let err { cont.resume(throwing: err) } else { cont.resume() }
             }
             let ptr = Unmanaged.passRetained(box).toOpaque()
-            DADiskMount(disk, nil, DADiskMountOptions(kDADiskMountOptionDefault), { (_, dissenter, ctx) in
+            let cb: DADiskMountCallback = { (_, dissenter, ctx) in
                 guard let ctx else { return }
                 let b = Unmanaged<DACallbackBox>.fromOpaque(ctx).takeRetainedValue()
                 if let d = dissenter {
@@ -292,7 +292,14 @@ final class FSKitMountService {
                 } else {
                     b.resume(nil)
                 }
-            }, ptr)
+            }
+            // Request a read-write mount explicitly. Without this, diskarbitrationd
+            // treats disk images and removable media as read-only by default, which
+            // causes FSBlockDeviceResource.isWritable to return false and the FSKit
+            // extension to see a read-only resource.
+            var args: [Unmanaged<CFString>?] = [Unmanaged.passRetained("rw" as CFString), nil]
+            DADiskMountWithArguments(disk, nil, DADiskMountOptions(kDADiskMountOptionDefault), cb, ptr, &args)
+            args[0]?.release()
         }
     }
 
@@ -592,18 +599,8 @@ enum FSKitAttachController {
             }
         }
 
-        let fallbackName = url.deletingPathExtension().lastPathComponent
-        let alert = NSAlert()
-        alert.messageText = "Mount as…"
-        alert.informativeText = "Volume will appear at /Volumes/<name> (\(fsType.uppercased()))"
-        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-        input.stringValue = fallbackName
-        alert.accessoryView = input
-        alert.addButton(withTitle: "Mount")
-        alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-
-        let name = input.stringValue.trimmingCharacters(in: .whitespaces)
+        // DA mounts at the volume's own label — no need to ask the user for a name.
+        let name = url.deletingPathExtension().lastPathComponent
         logRepository?.logFSKit(
             "attach (\(fsType)) requested: \(url.path) -> /Volumes/\(name)", category: "info")
         Task { @MainActor in
@@ -673,22 +670,17 @@ enum FSKitAttachController {
             return "  \(support) p\(p.index): \(p.fsKind)\(label), \(mb) MiB\(driver)"
         }.joined(separator: "\n")
 
-        let fallback = url.deletingPathExtension().lastPathComponent
+        let prefix = url.deletingPathExtension().lastPathComponent
         let alert = NSAlert()
         alert.messageText = "\(probe.partitions.count) partition\(probe.partitions.count == 1 ? "" : "s") detected (\(probe.table.uppercased()))"
-        var info = "\(url.lastPathComponent) (\(probe.container)):\n\(lines)\n\nWill mount \(supported.count) partition\(supported.count == 1 ? "" : "s") at /Volumes/<name>-pN."
+        var info = "\(url.lastPathComponent) (\(probe.container)):\n\(lines)\n\nWill mount \(supported.count) partition\(supported.count == 1 ? "" : "s"). Each volume will appear under its own label in /Volumes."
         if !skipped.isEmpty {
             info += "\n\(skipped.count) partition\(skipped.count == 1 ? "" : "s") skipped."
         }
         alert.informativeText = info
-        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-        input.stringValue = fallback
-        alert.accessoryView = input
         alert.addButton(withTitle: "Mount All")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-
-        let prefix = input.stringValue.trimmingCharacters(in: .whitespaces)
         logRepository?.logFSKit(
             "attach-all-partitions \(probe.container) \(supported.count)p: \(url.path) -> /Volumes/\(prefix)-pN",
             category: "info")
@@ -746,29 +738,16 @@ enum FSKitAttachController {
         panel.message = "Pick a .img or block device to mount as \(fsType)."
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
-        let fallbackName = url.deletingPathExtension().lastPathComponent
-        let alert = NSAlert()
-        alert.messageText = "Mount as…"
-        alert.informativeText = "Volume will appear at /Volumes/<name>"
-        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-        input.stringValue = fallbackName
-        alert.accessoryView = input
-        alert.addButton(withTitle: "Mount")
-        alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-
-        let name = input.stringValue.trimmingCharacters(in: .whitespaces)
+        // DA mounts at the volume's own label — no need to ask the user for a name.
+        let name = url.deletingPathExtension().lastPathComponent
         logRepository?.logFSKit(
-            "attach (\(fsType)) requested: \(url.path) -> /Volumes/\(name)", category: "info")
+            "attach (\(fsType)) requested: \(url.path)", category: "info")
         Task { @MainActor in
             do {
                 try await FSKitMountService.shared.attach(
                     imagePath: url.path, name: name, fsType: fsType)
                 logRepository?.logFSKit(
-                    "mounted /Volumes/\(name) from \(url.path) (\(fsType))", category: "info")
-                let ok = NSAlert()
-                ok.messageText = "Mounted at /Volumes/\(name)"
-                ok.runModal()
+                    "mounted \(url.path) (\(fsType))", category: "info")
             } catch {
                 logRepository?.logFSKit(
                     "mount /Volumes/\(name) failed: \(error.localizedDescription)",
