@@ -81,31 +81,29 @@ final class DJAgentClient {
 
     func detachDevice(_ bsdName: String) async throws {
         let proxy = try makeProxy()
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            proxy.detachDevice(bsdName) { success, error in
-                if success {
-                    continuation.resume()
-                } else {
-                    let msg = error ?? "agent detach failed"
-                    continuation.resume(throwing: FSKitMountService.FSKitError.processFailed(
-                        exitCode: -1, stderr: msg))
-                }
-            }
+        try await callAgent(fallbackError: "agent detach failed") { cb in
+            proxy.detachDevice(bsdName, reply: cb)
         }
     }
 
     func mountFSKit(source: String, mountPoint: String, fsType: String,
                     partitionOffset: Int64 = 0, partitionLength: Int64 = 0) async throws {
         let proxy = try makeProxy()
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        try await callAgent(fallbackError: "agent mountFSKit failed") { cb in
             proxy.mountFSKit(source: source, mountPoint: mountPoint, fsType: fsType,
-                             partitionOffset: partitionOffset, partitionLength: partitionLength) { success, error in
+                             partitionOffset: partitionOffset, partitionLength: partitionLength, reply: cb)
+        }
+    }
+
+    private func callAgent(fallbackError: String,
+                           body: @escaping (@escaping (Bool, String?) -> Void) -> Void) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            body { success, error in
                 if success {
                     continuation.resume()
                 } else {
-                    let msg = error ?? "agent mountFSKit failed"
                     continuation.resume(throwing: FSKitMountService.FSKitError.processFailed(
-                        exitCode: -1, stderr: msg))
+                        exitCode: -1, stderr: error ?? fallbackError))
                 }
             }
         }

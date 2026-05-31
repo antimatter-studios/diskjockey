@@ -131,11 +131,10 @@ final class DiskArbitrationService {
         // modules that fill `FSContainerIdentifier.uuid` on probe (our
         // ext4 + ntfs do this). May be missing on bare msdos volumes
         // without the optional Boot Sector UUID slot.
-        if let uuidRef = desc[kDADiskDescriptionVolumeUUIDKey as String] {
-            let uuidCF = uuidRef as! CFUUID
-            if let strRef = CFUUIDCreateString(kCFAllocatorDefault, uuidCF) {
-                fields["volume_uuid"] = strRef as String
-            }
+        if let uuidRef = desc[kDADiskDescriptionVolumeUUIDKey as String],
+           CFGetTypeID(uuidRef as CFTypeRef) == CFUUIDGetTypeID(),
+           let strRef = CFUUIDCreateString(kCFAllocatorDefault, uuidRef as! CFUUID) {
+            fields["volume_uuid"] = strRef as String
         }
 
         AppLog.shared.info(

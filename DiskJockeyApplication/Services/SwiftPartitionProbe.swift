@@ -9,6 +9,11 @@ import Foundation
 /// VHD, VHDX, VMDK) are not decompressed here — fall back to diskprobe
 /// for those.
 enum SwiftPartitionProbe {
+    /// PC BIOS boot sector magic — last two bytes of the 512-byte MBR.
+    private static let mbrSignatureByte0: UInt8 = 0x55
+    private static let mbrSignatureByte1: UInt8 = 0xAA
+    private static let mbrSignatureOffset0 = 510
+    private static let mbrSignatureOffset1 = 511
 
     // MARK: - Top-level entry point
 
@@ -41,8 +46,7 @@ enum SwiftPartitionProbe {
             )
         }
 
-        // MBR: boot signature 0x55 0xAA at bytes 510-511.
-        if sector0[510] == 0x55 && sector0[511] == 0xAA {
+        if sector0[mbrSignatureOffset0] == mbrSignatureByte0 && sector0[mbrSignatureOffset1] == mbrSignatureByte1 {
             // Protective MBR (single 0xEE entry) means GPT was supposed to be
             // here but the GPT header is missing or unreadable — treat as none.
             let parts = parseMBR(sector0: sector0, handle: handle)

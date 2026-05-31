@@ -38,10 +38,10 @@ import SQLite3
 final class ThumbnailCache: @unchecked Sendable {
     static let shared = ThumbnailCache()
 
-    /// 5 minute TTL — long enough to absorb the "user scrolls a folder
-    /// in and out a few times" pattern, short enough that an updated
-    /// thumbnail surfaces within the same coffee break.
-    private static let ttl: TimeInterval = 5 * 60
+    /// Long enough to absorb repeated scroll-into-folder round-trips,
+    /// short enough that an updated thumbnail surfaces within the same
+    /// coffee break.
+    private static let ttlSeconds: TimeInterval = 5 * 60
 
     private let queue = DispatchQueue(label: "com.antimatterstudios.diskjockey.thumbcache")
     private var db: OpaquePointer?
@@ -113,26 +113,33 @@ final class ThumbnailCache: @unchecked Sendable {
 
     private func fetch(mountID: String, path: String, bucket: Int) -> Data? {
         guard let db = db else { return nil }
-        let now = Date().timeIntervalSince1970
-        let cutoff = now - Self.ttl
-        let sql = """
-        SELECT data FROM thumbnails
-        WHERE mount_id = ? AND path = ? AND size_bucket = ?
-              AND fetched_at >= ?
-        """
-        var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
-            return nil
-        }
+        let cutoff = Date().timeIntervalSince1970 - Self.ttlSeconds
+        let sql = "SELECT data FROM thumbnails WHERE mount_id = ? AND path = ? AND size_bucket = ? AND fetched_at >= ?"
+        guard let stmt = prepareStatement(db, sql: sql) else { return nil }
         defer { sqlite3_finalize(stmt) }
+        bindThumbnailKey(stmt, mountID: mountID, path: path, bucket: bucket, cutoff: cutoff)
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
+        return readBlob(from: stmt, column: 0)
+    }
+
+    private func prepareStatement(_ db: OpaquePointer, sql: String) -> OpaquePointer? {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
+        return stmt
+    }
+
+    private func bindThumbnailKey(_ stmt: OpaquePointer,
+                                  mountID: String, path: String, bucket: Int, cutoff: Double) {
         sqlite3_bind_text(stmt, 1, mountID, -1, Self.SQLITE_TRANSIENT)
         sqlite3_bind_text(stmt, 2, path, -1, Self.SQLITE_TRANSIENT)
         sqlite3_bind_int(stmt, 3, Int32(bucket))
         sqlite3_bind_double(stmt, 4, cutoff)
-        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
-        let bytes = sqlite3_column_blob(stmt, 0)
-        let count = Int(sqlite3_column_bytes(stmt, 0))
-        guard let bytes = bytes, count > 0 else { return nil }
+    }
+
+    private func readBlob(from stmt: OpaquePointer, column: Int32) -> Data? {
+        let bytes = sqlite3_column_blob(stmt, column)
+        let count = Int(sqlite3_column_bytes(stmt, column))
+        guard let bytes, count > 0 else { return nil }
         return Data(bytes: bytes, count: count)
     }
 
@@ -142,7 +149,7 @@ final class ThumbnailCache: @unchecked Sendable {
 
         // Vacuum stale rows first — bounded work, keeps the table
         // size proportional to "files currently being browsed."
-        let cutoff = now - Self.ttl
+        let cutoff = now - Self.ttlSeconds
         var vacStmt: OpaquePointer?
         if sqlite3_prepare_v2(db, "DELETE FROM thumbnails WHERE fetched_at < ?", -1, &vacStmt, nil) == SQLITE_OK {
             sqlite3_bind_double(vacStmt, 1, cutoff)

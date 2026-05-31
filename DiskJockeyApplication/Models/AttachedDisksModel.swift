@@ -533,54 +533,56 @@ public final class AttachedDisksModel: ObservableObject {
     /// detail view renders.
     public func applyExtensionEvent(kind: String, fields: [String: String]) {
         guard let bsd = fields["bsd"] else { return }
-        let idx: Int
-        if let existing = disks.firstIndex(where: { $0.bsd == bsd }) {
-            idx = existing
-        } else {
-            // Whole-disk BSDs ("disk4") are containers for partitions
-            // ("disk4s1", "disk4s2"), not mountable filesystems
-            // themselves. An FSKit extension probe against the whole
-            // disk would otherwise create a preview row stuck in
-            // `.mounting` forever (mount(8) never reports it) that
-            // immediately resurrects after Forget. Queue the events
-            // instead — the rare no-partition-table case still gets
-            // them replayed if a `.live` row materialises via mount(8).
-            if Self.isWholeDiskBSD(bsd) {
-                pendingEvents[bsd, default: []].append((kind: kind, fields: fields))
-                return
-            }
-            // No row yet. Only create a preview when we can name an
-            // fsType — either from the event's `kind` ("ext4.probe" →
-            // ext4) or from a `fs` field on a `volume.info` event.
-            // Without a real fsType, this would be a phantom Local
-            // Drives row (e.g. an FSKit extension probe of an empty
-            // SD-reader slot emits a kind we can't decode and no `fs`
-            // field). Empty-fsType events get queued — if a real
-            // structured event with fsType info arrives later we
-            // create the row and replay the queue. Empty drives
-            // belong in the Empty Drives sidebar section sourced from
-            // RawDisksModel, not here.
-            let inferredFs = Self.fsTypeFromEventKind(kind)
-            let fieldFs = (kind == "volume.info") ? fields["fs"] : nil
-            let fsType = inferredFs ?? fieldFs ?? ""
-            guard !fsType.isEmpty else {
-                pendingEvents[bsd, default: []].append((kind: kind, fields: fields))
-                return
-            }
-            let preview = AttachedDisk(
-                bsd: bsd,
-                mountPath: "",
-                devicePath: "/dev/\(bsd)",
-                fsType: fsType,
-                name: bsd,
-                isWritable: true,  // assumed writable; corrected on first refresh()
-                status: .mounting
-            )
-            disks.append(preview)
-            idx = disks.count - 1
-            AppLog.shared.info("preview row added for \(bsd) (\(fsType))")
+
+        if let idx = disks.firstIndex(where: { $0.bsd == bsd }) {
+            Self.applyEventInPlace(kind: kind, fields: fields, to: &disks[idx])
+            return
         }
-        Self.applyEventInPlace(kind: kind, fields: fields, to: &disks[idx])
+
+        // Whole-disk BSDs ("disk4") are containers for partitions
+        // ("disk4s1", "disk4s2"), not mountable filesystems
+        // themselves. An FSKit extension probe against the whole
+        // disk would otherwise create a preview row stuck in
+        // `.mounting` forever (mount(8) never reports it) that
+        // immediately resurrects after Forget. Queue the events
+        // instead — the rare no-partition-table case still gets
+        // them replayed if a `.live` row materialises via mount(8).
+        if Self.isWholeDiskBSD(bsd) {
+            pendingEvents[bsd, default: []].append((kind: kind, fields: fields))
+            return
+        }
+
+        // No row yet. Only create a preview when we can name an
+        // fsType — either from the event's `kind` ("ext4.probe" →
+        // ext4) or from a `fs` field on a `volume.info` event.
+        // Without a real fsType, this would be a phantom Local
+        // Drives row (e.g. an FSKit extension probe of an empty
+        // SD-reader slot emits a kind we can't decode and no `fs`
+        // field). Empty-fsType events get queued — if a real
+        // structured event with fsType info arrives later we
+        // create the row and replay the queue. Empty drives
+        // belong in the Empty Drives sidebar section sourced from
+        // RawDisksModel, not here.
+        let inferredFs = Self.fsTypeFromEventKind(kind)
+        let fieldFs = (kind == "volume.info") ? fields["fs"] : nil
+        let fsType = inferredFs ?? fieldFs ?? ""
+        guard !fsType.isEmpty else {
+            pendingEvents[bsd, default: []].append((kind: kind, fields: fields))
+            return
+        }
+
+        let preview = AttachedDisk(
+            bsd: bsd,
+            mountPath: "",
+            devicePath: "/dev/\(bsd)",
+            fsType: fsType,
+            name: bsd,
+            isWritable: true,  // assumed writable; corrected on first refresh()
+            status: .mounting
+        )
+        disks.append(preview)
+        AppLog.shared.info("preview row added for \(bsd) (\(fsType))")
+        Self.applyEventInPlace(kind: kind, fields: fields, to: &disks[disks.count - 1])
     }
 
     /// Apply a plain NDJSON log line to the matching disk's partition
@@ -749,35 +751,40 @@ public final class AttachedDisksModel: ObservableObject {
     /// populate `info` — that's done by the live caller after parsing
     /// so the test path doesn't have to mock statvfs.
     nonisolated static func parseMountLine(_ line: String, fsTypesOfInterest: Set<String>) -> AttachedDisk? {
-        // "/dev/diskN on /Volumes/Foo (fstype, flag1, flag2)"
-        guard let onRange = line.range(of: " on ") else { return nil }
-        let devicePath = String(line[..<onRange.lowerBound])
-        let rest = line[onRange.upperBound...]
-        guard let parenOpen = rest.range(of: " (") else { return nil }
-        let mountPath = String(rest[..<parenOpen.lowerBound])
-        let flagsStr = rest[parenOpen.upperBound...]
-        guard let parenClose = flagsStr.range(of: ")", options: .backwards) else { return nil }
-        let flagsBody = flagsStr[..<parenClose.lowerBound]
-        let flags = flagsBody.split(separator: ",").map {
-            $0.trimmingCharacters(in: .whitespaces)
-        }
-        guard let fsType = flags.first else { return nil }
-        guard fsTypesOfInterest.contains(fsType) else { return nil }
+        // Format: "/dev/diskN on /Volumes/Foo (fstype, flag1, flag2)"
+        guard let (devicePath, mountPath, flags) = splitMountLine(line) else { return nil }
+        guard let fsType = flags.first, fsTypesOfInterest.contains(fsType) else { return nil }
 
         // macOS mount(8) emits "read-only" for RO mounts; older / other
         // tools sometimes emit the bare token "ro". Treat both as RO.
         let isWritable = !flags.contains("read-only") && !flags.contains("ro")
-
-        let name = (mountPath as NSString).lastPathComponent
-        let bsd = Self.bsdName(from: devicePath)
         return AttachedDisk(
-            bsd: bsd,
+            bsd: Self.bsdName(from: devicePath),
             mountPath: mountPath,
             devicePath: devicePath,
             fsType: fsType,
-            name: name,
+            name: (mountPath as NSString).lastPathComponent,
             isWritable: isWritable
         )
+    }
+
+    nonisolated private static func splitMountLine(
+        _ line: String
+    ) -> (devicePath: String, mountPath: String, flags: [String])? {
+        guard let onRange = line.range(of: " on ") else { return nil }
+        let devicePath = String(line[..<onRange.lowerBound])
+        let afterOn = line[onRange.upperBound...]
+
+        guard let parenOpen = afterOn.range(of: " (") else { return nil }
+        let mountPath = String(afterOn[..<parenOpen.lowerBound])
+        let flagsBody = afterOn[parenOpen.upperBound...]
+
+        guard let parenClose = flagsBody.range(of: ")", options: .backwards) else { return nil }
+        let flags = flagsBody[..<parenClose.lowerBound]
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+
+        return (devicePath, mountPath, flags)
     }
 
     /// Compute the concrete `total_size` in bytes for a managed
@@ -816,13 +823,20 @@ public final class AttachedDisksModel: ObservableObject {
             "fs": fsType,
             "volume_name": volumeName,
         ]
-        if let attrs = try? FileManager.default.attributesOfFileSystem(forPath: mountPath) {
+        do {
+            let attrs = try FileManager.default.attributesOfFileSystem(forPath: mountPath)
             if let total = attrs[.systemSize] as? NSNumber {
                 out["total_size"] = String(total.uint64Value)
+            } else if attrs[.systemSize] != nil {
+                AppLog.shared.warn("statvfsInfo: unexpected type for systemSize at \(mountPath)")
             }
             if let free = attrs[.systemFreeSize] as? NSNumber {
                 out["free_size"] = String(free.uint64Value)
+            } else if attrs[.systemFreeSize] != nil {
+                AppLog.shared.warn("statvfsInfo: unexpected type for systemFreeSize at \(mountPath)")
             }
+        } catch {
+            AppLog.shared.warn("statvfsInfo: attributesOfFileSystem failed for \(mountPath): \(error.localizedDescription)")
         }
         return out
     }

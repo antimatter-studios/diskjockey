@@ -186,6 +186,10 @@ public struct IOStats: Equatable, Hashable, Sendable {
             return
         }
 
+        // &- (wrapping subtraction) because the guard above only checks
+        // the four headline counters; other per-op counters (e.g. opCount)
+        // could theoretically wrap between snapshots without triggering the
+        // reset. Wrapping keeps those deltas non-negative rather than trapping.
         let dRead = Double(snapshot.bytesRead &- cumulative.bytesRead)
         let dWrite = Double(snapshot.bytesWritten &- cumulative.bytesWritten)
         let dBdevRead = Double(snapshot.bdevBytesRead &- cumulative.bdevBytesRead)

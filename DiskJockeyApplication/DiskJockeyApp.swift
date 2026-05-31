@@ -43,6 +43,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
+    func application(_ sender: NSApplication, openFile filename: String) -> Bool {
+        let url = URL(fileURLWithPath: filename)
+        showMainWindow()
+        FSKitAttachController.attachUserPickedImage(at: url, logRepository: container.logRepository)
+        return true
+    }
+
     // MARK: - Main Menu
 
     private func setupMainMenu() {
@@ -116,12 +123,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Window
 
-    @objc private func attachEXT4Image() {
-        FSKitAttachController.promptAndAttach(fsType: "ext4", logRepository: container.logRepository)
-    }
+    @objc private func attachEXT4Image() { attachImage(fsType: "ext4") }
+    @objc private func attachNTFSImage() { attachImage(fsType: "ntfs") }
 
-    @objc private func attachNTFSImage() {
-        FSKitAttachController.promptAndAttach(fsType: "ntfs", logRepository: container.logRepository)
+    private func attachImage(fsType: String) {
+        FSKitAttachController.promptAndAttach(fsType: fsType, logRepository: container.logRepository)
     }
 
     @objc private func detachEXT4Volume() {
