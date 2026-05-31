@@ -10,7 +10,7 @@ final class AgentImpl: NSObject, DJAgentProtocol {
         proc.standardOutput = pipe
         proc.standardError = Pipe()
         do {
-            try proc.launch()
+            try proc.run()
             proc.waitUntilExit()
         } catch {
             reply(nil, error.localizedDescription)
@@ -53,9 +53,12 @@ final class AgentImpl: NSObject, DJAgentProtocol {
         let pipe2 = Pipe()
         proc2.standardOutput = pipe2
         proc2.standardError = Pipe()
-        do { try proc2.launch(); proc2.waitUntilExit() } catch {
+        do {
+            try proc2.run()
+        } catch {
             reply(nil, error.localizedDescription); return
         }
+        proc2.waitUntilExit()
         guard proc2.terminationStatus == 0 else {
             reply(nil, "hdiutil attach (retry) exited with status \(proc2.terminationStatus)")
             return
@@ -81,7 +84,7 @@ final class AgentImpl: NSObject, DJAgentProtocol {
         let pipe = Pipe()
         proc.standardOutput = pipe
         proc.standardError = Pipe()
-        guard (try? proc.launch()) != nil else { return nil }
+        guard (try? proc.run()) != nil else { return nil }
         proc.waitUntilExit()
         guard proc.terminationStatus == 0 else { return nil }
 
@@ -114,7 +117,7 @@ final class AgentImpl: NSObject, DJAgentProtocol {
         proc.arguments = ["detach", "-force", bsdName]
         proc.standardOutput = Pipe()
         proc.standardError = Pipe()
-        try? proc.launch()
+        try? proc.run()
         proc.waitUntilExit()
     }
 
@@ -126,7 +129,7 @@ final class AgentImpl: NSObject, DJAgentProtocol {
         proc.standardOutput = Pipe()
         proc.standardError = Pipe()
         do {
-            try proc.launch()
+            try proc.run()
             proc.waitUntilExit()
         } catch {
             reply(false, error.localizedDescription)
@@ -181,7 +184,7 @@ final class AgentImpl: NSObject, DJAgentProtocol {
         proc.standardOutput = outPipe
         proc.standardError = errPipe
         do {
-            try proc.launch()
+            try proc.run()
             proc.waitUntilExit()
         } catch {
             reply(nil, error.localizedDescription)

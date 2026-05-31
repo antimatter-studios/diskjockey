@@ -682,7 +682,7 @@ enum FSKitAttachController {
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         logRepository?.logFSKit(
-            "attach-all-partitions \(probe.container) \(supported.count)p: \(url.path) -> /Volumes/\(prefix)-pN",
+            "attach-all-partitions \(probe.container) \(supported.count)p: \(url.path)",
             category: "info")
         Task { @MainActor in
             do {
