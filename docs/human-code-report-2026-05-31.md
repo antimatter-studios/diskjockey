@@ -566,3 +566,153 @@ Added `@unknown default` case returning `Image(systemName: "questionmark.square.
 | Static analysis errors | 0 | 0 |
 
 No regressions. Each change was compiled and tested before the next was applied.
+
+---
+
+## Session 2 — continuation (same day)
+
+**Tests before session 2:** 52 passing | **Tests after:** 75 passing (+23 new)
+
+### New — SwiftPartitionProbeTests (23 tests)
+
+**Files:** [DiskJockeyTests/SwiftPartitionProbeTests.swift](../DiskJockeyTests/SwiftPartitionProbeTests.swift) *(new)*
+
+Pure functions `classify()` and `classifyExt()` changed from `private static` → `static` (internal) to allow `@testable import DiskJockey`. 23 unit tests added covering: empty buffer, squashfs, ntfs/exfat/fat32/fat16 OEM strings, ext2/ext3/ext4 superblock flags, hfs+, apfs, linux swap (4K + 8K page sizes), iso9660, and `classifyExt` edge cases (short buffer, no flags, has-journal, extents, all-incompat flags).
+
+---
+
+### S2-H2 — `applyEventInPlace` god function (AttachedDisksModel.swift)
+
+**Files:** [DiskJockeyApplication/Models/AttachedDisksModel.swift](../DiskJockeyApplication/Models/AttachedDisksModel.swift)
+
+```swift
+// Before — 79-line function with three inline branches
+private static func applyEventInPlace(kind: String, fields: ..., to disk: inout AttachedDisk) {
+    if kind == "volume.info" { /* 38 lines */ }
+    if kind == "io.stats" { disk.ioStats.absorb(...) }
+    switch kind { case "volume.clean": ... case "fsck.done": /* 10 lines */ }
+}
+
+// After — thin dispatcher calling named helpers
+private static func applyVolumeInfo(fields: [String: String], to disk: inout AttachedDisk)
+private static func fsckStatus(kind:fields:disk:) -> FsckStatus?
+```
+
+Decouples stableIdentity/fsType/name logic from fsck status logic. Each helper is independently readable.
+
+---
+
+### S2-M10 — NTFS attribute bit constants (NTFSVolume.swift)
+
+**Files:** [DiskJockeyNTFS/NTFSVolume.swift](../DiskJockeyNTFS/NTFSVolume.swift)
+
+```swift
+// Before
+let ntfsHiddenSystem: UInt32 = 0x0002 | 0x0004
+attrs.flags = isHidden ? 0x8000 : 0
+
+// After
+private static let ntfsAttrHidden: UInt32 = 0x0002  // FILE_ATTRIBUTE_HIDDEN
+private static let ntfsAttrSystem: UInt32  = 0x0004  // FILE_ATTRIBUTE_SYSTEM
+private static let bsdFlagHidden:  UInt32  = 0x8000  // UF_HIDDEN
+```
+
+Windows SDK name documents each constant at the definition site.
+
+---
+
+### S2-M2 — Flatten nesting inside `applyTimes` (NTFSVolume.swift)
+
+**Files:** [DiskJockeyNTFS/NTFSVolume.swift](../DiskJockeyNTFS/NTFSVolume.swift)
+
+Session 1 extracted `applyTimes` to a static method but left the four-level `withUnsafePointer` nesting inside it. This session replaces it:
+
+```swift
+// Before — four nested closures
+var c = creation, m = modify, ch = change, a = access
+return withUnsafePointer(to: &c) { cPtr in withUnsafePointer(to: &m) { mPtr in ... } }
+
+// After — flat buffer
+let times: ContiguousArray<Int64> = [creation, modify, change, access]
+return times.withUnsafeBufferPointer { buf in
+    fs_ntfs_set_times_h(fs, path,
+        creationValid ? buf.baseAddress      : nil,
+        modifyValid   ? buf.baseAddress! + 1 : nil, ...)
+}
+```
+
+`ContiguousArray` guarantees contiguous layout, so pointer arithmetic is valid.
+
+---
+
+### S2-H7 — Duplicate `hdiutil attach` launch in `attachImage` (AgentImpl.swift)
+
+**Files:** [DiskJockeyAgent/AgentImpl.swift](../DiskJockeyAgent/AgentImpl.swift)
+
+```swift
+// Before — 15-line Process+plist block repeated for initial attach and retry
+let proc = Process(); proc.arguments = ["attach", ...]; ...
+// identical block again 30 lines lower
+
+// After — extracted helper, called at both sites
+private static func hdiutilAttach(path: String) -> Result<[String], String>
+
+switch Self.hdiutilAttach(path: path) {
+case .success(let slices): reply(slices, nil)
+case .failure(let err): /* stale-image detach path */
+}
+```
+
+---
+
+### S2-H9 — CF UUID helper (DiskArbitrationService.swift)
+
+**Files:** [DiskJockeyApplication/Services/DiskArbitrationService.swift](../DiskJockeyApplication/Services/DiskArbitrationService.swift)
+
+Session 1 added a CFTypeID guard before the force cast. This session promotes it to a named helper:
+
+```swift
+private static func cfuuidString(from dict: NSDictionary, key: String) -> String? {
+    guard let ref = dict[key], CFGetTypeID(ref as CFTypeRef) == CFUUIDGetTypeID() else { return nil }
+    let uuid = unsafeBitCast(ref as CFTypeRef, to: CFUUID.self)
+    return CFUUIDCreateString(kCFAllocatorDefault, uuid) as String?
+}
+```
+
+The `unsafeBitCast` is safe (type-checked above) and the comment says so. Helper is reusable for other DA UUID keys.
+
+---
+
+### S2-L3 — Inline pluralisation ternaries (FSKitMountService.swift)
+
+**Files:** [DiskJockeyApplication/Services/FSKitMountService.swift](../DiskJockeyApplication/Services/FSKitMountService.swift)
+
+```swift
+// Before (×3)
+"\(n) partition\(n == 1 ? "" : "s") detected"
+
+// After
+"\(plural(n, "partition")) detected"
+
+private func plural(_ n: Int, _ word: String) -> String {
+    n == 1 ? "1 \(word)" : "\(n) \(word)s"
+}
+```
+
+---
+
+### Session 2 items skipped
+
+| Item | Reason |
+|---|---|
+| H4: `attachMultiPartition` | Pluralisation smell (L3) fixed; remaining code is unavoidable UI flow |
+| H5: `modifyItem` | 50-line FSKit protocol method, clean try/catch, no extraction value |
+| H6: `fetchThumbnailsInBackground` | On reading: 37 lines, flat for-loop inside one async block — not nested |
+| H8: `handleAppeared` | Single responsibility: build volume.info event from DADisk; clean |
+| M1: `runFsck` config setup | Idiomatic struct init + `defer` + nested `func remount()` — no better decomposition |
+| M5: `splitMountLine`/`materializeTotalSize` | Already separate private static helpers; no smell present |
+| M6: item cache lookup | 13-line `itemsLock.withLock { if ... }` — flat, not nested |
+| M7: `mapDriverError` heuristic | `looksLikeNotFound` named variable already documents the intent |
+| M8: `mount` inline `ReplyBox` | Idiomatic Swift for Unmanaged/C-callback; no readability gain |
+| L1: `maximumLinkCount` = 65000 | Correct for ext4 (EXT4_LINK_MAX); ext2/3 is 32000 |
+| L2: URL recomputed in loop | False positive — `canonical` computed once before the loop |
