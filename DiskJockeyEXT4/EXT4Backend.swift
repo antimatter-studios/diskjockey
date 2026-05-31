@@ -38,37 +38,10 @@ final class EXT4Backend: FileSystemBackend {
             var info = fs_ext4_volume_info_t()
             fs_ext4_get_volume_info(fs, &info)
 
-            let name = withUnsafePointer(to: info.volume_name) { ptr in
-                ptr.withMemoryRebound(to: CChar.self, capacity: 16) { cstr in
-                    String(cString: cstr)
-                }
-            }
-            // Format the raw 16-byte UUID as canonical 8-4-4-4-12 hex
-            // so it round-trips with `blkid` / `tune2fs -l`.
-            let uuidStr = withUnsafePointer(to: info.uuid) { ptr -> String in
-                ptr.withMemoryRebound(to: UInt8.self, capacity: 16) { bytes in
-                    String(format: "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
-                           bytes[0], bytes[1], bytes[2], bytes[3],
-                           bytes[4], bytes[5],
-                           bytes[6], bytes[7],
-                           bytes[8], bytes[9],
-                           bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15])
-                }
-            }
-            // s_last_mounted is empty-string on a freshly mkfs'd FS;
-            // surface as nil so the host app can omit the row instead
-            // of rendering "Last mounted at: (empty)".
-            let lastMountedStr = withUnsafePointer(to: info.last_mounted) { ptr -> String? in
-                ptr.withMemoryRebound(to: CChar.self, capacity: 64) { cstr in
-                    let s = String(cString: cstr)
-                    return s.isEmpty ? nil : s
-                }
-            }
-
             return BackendVolumeInfo(
-                name: name.isEmpty ? "ext4" : name,
-                uuid: uuidStr,
-                lastMounted: lastMountedStr,
+                name: Self.volumeName(from: &info),
+                uuid: Self.uuidString(from: &info),
+                lastMounted: Self.lastMountedPath(from: &info),
                 blockSize: info.block_size,
                 totalBlocks: info.total_blocks,
                 freeBlocks: info.free_blocks,
@@ -99,6 +72,42 @@ final class EXT4Backend: FileSystemBackend {
                 defResGID: info.def_resgid,
                 mountedDirty: info.mounted_dirty != 0
             )
+        }
+    }
+
+    // MARK: - Volume-info helpers
+
+    /// Returns the volume label, falling back to "ext4" for unlabelled volumes.
+    private static func volumeName(from info: inout fs_ext4_volume_info_t) -> String {
+        let raw = withUnsafePointer(to: info.volume_name) { ptr in
+            ptr.withMemoryRebound(to: CChar.self, capacity: 16) { String(cString: $0) }
+        }
+        return raw.isEmpty ? "ext4" : raw
+    }
+
+    /// Formats the 16-byte UUID field as canonical RFC 4122 lowercase hex (8-4-4-4-12)
+    /// so it round-trips with `blkid` / `tune2fs -l`.
+    private static func uuidString(from info: inout fs_ext4_volume_info_t) -> String {
+        withUnsafePointer(to: info.uuid) { ptr in
+            ptr.withMemoryRebound(to: UInt8.self, capacity: 16) { b in
+                String(format: "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+                       b[0],  b[1],  b[2],  b[3],
+                       b[4],  b[5],
+                       b[6],  b[7],
+                       b[8],  b[9],
+                       b[10], b[11], b[12], b[13], b[14], b[15])
+            }
+        }
+    }
+
+    /// Returns nil for empty strings — freshly mkfs'd volumes have no last-mount path,
+    /// and surfacing an empty string confuses the host app's detail view.
+    private static func lastMountedPath(from info: inout fs_ext4_volume_info_t) -> String? {
+        withUnsafePointer(to: info.last_mounted) { ptr in
+            ptr.withMemoryRebound(to: CChar.self, capacity: 64) { cstr in
+                let s = String(cString: cstr)
+                return s.isEmpty ? nil : s
+            }
         }
     }
 
@@ -147,7 +156,7 @@ final class EXT4Backend: FileSystemBackend {
             }
             defer { fs_ext4_dir_close(iter) }
             let entries = Self.collectEntries(from: iter)
-            backendLogger.error("readDirectory(\(path)): returning \(entries.count) entries")
+            backendLogger.debug("readDirectory(\(path)): returning \(entries.count) entries")
             return entries
         }
     }
