@@ -3,76 +3,56 @@ import Foundation
 final class AgentImpl: NSObject, DJAgentProtocol {
     func attachImage(atPath path: String,
                      reply: @escaping ([String]?, String?) -> Void) {
+        switch Self.hdiutilAttach(path: path) {
+        case .success(let slices):
+            reply(slices, nil)
+            return
+        case .failure(let err):
+            // Image may already be attached from a previous failed mount attempt.
+            // Detach it first to ensure a clean state, then re-attach fresh.
+            // Reusing the stale block device (without detach) risks DA having
+            // blacklisted it from the prior failed mount attempt.
+            guard let staleDevs = Self.alreadyAttachedDevices(forImagePath: path),
+                  let parent = staleDevs.first(where: {
+                      $0.range(of: #"^/dev/disk\d+$"#, options: .regularExpression) != nil
+                  }) else {
+                reply(nil, err)
+                return
+            }
+            Self.hdiutilDetach(parent)
+        }
+
+        // Re-attach after detaching the stale image.
+        switch Self.hdiutilAttach(path: path) {
+        case .success(let slices):
+            reply(slices, nil)
+        case .failure(let err):
+            reply(nil, "hdiutil attach (retry) \(err)")
+        }
+    }
+
+    // Runs `hdiutil attach -nomount -plist <path>` and returns the dev-entry
+    // slice list on success, or an error string on failure.
+    private static func hdiutilAttach(path: String) -> Result<[String], String> {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
         proc.arguments = ["attach", "-nomount", "-plist", path]
         let pipe = Pipe()
         proc.standardOutput = pipe
         proc.standardError = Pipe()
-        do {
-            try proc.run()
-            proc.waitUntilExit()
-        } catch {
-            reply(nil, error.localizedDescription)
-            return
+        do { try proc.run() } catch { return .failure(error.localizedDescription) }
+        proc.waitUntilExit()
+        guard proc.terminationStatus == 0 else {
+            return .failure("hdiutil attach exited with status \(proc.terminationStatus)")
         }
-        if proc.terminationStatus != 0 {
-            // Image may already be attached from a previous failed mount attempt.
-            // Detach it first to ensure a clean state, then re-attach fresh.
-            // Reusing the stale block device (without detach) risks DA having
-            // blacklisted it from the prior failed mount attempt.
-            if let staleDevs = Self.alreadyAttachedDevices(forImagePath: path),
-               let parent = staleDevs.first(where: {
-                   $0.range(of: #"^/dev/disk\d+$"#, options: .regularExpression) != nil
-               }) {
-                Self.hdiutilDetach(parent)
-                // Fall through to fresh attach below.
-            } else {
-                reply(nil, "hdiutil attach exited with status \(proc.terminationStatus)")
-                return
-            }
-        } else {
-            // Fresh attach succeeded — parse and return devices.
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            var fmt = PropertyListSerialization.PropertyListFormat.xml
-            guard let plist = try? PropertyListSerialization.propertyList(
-                from: data, options: [], format: &fmt) as? [String: Any],
-                  let entities = plist["system-entities"] as? [[String: Any]] else {
-                reply(nil, "failed to parse hdiutil plist output")
-                return
-            }
-            let slices = entities.compactMap { $0["dev-entry"] as? String }
-            reply(slices, nil)
-            return
-        }
-
-        // Re-attach after detaching the stale image.
-        let proc2 = Process()
-        proc2.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
-        proc2.arguments = ["attach", "-nomount", "-plist", path]
-        let pipe2 = Pipe()
-        proc2.standardOutput = pipe2
-        proc2.standardError = Pipe()
-        do {
-            try proc2.run()
-        } catch {
-            reply(nil, error.localizedDescription); return
-        }
-        proc2.waitUntilExit()
-        guard proc2.terminationStatus == 0 else {
-            reply(nil, "hdiutil attach (retry) exited with status \(proc2.terminationStatus)")
-            return
-        }
-        let data = pipe2.fileHandleForReading.readDataToEndOfFile()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
         var fmt = PropertyListSerialization.PropertyListFormat.xml
         guard let plist = try? PropertyListSerialization.propertyList(
             from: data, options: [], format: &fmt) as? [String: Any],
               let entities = plist["system-entities"] as? [[String: Any]] else {
-            reply(nil, "failed to parse hdiutil plist output")
-            return
+            return .failure("failed to parse hdiutil plist output")
         }
-        let slices = entities.compactMap { $0["dev-entry"] as? String }
-        reply(slices, nil)
+        return .success(entities.compactMap { $0["dev-entry"] as? String })
     }
 
     /// Query `hdiutil info -plist` and return the dev-entry list for the
