@@ -41,14 +41,15 @@ enum SwiftPartitionProbe {
         // ext4 incompatible features that distinguish it from ext2/3.
         // Ref: fs/ext4/ext4.h EXT4_FEATURE_INCOMPAT_*.
         static let ext4IncompatFlags: UInt32 =
-            0x0040  // FILETYPE
-          | 0x0080  // RECOVER
-          | 0x0100  // JOURNAL_DEV
-          | 0x0200  // META_BG
-          | 0x1000  // EXTENTS
-          | 0x2000  // 64BIT
-          | 0x4000  // MMP
-          | 0x8000  // FLEX_BG
+            0x0040  // EXTENTS
+          | 0x0080  // 64BIT
+          | 0x0100  // MMP
+          | 0x0200  // FLEX_BG
+          | 0x0400  // EA_INODE
+          | 0x1000  // DIRDATA
+          | 0x2000  // CSUM_SEED
+          | 0x4000  // LARGEDIR
+          | 0x8000  // INLINE_DATA
         // ext3 compat flag: COMPAT_HAS_JOURNAL.
         static let ext3HasJournalFlag: UInt32 = 0x0004
 

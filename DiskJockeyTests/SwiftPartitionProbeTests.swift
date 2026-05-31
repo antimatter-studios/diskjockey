@@ -217,8 +217,12 @@ struct ClassifyExtTests {
         #expect(SwiftPartitionProbe.classifyExt(extBytes(incompat: 0x1000)) == "ext4")
     }
 
+    @Test func eaInodeIncompatFlagIsExt4() {
+        #expect(SwiftPartitionProbe.classifyExt(extBytes(incompat: 0x0400)) == "ext4")
+    }
+
     @Test func allExt4IncompatFlagsTriggersExt4() {
-        let allFlags: UInt32 = 0x0040|0x0080|0x0100|0x0200|0x1000|0x2000|0x4000|0x8000
+        let allFlags: UInt32 = 0x0040|0x0080|0x0100|0x0200|0x0400|0x1000|0x2000|0x4000|0x8000
         #expect(SwiftPartitionProbe.classifyExt(extBytes(incompat: allFlags)) == "ext4")
     }
 }
