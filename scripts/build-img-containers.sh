@@ -150,9 +150,12 @@ build_one() {
     # symbol errors when linked alongside libfs_ext4.a / libfs_ntfs.a (which also
     # embed fs-core).  Weaken the _fs_core_* C exports in the img lib so ld-prime
     # picks the strong definitions from the FS lib and never sees a conflict.
-    local llvm_objcopy
-    llvm_objcopy=$(xcrun -f llvm-objcopy 2>/dev/null || \
-                   (brew --prefix llvm 2>/dev/null)/bin/llvm-objcopy)
+    local llvm_objcopy=""
+    if llvm_objcopy=$(xcrun -f llvm-objcopy 2>/dev/null); then
+        : # found via Xcode toolchain
+    elif brew_prefix=$(brew --prefix llvm 2>/dev/null) && [ -x "$brew_prefix/bin/llvm-objcopy" ]; then
+        llvm_objcopy="$brew_prefix/bin/llvm-objcopy"
+    fi
     if [ -n "$llvm_objcopy" ] && [ -x "$llvm_objcopy" ]; then
         local tmp_dir
         tmp_dir=$(mktemp -d)
