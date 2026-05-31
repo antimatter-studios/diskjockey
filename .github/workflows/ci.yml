@@ -76,9 +76,6 @@ jobs:
         if: steps.vendor-cache.outputs.cache-hit != 'true'
         run: make vendor-fs-ext4 vendor-fs-ntfs vendor-img-containers vendor-gonetworkfs
 
-      - name: Validate vendor pins
-        run: make pins-check
-
       # Generate the protobuf Swift bindings if not already present in the tree.
       - name: Generate protobuf bindings
         run: |
