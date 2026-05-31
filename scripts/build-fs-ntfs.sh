@@ -5,9 +5,9 @@
 # This script is SELF-HEALING:
 # - Auto-initializes submodules if missing
 # - Auto-installs Rust toolchain if needed
-# - Compiles universal binary (arm64 + x86_64)
+# - Compiles arm64 binary (Apple Silicon only)
 #
-# Output: $NTFS_OUT/libfs_ntfs.a (universal .a) + include/fs_ntfs.h.
+# Output: $NTFS_OUT/libfs_ntfs.a (arm64 .a) + include/fs_ntfs.h.
 # The Xcode project links the .a directly via LIBRARY_SEARCH_PATHS
 # + -lfs_ntfs. We no longer emit an .xcframework — it was an unused
 # artifact of an earlier Xcode-linking approach.
@@ -187,30 +187,20 @@ echo "${YELLOW}Building fs-ntfs from ${NTFS_SRC}...${NC}"
 # cargo later fails to find std/core for the missing target.
 cd "${NTFS_SRC}"
 
-# Ensure Rust targets are installed (for the toolchain pinned by the crate)
-for target in aarch64-apple-darwin x86_64-apple-darwin; do
-    if ! rustup target list --installed 2>/dev/null | grep -q "^${target}$"; then
-        echo "${YELLOW}Installing Rust target: ${target}${NC}"
-        rustup target add "${target}"
-    fi
-done
+# Ensure arm64 Rust target is installed
+if ! rustup target list --installed 2>/dev/null | grep -q "^aarch64-apple-darwin$"; then
+    echo "${YELLOW}Installing Rust target: aarch64-apple-darwin${NC}"
+    rustup target add aarch64-apple-darwin
+fi
 
-# Build for both architectures
+# Build for arm64 (Apple Silicon only)
 echo "Building for arm64..."
 cargo build --release --target aarch64-apple-darwin
-
-echo "Building for x86_64..."
-cargo build --release --target x86_64-apple-darwin
 
 # Create output directories
 mkdir -p "${NTFS_OUT}/include"
 
-# Create universal binary with lipo
-echo "Creating universal binary..."
-lipo -create \
-    "${NTFS_SRC}/target/aarch64-apple-darwin/release/libfs_ntfs.a" \
-    "${NTFS_SRC}/target/x86_64-apple-darwin/release/libfs_ntfs.a" \
-    -output "${NTFS_OUT}/libfs_ntfs.a"
+cp "${NTFS_SRC}/target/aarch64-apple-darwin/release/libfs_ntfs.a" "${NTFS_OUT}/libfs_ntfs.a"
 
 # Copy fs_ntfs.h alongside the static lib. fs_core.h comes from the
 # sister fs-core crate (still a transitive Cargo dep, so its symbols
