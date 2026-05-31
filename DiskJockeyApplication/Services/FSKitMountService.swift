@@ -672,10 +672,10 @@ enum FSKitAttachController {
 
         let prefix = url.deletingPathExtension().lastPathComponent
         let alert = NSAlert()
-        alert.messageText = "\(probe.partitions.count) partition\(probe.partitions.count == 1 ? "" : "s") detected (\(probe.table.uppercased()))"
-        var info = "\(url.lastPathComponent) (\(probe.container)):\n\(lines)\n\nWill mount \(supported.count) partition\(supported.count == 1 ? "" : "s"). Each volume will appear under its own label in /Volumes."
+        alert.messageText = "\(plural(probe.partitions.count, "partition")) detected (\(probe.table.uppercased()))"
+        var info = "\(url.lastPathComponent) (\(probe.container)):\n\(lines)\n\nWill mount \(plural(supported.count, "partition")). Each volume will appear under its own label in /Volumes."
         if !skipped.isEmpty {
-            info += "\n\(skipped.count) partition\(skipped.count == 1 ? "" : "s") skipped."
+            info += "\n\(plural(skipped.count, "partition")) skipped."
         }
         alert.informativeText = info
         alert.addButton(withTitle: "Mount All")
@@ -757,6 +757,12 @@ enum FSKitAttachController {
             }
         }
     }
+}
+
+// MARK: - Helpers
+
+private func plural(_ n: Int, _ word: String) -> String {
+    n == 1 ? "1 \(word)" : "\(n) \(word)s"
 }
 
 // MARK: - LogRepository convenience
