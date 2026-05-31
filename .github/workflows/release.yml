@@ -195,7 +195,9 @@ jobs:
             exit 0
           fi
 
-          echo -n "$ASC_KEY_BASE64" | base64 --decode -o "$RUNNER_TEMP/asc_api_key.p8"
+          # altool scans ~/.appstoreconnect/private_keys/ for AuthKey_<ID>.p8
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo -n "$ASC_KEY_BASE64" | base64 --decode -o ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
 
           PKG_PATH=$(find "$EXPORT_PATH" -name '*.pkg' | head -1)
           [ -z "$PKG_PATH" ] && PKG_PATH=$(find "$EXPORT_PATH" -name '*.app' | head -1)
