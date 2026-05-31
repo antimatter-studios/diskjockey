@@ -110,6 +110,12 @@ final class NTFSVolume: FSVolume,
     /// Standard read/write/execute mode for the ghost: owner rw, group r, other r.
     private static let appleDoubleGhostMode: UInt32 = 0o644
 
+    // NTFS FILE_ATTRIBUTE_* flags used to drive Finder visibility.
+    private static let ntfsAttrHidden: UInt32  = 0x0002 // FILE_ATTRIBUTE_HIDDEN
+    private static let ntfsAttrSystem: UInt32  = 0x0004 // FILE_ATTRIBUTE_SYSTEM
+    // UF_HIDDEN in BSD stat flags — tells Finder to suppress the item.
+    private static let bsdFlagHidden:  UInt32  = 0x8000 // UF_HIDDEN
+
     /// Returns true if the basename starts with `._` — macOS Finder /
     /// Desktop Services AppleDouble metadata. We silently swallow
     /// creates and subsequent ops on these files: accept the operation
@@ -1228,21 +1234,17 @@ final class NTFSVolume: FSVolume,
         change: Int64, changeValid: Bool,
         access: Int64, accessValid: Bool
     ) -> Int32 {
-        var c = creation, m = modify, ch = change, a = access
-        return withUnsafePointer(to: &c) { cPtr in
-            withUnsafePointer(to: &m) { mPtr in
-                withUnsafePointer(to: &ch) { chPtr in
-                    withUnsafePointer(to: &a) { aPtr in
-                        fs_ntfs_set_times_h(
-                            fs, path,
-                            creationValid ? cPtr : nil,
-                            modifyValid ? mPtr : nil,
-                            changeValid ? chPtr : nil,
-                            accessValid ? aPtr : nil
-                        )
-                    }
-                }
-            }
+        // Pack all four timestamps into a contiguous buffer so each slot
+        // can be passed as a pointer or nil without four levels of nesting.
+        let times: ContiguousArray<Int64> = [creation, modify, change, access]
+        return times.withUnsafeBufferPointer { buf in
+            fs_ntfs_set_times_h(
+                fs, path,
+                creationValid ? buf.baseAddress      : nil,
+                modifyValid   ? buf.baseAddress! + 1 : nil,
+                changeValid   ? buf.baseAddress! + 2 : nil,
+                accessValid   ? buf.baseAddress! + 3 : nil
+            )
         }
     }
 
@@ -1288,10 +1290,8 @@ final class NTFSVolume: FSVolume,
         attrs.gid = 0
         // Map NTFS hidden/system bits → UF_HIDDEN so Finder doesn't display
         // $MFT, $AttrDef, $Bitmap etc. at the root of every volume.
-        // FILE_ATTRIBUTE_HIDDEN = 0x02, FILE_ATTRIBUTE_SYSTEM = 0x04.
-        let ntfsHiddenSystem: UInt32 = 0x0002 | 0x0004
-        let isHidden = (attr.attributes & ntfsHiddenSystem) != 0
-        attrs.flags = isHidden ? 0x8000 : 0
+        let isHidden = (attr.attributes & (Self.ntfsAttrHidden | Self.ntfsAttrSystem)) != 0
+        attrs.flags = isHidden ? Self.bsdFlagHidden : 0
         attrs.size = attr.size
         attrs.linkCount = UInt32(attr.link_count)
         attrs.allocSize = attr.size
