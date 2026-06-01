@@ -130,4 +130,79 @@ struct DetachedOperationWatchdogTests {
         try await Task.sleep(nanoseconds: 250_000_000)
         #expect(fireCount.get() == 0)
     }
+
+    // ----- Stuck-progress monitor (Fix D) -----
+
+    @Test func stuckMonitorDisabledByDefaultStuckDeadlineZero() async throws {
+        let fired = LockBox(false)
+        let w = DetachedOperationWatchdog(label: "test", defaultDeadline: 100) { _, _ in
+            fired.set(true)
+        }
+        // stuckDeadline defaults to 0 ⇒ disabled
+        w.enter()
+        // No heartbeats. With Fix D off, this should NOT fire even
+        // though we sit silent indefinitely (within the test window).
+        try await Task.sleep(nanoseconds: 300_000_000)
+        #expect(fired.get() == false)
+    }
+
+    @Test func stuckMonitorFiresWhenNoHeartbeatPastDeadline() async throws {
+        let fired = LockBox(false)
+        let reportedDeadline = LockBox(0.0)
+        let w = DetachedOperationWatchdog(
+            label: "test",
+            defaultDeadline: 100,
+            stuckDeadline: 0.1,
+            stuckCheckInterval: 0.03
+        ) { _, deadline in
+            reportedDeadline.set(deadline)
+            fired.set(true)
+        }
+        w.enter()
+        // No heartbeat() calls. After ~0.1s the stuck-progress monitor
+        // should observe `now - lastHeartbeat > stuckDeadline` and fire.
+        try await Task.sleep(nanoseconds: 300_000_000)
+        #expect(fired.get() == true)
+        #expect(reportedDeadline.get() == 0.1)
+    }
+
+    @Test func stuckMonitorDoesNotFireWhileHeartbeatsArrive() async throws {
+        let fireCount = LockBox(0)
+        let w = DetachedOperationWatchdog(
+            label: "test",
+            defaultDeadline: 100,
+            stuckDeadline: 0.1,
+            stuckCheckInterval: 0.03
+        ) { _, _ in
+            fireCount.set(fireCount.get() + 1)
+        }
+        w.enter()
+        // Beat every 30ms for 250ms. Each heartbeat resets the clock,
+        // so we should never exceed the 100ms stuckDeadline.
+        for _ in 0..<8 {
+            w.heartbeat()
+            try await Task.sleep(nanoseconds: 30_000_000)
+        }
+        #expect(fireCount.get() == 0)
+    }
+
+    @Test func stuckMonitorStopsAfterLeaveTransitionsCounterToZero() async throws {
+        let fired = LockBox(false)
+        let w = DetachedOperationWatchdog(
+            label: "test",
+            defaultDeadline: 100,
+            stuckDeadline: 0.05,
+            stuckCheckInterval: 0.02
+        ) { _, _ in
+            fired.set(true)
+        }
+        w.enter()
+        w.leave()  // immediately drop counter to 0 — monitor should cancel
+        // Sleep well past the stuckDeadline. If the monitor weren't
+        // cancelled it would still tick and find pending==0, so
+        // wouldn't fire — but more importantly: no timer should be
+        // around to consume resources after `leave`.
+        try await Task.sleep(nanoseconds: 200_000_000)
+        #expect(fired.get() == false)
+    }
 }

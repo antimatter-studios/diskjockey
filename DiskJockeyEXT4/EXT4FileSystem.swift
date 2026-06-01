@@ -252,7 +252,14 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
     static let watchdog: DetachedOperationWatchdog = {
         DetachedOperationWatchdog(
             label: "ext4",
-            defaultDeadline: 30
+            defaultDeadline: 30,
+            // Fix D — stuck-progress monitor. If `heartbeat()`
+            // doesn't fire for 60 s while at least one op is in
+            // flight, the op is presumed wedged (e.g. fsck stuck on
+            // a corrupted inode loop) and the appex `exit`s the
+            // same way deactivate-watchdog does. Overridable via
+            // App Group default `ext4StuckDeadlineSeconds`.
+            stuckDeadline: 60
         ) { pending, deadline in
             log.error(
                 "watchdog: \(pending) op(s) still pending after \(Int(deadline))s — exiting (EX_TEMPFAIL) so storagekitd respawns",
@@ -1177,6 +1184,12 @@ extension EXT4FileSystem: FSManageableResourceMaintenanceOperations {
             let result = backend.runFsck(
                 repair: repairRequested,
                 onProgress: { phase, done, total in
+                    // Stuck-progress heartbeat. Tells the watchdog
+                    // the op is still alive — must be unthrottled
+                    // (called on every Rust progress callback) so a
+                    // long quiet phase doesn't accidentally trip
+                    // `stuckDeadline`.
+                    Self.watchdog.heartbeat()
                     // Throttle. Phase change always emits (so the user
                     // sees the pipeline advance) and the first emit
                     // bypasses the time gate (so the progress bar

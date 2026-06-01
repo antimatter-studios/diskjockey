@@ -274,6 +274,11 @@ final class RepairXPCService: NSObject {
         let runResult = resolved.backend.runFsck(
             repair: true,
             onProgress: { phase, done, total in
+                // Stuck-progress heartbeat (Fix D). Refreshes the
+                // watchdog clock so a repair that's still making
+                // forward progress can't trip the stuck-deadline
+                // even though the log emission below is throttled.
+                EXT4FileSystem.watchdog.heartbeat()
                 // Throttle. Only two carve-outs that bypass the time
                 // gate: a phase CHANGE (so the user sees the
                 // pipeline advance) and the FIRST emit (so the
