@@ -205,20 +205,23 @@ public final class RepairWatcher: @unchecked Sendable {
     /// Always cleans up the in-flight file at the end. `internal` so
     /// tests can drive the synchronous portion directly, bypassing
     /// DispatchSource + workQueue async.
-    internal func handleRequest(at processingURL: URL) {
+    ///
+    /// Parameter is `processingFileURL` rather than `processingURL` to
+    /// avoid shadowing the stored `self.processingURL` directory.
+    internal func handleRequest(at processingFileURL: URL) {
         enterOperation()
         defer {
             // Best-effort cleanup. If unlink fails the next start()
             // will see a stale processing entry and re-process;
             // idempotent on the result side because
             // `result-<uuid>.json` overwrites.
-            try? FileManager.default.removeItem(at: processingURL)
+            try? FileManager.default.removeItem(at: processingFileURL)
             exitOperation()
         }
 
         let request: RepairRequest
         do {
-            let data = try Data(contentsOf: processingURL)
+            let data = try Data(contentsOf: processingFileURL)
             let decoder = JSONDecoder()
             // Match the host's encoder (ISO 8601 dates). Without this,
             // decode fails with "data couldn't be read because it
@@ -233,7 +236,7 @@ public final class RepairWatcher: @unchecked Sendable {
             // the request id from the filename so the host gets a fast
             // failure result instead of a 30-minute timeout. Filename
             // shape is `request-<uuid>.json`.
-            let filename = processingURL.lastPathComponent
+            let filename = processingFileURL.lastPathComponent
             let recoveredID = filename
                 .deletingPrefix("request-")
                 .deletingSuffix(".json")

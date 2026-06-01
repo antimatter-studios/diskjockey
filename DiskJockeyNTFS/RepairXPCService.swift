@@ -16,37 +16,48 @@ final class RepairXPCService: NSObject {
 
     static let shared = RepairXPCService()
 
+    /// Single-shot start gate. See EXT4 sibling for the full rationale
+    /// — short version: prevents two concurrent `start()` callers from
+    /// constructing two `RepairWatcher`s and racing on `self.watcher`,
+    /// which would orphan the first watcher's `DispatchSource` + fd.
+    private let startedLock = OSAllocatedUnfairLock(initialState: false)
     private var watcher: RepairWatcher?
 
     func start() {
-        if watcher == nil {
-            do {
-                try DiskJockeyRepairFiles.ensureDirectories(forFsType: "ntfs")
-            } catch {
-                log.error("RepairWatcher: ensureDirectories failed: \(error.localizedDescription)",
-                          scope: AppLogScope.fsck)
-                return
-            }
-            guard
-                let requestsURL = DiskJockeyRepairFiles.requestsURL(forFsType: "ntfs"),
-                let processingURL = DiskJockeyRepairFiles.processingURL(forFsType: "ntfs"),
-                let responsesURL = DiskJockeyRepairFiles.responsesURL(forFsType: "ntfs")
-            else {
-                log.error("RepairWatcher: App Group container unreachable",
-                          scope: AppLogScope.fsck)
-                return
-            }
-            watcher = RepairWatcher(
-                requestsURL: requestsURL,
-                processingURL: processingURL,
-                responsesURL: responsesURL,
-                workQueueLabel: "com.antimatterstudios.diskjockey.ntfs.repair",
-                log: log,
-                logScope: AppLogScope.fsck,
-                runRepair: { request in Self.runRepair(for: request) }
-            )
+        let shouldStart: Bool = startedLock.withLock { started in
+            if started { return false }
+            started = true
+            return true
         }
-        watcher?.start()
+        guard shouldStart else { return }
+
+        do {
+            try DiskJockeyRepairFiles.ensureDirectories(forFsType: "ntfs")
+        } catch {
+            log.error("RepairWatcher: ensureDirectories failed: \(error.localizedDescription)",
+                      scope: AppLogScope.fsck)
+            return
+        }
+        guard
+            let requestsURL = DiskJockeyRepairFiles.requestsURL(forFsType: "ntfs"),
+            let processingURL = DiskJockeyRepairFiles.processingURL(forFsType: "ntfs"),
+            let responsesURL = DiskJockeyRepairFiles.responsesURL(forFsType: "ntfs")
+        else {
+            log.error("RepairWatcher: App Group container unreachable",
+                      scope: AppLogScope.fsck)
+            return
+        }
+        let w = RepairWatcher(
+            requestsURL: requestsURL,
+            processingURL: processingURL,
+            responsesURL: responsesURL,
+            workQueueLabel: "com.antimatterstudios.diskjockey.ntfs.repair",
+            log: log,
+            logScope: AppLogScope.fsck,
+            runRepair: { request in Self.runRepair(for: request) }
+        )
+        watcher = w
+        w.start()
     }
 
     private static func runRepair(for request: RepairRequest) -> RepairResult {
