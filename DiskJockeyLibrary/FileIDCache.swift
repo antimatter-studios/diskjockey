@@ -48,7 +48,16 @@ import os
 /// `await` is a compile-time error — matching the invariant the volume
 /// code already relies on (never block FSKit's queue waiting on this
 /// lock during async I/O).
-public final class FileIDCache<Item: AnyObject> {
+///
+/// `@unchecked Sendable` because the only stored property is the lock,
+/// and every read / write goes through `withLock`. The compiler can't
+/// prove that automatically — `Item: AnyObject` without `Item:
+/// Sendable` means the dictionary's value type isn't statically known
+/// to be `Sendable` — but the lock-serialised access guarantees the
+/// class is safe to share across actors. This matches the contract the
+/// hand-rolled `OSAllocatedUnfairLock<[UInt64: EXT4Item]>` field in
+/// `EXT4Volume` already implicitly relied on.
+public final class FileIDCache<Item: AnyObject>: @unchecked Sendable {
 
     private let storage = OSAllocatedUnfairLock<[UInt64: Item]>(initialState: [:])
 
