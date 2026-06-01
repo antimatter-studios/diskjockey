@@ -168,9 +168,7 @@ final class RepairXPCService: NSObject {
     }
 
     private func runRepair(for request: RepairRequest) -> RepairResult {
-        let resolved: NTFSFileSystem.MountedResource? = NTFSFileSystem.mountedResources.withLock { map in
-            map.values.first(where: { $0.bsdName == request.bsd })
-        }
+        let resolved = NTFSFileSystem.mountedResources.first { $0.bsdName == request.bsd }
         guard resolved != nil else {
             let msg = "no mounted ntfs volume for bsd=\(request.bsd) — is the disk still attached?"
             log.warn("RepairWatcher: \(msg)", scope: AppLogScope.fsck)

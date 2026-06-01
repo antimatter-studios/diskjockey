@@ -221,9 +221,7 @@ final class RepairXPCService: NSObject {
     /// Look up the live backend for `request.bsd` and run the repair
     /// pass. Always returns a `RepairResult` — never throws.
     private func runRepair(for request: RepairRequest) -> RepairResult {
-        let resolved: EXT4FileSystem.MountedResource? = EXT4FileSystem.mountedResources.withLock { map in
-            map.values.first(where: { $0.bsdName == request.bsd })
-        }
+        let resolved = EXT4FileSystem.mountedResources.first { $0.bsdName == request.bsd }
 
         guard let resolved = resolved else {
             let msg = "no mounted ext4 volume for bsd=\(request.bsd) — is the disk still attached?"
