@@ -288,7 +288,7 @@ public final class AttachedDisksModel: ObservableObject {
     }
 
     public func refresh() {
-        let fresh = Self.enumerate(fsTypesOfInterest: fsTypesOfInterest)
+        let fresh = MountTableParser.enumerate(fsTypesOfInterest: fsTypesOfInterest)
         var merged: [AttachedDisk] = []
         var consumedIndices: Set<Int> = []  // indices into `disks` we've already merged
 
@@ -350,7 +350,7 @@ public final class AttachedDisksModel: ObservableObject {
             guard let bsd = merged[i].bsd else { continue }
             if let queued = pendingEvents.removeValue(forKey: bsd) {
                 for ev in queued {
-                    Self.applyEventInPlace(kind: ev.kind, fields: ev.fields, to: &merged[i])
+                    DiskEventHandler.applyEventInPlace(kind: ev.kind, fields: ev.fields, to: &merged[i])
                 }
             }
             if let lines = pendingLogs.removeValue(forKey: bsd) {
@@ -423,7 +423,7 @@ public final class AttachedDisksModel: ObservableObject {
         // (which is on the main actor — UI shouldn't wait on a
         // subprocess for an op that's allowed to silently fail).
         if let stale = stale {
-            Self.forceUnmountStale(mountPath: stale.mountPath, bsd: bsd)
+            MountTableParser.forceUnmountStale(mountPath: stale.mountPath, bsd: bsd)
         }
     }
 
@@ -433,36 +433,6 @@ public final class AttachedDisksModel: ObservableObject {
     public func setStatus(_ status: AttachedDiskStatus, forID id: String) {
         guard let idx = disks.firstIndex(where: { $0.id == id }) else { return }
         disks[idx].status = status
-    }
-
-    /// Detached helper that fires `diskutil unmount force <mountPath>`
-    /// to clear a zombie mount entry. Errors are logged at INFO (not
-    /// ERROR) — the caller's expectation is "if there's a zombie,
-    /// kill it; if there isn't, no problem."
-    private nonisolated static func forceUnmountStale(mountPath: String, bsd: String) {
-        Task.detached {
-            let p = Process()
-            p.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
-            p.arguments = ["unmount", "force", mountPath]
-            let pipe = Pipe()
-            p.standardOutput = pipe
-            p.standardError = pipe
-            do {
-                try p.run()
-                p.waitUntilExit()
-                let rc = p.terminationStatus
-                let out = (try? pipe.fileHandleForReading.readToEnd())
-                    .flatMap { String(data: $0, encoding: .utf8) }?
-                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                if rc == 0 {
-                    AppLog.shared.info("zombie mount cleanup: bsd=\(bsd) path=\(mountPath) — diskutil unmount force succeeded")
-                } else {
-                    AppLog.shared.info("zombie mount cleanup: bsd=\(bsd) path=\(mountPath) — diskutil exit=\(rc) (likely already gone): \(out)")
-                }
-            } catch {
-                AppLog.shared.info("zombie mount cleanup: bsd=\(bsd) — could not spawn diskutil: \(error.localizedDescription)")
-            }
-        }
     }
 
     /// Find the strongest match for a fresh mount(8) row in the existing
@@ -505,24 +475,6 @@ public final class AttachedDisksModel: ObservableObject {
         AppLog.shared.info("forgot: \(removed.mountPath) (id=\(removed.id))")
     }
 
-    /// Strip "/dev/" prefix off a devicePath. Uses prefix match so
-    /// "/dev/disk6s2" → "disk6s2"; callers comparing against event
-    /// `bsd` keys should match with hasPrefix.
-    nonisolated private static func bsdName(from devicePath: String) -> String {
-        if devicePath.hasPrefix("/dev/") {
-            return String(devicePath.dropFirst("/dev/".count))
-        }
-        return devicePath
-    }
-
-    /// True for a whole-disk BSD ("disk4"); false for partitions
-    /// ("disk4s1", "disk4s2") and nested slices ("disk4s1s1"). Used to
-    /// suppress preview-row creation for container devices that aren't
-    /// mountable filesystems on their own.
-    nonisolated private static func isWholeDiskBSD(_ bsd: String) -> Bool {
-        return bsd.range(of: #"^disk\d+$"#, options: .regularExpression) != nil
-    }
-
     /// Apply a structured event emitted by an FSKit extension via the
     /// NDJSON tail. Match strategy: by `disk.bsd == fields["bsd"]`.
     /// If no row exists for this BSD, create a preview row with
@@ -535,7 +487,7 @@ public final class AttachedDisksModel: ObservableObject {
         guard let bsd = fields["bsd"] else { return }
 
         if let idx = disks.firstIndex(where: { $0.bsd == bsd }) {
-            Self.applyEventInPlace(kind: kind, fields: fields, to: &disks[idx])
+            DiskEventHandler.applyEventInPlace(kind: kind, fields: fields, to: &disks[idx])
             return
         }
 
@@ -547,7 +499,7 @@ public final class AttachedDisksModel: ObservableObject {
         // immediately resurrects after Forget. Queue the events
         // instead — the rare no-partition-table case still gets
         // them replayed if a `.live` row materialises via mount(8).
-        if Self.isWholeDiskBSD(bsd) {
+        if MountTableParser.isWholeDiskBSD(bsd) {
             pendingEvents[bsd, default: []].append((kind: kind, fields: fields))
             return
         }
@@ -563,7 +515,7 @@ public final class AttachedDisksModel: ObservableObject {
         // create the row and replay the queue. Empty drives
         // belong in the Empty Drives sidebar section sourced from
         // RawDisksModel, not here.
-        let inferredFs = Self.fsTypeFromEventKind(kind)
+        let inferredFs = DiskEventHandler.fsTypeFromEventKind(kind)
         let fieldFs = (kind == "volume.info") ? fields["fs"] : nil
         let fsType = inferredFs ?? fieldFs ?? ""
         guard !fsType.isEmpty else {
@@ -582,7 +534,7 @@ public final class AttachedDisksModel: ObservableObject {
         )
         disks.append(preview)
         AppLog.shared.info("preview row added for \(bsd) (\(fsType))")
-        Self.applyEventInPlace(kind: kind, fields: fields, to: &disks[disks.count - 1])
+        DiskEventHandler.applyEventInPlace(kind: kind, fields: fields, to: &disks[disks.count - 1])
     }
 
     /// Apply a plain NDJSON log line to the matching disk's partition
@@ -621,235 +573,4 @@ public final class AttachedDisksModel: ObservableObject {
         }
     }
 
-    /// Map a structured-event `kind` (e.g. `"ext4.probe"`, `"ntfs.load"`)
-    /// to the fsType the model should render in the sidebar. Returns
-    /// nil for kinds that aren't fs-specific (`"fsck.progress"`,
-    /// `"io.stats"`, `"volume.info"` — the latter has the fs name in
-    /// `fields["fs"]` so callers can pull from there).
-    private static func fsTypeFromEventKind(_ kind: String) -> String? {
-        if kind.hasPrefix("ext4.") { return "ext4" }
-        if kind.hasPrefix("ntfs.") { return "ntfs" }
-        return nil
-    }
-
-    /// Mutating event-apply logic extracted so `refresh()` can replay
-    /// buffered events directly into the merged array without going
-    /// through the published `disks` property.
-    private static func applyEventInPlace(kind: String, fields: [String: String], to disk: inout AttachedDisk) {
-        if kind == "volume.info" {
-            applyVolumeInfo(fields: fields, to: &disk)
-            return
-        }
-
-        if kind == "io.stats" {
-            // 1 Hz heartbeat from the FSKit extension. Decode the
-            // counter snapshot, let `IOStats.absorb` derive a per-second
-            // throughput sample from the delta vs the previous snapshot,
-            // and append it to the rolling buffer the detail view reads.
-            disk.ioStats.absorb(IOCounters(fields: fields))
-            return
-        }
-
-        guard let newStatus = fsckStatus(kind: kind, fields: fields, disk: &disk) else { return }
-        disk.fsckStatus = newStatus
-    }
-
-    // Applies a `volume.info` event payload onto `disk`. Overlays fields,
-    // promotes fsType, adopts volume_name when still showing BSD placeholder,
-    // and assigns stableIdentity on first encounter.
-    private static func applyVolumeInfo(fields: [String: String], to disk: inout AttachedDisk) {
-        var info = fields
-        info.removeValue(forKey: "bsd")
-        if let bytes = materializeTotalSize(from: info) {
-            info["total_size"] = String(bytes)
-        }
-        // Overlay onto existing (statvfs-populated) info rather than
-        // replacing — so free_size from `refresh()` survives alongside
-        // the fs-specific keys the extension emits.
-        for (k, v) in info { disk.info[k] = v }
-        if let fs = info["fs"], !fs.isEmpty {
-            disk.fsType = fs
-        }
-        if let volName = info["volume_name"], !volName.isEmpty,
-           (disk.name == disk.bsd || disk.name.isEmpty) {
-            // Only adopt volume_name if the row is still showing
-            // the BSD as a placeholder. Once mount(8) gives us a
-            // real /Volumes path, that's what the user knows the
-            // disk by — don't clobber it with the on-disk label.
-            disk.name = volName
-        }
-        // Strongest identity wins. NTFS emits `serial_number` in
-        // volume.info → survives replug+restart, sidebar row
-        // coalesces back. Ext4 doesn't currently emit its UUID
-        // (the rust FFI struct doesn't expose s_uuid yet) so ext4
-        // disks fall back to BSD-as-identity, which is stable for
-        // a session but not across replug. Prefix-tag so two
-        // filesystems can't collide on the same string.
-        if disk.stableIdentity == nil {
-            if let u = info["volume_uuid"], !u.isEmpty {
-                disk.stableIdentity = "ext4-uuid:\(u)"
-            } else if let s = info["serial_number"], !s.isEmpty {
-                disk.stableIdentity = "ntfs-serial:\(s)"
-            }
-        }
-    }
-
-    // Returns the new FsckStatus for fsck-family events, or nil for unknown kinds.
-    // Side-effects `disk.lastRepairedCount` and `disk.lastAnomaliesFound` for fsck.done.
-    private static func fsckStatus(
-        kind: String, fields: [String: String], disk: inout AttachedDisk
-    ) -> FsckStatus? {
-        switch kind {
-        case "volume.clean":
-            return .clean
-        case "volume.dirty":
-            return .dirty
-        case "fsck.start":
-            return .running(phase: "starting", done: 0, total: 0)
-        case "fsck.progress":
-            let phase = fields["phase"] ?? "?"
-            let done = UInt64(fields["done"] ?? "0") ?? 0
-            let total = UInt64(fields["total"] ?? "0") ?? 0
-            return .running(phase: phase, done: done, total: total)
-        case "fsck.done":
-            let dirtyCleared = (fields["dirty_cleared"] ?? "false") == "true"
-            let logfileBytes = UInt64(fields["logfile_bytes"] ?? "0") ?? 0
-            if let raw = fields["repaired_count"], let n = UInt64(raw) {
-                disk.lastRepairedCount = n
-            }
-            if let raw = fields["anomalies"], let n = UInt64(raw) {
-                disk.lastAnomaliesFound = n
-            }
-            return .completed(dirtyCleared: dirtyCleared, logfileBytes: logfileBytes)
-        case "fsck.failed":
-            return .failed(fields["error"] ?? "unknown error")
-        default:
-            return nil
-        }
-    }
-
-    /// Runs `/sbin/mount` and parses each line into an AttachedDisk.
-    /// Output format: `/dev/diskN on /Volumes/NAME (fstype, flag1, flag2, ...)`.
-    /// Simpler + more portable than wrestling with Swift's `getfsstat`
-    /// bridging, and mount(8) is always present.
-    private static func enumerate(fsTypesOfInterest: Set<String>) -> [AttachedDisk] {
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/sbin/mount")
-        let pipe = Pipe()
-        proc.standardOutput = pipe
-        proc.standardError = Pipe()
-        do { try proc.run() } catch { return [] }
-        proc.waitUntilExit()
-        guard let data = try? pipe.fileHandleForReading.readToEnd(),
-              let text = String(data: data, encoding: .utf8) else { return [] }
-
-        var results: [AttachedDisk] = []
-        for line in text.split(separator: "\n") {
-            guard var disk = parseMountLine(String(line), fsTypesOfInterest: fsTypesOfInterest) else {
-                continue
-            }
-            disk.info = statvfsInfo(
-                mountPath: disk.mountPath, fsType: disk.fsType, volumeName: disk.name
-            )
-            results.append(disk)
-        }
-        return results.sorted { $0.mountPath < $1.mountPath }
-    }
-
-    /// Parse a single `/sbin/mount` output line into an AttachedDisk.
-    /// Extracted from `enumerate` so the parser is reachable from tests
-    /// without spawning a real `mount(8)`. Returns nil for malformed
-    /// lines or fstypes outside the caller's interest set. Does not
-    /// populate `info` — that's done by the live caller after parsing
-    /// so the test path doesn't have to mock statvfs.
-    nonisolated static func parseMountLine(_ line: String, fsTypesOfInterest: Set<String>) -> AttachedDisk? {
-        // Format: "/dev/diskN on /Volumes/Foo (fstype, flag1, flag2)"
-        guard let (devicePath, mountPath, flags) = splitMountLine(line) else { return nil }
-        guard let fsType = flags.first, fsTypesOfInterest.contains(fsType) else { return nil }
-
-        // macOS mount(8) emits "read-only" for RO mounts; older / other
-        // tools sometimes emit the bare token "ro". Treat both as RO.
-        let isWritable = !flags.contains("read-only") && !flags.contains("ro")
-        return AttachedDisk(
-            bsd: Self.bsdName(from: devicePath),
-            mountPath: mountPath,
-            devicePath: devicePath,
-            fsType: fsType,
-            name: (mountPath as NSString).lastPathComponent,
-            isWritable: isWritable
-        )
-    }
-
-    nonisolated private static func splitMountLine(
-        _ line: String
-    ) -> (devicePath: String, mountPath: String, flags: [String])? {
-        guard let onRange = line.range(of: " on ") else { return nil }
-        let devicePath = String(line[..<onRange.lowerBound])
-        let afterOn = line[onRange.upperBound...]
-
-        guard let parenOpen = afterOn.range(of: " (") else { return nil }
-        let mountPath = String(afterOn[..<parenOpen.lowerBound])
-        let flagsBody = afterOn[parenOpen.upperBound...]
-
-        guard let parenClose = flagsBody.range(of: ")", options: .backwards) else { return nil }
-        let flags = flagsBody[..<parenClose.lowerBound]
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-
-        return (devicePath, mountPath, flags)
-    }
-
-    /// Compute the concrete `total_size` in bytes for a managed
-    /// filesystem's `volume.info` event. Dispatches by the `fs` field
-    /// the extension emits, so each case uses the exact fields it
-    /// knows it wrote — no "does this key exist" probing. Returns
-    /// `nil` for fs types we don't own (the statvfs baseline already
-    /// provided `total_size` for those at enumerate-time).
-    private static func materializeTotalSize(from fields: [String: String]) -> UInt64? {
-        switch fields["fs"] ?? "" {
-        case "ext4":
-            let blocks = UInt64(fields["total_blocks"] ?? "") ?? 0
-            let blockSize = UInt64(fields["block_size"] ?? "") ?? 0
-            let (product, overflow) = blocks.multipliedReportingOverflow(by: blockSize)
-            return overflow ? nil : product
-        case "ntfs":
-            return UInt64(fields["total_size"] ?? "")
-        default:
-            return nil
-        }
-    }
-
-    /// Cross-filesystem baseline info derived from `FileManager`'s wrapper
-    /// around `statvfs(2)`. Populated at enumerate-time for every mounted
-    /// partition — including msdos, exfat, apfs, hfs+, and other types
-    /// DiskJockey doesn't have an FSKit extension for — so the detail
-    /// view can show total / free size without waiting on a `volume.info`
-    /// event that will never come for non-DJ-managed filesystems. For
-    /// DJ-managed (ext4, ntfs), the richer event overlays fs-specific
-    /// keys (block_size, total_inodes, serial_number, …) on top of this
-    /// baseline in `refresh()`.
-    private static func statvfsInfo(
-        mountPath: String, fsType: String, volumeName: String
-    ) -> [String: String] {
-        var out: [String: String] = [
-            "fs": fsType,
-            "volume_name": volumeName,
-        ]
-        do {
-            let attrs = try FileManager.default.attributesOfFileSystem(forPath: mountPath)
-            if let total = attrs[.systemSize] as? NSNumber {
-                out["total_size"] = String(total.uint64Value)
-            } else if attrs[.systemSize] != nil {
-                AppLog.shared.warn("statvfsInfo: unexpected type for systemSize at \(mountPath)")
-            }
-            if let free = attrs[.systemFreeSize] as? NSNumber {
-                out["free_size"] = String(free.uint64Value)
-            } else if attrs[.systemFreeSize] != nil {
-                AppLog.shared.warn("statvfsInfo: unexpected type for systemFreeSize at \(mountPath)")
-            }
-        } catch {
-            AppLog.shared.warn("statvfsInfo: attributesOfFileSystem failed for \(mountPath): \(error.localizedDescription)")
-        }
-        return out
-    }
 }
