@@ -14,7 +14,7 @@ version = "0.2.0"
 
 [[package]]
 name = "am-img-qcow2"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "am-fs-core",
  "flate2",
@@ -23,14 +23,14 @@ dependencies = [
 
 [[package]]
 name = "am-img-vhd"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "am-fs-core",
 ]
 
 [[package]]
 name = "am-img-vhdx"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "am-fs-core",
  "crc32c",
@@ -38,14 +38,14 @@ dependencies = [
 
 [[package]]
 name = "am-img-vmdk"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "am-fs-core",
 ]
 
 [[package]]
 name = "am-partitions"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "am-fs-core",
  "crc32fast",

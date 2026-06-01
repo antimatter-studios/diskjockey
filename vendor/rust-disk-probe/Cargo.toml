@@ -11,10 +11,10 @@ path = "src/main.rs"
 
 [dependencies]
 am-fs-core = { path = "../rust-fs-core", version = "0.2" }
-am-img-qcow2 = { path = "../rust-img-qcow2", version = "0.3" }
-am-img-vhd = { path = "../rust-img-vhd", version = "0.2" }
-am-img-vhdx = { path = "../rust-img-vhdx", version = "0.2" }
-am-img-vmdk = { path = "../rust-img-vmdk", version = "0.2" }
+am-img-qcow2 = { path = "../rust-img-qcow2", version = "0.4" }
+am-img-vhd = { path = "../rust-img-vhd", version = "0.3" }
+am-img-vhdx = { path = "../rust-img-vhdx", version = "0.3" }
+am-img-vmdk = { path = "../rust-img-vmdk", version = "0.3" }
 am-partitions = { path = "../rust-partitions", version = "0.3" }
 
 [profile.release]
