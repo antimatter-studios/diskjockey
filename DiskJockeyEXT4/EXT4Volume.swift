@@ -784,27 +784,18 @@ final class EXT4Volume: FSVolume,
         let srcPath = Self.joinPath(srcDir.path, srcNameStr)
         let dstPath = Self.joinPath(dstDir.path, dstNameStr)
 
-        // The fs_ext4 rename does not allow renaming onto an existing
-        // entry, so when `overItem` is non-nil we have to remove the
-        // destination first. POSIX semantics require that an existing
-        // directory target be empty; we honour that by routing through
-        // rmdir / unlink based on the destination's actual type, not the
-        // source's.
-        if overItem != nil {
-            if let dstAttr = backend.stat(path: dstPath) {
-                let removed: Bool
-                switch dstAttr.fileType {
-                case .directory:
-                    removed = backend.rmdir(path: dstPath)
-                default:
-                    removed = backend.unlink(path: dstPath)
-                }
-                if !removed {
-                    throw Self.posixError(from: backend)
-                }
-            }
-        }
-
+        // backend.rename() atomically replaces an existing destination
+        // (FS_EXT4_RENAME_REPLACE), enforcing POSIX semantics in the
+        // crate: file→file overwrites and frees the old inode, empty-dir
+        // → empty-dir overwrites the dropped subdir, and crossing the
+        // file/directory boundary or a non-empty dir target fails with
+        // EISDIR / ENOTDIR / ENOTEMPTY. We no longer unlink the
+        // destination ourselves — doing so was non-atomic and lost the
+        // original file if the rename then failed. We also can't rely on
+        // `overItem` being populated: FSKit only passes it when the kernel
+        // had already resolved the destination, so an unguarded
+        // rename-over (e.g. `sed -i`) would otherwise slip through with a
+        // nil overItem.
         guard backend.rename(src: srcPath, dst: dstPath) else {
             throw Self.posixError(from: backend)
         }
