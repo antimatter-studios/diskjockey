@@ -32,6 +32,7 @@
 // for belt-and-braces in case a future caller bypasses the queue.
 //
 
+import DiskJockeyLibrary
 import Foundation
 import SQLite3
 

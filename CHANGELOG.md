@@ -6,6 +6,10 @@ The README carries an abbreviated tail of this file (last ten dated sections).
 
 ---
 
+## 2026-06-02
+
+- **AppLog deduplication.** Four byte-identical copies of `AppLog.swift` (345 lines each, total 1,380 lines) lived in DiskJockeyEXT4, DiskJockeyNTFS, DiskJockeyFileProvider, and DiskJockeyApplication. Now there's one canonical copy in `DiskJockeyLibrary/AppLog.swift`. Each consumer reaches it through the `import DiskJockeyLibrary` line they already had. Net deletion ~1,035 lines (1,380 removed, 345 moved into the library). Four `import DiskJockeyLibrary` lines added to files that previously relied on AppLog being in the same module (MountErrorReporter, ThumbnailCache, OAuthClientConfig, OAuthCoordinator). Eight `.pbxproj` entries dropped for the two targets that had explicit file references (EXT4 + NTFS); the other two used synchronized folders and needed no project edit. Tests: 81/81 still green.
+
 ## 2026-05-31
 
 - **EXT4 stuck-progress watchdog (Fix D).** `DetachedOperationWatchdog` gains a per-op heartbeat layer on top of the existing deactivate-side trigger from Fix A. While a fsck / repair / format op is in flight, a background timer wakes once per `stuckCheckInterval` and checks whether `heartbeat()` has fired within `stuckDeadline` (default 60 s); if not, the same `onExpire` callback runs as Fix A's deactivate path — production exits the appex so `storagekitd` respawns. `EXT4FileSystem.startCheck` and `RepairXPCService.runRepair` call `watchdog.heartbeat()` from each Rust `onProgress` callback (unthrottled — log emission stays throttled separately, but the watchdog must see every tick). Catches the case where a verify/repair wedges mid-walk on a corrupted inode loop with no progress callbacks and the volume's still mounted — Fix A's deactivate-only trigger wouldn't fire there. Four new unit tests cover heartbeat-resets-clock, fires-when-silent, stays-quiet-while-beating, and stops-on-counter-zero.

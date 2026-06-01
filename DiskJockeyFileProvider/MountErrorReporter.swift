@@ -18,6 +18,7 @@
 //
 
 import Foundation
+import DiskJockeyLibrary
 
 /// Emit a structured `mount.error` event tagged with the per-mount
 /// logger's `mount=<domainID>` field. The host app's
