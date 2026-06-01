@@ -40,37 +40,77 @@ struct DiskEventHandlerTests {
         #expect(DiskEventHandler.fsTypeFromEventKind("") == nil)
     }
 
-    // MARK: - fsckStatus dispatch
+    // MARK: - decodeFsckStatus (pure decoder)
 
-    @Test func testFsckStatusVolumeCleanDirty() {
-        var disk = freshDisk()
-        #expect(DiskEventHandler.fsckStatus(kind: "volume.clean",
-                                            fields: [:], disk: &disk) == .clean)
-        #expect(DiskEventHandler.fsckStatus(kind: "volume.dirty",
-                                            fields: [:], disk: &disk) == .dirty)
+    @Test func testDecodeFsckStatusVolumeCleanDirty() {
+        let clean = DiskEventHandler.decodeFsckStatus(kind: "volume.clean", fields: [:])
+        #expect(clean?.status == .clean)
+        #expect(clean?.repairedCount == nil)
+        #expect(clean?.anomaliesFound == nil)
+
+        let dirty = DiskEventHandler.decodeFsckStatus(kind: "volume.dirty", fields: [:])
+        #expect(dirty?.status == .dirty)
     }
 
-    @Test func testFsckStatusStart() {
-        var disk = freshDisk()
-        let status = DiskEventHandler.fsckStatus(
-            kind: "fsck.start", fields: [:], disk: &disk
-        )
-        #expect(status == .running(phase: "starting", done: 0, total: 0))
+    @Test func testDecodeFsckStatusStart() {
+        let update = DiskEventHandler.decodeFsckStatus(kind: "fsck.start", fields: [:])
+        #expect(update?.status == .running(phase: "starting", done: 0, total: 0))
     }
 
-    @Test func testFsckStatusProgressDecodesFields() {
-        var disk = freshDisk()
-        let status = DiskEventHandler.fsckStatus(
+    @Test func testDecodeFsckStatusProgressDecodesFields() {
+        let update = DiskEventHandler.decodeFsckStatus(
             kind: "fsck.progress",
-            fields: ["phase": "inodes", "done": "42", "total": "100"],
-            disk: &disk
+            fields: ["phase": "inodes", "done": "42", "total": "100"]
         )
-        #expect(status == .running(phase: "inodes", done: 42, total: 100))
+        #expect(update?.status == .running(phase: "inodes", done: 42, total: 100))
     }
 
-    @Test func testFsckStatusDoneSetsLastRepairAndAnomalies() {
+    @Test func testDecodeFsckStatusDoneCarriesCountersInReturnValue() {
+        // Now a PURE decoder: counters travel back via FsckStatusUpdate
+        // rather than via inout side-effects.
+        let update = DiskEventHandler.decodeFsckStatus(
+            kind: "fsck.done",
+            fields: [
+                "dirty_cleared": "true",
+                "logfile_bytes": "4096",
+                "repaired_count": "7",
+                "anomalies": "3",
+            ]
+        )
+        #expect(update?.status == .completed(dirtyCleared: true, logfileBytes: 4096))
+        #expect(update?.repairedCount == 7)
+        #expect(update?.anomaliesFound == 3)
+    }
+
+    @Test func testDecodeFsckStatusDoneWithMissingCountersLeavesThemNil() {
+        let update = DiskEventHandler.decodeFsckStatus(
+            kind: "fsck.done",
+            fields: ["dirty_cleared": "true", "logfile_bytes": "0"]
+        )
+        #expect(update?.status == .completed(dirtyCleared: true, logfileBytes: 0))
+        #expect(update?.repairedCount == nil)
+        #expect(update?.anomaliesFound == nil)
+    }
+
+    @Test func testDecodeFsckStatusFailedCarriesErrorMessage() {
+        let update = DiskEventHandler.decodeFsckStatus(
+            kind: "fsck.failed",
+            fields: ["error": "checksum mismatch"]
+        )
+        #expect(update?.status == .failed("checksum mismatch"))
+    }
+
+    @Test func testDecodeFsckStatusUnknownKindReturnsNil() {
+        #expect(DiskEventHandler.decodeFsckStatus(kind: "io.stats", fields: [:]) == nil)
+        #expect(DiskEventHandler.decodeFsckStatus(kind: "ext4.probe", fields: [:]) == nil)
+    }
+
+    @Test func testApplyEventInPlaceFsckDoneWritesCountersOntoDisk() {
+        // The mutation that used to live inside fsckStatus now lives in
+        // applyEventInPlace; pin it here so the move can't silently
+        // regress.
         var disk = freshDisk()
-        let status = DiskEventHandler.fsckStatus(
+        DiskEventHandler.applyEventInPlace(
             kind: "fsck.done",
             fields: [
                 "dirty_cleared": "true",
@@ -78,27 +118,11 @@ struct DiskEventHandlerTests {
                 "repaired_count": "7",
                 "anomalies": "3",
             ],
-            disk: &disk
+            to: &disk
         )
-        #expect(status == .completed(dirtyCleared: true, logfileBytes: 4096))
+        #expect(disk.fsckStatus == .completed(dirtyCleared: true, logfileBytes: 4096))
         #expect(disk.lastRepairedCount == 7)
         #expect(disk.lastAnomaliesFound == 3)
-    }
-
-    @Test func testFsckStatusFailedCarriesErrorMessage() {
-        var disk = freshDisk()
-        let status = DiskEventHandler.fsckStatus(
-            kind: "fsck.failed",
-            fields: ["error": "checksum mismatch"],
-            disk: &disk
-        )
-        #expect(status == .failed("checksum mismatch"))
-    }
-
-    @Test func testFsckStatusUnknownKindReturnsNil() {
-        var disk = freshDisk()
-        #expect(DiskEventHandler.fsckStatus(kind: "io.stats", fields: [:],
-                                            disk: &disk) == nil)
     }
 
     // MARK: - applyVolumeInfo
@@ -221,5 +245,44 @@ struct DiskEventHandlerTests {
             kind: "unknown.kind", fields: [:], to: &disk
         )
         #expect(disk.fsckStatus == originalFsck)
+    }
+
+    @Test func testApplyEventInPlaceIOStatsAbsorbsCounters() {
+        // 1 Hz heartbeat path — the most-frequently-fired event branch
+        // at runtime. Pin the dispatch shape so a future rename of
+        // IOCounters' wire field names (or `absorb`'s signature)
+        // surfaces here rather than as a silent regression in the
+        // detail-view chart. Field names match exactly what
+        // `IOStatsRecorder` / the FSKit extensions emit and what
+        // `IOCounters.init(fields:)` reads.
+        var disk = freshDisk()
+        #expect(disk.ioStats.cumulative.bytesRead == 0)
+        #expect(disk.ioStats.cumulative.bdevBytesWritten == 0)
+
+        DiskEventHandler.applyEventInPlace(
+            kind: "io.stats",
+            fields: [
+                "bytes_read":         "1024",
+                "bytes_written":      "2048",
+                "ops_read":           "4",
+                "ops_written":        "2",
+                "bdev_bytes_read":    "512",
+                "bdev_bytes_written": "1024",
+            ],
+            to: &disk
+        )
+
+        // `absorb` ALWAYS updates `cumulative` (it's in a `defer`
+        // block), regardless of whether enough state exists yet to
+        // emit a per-second sample. So this assertion proves the
+        // dispatch path reached `IOCounters(fields:)` AND that the
+        // wire field names still decode into the expected counters
+        // — both the failure modes the Greptile review called out.
+        #expect(disk.ioStats.cumulative.bytesRead == 1024)
+        #expect(disk.ioStats.cumulative.bytesWritten == 2048)
+        #expect(disk.ioStats.cumulative.bdevBytesRead == 512)
+        #expect(disk.ioStats.cumulative.bdevBytesWritten == 1024)
+        // The dispatch must NOT touch fsckStatus.
+        #expect(disk.fsckStatus == .unknown)
     }
 }

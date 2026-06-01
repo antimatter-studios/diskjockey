@@ -15,6 +15,29 @@
 import Foundation
 import DiskJockeyLibrary
 
+/// Result of decoding an fsck-family event. The `status` is what the
+/// disk's `fsckStatus` field should become; the optional counters
+/// carry information that was only previously surfaced through
+/// `inout`-side-effects on `fsck.done` and are now returned to the
+/// caller for explicit assignment.
+public struct FsckStatusUpdate: Equatable {
+    public let status: FsckStatus
+    /// Present only on `fsck.done` when `fields["repaired_count"]`
+    /// decoded to a `UInt64`. The caller writes `disk.lastRepairedCount`.
+    public let repairedCount: UInt64?
+    /// Present only on `fsck.done` when `fields["anomalies"]` decoded
+    /// to a `UInt64`. The caller writes `disk.lastAnomaliesFound`.
+    public let anomaliesFound: UInt64?
+
+    public init(status: FsckStatus,
+                repairedCount: UInt64? = nil,
+                anomaliesFound: UInt64? = nil) {
+        self.status = status
+        self.repairedCount = repairedCount
+        self.anomaliesFound = anomaliesFound
+    }
+}
+
 public enum DiskEventHandler {
 
     /// Map a structured-event `kind` (e.g. `"ext4.probe"`, `"ntfs.load"`)
@@ -31,7 +54,7 @@ public enum DiskEventHandler {
     /// Mutating event-apply logic. The model invokes this when it has
     /// already located the right `AttachedDisk` row (or built a preview
     /// for one). Branches on `kind` and dispatches to the appropriate
-    /// sub-helper or `fsckStatus` decoder.
+    /// sub-helper or the `decodeFsckStatus` pure decoder.
     public static func applyEventInPlace(kind: String,
                                          fields: [String: String],
                                          to disk: inout AttachedDisk) {
@@ -50,8 +73,14 @@ public enum DiskEventHandler {
             return
         }
 
-        guard let newStatus = fsckStatus(kind: kind, fields: fields, disk: &disk) else { return }
-        disk.fsckStatus = newStatus
+        guard let update = decodeFsckStatus(kind: kind, fields: fields) else { return }
+        disk.fsckStatus = update.status
+        if let repaired = update.repairedCount {
+            disk.lastRepairedCount = repaired
+        }
+        if let anomalies = update.anomaliesFound {
+            disk.lastAnomaliesFound = anomalies
+        }
     }
 
     /// Apply a `volume.info` event payload onto `disk`. Overlays
@@ -116,36 +145,48 @@ public enum DiskEventHandler {
         }
     }
 
-    /// Return the new `FsckStatus` for fsck-family events, or nil for
-    /// unknown kinds. Side-effects `disk.lastRepairedCount` and
-    /// `disk.lastAnomaliesFound` on `fsck.done`.
-    public static func fsckStatus(
-        kind: String, fields: [String: String], disk: inout AttachedDisk
-    ) -> FsckStatus? {
+    /// Pure decoder for fsck-family event kinds. Returns nil for kinds
+    /// outside the fsck family (callers that want any-kind dispatch
+    /// should use `applyEventInPlace` instead).
+    ///
+    /// Pure — no side effects, no `inout` parameter. The `fsck.done`
+    /// case carries its `repaired_count` and `anomalies` payload in
+    /// the returned `FsckStatusUpdate` so the caller can write them
+    /// onto the disk explicitly. (Previously named `fsckStatus` and
+    /// mutated `disk` directly — renamed + restructured because the
+    /// query-shaped name was misleading once this became a public
+    /// API.)
+    public static func decodeFsckStatus(
+        kind: String, fields: [String: String]
+    ) -> FsckStatusUpdate? {
         switch kind {
         case "volume.clean":
-            return .clean
+            return FsckStatusUpdate(status: .clean)
         case "volume.dirty":
-            return .dirty
+            return FsckStatusUpdate(status: .dirty)
         case "fsck.start":
-            return .running(phase: "starting", done: 0, total: 0)
+            return FsckStatusUpdate(
+                status: .running(phase: "starting", done: 0, total: 0)
+            )
         case "fsck.progress":
             let phase = fields["phase"] ?? "?"
             let done = UInt64(fields["done"] ?? "0") ?? 0
             let total = UInt64(fields["total"] ?? "0") ?? 0
-            return .running(phase: phase, done: done, total: total)
+            return FsckStatusUpdate(
+                status: .running(phase: phase, done: done, total: total)
+            )
         case "fsck.done":
             let dirtyCleared = (fields["dirty_cleared"] ?? "false") == "true"
             let logfileBytes = UInt64(fields["logfile_bytes"] ?? "0") ?? 0
-            if let raw = fields["repaired_count"], let n = UInt64(raw) {
-                disk.lastRepairedCount = n
-            }
-            if let raw = fields["anomalies"], let n = UInt64(raw) {
-                disk.lastAnomaliesFound = n
-            }
-            return .completed(dirtyCleared: dirtyCleared, logfileBytes: logfileBytes)
+            let repaired = fields["repaired_count"].flatMap(UInt64.init)
+            let anomalies = fields["anomalies"].flatMap(UInt64.init)
+            return FsckStatusUpdate(
+                status: .completed(dirtyCleared: dirtyCleared, logfileBytes: logfileBytes),
+                repairedCount: repaired,
+                anomaliesFound: anomalies
+            )
         case "fsck.failed":
-            return .failed(fields["error"] ?? "unknown error")
+            return FsckStatusUpdate(status: .failed(fields["error"] ?? "unknown error"))
         default:
             return nil
         }

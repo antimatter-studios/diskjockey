@@ -162,7 +162,7 @@ public enum MountTableParser {
 
     /// Split a mount(8) line into its three components. Returns nil for
     /// malformed lines (missing " on " or the parenthesised flag list).
-    static func splitMountLine(
+    private static func splitMountLine(
         _ line: String
     ) -> (devicePath: String, mountPath: String, flags: [String])? {
         guard let onRange = line.range(of: " on ") else { return nil }
