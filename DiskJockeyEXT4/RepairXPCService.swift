@@ -26,42 +26,55 @@ final class RepairXPCService: NSObject {
 
     static let shared = RepairXPCService()
 
+    /// Single-shot start gate. Guards the whole "ensure dirs + build
+    /// watcher + call start" sequence so two concurrent `start()`
+    /// callers (FSKit may invoke the principal class's init() once per
+    /// mounted volume) can't construct two `RepairWatcher`s and race
+    /// on the assignment, which would orphan the first instance's
+    /// `DispatchSource` + open `O_EVTONLY` fd for the lifetime of the
+    /// extension. Same pattern the original `RepairXPCService` used —
+    /// `RepairWatcher.start()`'s own idempotency only protects the
+    /// watcher's body, not the adapter's create-then-call sequence.
+    private let startedLock = OSAllocatedUnfairLock(initialState: false)
     private var watcher: RepairWatcher?
 
     func start() {
-        // The watcher is built lazily on first start() so the App
-        // Group directories can be ensured before we hand resolved
-        // URLs to RepairWatcher.init.
-        if watcher == nil {
-            do {
-                try DiskJockeyRepairFiles.ensureDirectories(forFsType: "ext4")
-            } catch {
-                log.error("RepairWatcher: ensureDirectories failed: \(error.localizedDescription)",
-                          scope: AppLogScope.fsck)
-                return
-            }
-            guard
-                let requestsURL = DiskJockeyRepairFiles.requestsURL(forFsType: "ext4"),
-                let processingURL = DiskJockeyRepairFiles.processingURL(forFsType: "ext4"),
-                let responsesURL = DiskJockeyRepairFiles.responsesURL(forFsType: "ext4")
-            else {
-                log.error("RepairWatcher: App Group container unreachable",
-                          scope: AppLogScope.fsck)
-                return
-            }
-            watcher = RepairWatcher(
-                requestsURL: requestsURL,
-                processingURL: processingURL,
-                responsesURL: responsesURL,
-                workQueueLabel: "com.antimatterstudios.diskjockey.ext4.repair",
-                log: log,
-                logScope: AppLogScope.fsck,
-                enterOperation: { EXT4FileSystem.enterOperation() },
-                exitOperation: { EXT4FileSystem.exitOperation() },
-                runRepair: { request in Self.runRepair(for: request) }
-            )
+        let shouldStart: Bool = startedLock.withLock { started in
+            if started { return false }
+            started = true
+            return true
         }
-        watcher?.start()
+        guard shouldStart else { return }
+
+        do {
+            try DiskJockeyRepairFiles.ensureDirectories(forFsType: "ext4")
+        } catch {
+            log.error("RepairWatcher: ensureDirectories failed: \(error.localizedDescription)",
+                      scope: AppLogScope.fsck)
+            return
+        }
+        guard
+            let requestsURL = DiskJockeyRepairFiles.requestsURL(forFsType: "ext4"),
+            let processingURL = DiskJockeyRepairFiles.processingURL(forFsType: "ext4"),
+            let responsesURL = DiskJockeyRepairFiles.responsesURL(forFsType: "ext4")
+        else {
+            log.error("RepairWatcher: App Group container unreachable",
+                      scope: AppLogScope.fsck)
+            return
+        }
+        let w = RepairWatcher(
+            requestsURL: requestsURL,
+            processingURL: processingURL,
+            responsesURL: responsesURL,
+            workQueueLabel: "com.antimatterstudios.diskjockey.ext4.repair",
+            log: log,
+            logScope: AppLogScope.fsck,
+            enterOperation: { EXT4FileSystem.enterOperation() },
+            exitOperation: { EXT4FileSystem.exitOperation() },
+            runRepair: { request in Self.runRepair(for: request) }
+        )
+        watcher = w
+        w.start()
     }
 
     /// Look up the live backend for `request.bsd` and run the repair
