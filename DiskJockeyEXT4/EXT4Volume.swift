@@ -58,12 +58,11 @@ final class EXT4Volume: FSVolume,
     /// methods rather than the user-facing FFI gated below.
     private let opLock: OperationLock
 
-    /// Track items by file ID for reclamation. Guarded by `itemsLock` — an
-    /// `OSAllocatedUnfairLock` is used (rather than `NSLock`) so the class
-    /// is Sendable-safe under Swift 6 strict concurrency; holding an unfair
-    /// lock across an `await` is a compile-time error, which matches the
-    /// invariant we already rely on here.
-    private let itemsLock = OSAllocatedUnfairLock<[UInt64: EXT4Item]>(initialState: [:])
+    /// Per-volume `fileID → EXT4Item` cache. Get-or-create-or-replace
+    /// semantics live in `FileIDCache`; the per-EXT4 validation rule
+    /// (path + parentInode must still match) is the closure passed
+    /// from `item(forID:)`.
+    private let items = FileIDCache<EXT4Item>()
 
     /// Shared App Group store. Used to read live toggles (e.g. verbose
     /// enumerate logging) the host app writes via `@AppStorage`. Reads
@@ -188,17 +187,12 @@ final class EXT4Volume: FSVolume,
     /// is `FSItemIDParentOfRoot` (1), set inside the attribute builder.
     private func item(forID fileID: UInt64, path: String,
                       parentInode: UInt32?) -> EXT4Item {
-        itemsLock.withLock { items in
-            if let existing = items[fileID],
-               existing.path == path,
-               existing.parentInode == parentInode {
-                return existing
-            }
-            let newItem = EXT4Item(inode: UInt32(fileID), path: path,
-                                   parentInode: parentInode)
-            items[fileID] = newItem
-            return newItem
-        }
+        items.getOrCreate(
+            id: fileID,
+            validate: { $0.path == path && $0.parentInode == parentInode },
+            create: { EXT4Item(inode: UInt32(fileID), path: path,
+                               parentInode: parentInode) }
+        )
     }
 
     // MARK: - Volume capabilities
@@ -499,10 +493,7 @@ final class EXT4Volume: FSVolume,
 
     func reclaimItem(_ item: FSItem) async throws {
         if let ext4Item = item as? EXT4Item {
-            let key = UInt64(ext4Item.inode)
-            itemsLock.withLock { items in
-                items.removeValue(forKey: key)
-            }
+            items.remove(id: UInt64(ext4Item.inode))
         }
     }
 

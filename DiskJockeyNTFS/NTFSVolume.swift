@@ -71,9 +71,11 @@ final class NTFSVolume: FSVolume,
     /// in `NTFSFileSystem.loadResource`, stopped in `deactivate`.
     private let stats: IOStatsCollector
 
-    /// Track items by file record number for reclamation
-    private var items: [UInt64: NTFSItem] = [:]
-    private let itemsLock = NSLock()
+    /// Per-volume `fileID → NTFSItem` cache. Get-or-create-or-replace
+    /// semantics live in `FileIDCache`; the per-NTFS validation rule
+    /// (path + parentRecordNumber must still match) is the closure
+    /// passed from `item(forRecordNumber:)`.
+    private let items = FileIDCache<NTFSItem>()
 
     init(volumeID: FSVolume.Identifier,
          volumeName: FSFileName,
@@ -179,19 +181,13 @@ final class NTFSVolume: FSVolume,
     /// parent is `FSItemIDParentOfRoot` (1).
     private func item(forRecordNumber recno: UInt64, path: String,
                       parentRecordNumber: UInt64?) -> NTFSItem {
-        itemsLock.lock()
-        defer { itemsLock.unlock() }
-
-        if let existing = items[recno],
-           existing.path == path,
-           existing.parentRecordNumber == parentRecordNumber {
-            return existing
-        }
-
-        let newItem = NTFSItem(fileRecordNumber: recno, path: path,
-                               parentRecordNumber: parentRecordNumber)
-        items[recno] = newItem
-        return newItem
+        items.getOrCreate(
+            id: recno,
+            validate: { $0.path == path
+                && $0.parentRecordNumber == parentRecordNumber },
+            create: { NTFSItem(fileRecordNumber: recno, path: path,
+                               parentRecordNumber: parentRecordNumber) }
+        )
     }
 
     // MARK: - Volume capabilities
@@ -898,9 +894,7 @@ final class NTFSVolume: FSVolume,
 
     func reclaimItem(_ item: FSItem) async throws {
         if let ntfsItem = item as? NTFSItem {
-            itemsLock.lock()
-            items.removeValue(forKey: ntfsItem.fileRecordNumber)
-            itemsLock.unlock()
+            items.remove(id: ntfsItem.fileRecordNumber)
         }
     }
 
