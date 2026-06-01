@@ -43,10 +43,11 @@ public protocol FileSystemTag {
 /// back to us by their `FSItem` base type — the generic specialisation
 /// is invisible to the framework.
 ///
-/// `open` rather than `final`: tests can subclass to spy on inits if
-/// ever needed, and a future per-flavour subclass (e.g. one that
-/// caches a stat) can extend this without forking the storage.
-open class FileSystemItem<Tag: FileSystemTag>: FSItem {
+/// `final` matches the closed surface the previous `EXT4Item` /
+/// `NTFSItem` classes carried. Subclassing wasn't used and would
+/// fork the storage contract this generic exists to consolidate;
+/// add a new tag instead.
+public final class FileSystemItem<Tag: FileSystemTag>: FSItem {
 
     /// Filesystem-defined identity — ext4 calls this an inode, NTFS
     /// calls it an MFT record number. Persisted across the FSKit-↔-
