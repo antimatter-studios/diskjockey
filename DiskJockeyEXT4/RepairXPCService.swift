@@ -1,226 +1,72 @@
 /*
- * RepairXPCService.swift — file-based repair watcher inside the EXT4
- * FSKit extension. Despite the legacy filename, this is no longer an
- * NSXPC service — it's a directory watcher on the shared App Group
- * container.
+ * RepairXPCService.swift — EXT4-side adapter around the shared
+ * `RepairWatcher` in DiskJockeyLibrary.
  *
- * The host app drops a JSON request file into
- *   <App Group>/Repair/ext4/requests/request-<uuid>.json
- * The watcher claims it (atomic rename into `processing/`), runs the
- * journaled repair pass against the live mount, and writes the
- * result alongside the original UUID into
- *   <App Group>/Repair/ext4/responses/result-<uuid>.json
+ * Despite the legacy filename, this isn't an NSXPC service — it's a
+ * directory watcher on the App Group's `Repair/ext4/{requests,
+ * processing,responses}/` triple. See `RepairWatcher.swift` and
+ * `DiskJockeyRepairProtocol.swift` for the wire shape and rationale.
  *
- * Progress events keep flowing through the existing NDJSON log file
- * — the host's LogTailService picks them up and pipes them into the
- * per-disk detail view's progress UI without touching this file.
+ * What stays here:
+ *   - The EXT4-specific `runRepair` body (`backend.runFsck` + throttled
+ *     `onProgress` callbacks + watchdog heartbeats).
+ *   - The bracket that registers each repair pass in
+ *     `DetachedOperationWatchdog` via `enterOperation` / `exitOperation`.
  *
- * Why files instead of XPC: ExtensionKit-extension bundles silently
- * ignore Info.plist `MachServices` declarations, and anonymous
- * NSXPCListener + endpoint serialization (while public-API and
- * documented) is unconventional enough to risk reviewer-friction
- * at App Store review. Two of our own bundles communicating
- * through their shared App Group container is the textbook use
- * of App Groups — uncontroversial and MAS-defensible.
+ * Everything else (FD-watcher binding, atomic-rename-as-claim, JSON
+ * decode + fallback, atomic result write) lives in
+ * `DiskJockeyLibrary/RepairWatcher.swift`.
  */
 
 import Foundation
 import os
 import DiskJockeyLibrary
 
-private extension String {
-    func deletingPrefix(_ p: String) -> String {
-        hasPrefix(p) ? String(dropFirst(p.count)) : self
-    }
-    func deletingSuffix(_ s: String) -> String {
-        hasSuffix(s) ? String(dropLast(s.count)) : self
-    }
-}
-
 final class RepairXPCService: NSObject {
 
     static let shared = RepairXPCService()
 
-    private let lock = OSAllocatedUnfairLock(initialState: false)
-    private var watcher: DispatchSourceFileSystemObject?
-    private var watchedFD: CInt = -1
-    private let workQueue = DispatchQueue(
-        label: "com.antimatterstudios.diskjockey.ext4.repair",
-        qos: .userInitiated
-    )
+    private var watcher: RepairWatcher?
 
     func start() {
-        // Idempotent — the principal class's init() may run once per
-        // mounted volume, but only the first call binds the watcher.
-        let shouldStart: Bool = lock.withLock { started in
-            if started { return false }
-            started = true
-            return true
-        }
-        guard shouldStart else { return }
-
-        do {
-            try DiskJockeyRepairFiles.ensureDirectories(forFsType: "ext4")
-        } catch {
-            log.error("RepairWatcher: ensureDirectories failed: \(error.localizedDescription)",
-                      scope: AppLogScope.fsck)
-            return
-        }
-        guard let requestsURL = DiskJockeyRepairFiles.requestsURL(forFsType: "ext4") else {
-            log.error("RepairWatcher: App Group container unreachable",
-                      scope: AppLogScope.fsck)
-            return
-        }
-
-        // Sweep on startup — if the extension was killed mid-flight
-        // last session, requests may be in `processing/` waiting to be
-        // re-tried, and there may be pending requests already in
-        // `requests/` that arrived while we weren't running.
-        scanAndProcess()
-
-        // Watch the requests directory for new arrivals. DispatchSource
-        // on the directory FD fires on .write events when entries are
-        // added/removed — cheaper than polling and reacts in
-        // milliseconds.
-        let fd = open(requestsURL.path, O_EVTONLY)
-        if fd < 0 {
-            let errStr = String(cString: strerror(errno))
-            log.error("RepairWatcher: open(\(requestsURL.path)) failed: \(errStr)",
-                      scope: AppLogScope.fsck)
-            return
-        }
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .extend, .delete, .rename],
-            queue: workQueue
-        )
-        source.setEventHandler { [weak self] in
-            self?.scanAndProcess()
-        }
-        source.setCancelHandler {
-            close(fd)
-        }
-        source.resume()
-
-        self.watchedFD = fd
-        self.watcher = source
-
-        log.info("RepairWatcher: watching \(requestsURL.path)",
-                 scope: AppLogScope.fsck)
-    }
-
-    /// Scan `requests/`, claim each pending file by atomic-renaming
-    /// it into `processing/`, and dispatch the repair onto the work
-    /// queue. Every transition is logged so the host's per-disk log
-    /// strip can render the pipeline state in real time.
-    private func scanAndProcess() {
-        guard
-            let requestsURL = DiskJockeyRepairFiles.requestsURL(forFsType: "ext4"),
-            let processingURL = DiskJockeyRepairFiles.processingURL(forFsType: "ext4")
-        else { return }
-
-        let fm = FileManager.default
-        let entries: [URL]
-        do {
-            entries = try fm.contentsOfDirectory(
-                at: requestsURL,
-                includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles]
-            )
-        } catch {
-            log.error("RepairWatcher: cannot list \(requestsURL.path): \(error.localizedDescription)",
-                      scope: AppLogScope.fsck)
-            return
-        }
-
-        for src in entries where src.lastPathComponent.hasPrefix("request-") {
-            let dst = processingURL.appendingPathComponent(src.lastPathComponent)
+        // The watcher is built lazily on first start() so the App
+        // Group directories can be ensured before we hand resolved
+        // URLs to RepairWatcher.init.
+        if watcher == nil {
             do {
-                // Atomic rename — concurrent watchers (or a stuck
-                // previous run) lose the race and find the file
-                // already claimed.
-                try fm.moveItem(at: src, to: dst)
-                log.info("RepairWatcher: claimed \(src.lastPathComponent) → processing/",
-                         scope: AppLogScope.fsck)
+                try DiskJockeyRepairFiles.ensureDirectories(forFsType: "ext4")
             } catch {
-                // Lost the race; another worker has it. Log and
-                // continue so this is visible if it ever recurs.
-                log.info("RepairWatcher: skipped \(src.lastPathComponent) (already claimed): \(error.localizedDescription)",
-                         scope: AppLogScope.fsck)
-                continue
-            }
-            workQueue.async { [weak self] in
-                self?.handleRequest(at: dst)
-            }
-        }
-    }
-
-    /// Decode the request file, run the repair, write the result.
-    /// Always cleans up the in-flight file at the end.
-    private func handleRequest(at processingURL: URL) {
-        // Track in the parent-death watchdog counter: repair runs
-        // synchronously inside `runFsck`, which holds the per-handle
-        // state lock and has no cancel hook on the Rust side. If the
-        // host or mount goes away mid-repair, the watchdog will exit
-        // the appex once the deadline elapses.
-        EXT4FileSystem.enterOperation()
-        defer {
-            // Best-effort cleanup. If unlink fails the next start() will
-            // see a stale processing entry and re-process; idempotent on
-            // the result side because `result-<uuid>.json` overwrites.
-            try? FileManager.default.removeItem(at: processingURL)
-            EXT4FileSystem.exitOperation()
-        }
-
-        let request: RepairRequest
-        do {
-            let data = try Data(contentsOf: processingURL)
-            let decoder = JSONDecoder()
-            // Match the host's encoder (ISO 8601 dates). Without this,
-            // decode fails with "data couldn't be read because it
-            // isn't in the correct format" and the host waits the
-            // full polling timeout for a result that never comes.
-            decoder.dateDecodingStrategy = .iso8601
-            request = try decoder.decode(RepairRequest.self, from: data)
-            log.info("RepairWatcher: decoded request id=\(request.id) bsd=\(request.bsd)",
-                     scope: AppLogScope.fsck)
-        } catch {
-            // Decode failure is fatal for this request. Try to recover
-            // the request id from the filename so the host gets a fast
-            // failure result instead of a 30-minute timeout. Filename
-            // shape is `request-<uuid>.json`.
-            let filename = processingURL.lastPathComponent
-            let recoveredID = filename
-                .deletingPrefix("request-")
-                .deletingSuffix(".json")
-            log.error("RepairWatcher: decode failed for \(filename): \(error.localizedDescription) — replying with failure result so the host doesn't wait the full timeout",
-                      scope: AppLogScope.fsck)
-            if let uuid = UUID(uuidString: recoveredID) {
-                writeResult(
-                    RepairResult(
-                        id: uuid,
-                        success: false,
-                        message: "Could not decode repair request: \(error.localizedDescription)"),
-                    for: uuid
-                )
-            } else {
-                log.error("RepairWatcher: filename did not yield a parseable UUID — host will hit polling timeout",
+                log.error("RepairWatcher: ensureDirectories failed: \(error.localizedDescription)",
                           scope: AppLogScope.fsck)
+                return
             }
-            return
+            guard
+                let requestsURL = DiskJockeyRepairFiles.requestsURL(forFsType: "ext4"),
+                let processingURL = DiskJockeyRepairFiles.processingURL(forFsType: "ext4"),
+                let responsesURL = DiskJockeyRepairFiles.responsesURL(forFsType: "ext4")
+            else {
+                log.error("RepairWatcher: App Group container unreachable",
+                          scope: AppLogScope.fsck)
+                return
+            }
+            watcher = RepairWatcher(
+                requestsURL: requestsURL,
+                processingURL: processingURL,
+                responsesURL: responsesURL,
+                workQueueLabel: "com.antimatterstudios.diskjockey.ext4.repair",
+                log: log,
+                logScope: AppLogScope.fsck,
+                enterOperation: { EXT4FileSystem.enterOperation() },
+                exitOperation: { EXT4FileSystem.exitOperation() },
+                runRepair: { request in Self.runRepair(for: request) }
+            )
         }
-
-        log.info("RepairWatcher: starting repair for request id=\(request.id) bsd=\(request.bsd)",
-                 scope: AppLogScope.fsck)
-        let result = runRepair(for: request)
-        log.info("RepairWatcher: repair finished for id=\(request.id) bsd=\(request.bsd) success=\(result.success) repaired=\(result.repairedCount.map { "\($0)" } ?? "-")",
-                 scope: AppLogScope.fsck)
-        writeResult(result, for: request.id)
+        watcher?.start()
     }
 
     /// Look up the live backend for `request.bsd` and run the repair
     /// pass. Always returns a `RepairResult` — never throws.
-    private func runRepair(for request: RepairRequest) -> RepairResult {
+    private static func runRepair(for request: RepairRequest) -> RepairResult {
         let resolved = EXT4FileSystem.mountedResources.first { $0.bsdName == request.bsd }
 
         guard let resolved = resolved else {
@@ -314,30 +160,6 @@ final class RepairXPCService: NSObject {
         case .failure(let err):
             dlog.event(kind: "fsck.failed", fields: ["error": err.localizedDescription])
             return RepairResult(id: request.id, success: false, message: err.localizedDescription)
-        }
-    }
-
-    /// Write the result file. Atomic so the host's watcher never
-    /// reads a partial JSON.
-    private func writeResult(_ result: RepairResult, for id: UUID) {
-        guard let responsesURL = DiskJockeyRepairFiles.responsesURL(forFsType: "ext4") else {
-            log.error("RepairWatcher: responses dir unreachable; result for \(id) dropped",
-                      scope: AppLogScope.fsck)
-            return
-        }
-        let dst = responsesURL.appendingPathComponent(
-            DiskJockeyRepairFiles.resultFilename(id: id)
-        )
-        do {
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            let data = try encoder.encode(result)
-            try data.write(to: dst, options: .atomic)
-            log.info("RepairWatcher: wrote result \(dst.lastPathComponent) (success=\(result.success))",
-                     scope: AppLogScope.fsck)
-        } catch {
-            log.error("RepairWatcher: cannot write result for \(id): \(error.localizedDescription)",
-                      scope: AppLogScope.fsck)
         }
     }
 }
