@@ -6,6 +6,10 @@ The README carries an abbreviated tail of this file (last ten dated sections).
 
 ---
 
+## 2026-05-31
+
+- **EXT4 stuck-progress watchdog (Fix D).** `DetachedOperationWatchdog` gains a per-op heartbeat layer on top of the existing deactivate-side trigger from Fix A. While a fsck / repair / format op is in flight, a background timer wakes once per `stuckCheckInterval` and checks whether `heartbeat()` has fired within `stuckDeadline` (default 60 s); if not, the same `onExpire` callback runs as Fix A's deactivate path — production exits the appex so `storagekitd` respawns. `EXT4FileSystem.startCheck` and `RepairXPCService.runRepair` call `watchdog.heartbeat()` from each Rust `onProgress` callback (unthrottled — log emission stays throttled separately, but the watchdog must see every tick). Catches the case where a verify/repair wedges mid-walk on a corrupted inode loop with no progress callbacks and the volume's still mounted — Fix A's deactivate-only trigger wouldn't fire there. Four new unit tests cover heartbeat-resets-clock, fires-when-silent, stays-quiet-while-beating, and stops-on-counter-zero.
+
 ## 2026-05-20
 
 - **EXT4 quiesce during verify / repair (Fix C).** While `fsck_fskit -t ext4` (verify) or `RepairXPCService` (repair) holds the volume's `OperationLock`, every user-facing FS op in `EXT4Volume` (attributes, setAttributes, lookup, enumerateDirectory, read, write, readSymbolicLink, createItem, createSymbolicLink, createLink, removeItem, renameItem, synchronize) checks `opLock.current` as its first instruction and throws `POSIXError(.EBUSY)` immediately if non-idle. Finder, Spotlight, `cp` and other callers get a fast recognisable "disk in use" error instead of blocking on the backend lock for the entire verify duration. Verify itself doesn't traverse these gates — its dispatch goes `startCheck` → `backend.runFsck` → `fs_ext4_fsck_run` and reads the device internally via the Rust crate's private methods, so the quiesce never locks the holder out of its own work.
