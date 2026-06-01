@@ -173,6 +173,16 @@ public final class DetachedOperationWatchdog: @unchecked Sendable {
         let elapsedNs = monotonicNanos() &- last
         let deadlineNs = UInt64(stuckDeadline * 1_000_000_000)
         guard elapsedNs >= deadlineNs else { return }
+        // One-shot fire. Cancel the timer BEFORE invoking onExpire
+        // so subsequent ticks can't re-enter — `lastHeartbeatNs` is
+        // never refreshed here, so without this cancel every
+        // following tick would also satisfy the deadline guard and
+        // re-call onExpire. In production that's masked because
+        // onExpire calls `exit()` and the process is gone before
+        // the next tick lands, but the contract should be explicit
+        // and robust against an onExpire that doesn't terminate
+        // (e.g. test spies that just flip a counter).
+        cancelStuckTimer()
         onExpire(pending, stuckDeadline)
     }
 

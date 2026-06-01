@@ -166,6 +166,29 @@ struct DetachedOperationWatchdogTests {
         #expect(reportedDeadline.get() == 0.1)
     }
 
+    @Test func stuckMonitorFiresOnceNotOncePerTick() async throws {
+        // Regression: an earlier version fired `onExpire` on every
+        // timer tick after the deadline. Masked in production because
+        // `exit()` terminates before the next tick, but the contract
+        // is one-shot — verify with a counter spy that several check
+        // intervals don't accumulate fires.
+        let fireCount = LockBox(0)
+        let w = DetachedOperationWatchdog(
+            label: "test",
+            defaultDeadline: 100,
+            stuckDeadline: 0.05,
+            stuckCheckInterval: 0.02
+        ) { _, _ in
+            fireCount.set(fireCount.get() + 1)
+        }
+        w.enter()
+        // 250 ms with 20 ms check interval = ~12 potential ticks past
+        // the 50 ms deadline. Without one-shot cancellation we'd see
+        // double-digit fires. With it, exactly 1.
+        try await Task.sleep(nanoseconds: 250_000_000)
+        #expect(fireCount.get() == 1)
+    }
+
     @Test func stuckMonitorDoesNotFireWhileHeartbeatsArrive() async throws {
         let fireCount = LockBox(0)
         let w = DetachedOperationWatchdog(

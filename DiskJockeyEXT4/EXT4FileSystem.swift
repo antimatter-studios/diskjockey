@@ -250,16 +250,22 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
     /// closure logs + exits the process so `storagekitd` respawns the
     /// appex cleanly.
     static let watchdog: DetachedOperationWatchdog = {
-        DetachedOperationWatchdog(
+        // Fix D — stuck-progress monitor. If `heartbeat()` doesn't
+        // fire for `stuckDeadline` seconds while at least one op
+        // is in flight, the op is presumed wedged (e.g. fsck stuck
+        // on a corrupted inode loop) and the appex `exit`s the
+        // same way deactivate-watchdog does. Default 60 s,
+        // overridable via the App Group default
+        // `ext4StuckDeadlineSeconds` (read once at static-let init
+        // time, same one-shot pattern as the deactivate side's
+        // `ext4WatchdogDeadlineSeconds` override).
+        let defaults = UserDefaults(suiteName: AppLog.groupIdentifier)
+        let configuredStuck = defaults?.double(forKey: "ext4StuckDeadlineSeconds") ?? 0
+        let stuckDeadline: TimeInterval = configuredStuck > 0 ? configuredStuck : 60
+        return DetachedOperationWatchdog(
             label: "ext4",
             defaultDeadline: 30,
-            // Fix D — stuck-progress monitor. If `heartbeat()`
-            // doesn't fire for 60 s while at least one op is in
-            // flight, the op is presumed wedged (e.g. fsck stuck on
-            // a corrupted inode loop) and the appex `exit`s the
-            // same way deactivate-watchdog does. Overridable via
-            // App Group default `ext4StuckDeadlineSeconds`.
-            stuckDeadline: 60
+            stuckDeadline: stuckDeadline
         ) { pending, deadline in
             log.error(
                 "watchdog: \(pending) op(s) still pending after \(Int(deadline))s — exiting (EX_TEMPFAIL) so storagekitd respawns",
