@@ -107,12 +107,25 @@ final class MountableFileSystemTests: XCTestCase {
 
     func testFirstWhereLocatesByPredicate() {
         let registry = MountedResourceRegistry<TestRecord>()
-        registry.register(TestKey(),
+        // Bind keys to local vars: anonymous `TestKey()` instances get
+        // released by ARC immediately after each `register` returns
+        // (the registry only stores `ObjectIdentifier(key)`, not the
+        // key itself), so the allocator can reuse the first key's
+        // address for the second — collapsing both registrations to
+        // one entry without the assertions noticing. Holding both
+        // keys alive across the registers keeps their addresses
+        // distinct.
+        let k1 = TestKey()
+        let k2 = TestKey()
+        registry.register(k1,
                           TestRecord(bsdName: "disk1s1",
                                      opLock: OperationLock(), payload: "first"))
-        registry.register(TestKey(),
+        registry.register(k2,
                           TestRecord(bsdName: "disk2s1",
                                      opLock: OperationLock(), payload: "second"))
+
+        XCTAssertEqual(registry.count, 2,
+                       "both keys must be distinct; ARC re-use would collapse to 1")
 
         let hit = registry.first { $0.bsdName == "disk2s1" }
         XCTAssertEqual(hit?.payload, "second")

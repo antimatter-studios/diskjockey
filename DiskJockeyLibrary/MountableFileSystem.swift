@@ -100,6 +100,14 @@ public final class MountedResourceRegistry<Resource: MountedResource>: @unchecke
     /// First record matching `predicate`, or `nil` if none. Used by
     /// the RepairXPCService to locate the live mount for a given
     /// bsdName when multiple may eventually coexist.
+    ///
+    /// `predicate` runs while the registry's `OSAllocatedUnfairLock`
+    /// is held. The lock is **non-reentrant** — a predicate that
+    /// calls back into this registry (`first`, `resolveSingle`,
+    /// `count`, `register`, `remove`) on the same instance will
+    /// deadlock. Keep predicates to plain field comparisons; same
+    /// posture as `FileIDCache.getOrCreate`'s validate/create
+    /// closures.
     public func first(where predicate: (Resource) -> Bool) -> Resource? {
         storage.withLock { map in
             map.values.first(where: predicate)
