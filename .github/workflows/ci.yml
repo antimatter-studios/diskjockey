@@ -9,8 +9,17 @@ on:
   pull_request:
     branches: [main]
 
+# `head_ref` is set on `pull_request` events (the source branch);
+# `ref_name` is the short ref for `push` events. Using
+# `head_ref || ref_name` unifies the two events into one concurrency
+# group per branch — without this, GitHub fires both a `push` run
+# (group key `refs/heads/<branch>`) and a `pull_request` run (group
+# key `refs/pull/<n>/merge`) for the same commit, and they race for
+# the limited macos-26 runner pool. Observed symptom: one run passes
+# in ~2 min, the duplicate hangs for an hour waiting for a slot that
+# never frees.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
