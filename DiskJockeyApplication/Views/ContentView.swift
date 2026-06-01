@@ -164,28 +164,6 @@ private struct SidebarView: View {
         VStack(spacing: 0) {
             // Mount list + logs
             List(selection: $sidebarModel.selectedItem) {
-                Section("Network Drives") {
-                    if directMountRegistry.mounts.isEmpty {
-                        Text("No mounts configured")
-                            .foregroundStyle(.secondary)
-                            .font(.caption)
-                    } else {
-                        ForEach(directMountRegistry.mounts, id: \.id) { mount in
-                            DirectMountSidebarRow(
-                                mount: mount,
-                                registry: directMountRegistry
-                            )
-                            .tag(SidebarItem.directMount(mount.id))
-                        }
-                    }
-
-                    Button(action: { showingAddMount = true }) {
-                        Label("Add Network Drive", image: "tabler-plus")
-                            .foregroundStyle(Color.accentColor)
-                    }
-                    .buttonStyle(.plain)
-                }
-
                 Section("Local Drives") {
                     if attachedDisks.disks.isEmpty {
                         Text("No local volumes mounted")
@@ -203,6 +181,28 @@ private struct SidebarView: View {
                             logRepository: container.logRepository)
                     }) {
                         Label("Add Disk Image", image: "tabler-plus")
+                            .foregroundStyle(Color.accentColor)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Section("Network Drives") {
+                    if directMountRegistry.mounts.isEmpty {
+                        Text("No mounts configured")
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
+                    } else {
+                        ForEach(directMountRegistry.mounts, id: \.id) { mount in
+                            DirectMountSidebarRow(
+                                mount: mount,
+                                registry: directMountRegistry
+                            )
+                            .tag(SidebarItem.directMount(mount.id))
+                        }
+                    }
+
+                    Button(action: { showingAddMount = true }) {
+                        Label("Add Network Drive", image: "tabler-plus")
                             .foregroundStyle(Color.accentColor)
                     }
                     .buttonStyle(.plain)
