@@ -23,6 +23,7 @@
 //
 
 import AppKit
+import DiskJockeyLibrary
 import Foundation
 
 public struct OAuthTokens: Equatable, Sendable {

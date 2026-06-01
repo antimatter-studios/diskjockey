@@ -22,6 +22,7 @@
 // sign-in not configured for this build" error rather than crashing.
 //
 
+import DiskJockeyLibrary
 import Foundation
 
 public struct DropboxClientConfig: Equatable, Sendable {
