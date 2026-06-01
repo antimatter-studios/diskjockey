@@ -237,7 +237,12 @@ final class EXT4Backend: FileSystemBackend {
     func rename(src: String, dst: String) -> Bool {
         state.withLock { fs in
             guard let fs = fs else { return false }
-            return fs_ext4_rename(fs, src, dst) == 0
+            // Use the replace variant so an existing destination is
+            // atomically overwritten (POSIX rename(2) semantics). The
+            // plain fs_ext4_rename rejects an existing dst with EEXIST,
+            // which breaks in-place editors (e.g. `sed -i`) that write a
+            // temp file then rename it over the original.
+            return fs_ext4_rename2(fs, src, dst, FS_EXT4_RENAME_REPLACE) == 0
         }
     }
 
