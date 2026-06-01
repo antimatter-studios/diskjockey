@@ -259,7 +259,7 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
     /// in-process pointer is a stable, unique handle. Guarded by an
     /// unfair lock so `startCheck` can read it without awaiting an
     /// actor. Mirror of the EXT4 extension's `mountedResources`.
-    struct MountedResource {
+    struct MountedResource: DiskJockeyLibrary.MountedResource {
         let bsdName: String
         let volume: NTFSVolume
         /// Retained `NTFSBlockDeviceContext` pointer the load path used
@@ -275,8 +275,7 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         /// `OperationLock` for the contract.
         let opLock: OperationLock
     }
-    static let mountedResources = OSAllocatedUnfairLock<[ObjectIdentifier: MountedResource]>(
-        initialState: [:])
+    static let mountedResources = MountedResourceRegistry<MountedResource>()
 
     override init() {
         super.init()
@@ -548,12 +547,10 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         // and `startFormat` (both called without a resource handle)
         // can find them. Lifecycle matches the volume's; freed in
         // NTFSVolume.deactivate.
-        Self.mountedResources.withLock { map in
-            map[ObjectIdentifier(resource)] = MountedResource(
-                bsdName: bsdName, volume: volume,
-                contextPtr: contextPtr, cfgSizeBytes: cfgSizeBytes,
-                opLock: OperationLock())
-        }
+        Self.mountedResources.register(resource, MountedResource(
+            bsdName: bsdName, volume: volume,
+            contextPtr: contextPtr, cfgSizeBytes: cfgSizeBytes,
+            opLock: OperationLock()))
         // Begin emitting `io.stats` heartbeats now. The collector
         // self-suppresses idle ticks.
         stats.start()
@@ -645,9 +642,7 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         replyHandler reply: @escaping ((any Error)?) -> Void
     ) {
         log.info("unloadResource called", scope: AppLogScope.lifecycle)
-        Self.mountedResources.withLock { map in
-            map.removeValue(forKey: ObjectIdentifier(resource))
-        }
+        Self.mountedResources.remove(resource)
         reply(nil)
     }
 
@@ -678,13 +673,8 @@ extension NTFSFileSystem: FSManageableResourceMaintenanceOperations {
     /// ever registered (hypothetical multi-volume FSKit future) we fail
     /// loudly rather than guess.
     func startCheck(task: FSTask, options: FSTaskOptions) throws -> Progress {
-        let resolved: MountedResource? = Self.mountedResources.withLock { map in
-            guard !map.isEmpty else { return nil }
-            if map.count == 1 { return map.values.first }
-            return nil
-        }
-
-        guard let resolved = resolved else {
+        // Empty / ambiguous → surface loudly rather than guess.
+        guard let resolved = Self.mountedResources.resolveSingle() else {
             log.error("startCheck: no (or ambiguous) mounted resource registered — refusing", scope: AppLogScope.fsck)
             throw POSIXError(.EBADF)
         }
@@ -781,12 +771,8 @@ extension NTFSFileSystem: FSManageableResourceMaintenanceOperations {
     /// safety caveats. Same single-mount-required, same kernel-cache
     /// risk if the volume is actively mounted.
     func startFormat(task: FSTask, options: FSTaskOptions) throws -> Progress {
-        let resolved: MountedResource? = Self.mountedResources.withLock { map in
-            guard !map.isEmpty else { return nil }
-            if map.count == 1 { return map.values.first }
-            return nil
-        }
-        guard let resolved = resolved else {
+        // Same single-mount-per-extension assumption as startCheck.
+        guard let resolved = Self.mountedResources.resolveSingle() else {
             log.error(
                 "startFormat: no loaded resource to format — disk must be probed/loaded first; see docs/fskit-format-pipeline.md",
                 scope: AppLogScope.fsck
@@ -898,3 +884,11 @@ final class FsckProgressTracker: @unchecked Sendable {
         }
     }
 }
+
+// MARK: - MountableFileSystem conformance
+
+/// Declares this extension as a DiskJockey FSKit filesystem so the
+/// shared registry surface (`MountedResourceRegistry`) is reachable
+/// generically. The associated `Resource` type is inferred from the
+/// `static let mountedResources` declaration above.
+extension NTFSFileSystem: MountableFileSystem {}
