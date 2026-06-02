@@ -160,6 +160,12 @@ struct AddMountView: View {
         case .gdrive:   gdriveFields
         case .onedrive: onedriveFields
         case .s3:       s3Fields
+        // `DirectMountScheme` is defined in another module — Swift
+        // requires this fallback in case a future scheme value
+        // reaches us without a UI here. Render nothing rather than
+        // crash; the user sees the scheme picker but no fields,
+        // which is honest and recoverable.
+        @unknown default: EmptyView()
         }
     }
 
@@ -472,6 +478,9 @@ struct AddMountView: View {
         case .s3:
             return !s3Endpoint.isEmpty && !s3Bucket.isEmpty
                 && !s3AccessKeyID.isEmpty && !s3SecretKey.isEmpty
+        // An unknown future scheme can't be validated — refuse the
+        // "Add Mount" button rather than guess required fields.
+        @unknown default: return false
         }
     }
 
@@ -570,6 +579,12 @@ struct AddMountView: View {
                         usePathStyle: s3PathStyle,
                         policy: policySnapshot
                     )
+                // Unknown future scheme — surface as a recoverable
+                // error rather than crash. Lands in the catch
+                // block's `errorMessage` so the user sees a clear
+                // failure instead of a silent dismiss.
+                @unknown default:
+                    throw POSIXError(.EINVAL)
                 }
                 AppLog.shared.info("add-mount created id=\(mount.domainID) scheme=\(mount.config.scheme.rawValue)")
                 dismiss()

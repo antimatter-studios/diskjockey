@@ -13,22 +13,62 @@ import os
 
 private let backendLogger = Logger(subsystem: "com.antimatterstudios.diskjockey.ext4", category: "backend")
 
+// MARK: - @unchecked Sendable wrappers
+//
+// Three local escape hatches that opt out of strict-concurrency
+// checking exactly at the points where the type system can't prove
+// what we know to be safe. Each wrapper is `@unchecked Sendable`
+// with a precise justification — the wrappers exist next to the
+// unsafe-code they justify so a reader sees the "trust me" tag
+// inline.
+
+/// Holds the opaque `fs_ext4` handle inside the unfair lock.
+/// `OpaquePointer`'s `Sendable` conformance is marked unavailable
+/// in the standard library (pointers could in principle alias non-
+/// Sendable data); we manually verify our handle is safe to share
+/// because:
+///   1. The Rust `fs_ext4` crate serialises per-handle internally
+///      via `Arc<RwLock>`.
+///   2. We additionally guard every access with `OSAllocatedUnfairLock`.
+///   3. The closure body inside `withLock` stays synchronous
+///      (no `await`).
+private struct BridgeHandle: @unchecked Sendable {
+    var ptr: OpaquePointer?
+}
+
+/// Carries a mutable raw pointer past the `withLock` @Sendable
+/// closure boundary. The pointer's storage is the caller's
+/// responsibility for the call duration; the lock's critical
+/// section is synchronous so the capture's lifetime is bounded
+/// by the FFI call.
+private struct UncheckedMutableBuffer: @unchecked Sendable {
+    let p: UnsafeMutableRawPointer
+}
+
+/// Read-only counterpart of `UncheckedMutableBuffer` for
+/// `UnsafeRawPointer` parameters (the write path's `data` argument).
+private struct UncheckedConstBuffer: @unchecked Sendable {
+    let p: UnsafeRawPointer
+}
+
 final class EXT4Backend: FileSystemBackend {
 
     /// fs_ext4 serialises per-handle via Arc<RwLock> internally, but we still
     /// hold the handle + a matching Sendable-safe lock on the Swift side so
     /// the class is safe to hand across actor boundaries under Swift 6.
     /// The unfair lock guards `bridgeFS`; the closure body stays synchronous
-    /// by construction (no `await`).
-    private let state: OSAllocatedUnfairLock<OpaquePointer?>
+    /// by construction (no `await`). Wrapped in `BridgeHandle` so the lock's
+    /// `State` requirement (must be `Sendable`) is satisfied — the standard
+    /// library marks `OpaquePointer`'s Sendable conformance unavailable.
+    private let state: OSAllocatedUnfairLock<BridgeHandle>
 
     init(bridgeFS: OpaquePointer) {
-        self.state = OSAllocatedUnfairLock(initialState: bridgeFS)
+        self.state = OSAllocatedUnfairLock(initialState: BridgeHandle(ptr: bridgeFS))
     }
 
     func volumeInfo() -> BackendVolumeInfo {
-        state.withLock { fs in
-            guard let fs = fs else {
+        state.withLock { handle in
+            guard let fs = handle.ptr else {
                 return BackendVolumeInfo(name: "ext4", blockSize: 4096,
                                         totalBlocks: 0, freeBlocks: 0,
                                         totalInodes: 0, freeInodes: 0,
@@ -112,17 +152,17 @@ final class EXT4Backend: FileSystemBackend {
     }
 
     func shutdown() {
-        state.withLock { fs in
-            if let handle = fs {
-                fs_ext4_umount(handle)
-                fs = nil
+        state.withLock { handle in
+            if let fs = handle.ptr {
+                fs_ext4_umount(fs)
+                handle.ptr = nil
             }
         }
     }
 
     func stat(path: String) -> BackendFileAttributes? {
-        state.withLock { fs in
-            guard let fs = fs else { return nil }
+        state.withLock { handle in
+            guard let fs = handle.ptr else { return nil }
 
             var attr = fs_ext4_attr_t()
             let rc = fs_ext4_stat(fs, path, &attr)
@@ -145,8 +185,8 @@ final class EXT4Backend: FileSystemBackend {
     }
 
     func readDirectory(path: String) -> [BackendDirectoryEntry]? {
-        state.withLock { fs in
-            guard let fs = fs else {
+        state.withLock { handle in
+            guard let fs = handle.ptr else {
                 backendLogger.error("readDirectory(\(path)): bridgeFS is nil")
                 return nil
             }
@@ -182,15 +222,20 @@ final class EXT4Backend: FileSystemBackend {
 
     func readFile(path: String, offset: UInt64, length: UInt64,
                   buffer: UnsafeMutableRawPointer) -> Int64 {
-        state.withLock { fs in
-            guard let fs = fs else { return Int64(-1) }
-            return fs_ext4_read_file(fs, path, buffer, offset, length)
+        // Wrap the caller's buffer pointer so the @Sendable
+        // `withLock` body can capture it without a strict-concurrency
+        // warning. Caller owns the storage; the FFI call below
+        // is synchronous so the wrapper's lifetime is bounded.
+        let wrappedBuffer = UncheckedMutableBuffer(p: buffer)
+        return state.withLock { handle in
+            guard let fs = handle.ptr else { return Int64(-1) }
+            return fs_ext4_read_file(fs, path, wrappedBuffer.p, offset, length)
         }
     }
 
     func readSymlink(path: String) -> String? {
-        state.withLock { fs -> String? in
-            guard let fs = fs else { return nil }
+        state.withLock { handle -> String? in
+            guard let fs = handle.ptr else { return nil }
 
             var buf = [CChar](repeating: 0, count: 4096)
             let rc = fs_ext4_readlink(fs, path, &buf, buf.count)
@@ -203,16 +248,17 @@ final class EXT4Backend: FileSystemBackend {
     // MARK: - Write path
 
     func createFile(path: String, mode: UInt16) -> Bool {
-        state.withLock { fs in
-            guard let fs = fs else { return false }
+        state.withLock { handle in
+            guard let fs = handle.ptr else { return false }
             return fs_ext4_create(fs, path, mode) != 0
         }
     }
 
     func writeFile(path: String, data: UnsafeRawPointer, length: UInt64) -> Int64 {
-        state.withLock { fs in
-            guard let fs = fs else { return Int64(-1) }
-            return fs_ext4_write_file(fs, path, data, length)
+        let wrappedData = UncheckedConstBuffer(p: data)
+        return state.withLock { handle in
+            guard let fs = handle.ptr else { return Int64(-1) }
+            return fs_ext4_write_file(fs, path, wrappedData.p, length)
         }
     }
 
@@ -221,22 +267,23 @@ final class EXT4Backend: FileSystemBackend {
     /// volume layer translates that back to `data.count`.
     func pwrite(path: String, offset: UInt64,
                 data: UnsafeRawPointer, length: UInt64) -> Int64 {
-        state.withLock { fs in
-            guard let fs = fs else { return Int64(-1) }
-            return fs_ext4_pwrite(fs, path, data, length, offset)
+        let wrappedData = UncheckedConstBuffer(p: data)
+        return state.withLock { handle in
+            guard let fs = handle.ptr else { return Int64(-1) }
+            return fs_ext4_pwrite(fs, path, wrappedData.p, length, offset)
         }
     }
 
     func unlink(path: String) -> Bool {
-        state.withLock { fs in
-            guard let fs = fs else { return false }
+        state.withLock { handle in
+            guard let fs = handle.ptr else { return false }
             return fs_ext4_unlink(fs, path) == 0
         }
     }
 
     func rename(src: String, dst: String) -> Bool {
-        state.withLock { fs in
-            guard let fs = fs else { return false }
+        state.withLock { handle in
+            guard let fs = handle.ptr else { return false }
             // Use the replace variant so an existing destination is
             // atomically overwritten (POSIX rename(2) semantics). The
             // plain fs_ext4_rename rejects an existing dst with EEXIST,
@@ -247,36 +294,36 @@ final class EXT4Backend: FileSystemBackend {
     }
 
     func mkdir(path: String, mode: UInt16) -> Bool {
-        state.withLock { fs in
-            guard let fs = fs else { return false }
+        state.withLock { handle in
+            guard let fs = handle.ptr else { return false }
             return fs_ext4_mkdir(fs, path, mode) != 0
         }
     }
 
     func rmdir(path: String) -> Bool {
-        state.withLock { fs in
-            guard let fs = fs else { return false }
+        state.withLock { handle in
+            guard let fs = handle.ptr else { return false }
             return fs_ext4_rmdir(fs, path) == 0
         }
     }
 
     func truncate(path: String, size: UInt64) -> Bool {
-        state.withLock { fs in
-            guard let fs = fs else { return false }
+        state.withLock { handle in
+            guard let fs = handle.ptr else { return false }
             return fs_ext4_truncate(fs, path, size) == 0
         }
     }
 
     func chmod(path: String, mode: UInt16) -> Bool {
-        state.withLock { fs in
-            guard let fs = fs else { return false }
+        state.withLock { handle in
+            guard let fs = handle.ptr else { return false }
             return fs_ext4_chmod(fs, path, mode) == 0
         }
     }
 
     func chown(path: String, uid: UInt32?, gid: UInt32?) -> Bool {
-        state.withLock { fs in
-            guard let fs = fs else { return false }
+        state.withLock { handle in
+            guard let fs = handle.ptr else { return false }
             let cuid = uid ?? ~UInt32(0)
             let cgid = gid ?? ~UInt32(0)
             return fs_ext4_chown(fs, path, cuid, cgid) == 0
@@ -284,22 +331,22 @@ final class EXT4Backend: FileSystemBackend {
     }
 
     func symlink(target: String, linkpath: String) -> Bool {
-        state.withLock { fs in
-            guard let fs = fs else { return false }
+        state.withLock { handle in
+            guard let fs = handle.ptr else { return false }
             return fs_ext4_symlink(fs, target, linkpath) != 0
         }
     }
 
     func link(src: String, dst: String) -> Bool {
-        state.withLock { fs in
-            guard let fs = fs else { return false }
+        state.withLock { handle in
+            guard let fs = handle.ptr else { return false }
             return fs_ext4_link(fs, src, dst) == 0
         }
     }
 
     func utimens(path: String, atime: timespec?, mtime: timespec?) -> Bool {
-        state.withLock { fs in
-            guard let fs = fs else { return false }
+        state.withLock { handle in
+            guard let fs = handle.ptr else { return false }
             let aSec: UInt32 = atime.map { UInt32(clamping: $0.tv_sec) } ?? ~UInt32(0)
             let aNsec: UInt32 = atime.map { UInt32(clamping: $0.tv_nsec) } ?? 0
             let mSec: UInt32 = mtime.map { UInt32(clamping: $0.tv_sec) } ?? ~UInt32(0)
@@ -325,8 +372,8 @@ final class EXT4Backend: FileSystemBackend {
     /// — safe to call on a clean volume. Returns true on success (or
     /// already-clean), false on failure.
     func replayJournalIfDirty() -> Bool {
-        state.withLock { fs in
-            guard let fs = fs else { return false }
+        state.withLock { handle in
+            guard let fs = handle.ptr else { return false }
             return fs_ext4_replay_journal_if_dirty(fs) == 0
         }
     }
@@ -417,8 +464,8 @@ final class EXT4Backend: FileSystemBackend {
         onProgress: @escaping (_ phase: String, _ done: UInt64, _ total: UInt64) -> Void,
         onFinding: @escaping (FsckFinding) -> Void
     ) -> Result<FsckReport, Error> {
-        return state.withLock { fs -> Result<FsckReport, Error> in
-            guard let fs = fs else {
+        return state.withLock { handle -> Result<FsckReport, Error> in
+            guard let fs = handle.ptr else {
                 return .failure(POSIXError(.EBADF))
             }
 

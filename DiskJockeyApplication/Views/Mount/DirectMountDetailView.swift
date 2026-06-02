@@ -232,6 +232,13 @@ struct DirectMountDetailView: View {
                     detailRow(label: "Account", value: c.accountLabel)
                 }
                 detailRow(label: "Refresh Token", value: "Stored in keychain")
+            // `StoredMountConfig` is defined in another module — an
+            // unknown future case reaches us if the schema grows
+            // before this view is updated. Render nothing for the
+            // per-protocol fields rather than crash; the rest of
+            // the row (Symlink, Domain ID, Created, …) still shows.
+            @unknown default:
+                EmptyView()
             }
             detailRow(label: "Symlink", value: "~/diskjockey/\(mount.symlinkName)")
             detailRow(label: "Domain ID", value: mount.domainID)
