@@ -1045,32 +1045,22 @@ final class NTFSVolume: FSVolume,
         }
 
         // TODO: cross-directory rename needs follow-up Rust support —
-        // fs_ntfs_rename_h takes a NEW BASENAME only.
+        // fs_ntfs_rename2_h takes a NEW BASENAME only.
         if srcDir !== dstDir && srcDir.path != dstDir.path {
             throw fs_errorForPOSIXError(ENOTSUP)
         }
 
-        // If the destination already exists, remove it first. NTFS rename
-        // semantics on collision aren't documented in the C ABI; the
-        // safest portable behavior is to clear the way for the rename.
-        if let over = overItem as? NTFSItem {
-            var overAttr = fs_ntfs_attr_t()
-            if fs_ntfs_stat(fs, over.path, &overAttr) == 0 {
-                let removeRc: Int32
-                switch overAttr.file_type {
-                case FS_NTFS_FT_DIR, FS_NTFS_FT_JUNCTION:
-                    removeRc = fs_ntfs_rmdir_h(fs, over.path)
-                default:
-                    removeRc = fs_ntfs_unlink_h(fs, over.path)
-                }
-                if removeRc != 0 {
-                    let err = Int32(fs_ntfs_last_errno())
-                    throw fs_errorForPOSIXError(err != 0 ? err : EIO)
-                }
-            }
-        }
-
-        let rc = fs_ntfs_rename_h(fs, ntfsItem.path, dstNameStr)
+        // fs_ntfs_rename2_h with FS_NTFS_RENAME_REPLACE atomically replaces an
+        // existing destination (POSIX rename(2) semantics), enforced inside
+        // the crate: file→file frees the old record + clusters, empty-dir →
+        // empty-dir overwrites, and crossing the file/directory boundary or a
+        // non-empty dir target fails with EISDIR / ENOTDIR / ENOTEMPTY. We no
+        // longer remove the destination ourselves — that was non-atomic and
+        // lost the original if the rename then failed — and we can't rely on
+        // `overItem` being populated: FSKit only passes it when the kernel had
+        // already resolved the destination, so a rename-over (e.g. `sed -i`)
+        // would otherwise slip through with a nil overItem.
+        let rc = fs_ntfs_rename2_h(fs, ntfsItem.path, dstNameStr, FS_NTFS_RENAME_REPLACE)
         if rc != 0 {
             let err = Int32(fs_ntfs_last_errno())
             throw fs_errorForPOSIXError(err != 0 ? err : EIO)
