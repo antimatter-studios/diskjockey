@@ -24,6 +24,17 @@
 // Designed for one round-trip then gone — there's nothing to
 // reconnect to once the auth code is in hand.
 //
+// Concurrency:
+//
+//   Modelled as an `actor` so all mutable state (the awaiting
+//   continuation, the NWListener / NWConnection handles, the
+//   timeout work item, the bind-phase "already-resumed" flag)
+//   serialises through actor isolation without hand-rolled locks
+//   or captured-var dances. The NWListener / NWConnection
+//   callbacks fire on a private DispatchQueue (off-actor); each
+//   bounces back into actor isolation via `Task { await self.… }`
+//   before touching state.
+//
 
 import Foundation
 import Network
@@ -60,16 +71,22 @@ public enum OAuthLoopbackError: Error, LocalizedError {
     }
 }
 
-final class OAuthLoopbackListener {
+actor OAuthLoopbackListener {
     /// Resolves once the listener has either captured a callback or
     /// errored out. Single-shot — the listener tears itself down on
     /// either path.
     private var continuation: CheckedContinuation<OAuthCallback, Error>?
     private var listener: NWListener?
     private var connection: NWConnection?
-    private let queue = DispatchQueue(label: "com.antimatterstudios.diskjockey.oauth.loopback")
+    private nonisolated let queue = DispatchQueue(label: "com.antimatterstudios.diskjockey.oauth.loopback")
     private var timeoutWork: DispatchWorkItem?
-    private let timeout: TimeInterval
+    private nonisolated let timeout: TimeInterval
+
+    /// Bind-phase already-resumed gate. Was a captured `var` in the
+    /// original `bind()` — moving it onto the actor makes the
+    /// state-handler closure's read/write happen under actor
+    /// isolation (no captured-var concurrency warning).
+    private var bindResumed = false
 
     init(timeout: TimeInterval = 300) {
         self.timeout = timeout
@@ -83,8 +100,7 @@ final class OAuthLoopbackListener {
         let port = try await bind()
         let task = Task<OAuthCallback, Error> {
             try await withCheckedThrowingContinuation { (cont: CheckedContinuation<OAuthCallback, Error>) in
-                self.continuation = cont
-                self.armTimeout()
+                Task { await self.installCallbackContinuation(cont) }
             }
         }
         return (port, task)
@@ -92,6 +108,15 @@ final class OAuthLoopbackListener {
 
     func cancel() {
         finish(.failure(OAuthLoopbackError.cancelled))
+    }
+
+    /// Hooked from the unstructured Task inside `start()`'s
+    /// continuation body — installs the awaiting continuation onto
+    /// the actor and arms the timeout. Synchronous because it's
+    /// already running on the actor's executor.
+    private func installCallbackContinuation(_ cont: CheckedContinuation<OAuthCallback, Error>) {
+        continuation = cont
+        armTimeout()
     }
 
     // MARK: - Binding
@@ -114,39 +139,52 @@ final class OAuthLoopbackListener {
         }
 
         listener.newConnectionHandler = { [weak self] conn in
-            self?.handle(conn)
+            // Connection callback fires on `queue` — bounce into
+            // actor isolation so `connection` mutation is safe.
+            Task { await self?.handle(conn) }
         }
 
         self.listener = listener
 
         return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<UInt16, Error>) in
-            // The continuation is resumed exactly once: either when
-            // the listener reaches `.ready` (success) or `.failed`
-            // (bind error). After that we install a no-op state
-            // handler so post-bind state changes (cancel etc.)
-            // don't try to resume a dead continuation.
-            var resumed = false
+            // State-update callback also fires on `queue`. Bounce
+            // into the actor so `bindResumed` reads/writes happen
+            // under isolation.
             listener.stateUpdateHandler = { [weak self] state in
-                guard !resumed else { return }
-                switch state {
-                case .ready:
-                    if let p = listener.port?.rawValue {
-                        resumed = true
-                        listener.stateUpdateHandler = { [weak self] s in
-                            if case .failed(let err) = s {
-                                self?.finish(.failure(OAuthLoopbackError.bindFailed(underlying: err)))
-                            }
-                        }
-                        cont.resume(returning: p)
-                    }
-                case .failed(let err):
-                    resumed = true
-                    cont.resume(throwing: OAuthLoopbackError.bindFailed(underlying: err))
-                default:
-                    break
-                }
+                Task { await self?.handleBindState(state, listener: listener, cont: cont) }
             }
             listener.start(queue: self.queue)
+        }
+    }
+
+    /// Actor-isolated state-handler body. The outer NWListener
+    /// callback bounces here via `Task { … }`; `bindResumed` is
+    /// actor state so the once-only invariant doesn't need a
+    /// captured-var or lock.
+    private func handleBindState(_ state: NWListener.State,
+                                 listener: NWListener,
+                                 cont: CheckedContinuation<UInt16, Error>) {
+        guard !bindResumed else { return }
+        switch state {
+        case .ready:
+            if let p = listener.port?.rawValue {
+                bindResumed = true
+                // Swap to a no-op-on-success / report-on-failure
+                // state handler so post-bind state changes
+                // (cancel, late .failed, …) don't try to resume
+                // the now-dead bind continuation.
+                listener.stateUpdateHandler = { [weak self] s in
+                    if case .failed(let err) = s {
+                        Task { await self?.finish(.failure(OAuthLoopbackError.bindFailed(underlying: err))) }
+                    }
+                }
+                cont.resume(returning: p)
+            }
+        case .failed(let err):
+            bindResumed = true
+            cont.resume(throwing: OAuthLoopbackError.bindFailed(underlying: err))
+        default:
+            break
         }
     }
 
@@ -166,48 +204,53 @@ final class OAuthLoopbackListener {
 
     private func receive(on conn: NWConnection, accumulator: Data) {
         conn.receive(minimumIncompleteLength: 1, maximumLength: 16 * 1024) { [weak self] data, _, isComplete, error in
-            guard let self = self else { return }
-            if let error = error {
-                self.finish(.failure(OAuthLoopbackError.bindFailed(underlying: error)))
-                return
-            }
-            var buffer = accumulator
-            if let data = data { buffer.append(data) }
+            // Bounce into actor isolation so the `buffer` accumulation
+            // and downstream `finish` / `parseAndRespond` calls all
+            // run under the actor.
+            Task { [weak self] in
+                guard let self = self else { return }
+                if let error = error {
+                    await self.finish(.failure(OAuthLoopbackError.bindFailed(underlying: error)))
+                    return
+                }
+                var buffer = accumulator
+                if let data = data { buffer.append(data) }
 
-            // We only need the request line + headers — body is
-            // empty for the GET callback. End of headers = `\r\n\r\n`.
-            if let endOfHeaders = buffer.range(of: Data("\r\n\r\n".utf8)) {
-                let head = buffer.subdata(in: 0..<endOfHeaders.lowerBound)
-                self.parseAndRespond(headData: head, on: conn)
-                return
-            }
+                // We only need the request line + headers — body is
+                // empty for the GET callback. End of headers = `\r\n\r\n`.
+                if let endOfHeaders = buffer.range(of: Data("\r\n\r\n".utf8)) {
+                    let head = buffer.subdata(in: 0..<endOfHeaders.lowerBound)
+                    await self.parseAndRespond(headData: head, on: conn)
+                    return
+                }
 
-            // Defensive cap: even a long URL shouldn't push us past
-            // a few KB. Bail if a misbehaving client streams forever.
-            if buffer.count > 32 * 1024 {
-                self.respondAndClose(conn: conn, status: 400, body: "request too large")
-                self.finish(.failure(OAuthLoopbackError.parseFailed))
-                return
+                // Defensive cap: even a long URL shouldn't push us past
+                // a few KB. Bail if a misbehaving client streams forever.
+                if buffer.count > 32 * 1024 {
+                    Self.respondAndClose(conn: conn, status: 400, body: "request too large")
+                    await self.finish(.failure(OAuthLoopbackError.parseFailed))
+                    return
+                }
+                if isComplete {
+                    await self.finish(.failure(OAuthLoopbackError.parseFailed))
+                    return
+                }
+                await self.receive(on: conn, accumulator: buffer)
             }
-            if isComplete {
-                self.finish(.failure(OAuthLoopbackError.parseFailed))
-                return
-            }
-            self.receive(on: conn, accumulator: buffer)
         }
     }
 
     private func parseAndRespond(headData: Data, on conn: NWConnection) {
         guard let head = String(data: headData, encoding: .utf8),
               let firstLine = head.components(separatedBy: "\r\n").first else {
-            respondAndClose(conn: conn, status: 400, body: "bad request")
+            Self.respondAndClose(conn: conn, status: 400, body: "bad request")
             finish(.failure(OAuthLoopbackError.parseFailed))
             return
         }
         // "GET /?code=...&state=... HTTP/1.1"
         let parts = firstLine.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
         guard parts.count >= 2 else {
-            respondAndClose(conn: conn, status: 400, body: "bad request")
+            Self.respondAndClose(conn: conn, status: 400, body: "bad request")
             finish(.failure(OAuthLoopbackError.parseFailed))
             return
         }
@@ -218,13 +261,13 @@ final class OAuthLoopbackListener {
         } else {
             queryString = ""
         }
-        let params = parseQuery(queryString)
+        let params = Self.parseQuery(queryString)
 
         // Provider-side error — `?error=access_denied&error_description=...`.
         if let err = params["error"] {
-            respondAndClose(conn: conn, status: 200,
-                            body: htmlPage(title: "Authorization failed",
-                                           message: "You can close this tab and return to DiskJockey."))
+            Self.respondAndClose(conn: conn, status: 200,
+                                 body: Self.htmlPage(title: "Authorization failed",
+                                                     message: "You can close this tab and return to DiskJockey."))
             finish(.failure(OAuthLoopbackError.providerError(
                 code: err,
                 description: params["error_description"]
@@ -234,20 +277,22 @@ final class OAuthLoopbackListener {
 
         guard let code = params["code"], !code.isEmpty,
               let state = params["state"], !state.isEmpty else {
-            respondAndClose(conn: conn, status: 400,
-                            body: htmlPage(title: "OAuth callback was missing parameters",
-                                           message: "DiskJockey didn't receive an authorization code."))
+            Self.respondAndClose(conn: conn, status: 400,
+                                 body: Self.htmlPage(title: "OAuth callback was missing parameters",
+                                                     message: "DiskJockey didn't receive an authorization code."))
             finish(.failure(OAuthLoopbackError.missingCode))
             return
         }
 
-        respondAndClose(conn: conn, status: 200,
-                        body: htmlPage(title: "Signed in to DiskJockey",
-                                       message: "You can close this tab and return to the app."))
+        Self.respondAndClose(conn: conn, status: 200,
+                             body: Self.htmlPage(title: "Signed in to DiskJockey",
+                                                 message: "You can close this tab and return to the app."))
         finish(.success(OAuthCallback(code: code, state: state)))
     }
 
-    private func respondAndClose(conn: NWConnection, status: Int, body: String) {
+    // MARK: - Stateless helpers (static so they don't need actor isolation)
+
+    private static func respondAndClose(conn: NWConnection, status: Int, body: String) {
         let reason = (status == 200) ? "OK" : "Bad Request"
         let bytes = Data(body.utf8)
         let response = """
@@ -265,7 +310,7 @@ final class OAuthLoopbackListener {
         })
     }
 
-    private func htmlPage(title: String, message: String) -> String {
+    private static func htmlPage(title: String, message: String) -> String {
         """
         <!doctype html>
         <html><head><meta charset="utf-8"><title>\(title)</title>
@@ -274,7 +319,7 @@ final class OAuthLoopbackListener {
         """
     }
 
-    private func parseQuery(_ s: String) -> [String: String] {
+    private static func parseQuery(_ s: String) -> [String: String] {
         var result: [String: String] = [:]
         for pair in s.split(separator: "&") {
             let kv = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
@@ -291,14 +336,15 @@ final class OAuthLoopbackListener {
 
     private func armTimeout() {
         let work = DispatchWorkItem { [weak self] in
-            self?.finish(.failure(OAuthLoopbackError.timedOut))
+            Task { await self?.finish(.failure(OAuthLoopbackError.timedOut)) }
         }
         timeoutWork = work
         queue.asyncAfter(deadline: .now() + timeout, execute: work)
     }
 
     /// Resolve the awaiting continuation exactly once and tear the
-    /// listener down. Idempotent — repeat calls are no-ops.
+    /// listener down. Idempotent — repeat calls are no-ops. Runs
+    /// on the actor's executor so all the state nilling is safe.
     private func finish(_ result: Result<OAuthCallback, Error>) {
         timeoutWork?.cancel()
         timeoutWork = nil

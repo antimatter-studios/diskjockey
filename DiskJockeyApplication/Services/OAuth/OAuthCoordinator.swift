@@ -117,14 +117,14 @@ public final class OAuthCoordinator {
             .init(name: "scope", value: scopes),
         ]
         guard let authURL = comps.url else {
-            listener.cancel()
+            await listener.cancel()
             throw OAuthCoordinatorError.browserOpenFailed
         }
 
         AppLog.shared.info("OAuth: opening browser for Dropbox authorize, port=\(port)")
         let opened = NSWorkspace.shared.open(authURL)
         if !opened {
-            listener.cancel()
+            await listener.cancel()
             throw OAuthCoordinatorError.browserOpenFailed
         }
 
@@ -216,14 +216,14 @@ public final class OAuthCoordinator {
             .init(name: "state", value: state),
         ]
         guard let authURL = comps.url else {
-            listener.cancel()
+            await listener.cancel()
             throw OAuthCoordinatorError.browserOpenFailed
         }
 
         AppLog.shared.info("OAuth: opening browser for Google Drive authorize, port=\(port)")
         let opened = NSWorkspace.shared.open(authURL)
         if !opened {
-            listener.cancel()
+            await listener.cancel()
             throw OAuthCoordinatorError.browserOpenFailed
         }
 
@@ -298,14 +298,14 @@ public final class OAuthCoordinator {
             .init(name: "state", value: state),
         ]
         guard let authURL = comps.url else {
-            listener.cancel()
+            await listener.cancel()
             throw OAuthCoordinatorError.browserOpenFailed
         }
 
         AppLog.shared.info("OAuth: opening browser for OneDrive authorize, port=\(port)")
         let opened = NSWorkspace.shared.open(authURL)
         if !opened {
-            listener.cancel()
+            await listener.cancel()
             throw OAuthCoordinatorError.browserOpenFailed
         }
 

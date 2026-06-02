@@ -203,7 +203,14 @@ public final class IOStatsRecorder: @unchecked Sendable {
             // Persist the overlaid values so subsequent
             // hot-path increments build on the authoritative numbers
             // rather than re-overlaying the deltas every tick.
-            counters.withLock { $0 = snapshot }
+            //
+            // Bind to an immutable `let` before passing into the
+            // lock's @Sendable closure — capturing the mutable
+            // `var snapshot` triggers a strict-concurrency warning
+            // even though the lock's critical section is synchronous
+            // (no chance of `snapshot` mutating mid-write).
+            let snapshotToWrite = snapshot
+            counters.withLock { $0 = snapshotToWrite }
         }
         if !force, let last = lastEmitted, last == snapshot { return }
         lastEmitted = snapshot
