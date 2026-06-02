@@ -10,6 +10,9 @@
 		027139E38C99564FE69885EA /* NTFSVolume.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FAA4308D6EB33A49E406790 /* NTFSVolume.swift */; };
 		05A11A3D8A16DAA84A31911B /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 429A2D79E6781D9640B98F5E /* Cocoa.framework */; };
 		12E594CD35D47D6A330F04B6 /* EXT4FileSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45CFCF77C56D3305934A9BE2 /* EXT4FileSystem.swift */; };
+		D0E1C0CCAAAA000000000003 /* EXT4Probe.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E1C0CCAAAA000000000004 /* EXT4Probe.swift */; };
+		D0E1C0CCAAAA000000000005 /* EXT4Load.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E1C0CCAAAA000000000006 /* EXT4Load.swift */; };
+		D0E1C0CCAAAA000000000007 /* EXT4Maintenance.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E1C0CCAAAA000000000008 /* EXT4Maintenance.swift */; };
 		34D8C92C0A23EF470069E4A8 /* DiskJockeyFileProvider.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 501F02432E058BAF009EBB59 /* DiskJockeyFileProvider.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		3A9B9B37285DFD6BA8C5FE18 /* NTFSFileSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE5CDCDA80309B6A4F073D2B /* NTFSFileSystem.swift */; };
 		3B5571A1000000000000NTFS /* RepairXPCService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B5571A2000000000000NTFS /* RepairXPCService.swift */; };
@@ -167,6 +170,9 @@
 		3B5571A2000000000000NTFS /* RepairXPCService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RepairXPCService.swift; sourceTree = "<group>"; };
 		429A2D79E6781D9640B98F5E /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
 		45CFCF77C56D3305934A9BE2 /* EXT4FileSystem.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EXT4FileSystem.swift; sourceTree = "<group>"; };
+		D0E1C0CCAAAA000000000004 /* EXT4Probe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EXT4Probe.swift; sourceTree = "<group>"; };
+		D0E1C0CCAAAA000000000006 /* EXT4Load.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EXT4Load.swift; sourceTree = "<group>"; };
+		D0E1C0CCAAAA000000000008 /* EXT4Maintenance.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EXT4Maintenance.swift; sourceTree = "<group>"; };
 		501F02432E058BAF009EBB59 /* DiskJockeyFileProvider.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = DiskJockeyFileProvider.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		501F02452E058BAF009EBB59 /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
 		501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = DiskJockeyLibrary.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -338,6 +344,9 @@
 			isa = PBXGroup;
 			children = (
 				45CFCF77C56D3305934A9BE2 /* EXT4FileSystem.swift */,
+				D0E1C0CCAAAA000000000004 /* EXT4Probe.swift */,
+				D0E1C0CCAAAA000000000006 /* EXT4Load.swift */,
+				D0E1C0CCAAAA000000000008 /* EXT4Maintenance.swift */,
 				F01E35D6B49C797E269EAC45 /* EXT4Volume.swift */,
 				C0377D4332EFC4FF34689518 /* EXT4Backend.swift */,
 				FB028A4796ABC3388189B043 /* FileSystemBackend.swift */,
@@ -771,6 +780,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				12E594CD35D47D6A330F04B6 /* EXT4FileSystem.swift in Sources */,
+				D0E1C0CCAAAA000000000003 /* EXT4Probe.swift in Sources */,
+				D0E1C0CCAAAA000000000005 /* EXT4Load.swift in Sources */,
+				D0E1C0CCAAAA000000000007 /* EXT4Maintenance.swift in Sources */,
 				F6FF4AC950047E0FD59AE139 /* EXT4Volume.swift in Sources */,
 				D9CECEF266A909EB810942A6 /* EXT4Backend.swift in Sources */,
 				4DAE78E7034E84C6B08A0B2B /* FileSystemBackend.swift in Sources */,
