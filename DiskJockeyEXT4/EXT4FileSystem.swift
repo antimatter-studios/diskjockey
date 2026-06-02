@@ -1,12 +1,16 @@
 /*
  * EXT4FileSystem.swift — FSKit `FSUnaryFileSystem` principal class
  * for the ext4 extension. Class skeleton only: the FSKit pipeline
- * methods are spread across sibling files in this folder by concern.
+ * methods are spread across sibling files in this folder by concern,
+ * and the FFI bridge contexts live in DiskJockeyLibrary so other
+ * filesystems can reuse them.
  *
- *   EXT4DeviceContext.swift  — FFI bridge contexts for block + file resources
- *   EXT4Probe.swift          — `probeResource` / `probeFileResource` / container detection
- *   EXT4Load.swift           — `loadResource` / `unloadResource` / fs_core handle chain
- *   EXT4Maintenance.swift    — `startCheck` / `startFormat` + `FsckProgressTracker`
+ *   EXT4Probe.swift                            — `probeResource` / `probeFileResource` / container detection
+ *   EXT4Load.swift                             — `loadResource` / `unloadResource` / fs_core handle chain
+ *   EXT4Maintenance.swift                      — `startCheck` / `startFormat` + `FsckProgressTracker`
+ *   DiskJockeyLibrary/DeviceContexts.swift     — FFI bridge contexts (`DeviceReadable`,
+ *                                                `BlockDeviceContext`, `FileDeviceContext`)
+ *                                                shared across DJ filesystems
  *
  * What stays here:
  *   • The class declaration + `MountedResource` struct + statics
