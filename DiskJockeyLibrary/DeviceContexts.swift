@@ -110,10 +110,18 @@ public final class BlockDeviceContext: DeviceReadable {
     public let readCache: BlockReadCache?
     public let alignToPhysicalBlockSize: Bool
 
+    /// `stats` has no default — pass `nil` explicitly when the
+    /// context genuinely doesn't have a collector yet (e.g. a brief
+    /// probe context built before the long-lived `IOStatsRecorder`
+    /// exists). Required-but-optional means a future caller can't
+    /// silently disable I/O metrics by forgetting the argument; the
+    /// old API was non-optional, and this preserves the
+    /// "you must think about stats" contract without forcing
+    /// callers to fabricate a no-op collector.
     public init(
         resource: FSBlockDeviceResource,
         log: TaggedLogger,
-        stats: IOStatsCollector? = nil,
+        stats: IOStatsCollector?,
         writeStrategy: BlockDeviceWriteStrategy = .delayed,
         readCache: BlockReadCache? = nil,
         alignToPhysicalBlockSize: Bool = true

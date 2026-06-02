@@ -190,12 +190,14 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             // unmount. Empty labels fall back to "NTFS".
             // Probe context: no stats collector yet (this is a brief
             // RO mount before NTFSVolume init), no read cache (single-
-            // shot use), and NTFS write semantics aren't relevant
-            // since the probe is read-only.
+            // shot use). `writeStrategy` is left at the `.delayed`
+            // default — the probe registers no write callback and
+            // only ever calls `read`, so the strategy is irrelevant
+            // here; defaulting keeps the read-only intent obvious.
             let probeContext = BlockDeviceContext(
                 resource: blockDevice,
                 log: dlog,
-                writeStrategy: .immediate,
+                stats: nil,
                 alignToPhysicalBlockSize: false
             )
             let probeContextPtr = Unmanaged.passRetained(probeContext).toOpaque()
