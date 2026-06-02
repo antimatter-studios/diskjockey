@@ -28,7 +28,7 @@ final class NTFSVolume: FSVolume,
     /// The block device resource
     private let blockDevice: FSBlockDeviceResource
 
-    /// Retained block-device callback context (`NTFSBlockDeviceContext`).
+    /// Retained block-device callback context (`BlockDeviceContext`).
     /// Held as an opaque pointer so the C callbacks in `cfg` can deref it
     /// the same way they do during the initial mount in
     /// `NTFSFileSystem.loadResource`. Released in `deactivate()` after
@@ -339,12 +339,12 @@ final class NTFSVolume: FSVolume,
         var cfg = fs_ntfs_blockdev_cfg_t()
         cfg.read = { ctx, buf, offset, length in
             guard let ctx = ctx, let buf = buf else { return EIO }
-            let context = Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+            let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
             return context.read(into: buf, offset: off_t(offset), length: Int(length))
         }
         cfg.write = { ctx, buf, offset, length in
             guard let ctx = ctx, let buf = buf else { return EIO }
-            let context = Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+            let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
             return context.write(from: buf, offset: off_t(offset), length: Int(length))
         }
         cfg.context = contextPtr
@@ -507,18 +507,18 @@ final class NTFSVolume: FSVolume,
         var coreCfg = FsCoreCallbackCfg()
         coreCfg.read = { ctx, offset, buf, len in
             guard let ctx = ctx, let buf = buf else { return EIO }
-            let context = Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+            let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
             return context.read(into: UnsafeMutableRawPointer(buf), offset: off_t(offset), length: Int(len))
         }
         if rw {
             coreCfg.write = { ctx, offset, buf, len in
                 guard let ctx = ctx, let buf = buf else { return EIO }
-                let context = Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
                 return context.write(from: UnsafeRawPointer(buf), offset: off_t(offset), length: Int(len))
             }
             coreCfg.flush = { ctx in
                 guard let ctx = ctx else { return EIO }
-                let context = Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
                 return context.flush()
             }
         } else {
@@ -650,7 +650,7 @@ final class NTFSVolume: FSVolume,
             bridgeFS = nil
         }
         if let ctx = contextPtr {
-            Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).release()
+            Unmanaged<BlockDeviceContext>.fromOpaque(ctx).release()
             contextPtr = nil
         }
     }
