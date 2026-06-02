@@ -39,6 +39,28 @@ public protocol DeviceReadable: AnyObject {
 /// floor when the device reports 0 for its block size.
 private let minSectorBytes = 512
 
+/// Selects which FSBlockDeviceResource write API the context's
+/// `write` method dispatches to. The two have different
+/// commit-timing semantics:
+///
+///   - `.delayed` calls `delayedMetadataWrite(...)` — queued in the
+///     kernel buffer cache; `flush()` is what actually commits to
+///     the device. Used by ext4, whose Rust crate batches metadata
+///     writes and explicitly flushes when needed.
+///
+///   - `.immediate` calls `metadataWrite(...)` — synchronous; the
+///     bytes are on the device when the call returns. Used by NTFS,
+///     whose `fs_ntfs_blockdev_cfg_t` callback contract assumes the
+///     write has hit the disk before the next call.
+///
+/// Picking the wrong strategy results in writes either silently
+/// queueing (`.delayed` for an FS that expects immediate commit) or
+/// adding round-trip latency (`.immediate` for an FS that batches).
+public enum BlockDeviceWriteStrategy: Sendable {
+    case delayed
+    case immediate
+}
+
 /// Wraps `FSBlockDeviceResource` for C-callback access.
 /// `FSBlockDeviceResource.read` requires offset+length aligned to
 /// blockSize; we align to the block size and copy the requested
@@ -50,6 +72,29 @@ private let minSectorBytes = 512
 /// Swift state, so they dispatch into this class via an `Unmanaged`
 /// pointer and the actual logging happens here where regular Swift
 /// capture semantics apply.
+///
+/// Per-FS knobs (constructor parameters, all with EXT4-preserving
+/// defaults):
+///
+///   - `stats` — optional so probe-time contexts that don't have an
+///     `IOStatsCollector` yet (NTFS does a short-lived probe pass
+///     before the long-lived mount context exists) can pass nil
+///     instead of fabricating a collector.
+///
+///   - `writeStrategy` — `.delayed` (default, EXT4 behaviour) or
+///     `.immediate` (NTFS). See `BlockDeviceWriteStrategy`.
+///
+///   - `readCache` — opt-in in-process read cache (NTFS opts in to
+///     dodge redundant boot-sector + $UpCase fetches; EXT4 leaves
+///     nil because its Rust crate retains state across operations).
+///     Reads consult the cache before hitting the device; writes
+///     invalidate any overlapping cached range.
+///
+///   - `alignToPhysicalBlockSize` — `true` (default, EXT4) aligns
+///     writes to `max(logicalBs, physicalBs, 512)` for sector-
+///     addressed devices; `false` (NTFS) aligns to `max(logicalBs,
+///     512)` because the NTFS write path doesn't share EXT4's
+///     physical-block requirement.
 public final class BlockDeviceContext: DeviceReadable {
     public let resource: FSBlockDeviceResource
     public let blockSize: Int
@@ -58,14 +103,28 @@ public final class BlockDeviceContext: DeviceReadable {
     /// makes to the underlying block device. Distinct from any
     /// file-level stats kept by the volume — these are *physical*
     /// I/O numbers, inflated by metadata reads, journal writes, and
-    /// block alignment.
-    public let stats: IOStatsCollector
+    /// block alignment. Optional so probe-only contexts (no live
+    /// recorder yet) can omit it.
+    public let stats: IOStatsCollector?
+    public let writeStrategy: BlockDeviceWriteStrategy
+    public let readCache: BlockReadCache?
+    public let alignToPhysicalBlockSize: Bool
 
-    public init(resource: FSBlockDeviceResource, log: TaggedLogger, stats: IOStatsCollector) {
+    public init(
+        resource: FSBlockDeviceResource,
+        log: TaggedLogger,
+        stats: IOStatsCollector? = nil,
+        writeStrategy: BlockDeviceWriteStrategy = .delayed,
+        readCache: BlockReadCache? = nil,
+        alignToPhysicalBlockSize: Bool = true
+    ) {
         self.resource = resource
         self.blockSize = Int(resource.blockSize)
         self.log = log
         self.stats = stats
+        self.writeStrategy = writeStrategy
+        self.readCache = readCache
+        self.alignToPhysicalBlockSize = alignToPhysicalBlockSize
     }
 
     public func read(into buf: UnsafeMutableRawPointer, offset: off_t, length: Int) -> Int32 {
@@ -73,6 +132,17 @@ public final class BlockDeviceContext: DeviceReadable {
         let alignedOffset = (Int(offset) / bs) * bs
         let offsetDelta = Int(offset) - alignedOffset
         let alignedLength = ((offsetDelta + length + bs - 1) / bs) * bs
+
+        // Cache hit: copy the requested window out of the cached
+        // aligned region. No device round-trip; no stats recorded
+        // (the cache fast path is a free read by construction).
+        if let cache = readCache,
+           let cached = cache.lookup(offset: alignedOffset, length: alignedLength) {
+            cached.withUnsafeBufferPointer { ptr in
+                memcpy(buf, ptr.baseAddress!.advanced(by: offsetDelta), length)
+            }
+            return 0
+        }
 
         let tmp = UnsafeMutableRawPointer.allocate(byteCount: alignedLength, alignment: bs)
         defer { tmp.deallocate() }
@@ -83,15 +153,23 @@ public final class BlockDeviceContext: DeviceReadable {
             let bytesRead = try resource.read(into: rawBuf, startingAt: off_t(alignedOffset), length: alignedLength)
             if bytesRead < offsetDelta + length {
                 log.error("bdev read short: off=\(offset) len=\(length) alignedOff=\(alignedOffset) alignedLen=\(alignedLength) got=\(bytesRead)", scope: AppLogScope.io)
-                stats.recordBdevRead(bytes: 0, latencyNs: monotonicNanos() &- t0, error: true)
+                stats?.recordBdevRead(bytes: 0, latencyNs: monotonicNanos() &- t0, error: true)
                 return EIO
             }
+            // Populate the cache before copying out so a concurrent
+            // reader picking up the same window benefits immediately.
+            if let cache = readCache {
+                let bytes = Array(UnsafeBufferPointer(
+                    start: tmp.assumingMemoryBound(to: UInt8.self),
+                    count: alignedLength))
+                cache.insert(offset: alignedOffset, length: alignedLength, bytes: bytes)
+            }
             memcpy(buf, tmp.advanced(by: offsetDelta), length)
-            stats.recordBdevRead(bytes: alignedLength, latencyNs: monotonicNanos() &- t0, error: false)
+            stats?.recordBdevRead(bytes: alignedLength, latencyNs: monotonicNanos() &- t0, error: false)
             return 0
         } catch {
             log.error("bdev read error: off=\(offset) len=\(length) err=\(error.localizedDescription)", scope: AppLogScope.io)
-            stats.recordBdevRead(bytes: 0, latencyNs: monotonicNanos() &- t0, error: true)
+            stats?.recordBdevRead(bytes: 0, latencyNs: monotonicNanos() &- t0, error: true)
             return EIO
         }
     }
@@ -101,12 +179,15 @@ public final class BlockDeviceContext: DeviceReadable {
     /// the partially-overlapping head and tail blocks when the
     /// requested window doesn't sit on a block boundary.
     public func write(from buf: UnsafeRawPointer, offset: off_t, length: Int) -> Int32 {
-        // Align to the bigger of logical and physical block size — the
-        // kernel buffer cache requires `physicalBlockSize`-aligned
-        // operations for sector-addressed devices.
+        // Alignment choice depends on `alignToPhysicalBlockSize`:
+        // EXT4 defaults to true (kernel buffer cache requires
+        // `physicalBlockSize`-aligned ops for sector-addressed
+        // devices); NTFS passes false because its write path doesn't
+        // share that requirement.
         let logicalBs = Int(resource.blockSize)
-        let physicalBs = Int(resource.physicalBlockSize)
-        let bs = max(logicalBs, physicalBs, minSectorBytes)
+        let bs: Int = alignToPhysicalBlockSize
+            ? max(logicalBs, Int(resource.physicalBlockSize), minSectorBytes)
+            : max(logicalBs, minSectorBytes)
         let alignedOffset = (Int(offset) / bs) * bs
         let offsetDelta = Int(offset) - alignedOffset
         let alignedLength = ((offsetDelta + length + bs - 1) / bs) * bs
@@ -135,15 +216,26 @@ public final class BlockDeviceContext: DeviceReadable {
             memcpy(tmp.advanced(by: offsetDelta), buf, length)
 
             let writeBuf = UnsafeRawBufferPointer(start: tmp, count: alignedLength)
-            try resource.delayedMetadataWrite(from: writeBuf,
-                                              startingAt: off_t(alignedOffset),
-                                              length: alignedLength)
+            switch writeStrategy {
+            case .delayed:
+                try resource.delayedMetadataWrite(from: writeBuf,
+                                                  startingAt: off_t(alignedOffset),
+                                                  length: alignedLength)
+            case .immediate:
+                try resource.metadataWrite(from: writeBuf,
+                                           startingAt: off_t(alignedOffset),
+                                           length: alignedLength)
+            }
+            // Invalidate any cached read that overlaps the written
+            // region. Sectors entirely outside the write stay cached.
+            readCache?.invalidate(rangeOffset: alignedOffset, length: alignedLength)
             log.info("bdev write ok: off=\(offset) len=\(length) alignedOff=\(alignedOffset) alignedLen=\(alignedLength)", scope: AppLogScope.io)
-            stats.recordBdevWrite(bytes: alignedLength, latencyNs: monotonicNanos() &- t0, error: false)
+            stats?.recordBdevWrite(bytes: alignedLength, latencyNs: monotonicNanos() &- t0, error: false)
             return 0
         } catch {
-            log.error("bdev delayedMetadataWrite error: off=\(offset) len=\(length) alignedOff=\(alignedOffset) alignedLen=\(alignedLength) bs=\(bs) err=\(error.localizedDescription)", scope: AppLogScope.io)
-            stats.recordBdevWrite(bytes: 0, latencyNs: monotonicNanos() &- t0, error: true)
+            let apiName = writeStrategy == .delayed ? "delayedMetadataWrite" : "metadataWrite"
+            log.error("bdev \(apiName) error: off=\(offset) len=\(length) alignedOff=\(alignedOffset) alignedLen=\(alignedLength) bs=\(bs) err=\(error.localizedDescription)", scope: AppLogScope.io)
+            stats?.recordBdevWrite(bytes: 0, latencyNs: monotonicNanos() &- t0, error: true)
             return EIO
         }
     }

@@ -20,165 +20,6 @@ import DiskJockeyLibrary
 /// by host app UI) via AppLog's configured sinks.
 let log = AppLog(source: "ntfs", sinks: AppLog.defaultSinks(source: "ntfs"))
 
-/// Wraps FSBlockDeviceResource for the C read + write callbacks.
-/// Handles block alignment — FSBlockDeviceResource requires aligned
-/// offset+length, so we align + copy out the requested window (for
-/// reads) or read-modify-write an aligned window (for sub-block
-/// writes).
-///
-/// The `log` property is a subject-tagged logger (carrying
-/// `fields["bsd"]=<disk>`) injected at construction time. The
-/// `@convention(c)` closures wired into `fs_ntfs_blockdev_cfg_t`
-/// can't capture Swift state, so they dispatch here via an
-/// `Unmanaged` pointer and this class does the real logging under
-/// normal Swift rules.
-final class NTFSBlockDeviceContext {
-    let resource: FSBlockDeviceResource
-    let blockSize: Int
-    let log: TaggedLogger
-    /// Optional — populated for the long-lived mount context (set by
-    /// loadResource before NTFSVolume init), nil for the short-lived
-    /// probe context that's torn down before any IOStatsCollector
-    /// exists. Present-vs-absent decides whether we record bdev stats
-    /// or no-op.
-    let stats: IOStatsCollector?
-
-    // In-process block read cache. Every write operation in the `_h`
-    // mutator path re-reads the boot sector and the full 128 KB $UpCase
-    // table via Ntfs::new + read_upcase_table before it can do anything
-    // useful. On a slow device (SD card, USB, disk image on an external
-    // drive) each bdev round-trip costs tens of milliseconds, making a
-    // single 36-byte write take 50+ seconds. Caching reads here keeps
-    // those hot sectors in-process so subsequent writes skip the device
-    // round-trip entirely.
-    //
-    // Key  = (alignedOffset, alignedLength) — the exact aligned region
-    //        that would be sent to resource.read().
-    // Value = the bytes returned by that read.
-    //
-    // Invalidation: any write removes all cache entries whose byte range
-    // overlaps the written region. Sectors untouched by the write (boot
-    // record, $UpCase, unrelated MFT entries) remain cached.
-    private struct CacheKey: Hashable {
-        let offset: Int
-        let length: Int
-    }
-    private let cacheLock = NSLock()
-    private var readCache: [CacheKey: [UInt8]] = [:]
-    private let maxCacheEntries = 512  // ~2.5 MB for 5 KB avg read size
-
-    init(resource: FSBlockDeviceResource, log: TaggedLogger, stats: IOStatsCollector? = nil) {
-        self.resource = resource
-        self.blockSize = Int(resource.blockSize)
-        self.log = log
-        self.stats = stats
-    }
-
-    func read(into buf: UnsafeMutableRawPointer, offset: off_t, length: Int) -> Int32 {
-        let bs = max(blockSize, 512)
-        let alignedOffset = (Int(offset) / bs) * bs
-        let offsetDelta = Int(offset) - alignedOffset
-        let alignedLength = ((offsetDelta + length + bs - 1) / bs) * bs
-
-        let key = CacheKey(offset: alignedOffset, length: alignedLength)
-        cacheLock.lock()
-        let cached = readCache[key]
-        cacheLock.unlock()
-
-        if let cached {
-            cached.withUnsafeBufferPointer { ptr in
-                memcpy(buf, ptr.baseAddress!.advanced(by: offsetDelta), length)
-            }
-            return 0
-        }
-
-        let tmp = UnsafeMutableRawPointer.allocate(byteCount: alignedLength, alignment: bs)
-        defer { tmp.deallocate() }
-
-        let t0 = monotonicNanos()
-        do {
-            let rawBuf = UnsafeMutableRawBufferPointer(start: tmp, count: alignedLength)
-            let bytesRead = try resource.read(into: rawBuf, startingAt: off_t(alignedOffset), length: alignedLength)
-            if bytesRead < offsetDelta + length {
-                log.error("bdev read short: off=\(offset) len=\(length) got=\(bytesRead)", scope: AppLogScope.io)
-                stats?.recordBdevRead(bytes: 0, latencyNs: monotonicNanos() &- t0, error: true)
-                return EIO
-            }
-            let bytes = Array(UnsafeBufferPointer(
-                start: tmp.assumingMemoryBound(to: UInt8.self), count: alignedLength))
-            cacheLock.lock()
-            if readCache.count >= maxCacheEntries { readCache.removeAll() }
-            readCache[key] = bytes
-            cacheLock.unlock()
-            memcpy(buf, tmp.advanced(by: offsetDelta), length)
-            stats?.recordBdevRead(bytes: alignedLength, latencyNs: monotonicNanos() &- t0, error: false)
-            return 0
-        } catch {
-            log.error("bdev read error: off=\(offset) len=\(length) err=\(error.localizedDescription)", scope: AppLogScope.io)
-            stats?.recordBdevRead(bytes: 0, latencyNs: monotonicNanos() &- t0, error: true)
-            return EIO
-        }
-    }
-
-    private func cacheInvalidate(alignedOffset: Int, alignedLength: Int) {
-        cacheLock.lock()
-        defer { cacheLock.unlock() }
-        let writeEnd = alignedOffset + alignedLength
-        readCache = readCache.filter { key, _ in
-            key.offset + key.length <= alignedOffset || key.offset >= writeEnd
-        }
-    }
-
-    /// Read-modify-write wrapper. Reads via plain `read` (works during
-    /// loadResource) and writes via `metadataWrite` (plain `write`
-    /// returns EBADF until the volume is fully activated).
-    func write(from buf: UnsafeRawPointer, offset: off_t, length: Int) -> Int32 {
-        let bs = max(blockSize, 512)
-        let alignedOffset = (Int(offset) / bs) * bs
-        let offsetDelta = Int(offset) - alignedOffset
-        let alignedLength = ((offsetDelta + length + bs - 1) / bs) * bs
-
-        let tmp = UnsafeMutableRawPointer.allocate(byteCount: alignedLength, alignment: bs)
-        defer { tmp.deallocate() }
-
-        let t0 = monotonicNanos()
-        do {
-            if offsetDelta != 0 || alignedLength != length {
-                let readRaw = UnsafeMutableRawBufferPointer(start: tmp, count: alignedLength)
-                _ = try resource.read(into: readRaw, startingAt: off_t(alignedOffset), length: alignedLength)
-            }
-            memcpy(tmp.advanced(by: offsetDelta), buf, length)
-
-            let writeRaw = UnsafeRawBufferPointer(start: tmp, count: alignedLength)
-            try resource.metadataWrite(from: writeRaw,
-                                       startingAt: off_t(alignedOffset),
-                                       length: alignedLength)
-            cacheInvalidate(alignedOffset: alignedOffset, alignedLength: alignedLength)
-            stats?.recordBdevWrite(bytes: alignedLength, latencyNs: monotonicNanos() &- t0, error: false)
-            return 0
-        } catch {
-            log.error("bdev metadataWrite error: off=\(offset) len=\(length) err=\(error.localizedDescription)", scope: AppLogScope.io)
-            stats?.recordBdevWrite(bytes: 0, latencyNs: monotonicNanos() &- t0, error: true)
-            return EIO
-        }
-    }
-
-    /// Flush kernel buffer cache to disk. Mirrors EXT4's BlockDeviceContext.flush.
-    /// fs_ntfs's own callback shape (`fs_ntfs_blockdev_cfg_t`) has no flush
-    /// field, so this is only reached through the qcow2-stacking path
-    /// (FsCoreCallbackCfg.flush) — qcow2 needs the explicit flush after
-    /// metadata writes for crash safety.
-    func flush() -> Int32 {
-        do {
-            try resource.metadataFlush()
-            return 0
-        } catch {
-            log.error("bdev metadataFlush error: \(error.localizedDescription)", scope: AppLogScope.io)
-            return EIO
-        }
-    }
-}
-
 /// Disk-image container kinds the NTFS extension knows how to unwrap.
 /// Mirrored on the EXT4 side (EXT4FileSystem.ContainerKind).
 enum NTFSContainerKind: String, CustomStringConvertible {
@@ -187,7 +28,7 @@ enum NTFSContainerKind: String, CustomStringConvertible {
 
     /// Probe the resource (offset 0 + trailing footer for VHD-fixed).
     /// Returns nil when the bytes look like a raw NTFS partition image.
-    static func detect(context: NTFSBlockDeviceContext, sizeBytes: UInt64) -> NTFSContainerKind? {
+    static func detect(context: BlockDeviceContext, sizeBytes: UInt64) -> NTFSContainerKind? {
         var head = [UInt8](repeating: 0, count: 16)
         let rc = head.withUnsafeMutableBufferPointer { buf -> Int32 in
             return context.read(into: buf.baseAddress!, offset: 0, length: 16)
@@ -262,7 +103,7 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
     struct MountedResource: DiskJockeyLibrary.MountedResource {
         let bsdName: String
         let volume: NTFSVolume
-        /// Retained `NTFSBlockDeviceContext` pointer the load path used
+        /// Retained `BlockDeviceContext` pointer the load path used
         /// to drive the FSBlockDeviceResource via C callbacks. Carried
         /// so `startFormat` can build a fresh `fs_ntfs_blockdev_cfg_t`
         /// against the same device. Mirror of EXT4's contextPtr.
@@ -347,14 +188,23 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             // only mount via the callback ABI (no write callback —
             // fs_ntfs_mount is read-only), query volume info, then
             // unmount. Empty labels fall back to "NTFS".
-            let probeContext = NTFSBlockDeviceContext(resource: blockDevice, log: dlog)
+            // Probe context: no stats collector yet (this is a brief
+            // RO mount before NTFSVolume init), no read cache (single-
+            // shot use), and NTFS write semantics aren't relevant
+            // since the probe is read-only.
+            let probeContext = BlockDeviceContext(
+                resource: blockDevice,
+                log: dlog,
+                writeStrategy: .immediate,
+                alignToPhysicalBlockSize: false
+            )
             let probeContextPtr = Unmanaged.passRetained(probeContext).toOpaque()
-            defer { Unmanaged<NTFSBlockDeviceContext>.fromOpaque(probeContextPtr).release() }
+            defer { Unmanaged<BlockDeviceContext>.fromOpaque(probeContextPtr).release() }
 
             var probeCfg = fs_ntfs_blockdev_cfg_t()
             probeCfg.read = { ctx, buf, offset, length in
                 guard let ctx = ctx, let buf = buf else { return EIO }
-                let context = Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
                 return context.read(into: buf, offset: off_t(offset), length: Int(length))
             }
             probeCfg.context = probeContextPtr
@@ -419,7 +269,20 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         let stats = IOStatsRecorder(label: bsdName, emit: { fields in
             dlog.event(kind: "io.stats", fields: fields, scope: AppLogScope.stats)
         })
-        let context = NTFSBlockDeviceContext(resource: blockDevice, log: dlog, stats: stats)
+        // NTFS-flavoured BlockDeviceContext: immediate writes
+        // (fs_ntfs_blockdev_cfg_t expects synchronous commit), an
+        // in-process read cache to dodge the redundant boot-sector +
+        // $UpCase fetches on every mutator path, and the simpler
+        // alignment (no physicalBlockSize requirement on the NTFS
+        // write path).
+        let context = BlockDeviceContext(
+            resource: blockDevice,
+            log: dlog,
+            stats: stats,
+            writeStrategy: .immediate,
+            readCache: BlockReadCache(maxEntries: 512),
+            alignToPhysicalBlockSize: false
+        )
         let contextPtr = Unmanaged.passRetained(context).toOpaque()
 
         // Mirror the EXT4 fix: the kernel-level write FD on the
@@ -474,7 +337,7 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
                 bridgeFS = ntfsMountFn(mountHandle)
                 fs_core_device_close(mountHandle)
             } catch {
-                Unmanaged<NTFSBlockDeviceContext>.fromOpaque(contextPtr).release()
+                Unmanaged<BlockDeviceContext>.fromOpaque(contextPtr).release()
                 replyHandler(nil, error)
                 return
             }
@@ -482,13 +345,13 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             var cfg = fs_ntfs_blockdev_cfg_t()
             cfg.read = { ctx, buf, offset, length in
                 guard let ctx = ctx, let buf = buf else { return EIO }
-                let context = Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
                 return context.read(into: buf, offset: off_t(offset), length: Int(length))
             }
             if isWritable {
                 cfg.write = { ctx, buf, offset, length in
                     guard let ctx = ctx, let buf = buf else { return EIO }
-                    let context = Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                    let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
                     return context.write(from: buf, offset: off_t(offset), length: Int(length))
                 }
             } else {
@@ -508,7 +371,7 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             let err = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
             let suffix = containerKind.map { ", \($0)" } ?? ""
             dlog.error("fs_ntfs mount failed (RO\(suffix)): \(err)")
-            Unmanaged<NTFSBlockDeviceContext>.fromOpaque(contextPtr).release()
+            Unmanaged<BlockDeviceContext>.fromOpaque(contextPtr).release()
             replyHandler(nil, POSIXError(.EIO))
             return
         }
@@ -589,12 +452,12 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         var coreCfg = FsCoreCallbackCfg()
         coreCfg.read = { ctx, offset, buf, len in
             guard let ctx = ctx, let buf = buf else { return EIO }
-            return Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+            return Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
                 .read(into: UnsafeMutableRawPointer(buf), offset: off_t(offset), length: Int(len))
         }
         coreCfg.write = isWritable ? { ctx, offset, buf, len in
             guard let ctx = ctx, let buf = buf else { return EIO }
-            return Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+            return Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
                 .write(from: UnsafeRawPointer(buf), offset: off_t(offset), length: Int(len))
         } : nil
         coreCfg.flush = nil
@@ -799,18 +662,18 @@ extension NTFSFileSystem: FSManageableResourceMaintenanceOperations {
         Task.detached {
             // Same callback-cfg construction as the mount path — see
             // NTFSFileSystem.loadResource for the original. Reuses the
-            // retained NTFSBlockDeviceContext so writes go through the
+            // retained BlockDeviceContext so writes go through the
             // FSBlockDeviceResource just like a mounted-time write.
             let bdc = resolved.contextPtr
             var cfg = fs_ntfs_blockdev_cfg_t()
             cfg.read = { ctx, buf, offset, length in
                 guard let ctx = ctx, let buf = buf else { return EIO }
-                let context = Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
                 return context.read(into: buf, offset: off_t(offset), length: Int(length))
             }
             cfg.write = { ctx, buf, offset, length in
                 guard let ctx = ctx, let buf = buf else { return EIO }
-                let context = Unmanaged<NTFSBlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
                 return context.write(from: buf, offset: off_t(offset), length: Int(length))
             }
             cfg.context = bdc
