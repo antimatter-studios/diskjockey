@@ -136,6 +136,28 @@ install-agent:
 	@scripts/install-agent-dev.sh
 
 # ---------------------------------------------------------------------------
+# Installable .app
+# ---------------------------------------------------------------------------
+#
+# `installable` builds a Release-configured DiskJockey.app signed with
+# the team's Apple Development certificate — ready to live at
+# /Applications/DiskJockey.app instead of being run out of Xcode's
+# DerivedData. The .app lands at build/export/DiskJockey.app.
+#
+# `installable-install` does the same, then copies the result into
+# /Applications (prompting first if a previous install is there).
+#
+# Both delegate to scripts/build-installable.sh; the comment header on
+# that script has the full rationale, signing notes, and switching
+# guidance for Developer ID / App Store distribution.
+
+installable:
+	@scripts/build-installable.sh
+
+installable-install:
+	@scripts/build-installable.sh --install
+
+# ---------------------------------------------------------------------------
 # Vendor-pin manifest
 # ---------------------------------------------------------------------------
 #
