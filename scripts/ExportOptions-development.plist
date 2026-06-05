@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ExportOptions-development.plist — export options for `xcodebuild
+  -exportArchive` when building a locally-installable .app signed
+  with an Apple Development certificate.
+
+  Used by scripts/build-installable.sh (and `make installable`).
+  Not intended for App Store or notarized Developer ID distribution
+  — those would need their own ExportOptions files with
+  `method = app-store-connect` or `method = developer-id`.
+
+  Notes:
+    * `method = development` produces a .app signed with the team's
+      Apple Development certificate. The signed app runs on Macs that
+      are registered to that Apple Developer account; Gatekeeper
+      accepts it without notarization.
+    * `signingStyle = automatic` lets Xcode pick the matching cert +
+      provisioning profile for each of the 5 bundle IDs (parent +
+      EXT4 + NTFS + FileProvider + Agent). Avoids having to maintain
+      a manual mapping of bundle ID → profile name in this plist.
+    * `teamID` pins the team to the one the project's
+      `DEVELOPMENT_TEAM` is set to, so a stray Apple ID with multiple
+      teams doesn't pick the wrong one silently.
+    * `uploadSymbols = false` — symbols only ship to App Store
+      Connect; meaningless for a local install.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Apple renamed `development` to `debugging` in newer Xcode
+         versions. Using the new name silences the deprecation
+         warning on Xcode 16+. -->
+    <key>method</key>
+    <string>debugging</string>
+    <key>destination</key>
+    <string>export</string>
+    <key>signingStyle</key>
+    <string>automatic</string>
+    <key>teamID</key>
+    <string>43UMKXZ8P4</string>
+    <key>uploadSymbols</key>
+    <false/>
+    <key>stripSwiftSymbols</key>
+    <true/>
+</dict>
+</plist>
