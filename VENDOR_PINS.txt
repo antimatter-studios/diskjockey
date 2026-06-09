@@ -11,5 +11,5 @@ vendor/rust-img-qcow2    485fd8009821830ad0ff63f421fb32f9c96141a4   (v0.4.0-1-g4
 vendor/rust-img-vhd      5e9280a8939b2d181a0b2deb65cb9f7cf5bff3f1   (v0.3.0-1-g5e9280a)
 vendor/rust-img-vhdx     8062f873d828706bf8f1c9f8cd7973a5d918626d   (v0.3.0-1-g8062f87)
 vendor/rust-img-vmdk     cb17812f6ce350bf17416afa3e843678651f4267   (v0.3.0-1-gcb17812)
-vendor/rust-partitions   23ea10e80951e522e89a960e06fd5831df7b4752   (v0.3.0-3-g23ea10e)
+vendor/rust-partitions   f2eea497b911d4c778b78d117d1ce30a27602b77   (v0.3.0-4-gf2eea49)
 vendor/tabler-icons      6d128ed935d4546607b1e4d5d08c8b27bdbe7758   (v3.44.0)
