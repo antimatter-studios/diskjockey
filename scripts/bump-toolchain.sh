@@ -77,9 +77,11 @@ run() { # echo + execute, unless --dry-run
 }
 
 # Default branch of the current repo's origin (e.g. main / master).
+# refs/remotes/origin/HEAD is NOT populated in a submodule checkout, so ask
+# the host via gh first, then fall back to parsing `git remote show`, then main.
 default_branch() {
-    git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null \
-        | sed 's@^origin/@@' \
+    gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null \
+        || git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p' \
         || echo main
 }
 
@@ -101,6 +103,7 @@ current_channel() { # <crate-dir>
 # MODE: repin (parent side, after crate PRs merge)
 # ===========================================================================
 if [ "$MODE" = "repin" ]; then
+    [ -n "$VERSION" ] && echo "${YELLOW}note: --repin ignores the version argument '${VERSION}'.${NC}"
     echo "${BOLD}Re-pinning parent submodules to merged default branches…${NC}"
     changed=0
     while read -r crate; do
@@ -123,9 +126,10 @@ if [ "$MODE" = "repin" ]; then
         exit 0
     fi
 
-    run make pins >/dev/null
+    # `run` echoes (and skips) in dry-run; only swallow make's output for real.
+    if [ "$DRY_RUN" = 1 ]; then echo "  ${YELLOW}[dry-run]${NC} make pins"; else make pins >/dev/null; fi
     branch="chore/bump-vendor-toolchain-pins"
-    run git checkout -b "$branch"
+    run git checkout -B "$branch"
     run git add VENDOR_PINS.txt vendor/
     run git commit -m "build: advance vendor submodules to their bumped toolchain builds"
     run git push -u origin "$branch"
@@ -178,7 +182,10 @@ while read -r crate; do
             run rustup run "$VERSION" cargo test --release
         fi
 
-        run git commit -am "chore(toolchain): bump pinned Rust ${cur} -> ${VERSION}"
+        # Stage ONLY the toml — never -a, which would sweep in any other dirty
+        # tracked file (leftover artifacts, half-applied patches) silently.
+        run git add rust-toolchain.toml
+        run git commit -m "chore(toolchain): bump pinned Rust ${cur} -> ${VERSION}"
         run git push -u origin "$branch"
         if [ "$NO_PR" = 0 ]; then
             run gh pr create --base "$db" --head "$branch" \
