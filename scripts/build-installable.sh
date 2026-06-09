@@ -123,7 +123,7 @@ xcodebuild archive \
     -skipPackagePluginValidation \
     -allowProvisioningUpdates \
     ONLY_ACTIVE_ARCH=YES \
-    ARCHS=arm64
+    ARCHS=arm64          # Apple Silicon only — intentional; not a universal build
 
 # --- export -------------------------------------------------------------
 
@@ -140,6 +140,12 @@ if [ ! -d "$EXPORT_DIR/DiskJockey.app" ]; then
     echo "ERROR: exported .app not found at $EXPORT_DIR/DiskJockey.app" >&2
     exit 1
 fi
+
+# Verify the exported bundle here so a signing/export problem surfaces on
+# EVERY build path, not only when --install is passed (e.g. a developer who
+# `ditto`s the built .app manually still gets a checked signature).
+echo "==> verifying signature"
+codesign --verify --verbose=1 "$EXPORT_DIR/DiskJockey.app"
 
 echo "==> built: $EXPORT_DIR/DiskJockey.app"
 
@@ -161,25 +167,34 @@ if [ "$DO_INSTALL" = true ]; then
                 exit 0
                 ;;
         esac
-        rm -rf "$INSTALL_DEST"
     fi
 
+    # Install atomically: stage into a temp path beside the destination,
+    # prove it copied and verifies cleanly, and only THEN swap it in. This
+    # way a `ditto` failure (disk full, I/O error) can never leave the user
+    # with their previous install deleted and no replacement.
+    staging="${INSTALL_DEST}.installing.$$"
+    rm -rf "$staging"
     # `ditto` preserves code signatures and extended attributes that
     # `cp -R` strips; required for the signed bundle to keep working.
     echo "==> installing to $INSTALL_DEST"
-    ditto "$EXPORT_DIR/DiskJockey.app" "$INSTALL_DEST"
+    ditto "$EXPORT_DIR/DiskJockey.app" "$staging"
 
     # Strip the quarantine attribute LaunchServices applies to anything
     # arriving through "untrusted" channels. Without this, Gatekeeper
     # prompts the user on first launch even though the bundle is
     # validly signed — annoying for a local-build install path.
-    xattr -dr com.apple.quarantine "$INSTALL_DEST" 2>/dev/null || true
+    xattr -dr com.apple.quarantine "$staging" 2>/dev/null || true
 
-    # Verify the install actually signed-bundle-checks-cleanly so a
-    # copy mishap or stripped signature surfaces here, not at first
-    # launch.
-    echo "==> verifying signature"
-    codesign --verify --verbose=1 "$INSTALL_DEST"
+    # Verify the staged copy before the swap so a copy mishap or stripped
+    # signature surfaces here, not at first launch.
+    echo "==> verifying staged copy"
+    codesign --verify --verbose=1 "$staging"
+
+    # Atomic-ish swap: the old install only disappears once the new copy
+    # is proven good.
+    rm -rf "$INSTALL_DEST"
+    mv "$staging" "$INSTALL_DEST"
 
     echo ""
     echo "Installed: $INSTALL_DEST"
