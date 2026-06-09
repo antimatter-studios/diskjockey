@@ -132,7 +132,11 @@ if [ "$MODE" = "repin" ]; then
     run git checkout -B "$branch"
     run git add VENDOR_PINS.txt vendor/
     run git commit -m "build: advance vendor submodules to their bumped toolchain builds"
-    run git push -u origin "$branch"
+    # --force-with-lease: the branch is a throwaway chore branch owned by this
+    # script; on a re-run after a partial failure `checkout -B` resets it to a
+    # new commit, so a plain push would be rejected non-fast-forward. Lease (not
+    # plain --force) so we never clobber an unexpected remote change.
+    run git push -u --force-with-lease origin "$branch"
     [ "$NO_PR" = 1 ] || run gh pr create --fill --base "$(default_branch)" --head "$branch"
     echo "${GREEN}Parent re-pin prepared. Review the PR, then tag/publish crates as needed.${NC}"
     exit 0
@@ -186,7 +190,11 @@ while read -r crate; do
         # tracked file (leftover artifacts, half-applied patches) silently.
         run git add rust-toolchain.toml
         run git commit -m "chore(toolchain): bump pinned Rust ${cur} -> ${VERSION}"
-        run git push -u origin "$branch"
+        # --force-with-lease: the branch is a throwaway chore branch owned by this
+    # script; on a re-run after a partial failure `checkout -B` resets it to a
+    # new commit, so a plain push would be rejected non-fast-forward. Lease (not
+    # plain --force) so we never clobber an unexpected remote change.
+    run git push -u --force-with-lease origin "$branch"
         if [ "$NO_PR" = 0 ]; then
             run gh pr create --base "$db" --head "$branch" \
                 --title "chore: bump pinned Rust toolchain to ${VERSION}" \
