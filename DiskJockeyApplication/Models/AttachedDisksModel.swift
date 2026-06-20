@@ -130,6 +130,11 @@ public struct AttachedDisk: Identifiable, Equatable, Hashable {
             return .asset("tabler-linux-drive")
         case "ntfs", "fsntfs", "ntfs-fskit":
             return .asset("tabler-windows-drive")
+        case "erofs", "fserofs", "squashfs", "fssquashfs":
+            // Read-only Linux-origin filesystems (EROFS / SquashFS). They
+            // ship almost exclusively on Linux media + images, so reuse
+            // the Linux-drive glyph rather than the generic external one.
+            return .asset("tabler-linux-drive")
         default:
             return .asset("tabler-externaldrive-fill")
         }
@@ -254,6 +259,9 @@ public final class AttachedDisksModel: ObservableObject {
         "ntfs",              // Apple legacy ntfs.fs
         "fsntfs",            // DiskJockeyNTFS (our FSShortName)
         "ntfs-fskit",        // ext4-fskit project's old ntfsfskitd
+        "squashfs",          // DiskJockeySQUASHFS (FSPersonalities name)
+        "erofs",             // DiskJockeyEROFS (FSPersonalities name)
+        "fserofs",           // DiskJockeyEROFS FSShortName
         "msdos",             // FAT-family
         "exfat",             // Apple's built-in exFAT
     ]

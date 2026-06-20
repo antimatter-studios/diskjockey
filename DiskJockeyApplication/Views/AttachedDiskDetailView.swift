@@ -454,15 +454,23 @@ struct AttachedDiskDetailView: View {
         return disk.fsType == "ext4"
     }
 
-    /// `-t` argument value for `fsck_fskit`. Matches the FSShortName
-    /// that the corresponding extension registers ("ext4" for
-    /// DiskJockeyEXT4, "fsntfs" for DiskJockeyNTFS).
+    /// `-t` argument value for `fsck_fskit`. Matches the FSShortName /
+    /// FSPersonalities name the corresponding extension registers
+    /// ("ext4" for DiskJockeyEXT4, "fsntfs" for DiskJockeyNTFS, and the
+    /// read-only "erofs"/"squashfs" personalities). The read-only entries
+    /// are present for completeness/symmetry only — `verifySupported`
+    /// keeps the Verify button hidden for them, so this value isn't
+    /// actually reached for EROFS/SquashFS today. Their `startCheck`
+    /// trivially reports clean (it exists only so fskitd will mount the
+    /// volume), and there is no repair path for an immutable filesystem.
     private var fsckArgFstype: String? {
         guard let disk = disk else { return nil }
         switch disk.fsType {
-        case "ext4":   return "ext4"
-        case "fsntfs": return "fsntfs"
-        default:       return nil
+        case "ext4":     return "ext4"
+        case "fsntfs":   return "fsntfs"
+        case "erofs":    return "erofs"
+        case "squashfs": return "squashfs"
+        default:         return nil
         }
     }
 
@@ -982,6 +990,8 @@ struct AttachedDiskDetailView: View {
             // ntfs
             "cluster_size", "total_clusters",
             "ntfs_version", "serial_number",
+            // erofs / squashfs (read-only) — sizing + compression
+            "inode_count", "bytes_used", "compression",
         ]
         let known = priority.filter { info[$0] != nil }
         let rest = info.keys.filter { !priority.contains($0) }.sorted()
@@ -1015,6 +1025,9 @@ struct AttachedDiskDetailView: View {
         case "free_size":            return "Free size"
         case "ntfs_version":         return "NTFS version"
         case "serial_number":        return "Serial number"
+        case "inode_count":          return "Inode count"
+        case "bytes_used":           return "Bytes used"
+        case "compression":          return "Compression"
         default:                     return key.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
@@ -1023,7 +1036,7 @@ struct AttachedDiskDetailView: View {
     /// thousands separators so big numbers are readable at a glance.
     private func formatInfoValue(key: String, value: String) -> String {
         if ["total_size", "free_size", "block_size", "cluster_size",
-            "inode_size"].contains(key),
+            "inode_size", "bytes_used"].contains(key),
            let bytes = UInt64(value) {
             return humanSize(bytes: bytes)
         }
@@ -1042,7 +1055,7 @@ struct AttachedDiskDetailView: View {
             return "unlimited"
         }
         if ["total_blocks", "free_blocks", "reserved_blocks", "total_clusters",
-            "total_inodes", "free_inodes",
+            "total_inodes", "free_inodes", "inode_count",
             "mount_count", "max_mount_count", "revision_level"].contains(key),
            let n = UInt64(value) {
             let f = NumberFormatter()

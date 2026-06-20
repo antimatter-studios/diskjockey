@@ -48,6 +48,8 @@ public enum DiskEventHandler {
     public static func fsTypeFromEventKind(_ kind: String) -> String? {
         if kind.hasPrefix("ext4.") { return "ext4" }
         if kind.hasPrefix("ntfs.") { return "ntfs" }
+        if kind.hasPrefix("erofs.") { return "erofs" }
+        if kind.hasPrefix("squashfs.") { return "squashfs" }
         return nil
     }
 
@@ -140,6 +142,17 @@ public enum DiskEventHandler {
             return overflow ? nil : product
         case "ntfs":
             return UInt64(fields["total_size"] ?? "")
+        case "squashfs":
+            // SquashFS is compressed + read-only: `bytes_used` is the
+            // whole on-disk image size, which is the most meaningful
+            // "total" for a fixed image (there's no free space).
+            return UInt64(fields["bytes_used"] ?? "")
+        case "erofs":
+            // EROFS volume.info emits only block_size + inode_count (no
+            // block count), so we can't derive a total here — the
+            // statvfs baseline already supplied total_size at enumerate
+            // time. Leave it to that.
+            return nil
         default:
             return nil
         }

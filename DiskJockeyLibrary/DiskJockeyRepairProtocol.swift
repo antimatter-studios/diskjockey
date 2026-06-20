@@ -142,6 +142,12 @@ public enum DiskJockeyRepairFiles {
             return "ext4"
         case "ntfs", "fsntfs", "ntfs-fskit":
             return "ntfs"
+        case "erofs", "fserofs", "squashfs", "fssquashfs":
+            // Read-only, immutable filesystems. There is no in-process
+            // repair pass to coordinate with — `startCheck` in their
+            // extensions trivially reports clean and there is no write
+            // path — so there is no App-Group repair subtree for them.
+            return nil
         default:
             return nil
         }

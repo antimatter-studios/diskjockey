@@ -1,0 +1,27 @@
+# Consumer-side aggregator for the DiskJockeySQUASHFS FSKit extension.
+# Depends on the PUBLISHED, proven crates.io releases (not local paths), so
+# every crate's am-fs-core resolves to one published am-fs-core and cargo
+# links a single std. Leaf crates are unchanged (ntfs keeps its vendored
+# rust-fs-core). Not published itself.
+[package]
+name = "dj-squashfs-bundle"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "dj_squashfs_bundle"
+crate-type = ["staticlib"]
+
+[dependencies]
+am-fs-squashfs = "0.1.1"
+am-img-qcow2 = "0.4.2"
+am-img-vhd = "0.3.2"
+am-img-vhdx = "0.3.2"
+am-img-vmdk = "0.3.2"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+panic = "unwind"

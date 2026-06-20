@@ -27,6 +27,13 @@ enum SwiftPartitionProbe {
         // SquashFS magic at offset 0 ("hsqs" LE).
         static let squashfsBytes: [UInt8] = [0x68, 0x73, 0x71, 0x73]
 
+        // EROFS: superblock magic 0xE0F5E1E2 (EROFS_SUPER_MAGIC_V1)
+        // little-endian, at absolute byte 1024 (the superblock starts at
+        // 1024; s_magic is its first field). On disk → bytes E2 E1 F5 E0.
+        // Matches the authoritative probe in ErofsFileSystem.probeResource.
+        static let erofsSuperblockOffset = 1024
+        static let erofsBytes: [UInt8] = [0xE2, 0xE1, 0xF5, 0xE0]
+
         // QCOW2: "QFI\xfb" at offset 0 (magic + version marker).
         static let qcow2Bytes: [UInt8] = [0x51, 0x46, 0x49, 0xFB]
 
@@ -239,6 +246,11 @@ enum SwiftPartitionProbe {
         let b = Array(buf)
 
         if b.count >= 4 && b[0..<4].elementsEqual(FSMagic.squashfsBytes) { return "squashfs" }
+
+        // EROFS: superblock magic 0xE0F5E1E2 (LE) at byte 1024.
+        let erofsOff = FSMagic.erofsSuperblockOffset
+        if b.count >= erofsOff + 4 &&
+           b[erofsOff..<erofsOff+4].elementsEqual(FSMagic.erofsBytes) { return "erofs" }
 
         // FAT / NTFS / exFAT: all start with a boot sector ending in 0x55 0xAA.
         let sigOff = FSMagic.bootSectorSignatureOffset

@@ -128,3 +128,49 @@ public extension FileSystemItem where Tag == NTFSTag {
                   parentID: parentRecordNumber)
     }
 }
+
+// MARK: - SquashFS specialisation
+
+/// Phantom tag selecting `UInt32` identity for SquashFS inode numbers
+/// (SquashFS stores 32-bit inode numbers).
+public enum SquashfsTag: FileSystemTag {
+    public typealias ID = UInt32
+}
+
+/// Per-FS item type for the read-only SquashFS extension.
+public typealias SquashfsItem = FileSystemItem<SquashfsTag>
+
+public extension FileSystemItem where Tag == SquashfsTag {
+    /// SquashFS inode number — friendly spelling for `id`.
+    var inode: UInt32 { id }
+
+    /// Parent directory's inode — friendly spelling for `parentID`.
+    var parentInode: UInt32? { parentID }
+
+    convenience init(inode: UInt32, path: String, parentInode: UInt32?) {
+        self.init(id: inode, path: path, parentID: parentInode)
+    }
+}
+
+// MARK: - EROFS specialisation
+
+/// Phantom tag selecting `UInt64` identity for EROFS inode numbers
+/// (EROFS NIDs are 64-bit).
+public enum ErofsTag: FileSystemTag {
+    public typealias ID = UInt64
+}
+
+/// Per-FS item type for the read-only EROFS extension.
+public typealias ErofsItem = FileSystemItem<ErofsTag>
+
+public extension FileSystemItem where Tag == ErofsTag {
+    /// EROFS inode number — friendly spelling for `id`.
+    var inode: UInt64 { id }
+
+    /// Parent directory's inode — friendly spelling for `parentID`.
+    var parentInode: UInt64? { parentID }
+
+    convenience init(inode: UInt64, path: String, parentInode: UInt64?) {
+        self.init(id: inode, path: path, parentID: parentInode)
+    }
+}
