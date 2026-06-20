@@ -74,6 +74,8 @@ jobs:
             ~/.cargo/git/db
             vendor/rust-fs-ext4/target
             vendor/rust-fs-ntfs/target
+            vendor/rust-fs-erofs/target
+            vendor/rust-fs-squashfs/target
             vendor/rust-img-qcow2/target
             vendor/rust-img-vhd/target
             vendor/rust-img-vhdx/target
@@ -90,7 +92,7 @@ jobs:
 
       - name: Build vendor libraries
         if: steps.vendor-cache.outputs.cache-hit != 'true'
-        run: make vendor-fs-ext4 vendor-fs-ntfs vendor-img-containers vendor-gonetworkfs
+        run: make vendor-fs-ext4 vendor-fs-ntfs vendor-fs-erofs vendor-fs-squashfs vendor-img-containers vendor-gonetworkfs
 
       # Shared with the pre-commit hook — single source of truth for pin validation.
       - name: Validate vendor pins

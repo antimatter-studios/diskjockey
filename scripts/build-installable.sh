@@ -99,9 +99,10 @@ fi
 
 # --- vendor libraries ---------------------------------------------------
 #
-# The build links against three vendor static libs (lib/fs_ext4,
-# lib/fs_ntfs, lib/go-networkfs) plus the four img-* containers
-# (lib/img_qcow2, lib/img_vhd, lib/img_vhdx, lib/img_vmdk). Run the
+# The build links against five vendor static libs (lib/fs_ext4,
+# lib/fs_ntfs, lib/fs_erofs, lib/fs_squashfs, lib/go-networkfs) plus the
+# four img-* containers (lib/img_qcow2, lib/img_vhd, lib/img_vhdx,
+# lib/img_vmdk). Run the
 # umbrella `vendor-all` target — its stamp files mean a no-op fast
 # path when they're already current.
 

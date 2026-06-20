@@ -7,12 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		022580FD53834B63CA736B5E /* ErofsVolume.swift in Sources */ = {isa = PBXBuildFile; fileRef = 425C54678D107E1DAA3C3C5D /* ErofsVolume.swift */; };
 		027139E38C99564FE69885EA /* NTFSVolume.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FAA4308D6EB33A49E406790 /* NTFSVolume.swift */; };
+		02A5ECFB350AC0A504E975EB /* FSKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EA52B7280D02F6F8D737A4DF /* FSKit.framework */; };
 		05A11A3D8A16DAA84A31911B /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 429A2D79E6781D9640B98F5E /* Cocoa.framework */; };
 		12E594CD35D47D6A330F04B6 /* EXT4FileSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45CFCF77C56D3305934A9BE2 /* EXT4FileSystem.swift */; };
-		D0E1C0CCAAAA000000000003 /* EXT4Probe.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E1C0CCAAAA000000000004 /* EXT4Probe.swift */; };
-		D0E1C0CCAAAA000000000005 /* EXT4Load.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E1C0CCAAAA000000000006 /* EXT4Load.swift */; };
-		D0E1C0CCAAAA000000000007 /* EXT4Maintenance.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E1C0CCAAAA000000000008 /* EXT4Maintenance.swift */; };
+		2B438E77BD0358C07E38AEC2 /* ErofsFileSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 836FB936BE5B2D75D811EC7C /* ErofsFileSystem.swift */; };
 		34D8C92C0A23EF470069E4A8 /* DiskJockeyFileProvider.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 501F02432E058BAF009EBB59 /* DiskJockeyFileProvider.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		3A9B9B37285DFD6BA8C5FE18 /* NTFSFileSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE5CDCDA80309B6A4F073D2B /* NTFSFileSystem.swift */; };
 		3B5571A1000000000000NTFS /* RepairXPCService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B5571A2000000000000NTFS /* RepairXPCService.swift */; };
@@ -26,11 +26,20 @@
 		501F02AB2E059230009EBB59 /* DiskJockeyLibrary.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		5551000000000000000A0001 /* DiskJockeyLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */; };
 		5551000000000000000A0011 /* DiskJockeyLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */; };
+		5DCB574DE589DD42D41A8454 /* DiskJockeyLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */; };
+		6B3BE70D07376FEE0939754E /* SquashfsVolume.swift in Sources */ = {isa = PBXBuildFile; fileRef = D59222192CBD5E2FB973AD5C /* SquashfsVolume.swift */; };
 		6D2C0FB64B3C7B7C72EA2DB8 /* DiskJockeyEXT4.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = 0BC347BB938FDDB740155389 /* DiskJockeyEXT4.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		72A0723E43EC6118C3156685 /* RepairXPCService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDE7234E054C739FC42CCB24 /* RepairXPCService.swift */; };
 		80163389A6DD716C08F82168 /* FSKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EA52B7280D02F6F8D737A4DF /* FSKit.framework */; };
-		C23D7DA35F4FBB0AED7F74E5 /* libfs_ext4.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 198282EEFE5CE8718FB6299F /* libfs_ext4.a */; };
+		953B327534B3200F64818ED4 /* FSKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EA52B7280D02F6F8D737A4DF /* FSKit.framework */; };
+		AF58D83C5783B98ABADF1EBB /* SquashfsFileSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37763AEC6A4FD4CCBEDDCB44 /* SquashfsFileSystem.swift */; };
+		C315CDF7B253EA418B585498 /* DiskJockeySQUASHFS.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = AAE6646EB538E75EF79C7AA6 /* DiskJockeySQUASHFS.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		D0E1C0CCAAAA000000000003 /* EXT4Probe.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E1C0CCAAAA000000000004 /* EXT4Probe.swift */; };
+		D0E1C0CCAAAA000000000005 /* EXT4Load.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E1C0CCAAAA000000000006 /* EXT4Load.swift */; };
+		D0E1C0CCAAAA000000000007 /* EXT4Maintenance.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E1C0CCAAAA000000000008 /* EXT4Maintenance.swift */; };
 		D9CECEF266A909EB810942A6 /* EXT4Backend.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0377D4332EFC4FF34689518 /* EXT4Backend.swift */; };
+		E0B3ADF25784830874A634EA /* DiskJockeyEROFS.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = 0FC57EEA658C5ABB35712078 /* DiskJockeyEROFS.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		E32CB3CC857614FE210EAC76 /* DiskJockeyLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */; };
 		F3B991C06CBEFBF2B3B657B4 /* FSKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EA52B7280D02F6F8D737A4DF /* FSKit.framework */; };
 		F6FF4AC950047E0FD59AE139 /* EXT4Volume.swift in Sources */ = {isa = PBXBuildFile; fileRef = F01E35D6B49C797E269EAC45 /* EXT4Volume.swift */; };
 /* End PBXBuildFile section */
@@ -92,6 +101,20 @@
 			remoteGlobalIDString = 501F025C2E058C51009EBB59;
 			remoteInfo = DiskJockeyLibrary;
 		};
+		6BB86A8A6F64C7ED9B13FF57 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 50A51F8A2E05892200AC6D10 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3652767A4E95F56A42259420;
+			remoteInfo = DiskJockeySQUASHFS;
+		};
+		7F74BF4DB8CFB847801D917A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 50A51F8A2E05892200AC6D10 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8E3B20692D9B65313AFCAF97;
+			remoteInfo = DiskJockeyEROFS;
+		};
 		7F874B947056A01A6CED3C62 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 50A51F8A2E05892200AC6D10 /* Project object */;
@@ -105,6 +128,20 @@
 			proxyType = 1;
 			remoteGlobalIDString = CB73CCD381CDA3B886DE3658;
 			remoteInfo = DiskJockeyNTFS;
+		};
+		942DC047BE6EC9AF17DCC720 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 50A51F8A2E05892200AC6D10 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 501F025C2E058C51009EBB59;
+			remoteInfo = DiskJockeyLibrary;
+		};
+		DF4AD425F59758749E8E370B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 50A51F8A2E05892200AC6D10 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 501F025C2E058C51009EBB59;
+			remoteInfo = DiskJockeyLibrary;
 		};
 		EA5CE3CB114B2E1AE352F2E0 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -157,6 +194,8 @@
 			files = (
 				6D2C0FB64B3C7B7C72EA2DB8 /* DiskJockeyEXT4.appex in Embed ExtensionKit Extensions */,
 				4825EDF4EF8488D10202F7A6 /* DiskJockeyNTFS.appex in Embed ExtensionKit Extensions */,
+				C315CDF7B253EA418B585498 /* DiskJockeySQUASHFS.appex in Embed ExtensionKit Extensions */,
+				E0B3ADF25784830874A634EA /* DiskJockeyEROFS.appex in Embed ExtensionKit Extensions */,
 			);
 			name = "Embed ExtensionKit Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -165,14 +204,16 @@
 
 /* Begin PBXFileReference section */
 		0BC347BB938FDDB740155389 /* DiskJockeyEXT4.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; path = DiskJockeyEXT4.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		0E5062D8CC66429138B1AE0E /* DiskJockeyEROFS.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = DiskJockeyEROFS.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		0FC57EEA658C5ABB35712078 /* DiskJockeyEROFS.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = DiskJockeyEROFS.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		198282EEFE5CE8718FB6299F /* libfs_ext4.a */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = archive.ar; path = libfs_ext4.a; sourceTree = "<group>"; };
 		1FAA4308D6EB33A49E406790 /* NTFSVolume.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NTFSVolume.swift; sourceTree = "<group>"; };
+		2E5B3C082C661D266FE1A1B6 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		37763AEC6A4FD4CCBEDDCB44 /* SquashfsFileSystem.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SquashfsFileSystem.swift; sourceTree = "<group>"; };
 		3B5571A2000000000000NTFS /* RepairXPCService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RepairXPCService.swift; sourceTree = "<group>"; };
+		425C54678D107E1DAA3C3C5D /* ErofsVolume.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ErofsVolume.swift; sourceTree = "<group>"; };
 		429A2D79E6781D9640B98F5E /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
 		45CFCF77C56D3305934A9BE2 /* EXT4FileSystem.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EXT4FileSystem.swift; sourceTree = "<group>"; };
-		D0E1C0CCAAAA000000000004 /* EXT4Probe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EXT4Probe.swift; sourceTree = "<group>"; };
-		D0E1C0CCAAAA000000000006 /* EXT4Load.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EXT4Load.swift; sourceTree = "<group>"; };
-		D0E1C0CCAAAA000000000008 /* EXT4Maintenance.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EXT4Maintenance.swift; sourceTree = "<group>"; };
 		501F02432E058BAF009EBB59 /* DiskJockeyFileProvider.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = DiskJockeyFileProvider.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		501F02452E058BAF009EBB59 /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
 		501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = DiskJockeyLibrary.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -181,15 +222,28 @@
 		50A51FA02E05892400AC6D10 /* DiskJockeyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DiskJockeyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		50A51FAA2E05892400AC6D10 /* DiskJockeyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DiskJockeyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		541A4DEFDFDD7491866E5B51 /* DiskJockeyNTFS-Bridging-Header.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = "DiskJockeyNTFS-Bridging-Header.h"; sourceTree = "<group>"; };
+		565ABA420A6C12262348946D /* libfs_squashfs.a */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = archive.ar; path = libfs_squashfs.a; sourceTree = "<group>"; };
+		56BD9762AABDBECB20668973 /* libfs_erofs.a */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = archive.ar; path = libfs_erofs.a; sourceTree = "<group>"; };
 		5B97F7050B209EAC37A411F7 /* DiskJockeyEXT4-Bridging-Header.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = "DiskJockeyEXT4-Bridging-Header.h"; sourceTree = "<group>"; };
 		6345F2DEC89E3AA479220149 /* DiskJockeyNTFS.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = DiskJockeyNTFS.entitlements; sourceTree = "<group>"; };
+		7DF1C592E144C292538E2155 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		836FB936BE5B2D75D811EC7C /* ErofsFileSystem.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ErofsFileSystem.swift; sourceTree = "<group>"; };
+		8AEDAEBCFFCF49DC0C6D2CC5 /* DiskJockeyEROFS-Bridging-Header.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = "DiskJockeyEROFS-Bridging-Header.h"; sourceTree = "<group>"; };
 		A36068023A9CD2AD5B72E9E6 /* DiskJockeyEXT4.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = DiskJockeyEXT4.entitlements; sourceTree = "<group>"; };
+		AAE6646EB538E75EF79C7AA6 /* DiskJockeySQUASHFS.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = DiskJockeySQUASHFS.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		C0377D4332EFC4FF34689518 /* EXT4Backend.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EXT4Backend.swift; sourceTree = "<group>"; };
+		C5BF7A8657D13C9E4224DF2D /* DiskJockeyEROFS.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = DiskJockeyEROFS.entitlements; sourceTree = "<group>"; };
 		CFCB573FDD5A59CC941462A5 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		D0E1C0CCAAAA000000000004 /* EXT4Probe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EXT4Probe.swift; sourceTree = "<group>"; };
+		D0E1C0CCAAAA000000000006 /* EXT4Load.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EXT4Load.swift; sourceTree = "<group>"; };
+		D0E1C0CCAAAA000000000008 /* EXT4Maintenance.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EXT4Maintenance.swift; sourceTree = "<group>"; };
+		D59222192CBD5E2FB973AD5C /* SquashfsVolume.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SquashfsVolume.swift; sourceTree = "<group>"; };
 		EA52B7280D02F6F8D737A4DF /* FSKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FSKit.framework; path = System/Library/Frameworks/FSKit.framework; sourceTree = SDKROOT; };
+		EDB0DCD0AB44F84C21515494 /* DiskJockeySQUASHFS.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = DiskJockeySQUASHFS.entitlements; sourceTree = "<group>"; };
 		EE5CDCDA80309B6A4F073D2B /* NTFSFileSystem.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NTFSFileSystem.swift; sourceTree = "<group>"; };
 		F01E35D6B49C797E269EAC45 /* EXT4Volume.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EXT4Volume.swift; sourceTree = "<group>"; };
 		F127A673B820253463739471 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		F18C805589B16B27AAA1120D /* DiskJockeySQUASHFS-Bridging-Header.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = "DiskJockeySQUASHFS-Bridging-Header.h"; sourceTree = "<group>"; };
 		F8545E3C164E31A018E781C7 /* DiskJockeyNTFS.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; path = DiskJockeyNTFS.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		FB028A4796ABC3388189B043 /* FileSystemBackend.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileSystemBackend.swift; sourceTree = "<group>"; };
 		FDE7234E054C739FC42CCB24 /* RepairXPCService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RepairXPCService.swift; sourceTree = "<group>"; };
@@ -216,26 +270,36 @@
 		};
 		501F025E2E058C51009EBB59 /* DiskJockeyLibrary */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = DiskJockeyLibrary;
 			sourceTree = "<group>";
 		};
 		501F026D2E058C51009EBB59 /* DiskJockeyLibraryTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = DiskJockeyLibraryTests;
 			sourceTree = "<group>";
 		};
 		50A51F942E05892200AC6D10 /* DiskJockeyApplication */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = DiskJockeyApplication;
 			sourceTree = "<group>";
 		};
 		50A51FA32E05892400AC6D10 /* DiskJockeyTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = DiskJockeyTests;
 			sourceTree = "<group>";
 		};
 		50A51FAD2E05892400AC6D10 /* DiskJockeyUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = DiskJockeyUITests;
 			sourceTree = "<group>";
 		};
@@ -288,12 +352,29 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		819C18A68C5C3FD8DE67A95B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				02A5ECFB350AC0A504E975EB /* FSKit.framework in Frameworks */,
+				E32CB3CC857614FE210EAC76 /* DiskJockeyLibrary.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8C20629B89E0962BF0C6484E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				953B327534B3200F64818ED4 /* FSKit.framework in Frameworks */,
+				5DCB574DE589DD42D41A8454 /* DiskJockeyLibrary.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A2453504AB4E874F535C8FEE /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				F3B991C06CBEFBF2B3B657B4 /* FSKit.framework in Frameworks */,
-				C23D7DA35F4FBB0AED7F74E5 /* libfs_ext4.a in Frameworks */,
 				5551000000000000000A0001 /* DiskJockeyLibrary.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -336,8 +417,23 @@
 			isa = PBXGroup;
 			children = (
 				9A419B819B466BD55F5BB631 /* fs_ext4 */,
+				63556833BDD5188944618AA9 /* fs_erofs */,
+				4AB12A29196713FF292C4519 /* fs_squashfs */,
 			);
 			path = lib;
+			sourceTree = SOURCE_ROOT;
+		};
+		19150E0A63FF8D677B3E7C39 /* DiskJockeySQUASHFS */ = {
+			isa = PBXGroup;
+			children = (
+				37763AEC6A4FD4CCBEDDCB44 /* SquashfsFileSystem.swift */,
+				D59222192CBD5E2FB973AD5C /* SquashfsVolume.swift */,
+				7DF1C592E144C292538E2155 /* Info.plist */,
+				EDB0DCD0AB44F84C21515494 /* DiskJockeySQUASHFS.entitlements */,
+				F18C805589B16B27AAA1120D /* DiskJockeySQUASHFS-Bridging-Header.h */,
+			);
+			name = DiskJockeySQUASHFS;
+			path = DiskJockeySQUASHFS;
 			sourceTree = SOURCE_ROOT;
 		};
 		4289E39725E15F6A794D4DEF /* DiskJockeyEXT4 */ = {
@@ -357,6 +453,15 @@
 			);
 			path = DiskJockeyEXT4;
 			sourceTree = SOURCE_ROOT;
+		};
+		4AB12A29196713FF292C4519 /* fs_squashfs */ = {
+			isa = PBXGroup;
+			children = (
+				565ABA420A6C12262348946D /* libfs_squashfs.a */,
+			);
+			name = fs_squashfs;
+			path = fs_squashfs;
+			sourceTree = "<group>";
 		};
 		501F02442E058BAF009EBB59 /* Frameworks */ = {
 			isa = PBXGroup;
@@ -382,6 +487,8 @@
 				4289E39725E15F6A794D4DEF /* DiskJockeyEXT4 */,
 				18FB8DCE049D0440E78E822B /* lib */,
 				0EB438E9BA213FCCBE974E88 /* DiskJockeyNTFS */,
+				5855AD4E73D0F6E40A57D53F /* DiskJockeyEROFS */,
+				19150E0A63FF8D677B3E7C39 /* DiskJockeySQUASHFS */,
 			);
 			sourceTree = "<group>";
 		};
@@ -396,8 +503,33 @@
 				501F02672E058C51009EBB59 /* DiskJockeyLibraryTests.xctest */,
 				0BC347BB938FDDB740155389 /* DiskJockeyEXT4.appex */,
 				F8545E3C164E31A018E781C7 /* DiskJockeyNTFS.appex */,
+				0E5062D8CC66429138B1AE0E /* DiskJockeyEROFS.appex */,
+				AAE6646EB538E75EF79C7AA6 /* DiskJockeySQUASHFS.appex */,
+				0FC57EEA658C5ABB35712078 /* DiskJockeyEROFS.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		5855AD4E73D0F6E40A57D53F /* DiskJockeyEROFS */ = {
+			isa = PBXGroup;
+			children = (
+				836FB936BE5B2D75D811EC7C /* ErofsFileSystem.swift */,
+				425C54678D107E1DAA3C3C5D /* ErofsVolume.swift */,
+				2E5B3C082C661D266FE1A1B6 /* Info.plist */,
+				C5BF7A8657D13C9E4224DF2D /* DiskJockeyEROFS.entitlements */,
+				8AEDAEBCFFCF49DC0C6D2CC5 /* DiskJockeyEROFS-Bridging-Header.h */,
+			);
+			name = DiskJockeyEROFS;
+			path = DiskJockeyEROFS;
+			sourceTree = SOURCE_ROOT;
+		};
+		63556833BDD5188944618AA9 /* fs_erofs */ = {
+			isa = PBXGroup;
+			children = (
+				56BD9762AABDBECB20668973 /* libfs_erofs.a */,
+			);
+			name = fs_erofs;
+			path = fs_erofs;
 			sourceTree = "<group>";
 		};
 		9A419B819B466BD55F5BB631 /* fs_ext4 */ = {
@@ -421,6 +553,24 @@
 /* End PBXHeadersBuildPhase section */
 
 /* Begin PBXNativeTarget section */
+		3652767A4E95F56A42259420 /* DiskJockeySQUASHFS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 88A5F4B9EA80BA744E30831C /* Build configuration list for PBXNativeTarget "DiskJockeySQUASHFS" */;
+			buildPhases = (
+				E4580BE95853C1F0C9F651A2 /* Sources */,
+				819C18A68C5C3FD8DE67A95B /* Frameworks */,
+				0BF341165209C527497CDC67 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				FDE53A9C6D1FA99DA7DABA61 /* PBXTargetDependency */,
+			);
+			name = DiskJockeySQUASHFS;
+			productName = DiskJockeySQUASHFS;
+			productReference = AAE6646EB538E75EF79C7AA6 /* DiskJockeySQUASHFS.appex */;
+			productType = "com.apple.product-type.extensionkit-extension";
+		};
 		501F02422E058BAF009EBB59 /* DiskJockeyFileProvider */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 501F02542E058BAF009EBB59 /* Build configuration list for PBXNativeTarget "DiskJockeyFileProvider" */;
@@ -505,6 +655,8 @@
 				1EDFD3AA2824FA2A29909A15 /* PBXTargetDependency */,
 				657D337EB92FA37F8B443E10 /* PBXTargetDependency */,
 				1996BE72C26966848BDD20AF /* PBXTargetDependency */,
+				800BF8F33DDA0512F31A48E1 /* PBXTargetDependency */,
+				56FD87773864447044F56701 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				50A51F942E05892200AC6D10 /* DiskJockeyApplication */,
@@ -555,6 +707,24 @@
 			productName = DiskJockeyUITests;
 			productReference = 50A51FAA2E05892400AC6D10 /* DiskJockeyUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		8E3B20692D9B65313AFCAF97 /* DiskJockeyEROFS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A77D5BA072B568BEE70ABDD5 /* Build configuration list for PBXNativeTarget "DiskJockeyEROFS" */;
+			buildPhases = (
+				57AED089206AC0D08E65BC48 /* Sources */,
+				8C20629B89E0962BF0C6484E /* Frameworks */,
+				F55EEFBB43D4EF8EE5D72619 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				6B07FE96C9BAEAACC49B9973 /* PBXTargetDependency */,
+			);
+			name = DiskJockeyEROFS;
+			productName = DiskJockeyEROFS;
+			productReference = 0FC57EEA658C5ABB35712078 /* DiskJockeyEROFS.appex */;
+			productType = "com.apple.product-type.extensionkit-extension";
 		};
 		9C017035D21778726F5E1DF0 /* DiskJockeyEXT4 */ = {
 			isa = PBXNativeTarget;
@@ -647,11 +817,20 @@
 				501F02662E058C51009EBB59 /* DiskJockeyLibraryTests */,
 				9C017035D21778726F5E1DF0 /* DiskJockeyEXT4 */,
 				CB73CCD381CDA3B886DE3658 /* DiskJockeyNTFS */,
+				3652767A4E95F56A42259420 /* DiskJockeySQUASHFS */,
+				8E3B20692D9B65313AFCAF97 /* DiskJockeyEROFS */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		0BF341165209C527497CDC67 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		3774CB365334A42999A76B49 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -702,6 +881,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		AEF8C3C9D5F2F3EDF4086D31 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F55EEFBB43D4EF8EE5D72619 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -775,6 +961,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		57AED089206AC0D08E65BC48 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2B438E77BD0358C07E38AEC2 /* ErofsFileSystem.swift in Sources */,
+				022580FD53834B63CA736B5E /* ErofsVolume.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		6255B83D6F7B44E77A879AC4 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -797,6 +992,15 @@
 				3A9B9B37285DFD6BA8C5FE18 /* NTFSFileSystem.swift in Sources */,
 				027139E38C99564FE69885EA /* NTFSVolume.swift in Sources */,
 				3B5571A1000000000000NTFS /* RepairXPCService.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E4580BE95853C1F0C9F651A2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AF58D83C5783B98ABADF1EBB /* SquashfsFileSystem.swift in Sources */,
+				6B3BE70D07376FEE0939754E /* SquashfsVolume.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -855,23 +1059,47 @@
 			target = 501F025C2E058C51009EBB59 /* DiskJockeyLibrary */;
 			targetProxy = 5551000000000000000A0012 /* PBXContainerItemProxy */;
 		};
+		56FD87773864447044F56701 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = DiskJockeyEROFS;
+			target = 8E3B20692D9B65313AFCAF97 /* DiskJockeyEROFS */;
+			targetProxy = 7F74BF4DB8CFB847801D917A /* PBXContainerItemProxy */;
+		};
 		657D337EB92FA37F8B443E10 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			name = DiskJockeyFileProvider;
 			target = 501F02422E058BAF009EBB59 /* DiskJockeyFileProvider */;
 			targetProxy = 7F874B947056A01A6CED3C62 /* PBXContainerItemProxy */;
 		};
+		6B07FE96C9BAEAACC49B9973 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = DiskJockeyLibrary;
+			target = 501F025C2E058C51009EBB59 /* DiskJockeyLibrary */;
+			targetProxy = 942DC047BE6EC9AF17DCC720 /* PBXContainerItemProxy */;
+		};
+		800BF8F33DDA0512F31A48E1 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = DiskJockeySQUASHFS;
+			target = 3652767A4E95F56A42259420 /* DiskJockeySQUASHFS */;
+			targetProxy = 6BB86A8A6F64C7ED9B13FF57 /* PBXContainerItemProxy */;
+		};
+		FDE53A9C6D1FA99DA7DABA61 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = DiskJockeyLibrary;
+			target = 501F025C2E058C51009EBB59 /* DiskJockeyLibrary */;
+			targetProxy = DF4AD425F59758749E8E370B /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		2F24DA7CB970D06ADE079B05 /* Debug */ = {
+		0768422891ABC91AC33637F6 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CLANG_CXX_LIBRARY = "libc++";
-				CODE_SIGN_ENTITLEMENTS = DiskJockeyEXT4/DiskJockeyEXT4.entitlements;
+				CODE_SIGN_ENTITLEMENTS = DiskJockeyEROFS/DiskJockeyEROFS.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = NO;
 				DEVELOPMENT_TEAM = 43UMKXZ8P4;
 				ENABLE_APP_SANDBOX = NO;
@@ -880,11 +1108,54 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/lib/fs_ext4/include",
-					"$(SRCROOT)/lib/img_qcow2/include",
-					"$(SRCROOT)/lib/img_vhd/include",
-					"$(SRCROOT)/lib/img_vhdx/include",
-					"$(SRCROOT)/lib/img_vmdk/include",
+					"$(SRCROOT)/lib/bundle_erofs/include",
+				);
+				INFOPLIST_FILE = DiskJockeyEROFS/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = DiskJockeyEROFS;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/lib/bundle_erofs",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-ldj_erofs_bundle",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.erofs;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = NO;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "DiskJockeyEROFS/DiskJockeyEROFS-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		2F24DA7CB970D06ADE079B05 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_CXX_LIBRARY = "libc++";
+				CODE_SIGN_ENTITLEMENTS = DiskJockeyEXT4/DiskJockeyEXT4.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 3;
+				DEAD_CODE_STRIPPING = NO;
+				DEVELOPMENT_TEAM = 43UMKXZ8P4;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/lib/bundle_ext4/include",
 				);
 				INFOPLIST_FILE = DiskJockeyEXT4/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = DiskJockeyEXT4;
@@ -896,21 +1167,13 @@
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/lib/fs_ext4",
-					"$(SRCROOT)/lib/img_qcow2",
-					"$(SRCROOT)/lib/img_vhd",
-					"$(SRCROOT)/lib/img_vhdx",
-					"$(SRCROOT)/lib/img_vmdk",
+					"$(SRCROOT)/lib/bundle_ext4",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.1.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
-					"-lfs_ext4",
-					"-lqcow2",
-					"-lvhd",
-					"-lvhdx",
-					"-lvmdk",
+					"-ldj_ext4_bundle",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.ext4;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -928,7 +1191,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = DiskJockeyFileProvider/DiskJockeyFileProvider.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 43UMKXZ8P4;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -949,7 +1212,7 @@
 					"$(inherited)",
 					"$(SRCROOT)/lib/go-networkfs",
 				);
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.1.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-lnetworkfs",
@@ -969,7 +1232,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = DiskJockeyFileProvider/DiskJockeyFileProvider.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 43UMKXZ8P4;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -990,7 +1253,7 @@
 					"$(inherited)",
 					"$(SRCROOT)/lib/go-networkfs",
 				);
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.1.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-lnetworkfs",
@@ -1012,7 +1275,7 @@
 				CODE_SIGN_IDENTITY = "";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 43UMKXZ8P4;
 				DYLIB_COMPATIBILITY_VERSION = 1;
@@ -1027,7 +1290,7 @@
 					"@executable_path/../Frameworks",
 					"@loader_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.1.0;
 				MODULE_VERIFIER_SUPPORTED_LANGUAGES = "objective-c objective-c++";
 				MODULE_VERIFIER_SUPPORTED_LANGUAGE_STANDARDS = "gnu17 gnu++20";
 				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.library;
@@ -1049,7 +1312,7 @@
 				CODE_SIGN_IDENTITY = "";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 43UMKXZ8P4;
 				DYLIB_COMPATIBILITY_VERSION = 1;
@@ -1064,7 +1327,7 @@
 					"@executable_path/../Frameworks",
 					"@loader_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.1.0;
 				MODULE_VERIFIER_SUPPORTED_LANGUAGES = "objective-c objective-c++";
 				MODULE_VERIFIER_SUPPORTED_LANGUAGE_STANDARDS = "gnu17 gnu++20";
 				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.library;
@@ -1083,11 +1346,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 43UMKXZ8P4;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.library.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -1100,11 +1363,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 43UMKXZ8P4;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.library.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -1250,7 +1513,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 43UMKXZ8P4;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1268,7 +1531,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1287,7 +1550,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 43UMKXZ8P4;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1305,7 +1568,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1320,12 +1583,12 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 43UMKXZ8P4;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -1339,12 +1602,12 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 43UMKXZ8P4;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -1357,11 +1620,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 43UMKXZ8P4;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -1374,11 +1637,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 43UMKXZ8P4;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -1394,7 +1657,7 @@
 				CODE_SIGN_ENTITLEMENTS = DiskJockeyEXT4/DiskJockeyEXT4.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = NO;
 				DEVELOPMENT_TEAM = 43UMKXZ8P4;
 				ENABLE_APP_SANDBOX = NO;
@@ -1403,11 +1666,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/lib/fs_ext4/include",
-					"$(SRCROOT)/lib/img_qcow2/include",
-					"$(SRCROOT)/lib/img_vhd/include",
-					"$(SRCROOT)/lib/img_vhdx/include",
-					"$(SRCROOT)/lib/img_vmdk/include",
+					"$(SRCROOT)/lib/bundle_ext4/include",
 				);
 				INFOPLIST_FILE = DiskJockeyEXT4/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = DiskJockeyEXT4;
@@ -1419,21 +1678,13 @@
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/lib/fs_ext4",
-					"$(SRCROOT)/lib/img_qcow2",
-					"$(SRCROOT)/lib/img_vhd",
-					"$(SRCROOT)/lib/img_vhdx",
-					"$(SRCROOT)/lib/img_vmdk",
+					"$(SRCROOT)/lib/bundle_ext4",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.1.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
-					"-lfs_ext4",
-					"-lqcow2",
-					"-lvhd",
-					"-lvhdx",
-					"-lvmdk",
+					"-ldj_ext4_bundle",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.ext4;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1446,14 +1697,14 @@
 			};
 			name = Release;
 		};
-		9EC1235E7180305320B57FF5 /* Release */ = {
+		95B59D823DFD5E36D6F59EDE /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CLANG_CXX_LIBRARY = "libc++";
-				CODE_SIGN_ENTITLEMENTS = DiskJockeyNTFS/DiskJockeyNTFS.entitlements;
+				CODE_SIGN_ENTITLEMENTS = DiskJockeySQUASHFS/DiskJockeySQUASHFS.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = NO;
 				DEVELOPMENT_TEAM = 43UMKXZ8P4;
 				ENABLE_APP_SANDBOX = NO;
@@ -1462,11 +1713,101 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/lib/fs_ntfs/include",
-					"$(SRCROOT)/lib/img_qcow2/include",
-					"$(SRCROOT)/lib/img_vhd/include",
-					"$(SRCROOT)/lib/img_vhdx/include",
-					"$(SRCROOT)/lib/img_vmdk/include",
+					"$(SRCROOT)/lib/bundle_squashfs/include",
+				);
+				INFOPLIST_FILE = DiskJockeySQUASHFS/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = DiskJockeySQUASHFS;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/lib/bundle_squashfs",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-ldj_squashfs_bundle",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.squashfs;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = NO;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "DiskJockeySQUASHFS/DiskJockeySQUASHFS-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		98AB1964BCC02AD77FA1D017 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_CXX_LIBRARY = "libc++";
+				CODE_SIGN_ENTITLEMENTS = DiskJockeySQUASHFS/DiskJockeySQUASHFS.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 3;
+				DEAD_CODE_STRIPPING = NO;
+				DEVELOPMENT_TEAM = 43UMKXZ8P4;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/lib/bundle_squashfs/include",
+				);
+				INFOPLIST_FILE = DiskJockeySQUASHFS/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = DiskJockeySQUASHFS;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/lib/bundle_squashfs",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-ldj_squashfs_bundle",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.squashfs;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = NO;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "DiskJockeySQUASHFS/DiskJockeySQUASHFS-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		9EC1235E7180305320B57FF5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_CXX_LIBRARY = "libc++";
+				CODE_SIGN_ENTITLEMENTS = DiskJockeyNTFS/DiskJockeyNTFS.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 3;
+				DEAD_CODE_STRIPPING = NO;
+				DEVELOPMENT_TEAM = 43UMKXZ8P4;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/lib/bundle_ntfs/include",
 				);
 				INFOPLIST_FILE = DiskJockeyNTFS/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = DiskJockeyNTFS;
@@ -1478,21 +1819,13 @@
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/lib/fs_ntfs",
-					"$(SRCROOT)/lib/img_qcow2",
-					"$(SRCROOT)/lib/img_vhd",
-					"$(SRCROOT)/lib/img_vhdx",
-					"$(SRCROOT)/lib/img_vmdk",
+					"$(SRCROOT)/lib/bundle_ntfs",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.1.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
-					"-lfs_ntfs",
-					"-lqcow2",
-					"-lvhd",
-					"-lvhdx",
-					"-lvmdk",
+					"-ldj_ntfs_bundle",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.ntfs;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1512,7 +1845,7 @@
 				CODE_SIGN_ENTITLEMENTS = DiskJockeyNTFS/DiskJockeyNTFS.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = NO;
 				DEVELOPMENT_TEAM = 43UMKXZ8P4;
 				ENABLE_APP_SANDBOX = NO;
@@ -1521,11 +1854,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/lib/fs_ntfs/include",
-					"$(SRCROOT)/lib/img_qcow2/include",
-					"$(SRCROOT)/lib/img_vhd/include",
-					"$(SRCROOT)/lib/img_vhdx/include",
-					"$(SRCROOT)/lib/img_vmdk/include",
+					"$(SRCROOT)/lib/bundle_ntfs/include",
 				);
 				INFOPLIST_FILE = DiskJockeyNTFS/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = DiskJockeyNTFS;
@@ -1537,21 +1866,13 @@
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/lib/fs_ntfs",
-					"$(SRCROOT)/lib/img_qcow2",
-					"$(SRCROOT)/lib/img_vhd",
-					"$(SRCROOT)/lib/img_vhdx",
-					"$(SRCROOT)/lib/img_vmdk",
+					"$(SRCROOT)/lib/bundle_ntfs",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.1.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
-					"-lfs_ntfs",
-					"-lqcow2",
-					"-lvhd",
-					"-lvhdx",
-					"-lvmdk",
+					"-ldj_ntfs_bundle",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.ntfs;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1563,6 +1884,53 @@
 				SWIFT_VERSION = 5.0;
 			};
 			name = Debug;
+		};
+		CFD670DB11627C07F7FAA9B1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_CXX_LIBRARY = "libc++";
+				CODE_SIGN_ENTITLEMENTS = DiskJockeyEROFS/DiskJockeyEROFS.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 3;
+				DEAD_CODE_STRIPPING = NO;
+				DEVELOPMENT_TEAM = 43UMKXZ8P4;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/lib/bundle_erofs/include",
+				);
+				INFOPLIST_FILE = DiskJockeyEROFS/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = DiskJockeyEROFS;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/lib/bundle_erofs",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-ldj_erofs_bundle",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.erofs;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = NO;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "DiskJockeyEROFS/DiskJockeyEROFS-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
 		};
 /* End XCBuildConfiguration section */
 
@@ -1626,6 +1994,24 @@
 			buildConfigurations = (
 				50A51FBB2E05892400AC6D10 /* Debug */,
 				50A51FBC2E05892400AC6D10 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		88A5F4B9EA80BA744E30831C /* Build configuration list for PBXNativeTarget "DiskJockeySQUASHFS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				98AB1964BCC02AD77FA1D017 /* Release */,
+				95B59D823DFD5E36D6F59EDE /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A77D5BA072B568BEE70ABDD5 /* Build configuration list for PBXNativeTarget "DiskJockeyEROFS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CFD670DB11627C07F7FAA9B1 /* Release */,
+				0768422891ABC91AC33637F6 /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

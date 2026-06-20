@@ -166,6 +166,12 @@ final class FSKitMountService {
             switch part.fsKind {
             case "ext4", "ext3", "ext2": c.supported.append((part, "ext4"))
             case "ntfs":                  c.supported.append((part, "ntfs"))
+            // Read-only DiskJockey filesystems. Mounted via our own FSKit
+            // extensions (the FSPersonalities name doubles as the mount
+            // fsType). No write/repair path; they only support the raw /
+            // fs_core-slice mount path the hdiutil flow provides.
+            case "squashfs":              c.supported.append((part, "squashfs"))
+            case "erofs":                 c.supported.append((part, "erofs"))
             case "fat32", "fat16":
                 if hdiutilCompatible { c.supported.append((part, "msdos")) }
                 else { c.skipped.append(part) }
@@ -632,7 +638,7 @@ enum FSKitAttachController {
         // when the source is raw — hdiutil doesn't understand
         // qcow2/vhd/vhdx/vmdk so partitions inside containers route
         // only to our extensions.
-        let ourKinds: Set<String> = ["ext4", "ext3", "ext2", "ntfs"]
+        let ourKinds: Set<String> = ["ext4", "ext3", "ext2", "ntfs", "squashfs", "erofs"]
         let appleKinds: Set<String> = ["fat32", "fat16", "exfat", "hfs_plus", "apfs"]
         let containerSupportsApple = ["raw", "vhd", "vmdk"].contains(probe.container)
         func isSupported(_ p: DiskProbeResult.Partition) -> Bool {

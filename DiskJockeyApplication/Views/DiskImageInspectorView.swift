@@ -400,7 +400,11 @@ struct DiskImageInspectorView: View {
     }
 
     private func isMountableKind(_ kind: String) -> Bool {
-        let ours: Set<String> = ["ext4", "ext3", "ext2", "ntfs"]
+        // EROFS / SquashFS are DiskJockey read-only filesystems. They
+        // mount through the same hdiutil-attach + fs_core-slice path the
+        // other DiskJockey drivers use, so they're only mountable from a
+        // raw / VHD / VMDK source (same gate as the rest of `ours`).
+        let ours: Set<String> = ["ext4", "ext3", "ext2", "ntfs", "squashfs", "erofs"]
         let apple: Set<String> = ["fat32", "fat16", "exfat", "hfs_plus", "apfs"]
         let hdiutilCompatible = ["raw", "vhd", "vmdk"].contains(probe.container)
         guard hdiutilCompatible else { return false }
@@ -408,8 +412,12 @@ struct DiskImageInspectorView: View {
     }
 
     private func driverFor(_ kind: String) -> String {
+        // Read-only DiskJockey filesystems get a "(read-only)" qualifier
+        // so the inspector row makes the capability obvious.
+        let oursReadOnly: Set<String> = ["squashfs", "erofs"]
         let ours: Set<String> = ["ext4", "ext3", "ext2", "ntfs"]
         let apple: Set<String> = ["fat32", "fat16", "exfat", "hfs_plus", "apfs"]
+        if oursReadOnly.contains(kind) { return isMountableContainer ? "DiskJockey (read-only)" : "coming soon" }
         if ours.contains(kind) { return isMountableContainer ? "DiskJockey" : "coming soon" }
         if apple.contains(kind) { return isMountableContainer ? "Apple" : "coming soon" }
         return "unsupported"
@@ -423,6 +431,9 @@ struct DiskImageInspectorView: View {
         case "exfat": return .orange
         case "hfs_plus", "apfs": return .purple
         case "linux_swap": return .red
+        // Read-only Linux-origin filesystems — teal/mint to read as
+        // distinct from the writable ext* green.
+        case "squashfs", "erofs": return .teal
         default: return .gray
         }
     }

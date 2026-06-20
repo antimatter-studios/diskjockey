@@ -28,3 +28,9 @@
 [submodule "vendor/rust-img-vmdk"]
 	path = vendor/rust-img-vmdk
 	url = https://github.com/antimatter-studios/rust-img-vmdk
+[submodule "vendor/rust-fs-squashfs"]
+	path = vendor/rust-fs-squashfs
+	url = https://github.com/antimatter-studios/rust-fs-squashfs
+[submodule "vendor/rust-fs-erofs"]
+	path = vendor/rust-fs-erofs
+	url = https://github.com/antimatter-studios/rust-fs-erofs

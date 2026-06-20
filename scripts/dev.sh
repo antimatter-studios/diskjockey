@@ -93,6 +93,8 @@ readonly LOGS_DIR="$HOME/Library/Group Containers/$APP_GROUP/Logs"
 readonly FSKIT_EXTENSIONS=(
     "Contents/Extensions/DiskJockeyEXT4.appex|com.antimatterstudios.diskjockey.ext4"
     "Contents/Extensions/DiskJockeyNTFS.appex|com.antimatterstudios.diskjockey.ntfs"
+    "Contents/Extensions/DiskJockeyEROFS.appex|com.antimatterstudios.diskjockey.erofs"
+    "Contents/Extensions/DiskJockeySQUASHFS.appex|com.antimatterstudios.diskjockey.squashfs"
 )
 readonly LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister"
 
@@ -158,6 +160,8 @@ cmd_kill() {
         DiskJockey
         DiskJockeyEXT4
         DiskJockeyNTFS
+        DiskJockeyEROFS
+        DiskJockeySQUASHFS
         DiskJockeyFileProvider
     )
     local killed=0

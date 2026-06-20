@@ -1,0 +1,5 @@
+# Per-extension aggregator bundle crates. The built staticlibs + headers are
+# emitted to ../lib/bundle_<fs>/ (gitignored like the other vendor libs); the
+# crate sources + committed Cargo.lock (pinning the crates.io versions) are
+# tracked. Build artifacts are not.
+*/target/
