@@ -6,10 +6,12 @@
  *   - loadResource sets `containerStatus = .ready` before returning.
  *   - All reads go through a C callback over FSBlockDeviceResource.
  *
- * EROFS is an inherently READ-ONLY filesystem: no write/format path. The
- * crate doesn't pull in the am-img-* container readers, so this extension
- * mounts raw partitions and partition slices (via fs_core), not disk-image
- * containers (qcow2/vhd/…).
+ * EROFS is an inherently READ-ONLY filesystem: no write/format path.
+ * am-fs-erofs itself doesn't use the am-img-* container readers; the
+ * dj-erofs-bundle Cargo.toml links them only to prevent duplicate-symbol
+ * linker errors (not to expose container-format mounting). This extension
+ * therefore mounts raw partitions and partition slices (via fs_core), not
+ * disk-image containers (qcow2/vhd/…).
  */
 
 import FSKit
