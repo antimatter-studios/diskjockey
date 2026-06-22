@@ -87,29 +87,6 @@ final class DJAgentClient {
         }
     }
 
-    /// Per-extension enable state, read by the unsandboxed agent via
-    /// pluginkit. Keyed by the bundle ids passed in; ids the agent couldn't
-    /// determine are simply absent from the result.
-    func extensionStates(forBundleIDs ids: [String]) async throws -> [String: Bool] {
-        let proxy = try makeProxy()
-        return try await withCheckedThrowingContinuation { continuation in
-            proxy.extensionStates(forBundleIDs: ids) { json, error in
-                if let errorMsg = error {
-                    continuation.resume(throwing: FSKitMountService.FSKitError.processFailed(
-                        exitCode: -1, stderr: errorMsg))
-                    return
-                }
-                guard let json, let data = json.data(using: .utf8),
-                      let map = try? JSONDecoder().decode([String: Bool].self, from: data) else {
-                    continuation.resume(throwing: FSKitMountService.FSKitError.processFailed(
-                        exitCode: -1, stderr: "agent returned no extension states"))
-                    return
-                }
-                continuation.resume(returning: map)
-            }
-        }
-    }
-
     func detachDevice(_ bsdName: String) async throws {
         let proxy = try makeProxy()
         try await callAgent(fallbackError: "agent detach failed") { cb in
