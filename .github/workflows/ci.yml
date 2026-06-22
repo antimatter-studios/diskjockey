@@ -1,23 +1,20 @@
 name: CI
 
-# Runs on every push and pull request.
+# Push to main validates the trunk post-merge; PRs validate proposed changes.
+# Feature-branch pushes do NOT trigger a run on their own — they are covered by
+# the PR's `pull_request` run. This avoids the previous double-run, where a
+# `push` run and a `pull_request` run fired for the same commit and raced for
+# the limited macos-26 runner pool, leaving one of them cancelled.
 # No code signing — unit + library tests only.
 
 on:
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
     branches: [main]
 
-# `head_ref` is set on `pull_request` events (the source branch);
-# `ref_name` is the short ref for `push` events. Using
-# `head_ref || ref_name` unifies the two events into one concurrency
-# group per branch — without this, GitHub fires both a `push` run
-# (group key `refs/heads/<branch>`) and a `pull_request` run (group
-# key `refs/pull/<n>/merge`) for the same commit, and they race for
-# the limited macos-26 runner pool. Observed symptom: one run passes
-# in ~2 min, the duplicate hangs for an hour waiting for a slot that
-# never frees.
+# Cancel an in-progress run when a newer commit supersedes it: keyed per source
+# branch for PRs (head_ref), per ref for main pushes (ref_name).
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
@@ -60,7 +57,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: lib/
-          key: vendor-${{ runner.os }}-${{ hashFiles('VENDOR_PINS.txt') }}
+          key: vendor-${{ runner.os }}-${{ hashFiles('VENDOR_PINS.txt', 'rust-bundles/**/Cargo.toml', 'rust-bundles/**/Cargo.lock') }}
 
       # Only restore intermediate Rust artifacts on a vendor cache miss
       # so the next miss still benefits from incremental compilation.
@@ -92,7 +89,11 @@ jobs:
 
       - name: Build vendor libraries
         if: steps.vendor-cache.outputs.cache-hit != 'true'
-        run: make vendor-fs-ext4 vendor-fs-ntfs vendor-fs-erofs vendor-fs-squashfs vendor-img-containers vendor-gonetworkfs
+        # vendor-bundles builds the per-extension aggregator staticlibs
+        # (lib/bundle_<fs>/) and their C headers, which the FSKit extension
+        # targets include via HEADER_SEARCH_PATHS. Without it the Xcode build
+        # fails with "'fs_<fs>.h' file not found".
+        run: make vendor-fs-ext4 vendor-fs-ntfs vendor-fs-erofs vendor-fs-squashfs vendor-img-containers vendor-gonetworkfs vendor-bundles
 
       # Shared with the pre-commit hook — single source of truth for pin validation.
       - name: Validate vendor pins
