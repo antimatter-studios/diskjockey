@@ -5,7 +5,7 @@ import DiskJockeyLibrary
 struct ContentView: View {
     let container: AppContainer
 
-    @StateObject private var sidebarModel = SidebarModel()
+    @StateObject private var sidebarModel: SidebarModel
     @State private var showingAddMount = false
     /// Pending disk image — set when the user drops an image file onto the
     /// window. Presents `DiskImageInspectorView` in the detail pane until
@@ -19,6 +19,12 @@ struct ContentView: View {
     init(container: AppContainer) {
         self.container = container
         self.homeAccess = container.homeAccess
+        // Returning users land on Home when the app opens; genuine
+        // first-run (no folder approved yet) defers to the setup pane
+        // via a nil selection so network-drive onboarding still fires.
+        _sidebarModel = StateObject(wrappedValue: SidebarModel(
+            initial: container.homeAccess.hasFolder ? .home : nil
+        ))
     }
 
     var body: some View {
@@ -38,6 +44,14 @@ struct ContentView: View {
         // Volume info layout has room — sidebar (~240) + 24px gutters +
         // two ~360px columns squeezes if the floor stays at 800.
         .frame(minWidth: 960, minHeight: 500)
+        // Once the first-run user approves a folder, swap the setup
+        // pane out for Home rather than leaving them on the bare
+        // "No Mount Selected" placeholder.
+        .onChange(of: homeAccess.hasFolder) { _, hasFolder in
+            if hasFolder && sidebarModel.selectedItem == nil {
+                sidebarModel.selectedItem = .home
+            }
+        }
         .sheet(isPresented: $showingAddMount) {
             AddMountView(
                 directMountRegistry: container.directMountRegistry
@@ -96,6 +110,13 @@ struct ContentView: View {
     @ViewBuilder
     private var sidebarDetailView: some View {
         switch sidebarModel.selectedItem {
+        case .home:
+            HomeView(
+                container: container,
+                onAddNetworkDrive: { showingAddMount = true }
+            )
+        case .about:
+            AboutPageView()
         case .directMount(let id):
             // .id(id) forces SwiftUI to treat each mount as a distinct
             // view identity. Without it, switching between two
@@ -164,6 +185,11 @@ private struct SidebarView: View {
         VStack(spacing: 0) {
             // Mount list + logs
             List(selection: $sidebarModel.selectedItem) {
+                // Landing page — pinned at the very top, shown by
+                // default when the app opens.
+                Label("Home", systemImage: "house")
+                    .tag(SidebarItem.home)
+
                 Section("Local Drives") {
                     if attachedDisks.disks.isEmpty {
                         Text("No local volumes mounted")
@@ -227,6 +253,9 @@ private struct SidebarView: View {
                 Section("System") {
                     Label("Logs", image: "tabler-terminal")
                         .tag(SidebarItem.logs)
+                    // Project / version info — pinned at the bottom.
+                    Label("About", systemImage: "info.circle")
+                        .tag(SidebarItem.about)
                 }
             }
             .listStyle(.sidebar)

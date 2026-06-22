@@ -4,6 +4,12 @@ import SwiftUI
 
 /// Represents the available sidebar items in the app.
 public enum SidebarItem: Hashable {
+    /// Landing page shown when the app opens — welcome, live counts,
+    /// supported-filesystem showcase, and the primary add actions.
+    case home
+    /// Project / version information page (vendored library versions,
+    /// architecture summary, license). Pinned to the sidebar bottom.
+    case about
     /// A direct-linked network mount (host app + FileProvider extension,
     /// no backend). Lives in `DirectMountRegistry`.
     case directMount(UUID)
@@ -24,7 +30,12 @@ public enum SidebarItem: Hashable {
 
 /// Manages the state of the sidebar and navigation.
 public final class SidebarModel: ObservableObject {
-    @Published public var selectedItem: SidebarItem? = nil
+    @Published public var selectedItem: SidebarItem?
 
-    public init() {}
+    /// `initial` lets the caller land on Home for returning users while
+    /// still deferring to the first-run setup pane (nil) when no folder
+    /// has been approved yet.
+    public init(initial: SidebarItem? = .home) {
+        self.selectedItem = initial
+    }
 }
