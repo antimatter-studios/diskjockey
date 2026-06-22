@@ -260,6 +260,7 @@ public final class AttachedDisksModel: ObservableObject {
         "fsntfs",            // DiskJockeyNTFS (our FSShortName)
         "ntfs-fskit",        // ext4-fskit project's old ntfsfskitd
         "squashfs",          // DiskJockeySQUASHFS (FSPersonalities name)
+        "fssquashfs",        // DiskJockeySQUASHFS FSShortName
         "erofs",             // DiskJockeyEROFS (FSPersonalities name)
         "fserofs",           // DiskJockeyEROFS FSShortName
         "msdos",             // FAT-family
