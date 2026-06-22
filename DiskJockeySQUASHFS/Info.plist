@@ -24,14 +24,74 @@
 		<string>com.apple.fskit.fsmodule</string>
 		<key>EXExtensionPrincipalClass</key>
 		<string>SquashfsFileSystem</string>
+		<key>FSActivateOptionSyntax</key>
+		<dict>
+			<key>shortOptions</key>
+			<string>g:m:o:u:</string>
+		</dict>
+		<key>FSCheckOptionSyntax</key>
+		<dict>
+			<key>shortOptions</key>
+			<string>nqy</string>
+		</dict>
 		<key>FSMediaTypes</key>
 		<dict>
+			<key>0FC63DAF-8483-4772-8E79-3D69D8477DE4</key>
+			<dict>
+				<key>FSMediaProperties</key>
+				<dict>
+					<key>Content Hint</key>
+					<string>0FC63DAF-8483-4772-8E79-3D69D8477DE4</string>
+					<key>Leaf</key>
+					<true/>
+				</dict>
+			</dict>
+			<key>4F68BCE3-E8CD-4DB1-96E7-FBCAF984B709</key>
+			<dict>
+				<key>FSMediaProperties</key>
+				<dict>
+					<key>Content Hint</key>
+					<string>4F68BCE3-E8CD-4DB1-96E7-FBCAF984B709</string>
+					<key>Leaf</key>
+					<true/>
+				</dict>
+			</dict>
+			<key>933AC7E1-2EB4-4F13-B844-0E14E2AEF915</key>
+			<dict>
+				<key>FSMediaProperties</key>
+				<dict>
+					<key>Content Hint</key>
+					<string>933AC7E1-2EB4-4F13-B844-0E14E2AEF915</string>
+					<key>Leaf</key>
+					<true/>
+				</dict>
+			</dict>
+			<key>B921B045-1DF0-41C3-AF44-4C6F280D3FAE</key>
+			<dict>
+				<key>FSMediaProperties</key>
+				<dict>
+					<key>Content Hint</key>
+					<string>B921B045-1DF0-41C3-AF44-4C6F280D3FAE</string>
+					<key>Leaf</key>
+					<true/>
+				</dict>
+			</dict>
 			<key>EBD0A0A2-B9E5-4433-87C0-68B6B72699C7</key>
 			<dict>
 				<key>FSMediaProperties</key>
 				<dict>
 					<key>Content Hint</key>
 					<string>EBD0A0A2-B9E5-4433-87C0-68B6B72699C7</string>
+					<key>Leaf</key>
+					<true/>
+				</dict>
+			</dict>
+			<key>Linux</key>
+			<dict>
+				<key>FSMediaProperties</key>
+				<dict>
+					<key>Content Hint</key>
+					<string>Linux</string>
 					<key>Leaf</key>
 					<true/>
 				</dict>
@@ -43,16 +103,6 @@
 					<key>Leaf</key>
 					<true/>
 					<key>Whole</key>
-					<true/>
-				</dict>
-			</dict>
-			<key>Linux</key>
-			<dict>
-				<key>FSMediaProperties</key>
-				<dict>
-					<key>Content Hint</key>
-					<string>0FC63DAF-8483-4772-8E79-3D69D8477DE4</string>
-					<key>Leaf</key>
 					<true/>
 				</dict>
 			</dict>

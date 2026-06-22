@@ -55,9 +55,17 @@ final class ErofsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
 
         do {
             // The EROFS superblock (incl. magic + uuid) sits at offset 1024.
-            var buf = Data(count: Self.superSize)
+            // FSBlockDeviceResource only accepts BLOCK-ALIGNED reads — offset
+            // and length must both be multiples of blockSize. A sub-block
+            // 128-byte read returns EINVAL ("Invalid argument"), which silently
+            // failed the probe and is why EROFS volumes never mounted.
+            // superOffset (1024) is block-aligned for 512-byte blocks; round
+            // the length up to a whole block and slice the superblock back out.
+            let blockSize = max(Int(blockDevice.blockSize), 1)
+            let readLen = ((Self.superSize + blockSize - 1) / blockSize) * blockSize
+            var buf = Data(count: readLen)
             let bytesRead = try buf.withUnsafeMutableBytes { rawBuf in
-                try blockDevice.read(into: rawBuf, startingAt: Self.superOffset, length: Self.superSize)
+                try blockDevice.read(into: rawBuf, startingAt: Self.superOffset, length: readLen)
             }
             guard bytesRead >= Self.superSize else {
                 dlog.info("probe: read \(bytesRead) bytes (< 128) — not EROFS")

@@ -321,33 +321,35 @@ enum SwiftPartitionProbe {
 
     // MARK: - Type resolution
 
+    /// Resolve the filesystem identity for an MBR partition. The magic
+    /// **sniff is authoritative** — the MBR type byte is only a hint and is
+    /// NEVER substituted as a filesystem identity. A wrong guess here
+    /// mis-routes the mount (a SquashFS image in an 0x83 slice must not be
+    /// assumed ext4), so an unrecognized partition stays `"unknown"` rather
+    /// than "whatever, try it anyway". The lone exception is Linux swap
+    /// (0x82): a role marker that is never mounted as a volume, so labelling
+    /// it from the type byte when the sniff can't see the swap signature
+    /// carries no misroute risk.
     private static func resolveTypeCode(_ code: UInt8, sniffed: String) -> String {
-        switch code {
-        case 0x82: return "linux_swap"
-        case 0x83: return sniffed != "unknown" ? sniffed : "ext4"
-        case 0x0B, 0x0C, 0x1B, 0x1C: return "fat32"
-        case 0x01, 0x04, 0x06, 0x0E, 0x14, 0x16, 0x1E: return "fat16"
-        case 0x07: return sniffed != "unknown" ? sniffed : "ntfs"
-        case 0xAF: return sniffed != "unknown" ? sniffed : "hfs_plus"
-        default: return sniffed != "unknown" ? sniffed : "unknown"
-        }
+        if sniffed != "unknown" { return sniffed }
+        if code == 0x82 { return "linux_swap" }
+        return "unknown"
     }
 
+    /// Resolve the filesystem identity for a GPT partition. Same policy as
+    /// `resolveTypeCode`: the magic sniff is authoritative; the type GUID is
+    /// only a hint / role marker and is never substituted as a mountable
+    /// filesystem identity. Unrecognized → `"unknown"`.
     private static func resolveGPTType(_ guid: String, sniffed: String) -> String {
-        // Well-known GPT type GUIDs.
+        if sniffed != "unknown" { return sniffed }
         switch guid.lowercased() {
-        case "0fc63daf-8483-4772-8e79-3d69d8477de4": // Linux filesystem data
-            return sniffed != "unknown" ? sniffed : "ext4"
-        case "e3c9e316-0b5c-4db8-817d-f92df00215ae": // Windows Basic Data (NTFS/FAT)
-            return sniffed != "unknown" ? sniffed : "ntfs"
-        case "c12a7328-f81f-11d2-ba4b-00a0c93ec93b": // EFI System
-            return sniffed != "unknown" ? sniffed : "fat32"
-        case "0657fd6d-a4ab-43c4-84e5-0933c84b4f4f": // Linux swap
+        case "0657fd6d-a4ab-43c4-84e5-0933c84b4f4f": // Linux swap — role marker, not a mounted fs
             return "linux_swap"
-        case "21686148-6449-6e6f-744e-656564454649": // BIOS boot
-            return "unknown"
         default:
-            return sniffed != "unknown" ? sniffed : "unknown"
+            // Linux data / Windows basic data / EFI / BIOS boot / anything
+            // else: the GUID says a filesystem *may* be present, never
+            // *which* one. Without a magic match we don't guess.
+            return "unknown"
         }
     }
 
