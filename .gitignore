@@ -14,8 +14,9 @@ diskjockey-backend/test-mount/webdav-server/
 diskjockey-backend/test-mount/mount*/
 
 # Compiled artifacts from vendored sources — regenerated via `make vendor-*`.
-# Source submodules under vendor/ ARE tracked; only lib/ is ignored.
-lib/
+# Source submodules under vendor/ ARE tracked; only the root /lib/ is ignored
+# (anchored so it can't also swallow nested dirs like .githooks/lib/).
+/lib/
 .wip/
 
 # Claude Code session-local data: memory db, settings.local.json,
