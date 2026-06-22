@@ -57,6 +57,11 @@ public final class AppContainer: ObservableObject {
     /// actions in the detail view operate on entries here.
     public let rawDisks: RawDisksModel = RawDisksModel()
 
+    /// Live enable/disable state of our FSKit + File Provider extensions,
+    /// read (never written) via pluginkit. Drives the Home page's
+    /// Enabled/Disabled columns. Refreshes when the app reactivates.
+    public let extensionState: ExtensionStateService = ExtensionStateService()
+
     /// Surfaced error for the UI to display as an alert.
     @Published public private(set) var error: Error?
 

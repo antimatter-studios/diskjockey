@@ -1,5 +1,9 @@
 import Foundation
 
+// `hdiutilAttach` returns `Result<[String], String>`, using a plain string
+// as the lightweight internal failure value. Allow String as an Error.
+extension String: Error {}
+
 final class AgentImpl: NSObject, DJAgentProtocol {
     func attachImage(atPath path: String,
                      reply: @escaping ([String]?, String?) -> Void) {
@@ -178,6 +182,43 @@ final class AgentImpl: NSObject, DJAgentProtocol {
         }
         let json = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
         reply(json, nil)
+    }
+
+    func extensionStates(forBundleIDs ids: [String],
+                         reply: @escaping (String?, String?) -> Void) {
+        var map: [String: Bool] = [:]
+        for id in ids {
+            if let enabled = Self.pluginkitEnabled(bundleID: id) {
+                map[id] = enabled
+            }
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: map, options: []),
+              let json = String(data: data, encoding: .utf8) else {
+            reply(nil, "failed to serialize extension states")
+            return
+        }
+        reply(json, nil)
+    }
+
+    /// Run `pluginkit -m -i <id>` and read the leading flag: '+' = enabled,
+    /// '-' / blank = disabled. nil when the query produced no usable answer.
+    /// Runs unsandboxed here so it can reach the pkd daemon (the host app's
+    /// sandbox can't).
+    private static func pluginkitEnabled(bundleID: String) -> Bool? {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/pluginkit")
+        proc.arguments = ["-m", "-i", bundleID]
+        let outPipe = Pipe()
+        proc.standardOutput = outPipe
+        proc.standardError = Pipe()
+        do { try proc.run() } catch { return nil }
+        proc.waitUntilExit()
+        guard proc.terminationStatus == 0 else { return nil }
+        let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+        guard let text = String(data: data, encoding: .utf8),
+              let line = text.split(separator: "\n").first.map(String.init),
+              !line.isEmpty else { return nil }
+        return line.hasPrefix("+")
     }
 
     private static func locateDiskprobe() -> URL? {

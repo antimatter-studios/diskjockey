@@ -58,9 +58,17 @@ final class SquashfsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         do {
             // The SquashFS superblock is 96 bytes at offset 0. We only need
             // the magic + a few fields to build a stable container id.
-            var buf = Data(count: 96)
+            // FSBlockDeviceResource only accepts BLOCK-ALIGNED reads — offset
+            // and length must both be multiples of blockSize. A sub-block
+            // 96-byte read returns EINVAL ("Invalid argument"), which silently
+            // failed the probe and is why SquashFS volumes never mounted. Read
+            // one block-aligned chunk covering the 96-byte superblock at
+            // offset 0, then read the fields out of it.
+            let blockSize = max(Int(blockDevice.blockSize), 1)
+            let readLen = ((96 + blockSize - 1) / blockSize) * blockSize
+            var buf = Data(count: readLen)
             let bytesRead = try buf.withUnsafeMutableBytes { rawBuf in
-                try blockDevice.read(into: rawBuf, startingAt: 0, length: 96)
+                try blockDevice.read(into: rawBuf, startingAt: 0, length: readLen)
             }
             guard bytesRead >= 96 else {
                 dlog.info("probe: read \(bytesRead) bytes (< 96) — not SquashFS")

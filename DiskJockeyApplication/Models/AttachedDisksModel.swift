@@ -524,7 +524,18 @@ public final class AttachedDisksModel: ObservableObject {
         // create the row and replay the queue. Empty drives
         // belong in the Empty Drives sidebar section sourced from
         // RawDisksModel, not here.
-        let inferredFs = DiskEventHandler.fsTypeFromEventKind(kind)
+        // A `.probe` is exploratory — an extension merely LOOKING at the
+        // disk, which may then reject it (ext4 probing a SquashFS slice
+        // emits `ext4.probe` and then bails with a magic mismatch). A probe
+        // is NOT a confirmation that the disk is that filesystem, so it must
+        // not stand up a preview row that would be mislabeled and stuck in
+        // `.mounting` forever. Only a `volume.info` (or any non-probe fs
+        // event, which follows a probe that already RECOGNIZED the fs)
+        // confirms the type; an unrecognized slice stays out of Local Drives
+        // and surfaces under Empty Drives instead.
+        let inferredFs = kind.hasSuffix(".probe")
+            ? nil
+            : DiskEventHandler.fsTypeFromEventKind(kind)
         let fieldFs = (kind == "volume.info") ? fields["fs"] : nil
         let fsType = inferredFs ?? fieldFs ?? ""
         guard !fsType.isEmpty else {

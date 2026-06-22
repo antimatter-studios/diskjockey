@@ -5,18 +5,13 @@ private let kTeamID = "43UMKXZ8P4"
 final class AgentDelegate: NSObject, NSXPCListenerDelegate {
     func listener(_ listener: NSXPCListener,
                   shouldAcceptNewConnection conn: NSXPCConnection) -> Bool {
-        guard let token = conn.auditToken as? audit_token_t else {
-            return false
-        }
-        var code: SecCode?
-        var attr = [kSecGuestAttributeAudit: NSData(bytes: &token, length: MemoryLayout<audit_token_t>.size)] as CFDictionary
-        guard SecCodeCopyGuestWithAttributes(nil, attr, [], &code) == errSecSuccess,
-              let code else { return false }
-        var requirement: SecRequirement?
-        let reqStr = "identifier com.antimatterstudios.diskjockey and certificate leaf[subject.OU] = \"\(kTeamID)\"" as CFString
-        guard SecRequirementCreateWithString(reqStr, [], &requirement) == errSecSuccess,
-              let requirement,
-              SecCodeCheckValidity(code, [], requirement) == errSecSuccess else { return false }
+        // Only accept connections from our own app, signed by our team.
+        // `setCodeSigningRequirement` (macOS 13+) is the public, recommended
+        // replacement for the manual audit-token + SecCode validation —
+        // `NSXPCConnection.auditToken` is not public API. The connection is
+        // invalidated automatically if the peer doesn't satisfy the rule.
+        conn.setCodeSigningRequirement(
+            "identifier \"com.antimatterstudios.diskjockey\" and certificate leaf[subject.OU] = \"\(kTeamID)\"")
         conn.exportedInterface = NSXPCInterface(with: DJAgentProtocol.self)
         conn.exportedObject = AgentImpl()
         conn.resume()

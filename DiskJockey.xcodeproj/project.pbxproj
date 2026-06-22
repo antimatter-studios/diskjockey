@@ -40,6 +40,7 @@
 		D9CECEF266A909EB810942A6 /* EXT4Backend.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0377D4332EFC4FF34689518 /* EXT4Backend.swift */; };
 		E0B3ADF25784830874A634EA /* DiskJockeyEROFS.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = 0FC57EEA658C5ABB35712078 /* DiskJockeyEROFS.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		E32CB3CC857614FE210EAC76 /* DiskJockeyLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */; };
+		EEB09075D1BC8F5CE8260819 /* FSKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 124211CC79A8C8CFAF453134 /* FSKit.framework */; };
 		F3B991C06CBEFBF2B3B657B4 /* FSKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EA52B7280D02F6F8D737A4DF /* FSKit.framework */; };
 		F6FF4AC950047E0FD59AE139 /* EXT4Volume.swift in Sources */ = {isa = PBXBuildFile; fileRef = F01E35D6B49C797E269EAC45 /* EXT4Volume.swift */; };
 /* End PBXBuildFile section */
@@ -206,6 +207,7 @@
 		0BC347BB938FDDB740155389 /* DiskJockeyEXT4.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; path = DiskJockeyEXT4.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		0E5062D8CC66429138B1AE0E /* DiskJockeyEROFS.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = DiskJockeyEROFS.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		0FC57EEA658C5ABB35712078 /* DiskJockeyEROFS.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = DiskJockeyEROFS.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		124211CC79A8C8CFAF453134 /* FSKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FSKit.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/FSKit.framework; sourceTree = DEVELOPER_DIR; };
 		198282EEFE5CE8718FB6299F /* libfs_ext4.a */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = archive.ar; path = libfs_ext4.a; sourceTree = "<group>"; };
 		1FAA4308D6EB33A49E406790 /* NTFSVolume.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NTFSVolume.swift; sourceTree = "<group>"; };
 		2E5B3C082C661D266FE1A1B6 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -335,6 +337,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				501F02722E058C51009EBB59 /* DiskJockeyLibrary.framework in Frameworks */,
+				EEB09075D1BC8F5CE8260819 /* FSKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -409,6 +412,7 @@
 			isa = PBXGroup;
 			children = (
 				429A2D79E6781D9640B98F5E /* Cocoa.framework */,
+				124211CC79A8C8CFAF453134 /* FSKit.framework */,
 			);
 			name = "OS X";
 			sourceTree = "<group>";

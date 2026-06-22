@@ -10,6 +10,14 @@ final class DJAgentClient {
 
     private var connection: NSXPCConnection?
 
+    // NOTE: an UNSANDBOXED agent cannot be registered by this sandboxed app
+    // via SMAppService (BTM rejects it: "target executable must be sandboxed
+    // because the app is sandboxed"), and it can't ship through the Mac App
+    // Store at all. Extension enable-state is now read in-app via FSKit's
+    // `FSClient` (see ExtensionStateService) — no agent needed for that. The
+    // agent remains a dev-only helper (loaded via scripts/install-agent-dev.sh)
+    // for disk-image probing. This call is a harmless no-op when no agent is
+    // registered (status `.notFound`).
     static func register() {
         let svc = SMAppService.agent(plistName: "com.antimatterstudios.diskjockey.agent.plist")
         do {
@@ -75,6 +83,29 @@ final class DJAgentClient {
                 } catch {
                     continuation.resume(throwing: error)
                 }
+            }
+        }
+    }
+
+    /// Per-extension enable state, read by the unsandboxed agent via
+    /// pluginkit. Keyed by the bundle ids passed in; ids the agent couldn't
+    /// determine are simply absent from the result.
+    func extensionStates(forBundleIDs ids: [String]) async throws -> [String: Bool] {
+        let proxy = try makeProxy()
+        return try await withCheckedThrowingContinuation { continuation in
+            proxy.extensionStates(forBundleIDs: ids) { json, error in
+                if let errorMsg = error {
+                    continuation.resume(throwing: FSKitMountService.FSKitError.processFailed(
+                        exitCode: -1, stderr: errorMsg))
+                    return
+                }
+                guard let json, let data = json.data(using: .utf8),
+                      let map = try? JSONDecoder().decode([String: Bool].self, from: data) else {
+                    continuation.resume(throwing: FSKitMountService.FSKitError.processFailed(
+                        exitCode: -1, stderr: "agent returned no extension states"))
+                    return
+                }
+                continuation.resume(returning: map)
             }
         }
     }
