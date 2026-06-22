@@ -139,6 +139,9 @@ Gaps to know about before trusting this with real data:
 
 Last ten dated sections only — the full project history lives in [`CHANGELOG.md`](CHANGELOG.md). Reverse-chronological, breakthroughs highlighted.
 
+### 2026-06-22
+- **Home and About pages (v1.2.0).** The app opens on a new Home landing page — welcome header, live counts (local volumes / network drives / empty drives), a supported-filesystem showcase (ext4·rw, NTFS·rw, EROFS·ro, SquashFS·ro, qcow2/VHD/VHDX/VMDK, and the eight network/cloud schemes), and Add Disk Image / Add Network Drive quick actions. A new About page carries the project description, architecture summary, the full vendored-library version table, and licence/source links; the menu-bar About window is now a compact about box that points to it.
+
 ### 2026-05-08
 - **Automatic re-authorise on dead OAuth refresh tokens.** Dropbox / Google Drive / OneDrive now self-recover from `invalid_grant` failures: the Go drivers prefix the marker `oauth_reauth_required:` on dead-refresh errors, the host-app `OAuthRefreshSupervisor` watches FileProvider `mount.error` events for it, opens the browser to the provider's consent screen, writes the new refresh token to the shared Keychain (and a fresh access token to the mount-config plist for Google Drive / OneDrive — Dropbox refreshes its access token lazily inside `golang.org/x/oauth2` and doesn't cache one in plist), and cycles the FileProvider domain so the extension respawns with fresh credentials. Per-mount dedupe stops parallel Finder ops opening multiple browser tabs.
 - **In-extension verify + repair for EXT4 / NTFS, with filesystem access blocked during the pass.** macOS Disk Utility's First Aid has no path to drive repair on volumes hosted by a third-party FSKit extension, so the host app drives it: it drops a `RepairRequest` JSON into the shared App Group container, the FSKit extension's directory watcher claims it, and the Rust driver's `audit_with_repair` runs directly against the live mount. A per-volume `OperationLock` (cooperative tri-state mutex: `idle` / `verify` / `repair`) blocks normal filesystem ops for the duration of the pass, since the driver is writing to the same blocks the FSKit shim is serving and they cannot both run. Earlier sketch using a `MachServices`-registered XPC service was abandoned — ExtensionKit appex bundles silently ignore those declarations — and an explicit `O_EXCL` / `fcntl` preemptive lock is forbidden by the MAS sandbox over user-mounted volumes.
@@ -203,11 +206,6 @@ Last ten dated sections only — the full project history lives in [`CHANGELOG.m
 - App: Attach ext4 image menu item + `FSKitMountService`; Detach volume… menu item + FSKit detach path.
 - Route `/sbin/mount` + `/sbin/umount` through admin auth prompt.
 - Migrate Swift bridge to `fs_ext4_*` C ABI; build system rewritten for the new layout.
-
-### 2026-04-17
-- Redesign main UI around mount-centric sidebar.
-- Move status bar into `AppDelegate`, add app main menu.
-- Retry backend connection with backoff on startup.
 
 ---
 

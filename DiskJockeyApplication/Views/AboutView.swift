@@ -2,8 +2,6 @@ import SwiftUI
 import AppKit
 
 struct AboutView: View {
-    private let libraries: [VendoredLibraryInfo] = VendoredLibraryInfo.loadAll()
-
     private var appIcon: NSImage? {
         if let icon = NSApp?.applicationIconImage { return icon }
         return NSImage(named: NSImage.applicationIconName)
@@ -28,13 +26,6 @@ struct AboutView: View {
         let attrs = try? FileManager.default.attributesOfItem(atPath: exec.path)
         return attrs?[.modificationDate] as? Date
     }
-
-    private static let shortDateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        f.timeZone = TimeZone(identifier: "UTC")
-        return f
-    }()
 
     private static let buildTimestampFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -69,71 +60,20 @@ struct AboutView: View {
                 Spacer()
             }
 
-            Divider()
+            Text("Mount remote storage and disk images as native Finder volumes.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
-            // Vendored libraries section
-            Text("Vendored libraries")
-                .font(.headline)
-
-            if libraries.isEmpty {
-                Text("No vendor manifests found")
-                    .foregroundStyle(.secondary)
-            } else {
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(libraries) { lib in
-                        libraryRow(lib)
-                    }
-                }
-            }
+            Text("Library versions and project details are on the About page in the main window.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
 
             Spacer(minLength: 0)
         }
         .padding(20)
         .textSelection(.enabled)
-        .frame(minWidth: 440, maxWidth: 440, minHeight: 360, alignment: .top)
-    }
-
-    @ViewBuilder
-    private func libraryRow(_ lib: VendoredLibraryInfo) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(lib.name)
-                        .font(.body)
-                        .bold()
-                    if lib.isDirty {
-                        Text("dirty")
-                            .font(.caption2)
-                            .bold()
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(
-                                Capsule().fill(Color.red)
-                            )
-                    }
-                }
-                HStack(spacing: 4) {
-                    Text(lib.ref)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text("·")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(lib.shortCommit)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Spacer()
-
-            if let committed = lib.commitDate {
-                Text(Self.shortDateFormatter.string(from: committed))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .help("Commit date")
-            }
-        }
+        .frame(width: 380, alignment: .leading)
     }
 }
