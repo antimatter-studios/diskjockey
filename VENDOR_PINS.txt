@@ -6,7 +6,7 @@ submodule                sha                                        ref
 vendor/go-networkfs      9199629e756672d218f37d890aa5d7be752b88f3   (v0.1.3-16-g9199629)
 vendor/rust-fs-core      27898d4cc0519afdfa50c01c77497f062b95f7a5   (v0.2.0-4-g27898d4)
 vendor/rust-fs-erofs     1edd5340e6eb068f09db1023f251a53d138d5e8e   (v0.1.1)
-vendor/rust-fs-ext4      faf7656fb79c9e03388ab278c883888489724fc5   (v0.2.1-32-gfaf7656)
+vendor/rust-fs-ext4      c41de5b972af26e72120164340f2839e4b51b7ef   (v0.2.1-43-gc41de5b)
 vendor/rust-fs-ntfs      90aad7ad72696955f84cfa1b9d3505d9a09606ad   (v0.3.0-10-g90aad7a)
 vendor/rust-fs-squashfs  d197ff90c3d49c023dae13aa2e16c10a3c798e58   (v0.1.1)
 vendor/rust-img-qcow2    b4a256f55e772e713b7dbc02d15484cde31a5b12   (v0.4.0-4-gb4a256f)

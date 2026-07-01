@@ -14,7 +14,7 @@ name = "dj_ext4_bundle"
 crate-type = ["staticlib"]
 
 [dependencies]
-am-fs-ext4 = "0.3.3"
+am-fs-ext4 = "0.4.0"
 am-img-qcow2 = "0.4.2"
 am-img-vhd = "0.3.2"
 am-img-vhdx = "0.3.2"
