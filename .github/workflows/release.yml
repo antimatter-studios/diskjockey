@@ -1,25 +1,24 @@
 name: Release
 
-# Runs on push to main (archive only) and on 'v*' tags (archive + ASC upload).
-# Also triggerable manually via workflow_dispatch.
+# Runs on 'v*' tags (build + cloud-sign; uploads to the Mac App Store only when
+# the repo variable MAS_SUBMIT=true). Also triggerable via workflow_dispatch.
 #
 # Required secrets — configure in repo Settings > Secrets & variables > Actions:
 #
-#   Signing:
-#     APPLE_CERTIFICATE              base64 App Store Distribution .p12
-#     APPLE_CERTIFICATE_PASSWORD        password for the .p12
-#     KEYCHAIN_PASSWORD                     any strong random string (CI-only keychain)
-#     APPLE_TEAM_ID                         10-char Developer Team ID (e.g. ABC123XYZ4)
-#     APPLE_PROVISION_PROFILE_APP          App Store profile — com.antimatterstudios.diskjockey
-#     APPLE_PROVISION_PROFILE_EXT4         App Store profile — …diskjockey.ext4
-#     APPLE_PROVISION_PROFILE_NTFS         App Store profile — …diskjockey.ntfs
-#     APPLE_PROVISION_PROFILE_FILEPROVIDER App Store profile — …diskjockey.fileprovider
-#     APPLE_PROVISION_PROFILE_AGENT        App Store profile — …diskjockey.agent
+#   Signing — ONE .p12 holding BOTH the "Apple Distribution" (app) and
+#   "Mac Installer Distribution" (.pkg) certificates:
+#     APPLE_CERTIFICATE             base64 of the .p12
+#     APPLE_CERTIFICATE_PASSWORD    password for the .p12
+#     APPLE_TEAM_ID                 10-char Developer Team ID (e.g. ABC123XYZ4)
 #
-#   App Store Connect upload (set these when ready to enable TestFlight uploads):
+#   App Store Connect API key — REQUIRED. Cloud signing generates the provisioning
+#   profiles on the fly with this key, and the same key uploads to the store:
 #     APPLE_ASC_KEY_ID              ASC API key ID
 #     APPLE_ASC_ISSUER_ID           ASC API issuer ID
-#     APPLE_ASC_API_KEY             base64-encoded ASC API private key (.p8 file)
+#     APPLE_ASC_API_KEY             base64 of the ASC API private key (.p8)
+#
+#   The CI keychain password is generated in-pipeline (no secret). Uploads are
+#   gated by the repo variable MAS_SUBMIT (set =true to actually submit).
 
 on:
   push:
@@ -125,26 +124,29 @@ jobs:
 
           security list-keychain -d user -s "$KEYCHAIN_PATH"
 
-      - name: Install provisioning profiles
+      - name: Set up App Store Connect API key (cloud signing + upload)
         env:
-          APP_PP:          ${{ secrets.APPLE_PROVISION_PROFILE_APP }}
-          EXT4_PP:         ${{ secrets.APPLE_PROVISION_PROFILE_EXT4 }}
-          NTFS_PP:         ${{ secrets.APPLE_PROVISION_PROFILE_NTFS }}
-          FILEPROVIDER_PP: ${{ secrets.APPLE_PROVISION_PROFILE_FILEPROVIDER }}
-          AGENT_PP:        ${{ secrets.APPLE_PROVISION_PROFILE_AGENT }}
+          ASC_KEY_ID:     ${{ secrets.APPLE_ASC_KEY_ID }}
+          ASC_KEY_BASE64: ${{ secrets.APPLE_ASC_API_KEY }}
         run: |
-          PP_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
-          mkdir -p "$PP_DIR"
-          for name in APP EXT4 NTFS FILEPROVIDER AGENT; do
-            var="${name}_PP"
-            echo -n "${!var}" | base64 --decode -o "$PP_DIR/diskjockey_${name}.provisionprofile"
-          done
+          if [ -z "$ASC_KEY_BASE64" ] || [ -z "$ASC_KEY_ID" ]; then
+            echo "::error::Cloud signing needs an App Store Connect API key — set APPLE_ASC_KEY_ID, APPLE_ASC_ISSUER_ID and APPLE_ASC_API_KEY."
+            exit 1
+          fi
+          # for xcodebuild -authenticationKeyPath (auto-generates provisioning profiles) …
+          echo -n "$ASC_KEY_BASE64" | base64 --decode -o "$RUNNER_TEMP/asc_key.p8"
+          # … and for altool (scans this dir for AuthKey_<ID>.p8) at upload time.
+          mkdir -p ~/.appstoreconnect/private_keys
+          cp "$RUNNER_TEMP/asc_key.p8" ~/.appstoreconnect/private_keys/AuthKey_"${ASC_KEY_ID}".p8
 
       # ---------------------------------------------------------------------------
       # Archive
       # ---------------------------------------------------------------------------
 
       - name: Archive
+        env:
+          ASC_KEY_ID:    ${{ secrets.APPLE_ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPLE_ASC_ISSUER_ID }}
         run: |
           xcodebuild archive \
             -project DiskJockey.xcodeproj \
@@ -155,11 +157,16 @@ jobs:
             ONLY_ACTIVE_ARCH=YES \
             ARCHS=arm64 \
             DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="Apple Distribution"
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/asc_key.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
 
       # Inject the real team ID into the committed template at export time.
       - name: Export for App Store
+        env:
+          ASC_KEY_ID:    ${{ secrets.APPLE_ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPLE_ASC_ISSUER_ID }}
         run: |
           sed "s/XXXXXXXXXX/${{ secrets.APPLE_TEAM_ID }}/g" \
             .github/ExportOptions.plist > "$RUNNER_TEMP/ExportOptions.plist"
@@ -167,19 +174,22 @@ jobs:
           xcodebuild -exportArchive \
             -archivePath "$ARCHIVE_PATH" \
             -exportPath "$EXPORT_PATH" \
-            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/asc_key.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
 
       # ---------------------------------------------------------------------------
       # App Store Connect upload
       # Runs only on 'v*' tags. Skips gracefully if ASC secrets are not yet set.
       # ---------------------------------------------------------------------------
-      - name: Upload to App Store Connect (TestFlight)
+      - name: Upload to the Mac App Store
         if: startsWith(github.ref, 'refs/tags/v')
         env:
-          MAS_SUBMIT:     ${{ vars.MAS_SUBMIT }}
-          ASC_KEY_ID:     ${{ secrets.APPLE_ASC_KEY_ID }}
-          ASC_ISSUER_ID:  ${{ secrets.APPLE_ASC_ISSUER_ID }}
-          ASC_KEY_BASE64: ${{ secrets.APPLE_ASC_API_KEY }}
+          MAS_SUBMIT:    ${{ vars.MAS_SUBMIT }}
+          ASC_KEY_ID:    ${{ secrets.APPLE_ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPLE_ASC_ISSUER_ID }}
         run: |
           # Submission is OFF by default: every v* tag builds + signs, but the
           # app is only uploaded to the Mac App Store when you flip the repo
@@ -188,16 +198,8 @@ jobs:
             echo "MAS_SUBMIT != true — built + signed, not submitting. Set repo variable MAS_SUBMIT=true to enable."
             exit 0
           fi
-          if [ -z "$ASC_KEY_BASE64" ]; then
-            echo "APPLE_ASC_API_KEY not configured — skipping ASC upload."
-            echo "Set the three APPLE_ASC_* secrets when ready to submit."
-            exit 0
-          fi
 
-          # altool scans ~/.appstoreconnect/private_keys/ for AuthKey_<ID>.p8
-          mkdir -p ~/.appstoreconnect/private_keys
-          echo -n "$ASC_KEY_BASE64" | base64 --decode -o ~/.appstoreconnect/private_keys/AuthKey_"${ASC_KEY_ID}".p8
-
+          # The ASC key .p8 was already written by the setup step above.
           PKG_PATH=$(find "$EXPORT_PATH" -name '*.pkg' | head -1)
           [ -z "$PKG_PATH" ] && PKG_PATH=$(find "$EXPORT_PATH" -name '*.app' | head -1)
 
