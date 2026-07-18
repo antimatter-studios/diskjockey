@@ -15,37 +15,14 @@
     <key>teamID</key>
     <string>XXXXXXXXXX</string>
 
-    <key>signingStyle</key>
-    <string>manual</string>
-
     <!--
-        Map each bundle ID to its App Store Connect provisioning profile name.
-        Profile names must match exactly what is shown in the Apple Developer portal
-        (Certificates, Identifiers & Profiles > Profiles).
-
-        In CI, matching .provisionprofile files are installed from GitHub secrets by
-        the "Install provisioning profiles" step in release.yml.
-
-        For local export, download the profiles from the portal and double-click to
-        install, then update the names below if they differ.
+        Automatic (cloud) signing: Xcode generates the App Store distribution
+        provisioning profiles on the fly using the App Store Connect API key that
+        release.yml passes to xcodebuild (-allowProvisioningUpdates + the
+        -authenticationKey* flags). No manual .provisionprofile files are needed.
     -->
-    <key>provisioningProfiles</key>
-    <dict>
-        <key>com.antimatterstudios.diskjockey</key>
-        <string>DiskJockey App Store</string>
-
-        <key>com.antimatterstudios.diskjockey.ext4</key>
-        <string>DiskJockey EXT4 App Store</string>
-
-        <key>com.antimatterstudios.diskjockey.ntfs</key>
-        <string>DiskJockey NTFS App Store</string>
-
-        <key>com.antimatterstudios.diskjockey.fileprovider</key>
-        <string>DiskJockey FileProvider App Store</string>
-
-        <key>com.antimatterstudios.diskjockey.agent</key>
-        <string>DiskJockey Agent App Store</string>
-    </dict>
+    <key>signingStyle</key>
+    <string>automatic</string>
 
     <!-- Bitcode is not supported on macOS. -->
     <key>uploadBitcode</key>
