@@ -6,20 +6,20 @@ name: Release
 # Required secrets — configure in repo Settings > Secrets & variables > Actions:
 #
 #   Signing:
-#     BUILD_CERTIFICATE_BASE64              base64 App Store Distribution .p12
-#     BUILD_CERTIFICATE_P12_PASSWORD        password for the .p12
+#     APPLE_CERTIFICATE              base64 App Store Distribution .p12
+#     APPLE_CERTIFICATE_PASSWORD        password for the .p12
 #     KEYCHAIN_PASSWORD                     any strong random string (CI-only keychain)
 #     APPLE_TEAM_ID                         10-char Developer Team ID (e.g. ABC123XYZ4)
-#     APP_PROVISION_PROFILE_BASE64          App Store profile — com.antimatterstudios.diskjockey
-#     EXT4_PROVISION_PROFILE_BASE64         App Store profile — …diskjockey.ext4
-#     NTFS_PROVISION_PROFILE_BASE64         App Store profile — …diskjockey.ntfs
-#     FILEPROVIDER_PROVISION_PROFILE_BASE64 App Store profile — …diskjockey.fileprovider
-#     AGENT_PROVISION_PROFILE_BASE64        App Store profile — …diskjockey.agent
+#     APPLE_PROVISION_PROFILE_APP          App Store profile — com.antimatterstudios.diskjockey
+#     APPLE_PROVISION_PROFILE_EXT4         App Store profile — …diskjockey.ext4
+#     APPLE_PROVISION_PROFILE_NTFS         App Store profile — …diskjockey.ntfs
+#     APPLE_PROVISION_PROFILE_FILEPROVIDER App Store profile — …diskjockey.fileprovider
+#     APPLE_PROVISION_PROFILE_AGENT        App Store profile — …diskjockey.agent
 #
 #   App Store Connect upload (set these when ready to enable TestFlight uploads):
-#     APP_STORE_CONNECT_KEY_ID              ASC API key ID
-#     APP_STORE_CONNECT_ISSUER_ID           ASC API issuer ID
-#     APP_STORE_CONNECT_API_KEY             base64-encoded ASC API private key (.p8 file)
+#     APPLE_ASC_KEY_ID              ASC API key ID
+#     APPLE_ASC_ISSUER_ID           ASC API issuer ID
+#     APPLE_ASC_API_KEY             base64-encoded ASC API private key (.p8 file)
 
 on:
   push:
@@ -102,11 +102,11 @@ jobs:
 
       - name: Import App Store Distribution certificate
         env:
-          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
-          P12_PASSWORD:             ${{ secrets.BUILD_CERTIFICATE_P12_PASSWORD }}
-          KEYCHAIN_PASSWORD:        ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          P12_PASSWORD:             ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
-          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o "$RUNNER_TEMP/build_cert.p12"
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 24)   # CI-only keychain, never stored
+          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o "$RUNNER_TEMP/build_cert.p12"
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
@@ -127,11 +127,11 @@ jobs:
 
       - name: Install provisioning profiles
         env:
-          APP_PP:          ${{ secrets.APP_PROVISION_PROFILE_BASE64 }}
-          EXT4_PP:         ${{ secrets.EXT4_PROVISION_PROFILE_BASE64 }}
-          NTFS_PP:         ${{ secrets.NTFS_PROVISION_PROFILE_BASE64 }}
-          FILEPROVIDER_PP: ${{ secrets.FILEPROVIDER_PROVISION_PROFILE_BASE64 }}
-          AGENT_PP:        ${{ secrets.AGENT_PROVISION_PROFILE_BASE64 }}
+          APP_PP:          ${{ secrets.APPLE_PROVISION_PROFILE_APP }}
+          EXT4_PP:         ${{ secrets.APPLE_PROVISION_PROFILE_EXT4 }}
+          NTFS_PP:         ${{ secrets.APPLE_PROVISION_PROFILE_NTFS }}
+          FILEPROVIDER_PP: ${{ secrets.APPLE_PROVISION_PROFILE_FILEPROVIDER }}
+          AGENT_PP:        ${{ secrets.APPLE_PROVISION_PROFILE_AGENT }}
         run: |
           PP_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
           mkdir -p "$PP_DIR"
@@ -169,13 +169,6 @@ jobs:
             -exportPath "$EXPORT_PATH" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
 
-      - name: Upload export as workflow artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: DiskJockey-${{ github.sha }}
-          path: ${{ env.EXPORT_PATH }}
-          retention-days: 30
-
       # ---------------------------------------------------------------------------
       # App Store Connect upload
       # Runs only on 'v*' tags. Skips gracefully if ASC secrets are not yet set.
@@ -183,13 +176,21 @@ jobs:
       - name: Upload to App Store Connect (TestFlight)
         if: startsWith(github.ref, 'refs/tags/v')
         env:
-          ASC_KEY_ID:     ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          ASC_ISSUER_ID:  ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-          ASC_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          MAS_SUBMIT:     ${{ vars.MAS_SUBMIT }}
+          ASC_KEY_ID:     ${{ secrets.APPLE_ASC_KEY_ID }}
+          ASC_ISSUER_ID:  ${{ secrets.APPLE_ASC_ISSUER_ID }}
+          ASC_KEY_BASE64: ${{ secrets.APPLE_ASC_API_KEY }}
         run: |
+          # Submission is OFF by default: every v* tag builds + signs, but the
+          # app is only uploaded to the Mac App Store when you flip the repo
+          # variable MAS_SUBMIT=true (Settings → Secrets and variables → Actions → Variables).
+          if [ "${MAS_SUBMIT:-}" != "true" ]; then
+            echo "MAS_SUBMIT != true — built + signed, not submitting. Set repo variable MAS_SUBMIT=true to enable."
+            exit 0
+          fi
           if [ -z "$ASC_KEY_BASE64" ]; then
-            echo "APP_STORE_CONNECT_API_KEY not configured — skipping ASC upload."
-            echo "Set the three APP_STORE_CONNECT_* secrets when ready to submit."
+            echo "APPLE_ASC_API_KEY not configured — skipping ASC upload."
+            echo "Set the three APPLE_ASC_* secrets when ready to submit."
             exit 0
           fi
 
