@@ -5,10 +5,10 @@ name: Release
 #
 # Required secrets — configure in repo Settings > Secrets & variables > Actions:
 #
-#   Signing — ONE .p12 holding BOTH the "Apple Distribution" (app) and
-#   "Mac Installer Distribution" (.pkg) certificates:
-#     APPLE_CERTIFICATE             base64 of the .p12
-#     APPLE_CERTIFICATE_PASSWORD    password for the .p12
+#   Signing — two .p12 secrets (same password):
+#     APPLE_CERTIFICATE             base64 .p12: "Apple Distribution" (signs the app)
+#     APPLE_INSTALLER_CERTIFICATE   base64 .p12: "Mac Installer Distribution" (signs the .pkg)
+#     APPLE_CERTIFICATE_PASSWORD    password for both .p12 files
 #     APPLE_TEAM_ID                 10-char Developer Team ID (e.g. ABC123XYZ4)
 #
 #   App Store Connect API key — REQUIRED. Cloud signing generates the provisioning
@@ -99,26 +99,32 @@ jobs:
       # Code signing
       # ---------------------------------------------------------------------------
 
-      - name: Import App Store Distribution certificate
+      - name: Import signing certificates (app + installer)
         env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          P12_PASSWORD:             ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_CERTIFICATE:           ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_INSTALLER_CERTIFICATE: ${{ secrets.APPLE_INSTALLER_CERTIFICATE }}
+          P12_PASSWORD:                ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
           KEYCHAIN_PASSWORD=$(openssl rand -base64 24)   # CI-only keychain, never stored
-          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o "$RUNNER_TEMP/build_cert.p12"
+          echo -n "$APPLE_CERTIFICATE"           | base64 --decode -o "$RUNNER_TEMP/app_cert.p12"
+          echo -n "$APPLE_INSTALLER_CERTIFICATE" | base64 --decode -o "$RUNNER_TEMP/installer_cert.p12"
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          security import "$RUNNER_TEMP/build_cert.p12" \
-            -P "$P12_PASSWORD" \
-            -A -t cert -f pkcs12 \
-            -k "$KEYCHAIN_PATH"
+          # app cert = Apple Distribution (signs the app); installer cert = Mac
+          # Installer Distribution (signs the .pkg for the store).
+          for p12 in app_cert installer_cert; do
+            security import "$RUNNER_TEMP/$p12.p12" \
+              -P "$P12_PASSWORD" \
+              -A -t cert -f pkcs12 \
+              -k "$KEYCHAIN_PATH"
+          done
 
-          # Allow xcodebuild and codesign to use the key without prompting.
+          # Allow xcodebuild, codesign and productsign to use the keys without prompting.
           security set-key-partition-list \
-            -S apple-tool:,apple:,codesign: \
+            -S apple-tool:,apple:,codesign:,productsign: \
             -k "$KEYCHAIN_PASSWORD" \
             "$KEYCHAIN_PATH"
 
