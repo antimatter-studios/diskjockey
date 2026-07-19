@@ -151,10 +151,11 @@ jobs:
       # ---------------------------------------------------------------------------
 
       - name: Archive
-        env:
-          ASC_KEY_ID:    ${{ secrets.APPLE_ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.APPLE_ASC_ISSUER_ID }}
         run: |
+          # Archive WITHOUT signing. The app-store export step below re-signs the
+          # app + all extensions with the distribution cert and generates the
+          # provisioning profiles via the ASC key — so the archive needs no
+          # development identity (which CI doesn't have).
           xcodebuild archive \
             -project DiskJockey.xcodeproj \
             -scheme DiskJockey \
@@ -163,11 +164,7 @@ jobs:
             -archivePath "$ARCHIVE_PATH" \
             ONLY_ACTIVE_ARCH=YES \
             ARCHS=arm64 \
-            DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$RUNNER_TEMP/asc_key.p8" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
 
       # Inject the real team ID into the committed template at export time.
       - name: Export for App Store
