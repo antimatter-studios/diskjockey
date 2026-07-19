@@ -70,7 +70,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: lib/
-          key: vendor-${{ runner.os }}-${{ hashFiles('VENDOR_PINS.txt') }}
+          # v2 salt busts caches saved by earlier failed runs that populated
+          # lib/fs_* but not lib/bundle_* (incomplete tree → missing headers).
+          key: vendor-${{ runner.os }}-v2-${{ hashFiles('VENDOR_PINS.txt', 'scripts/build-bundles.sh') }}
 
       - name: Restore Cargo cache
         if: steps.vendor-cache.outputs.cache-hit != 'true'
@@ -93,7 +95,11 @@ jobs:
 
       - name: Build vendor libraries
         if: steps.vendor-cache.outputs.cache-hit != 'true'
-        run: make vendor-fs-ext4 vendor-fs-ntfs vendor-fs-erofs vendor-fs-squashfs vendor-img-containers vendor-gonetworkfs
+        # vendor-bundles builds lib/bundle_<fs>/{libdj_<fs>_bundle.a,include/*.h}
+        # (via build-bundles.sh) — the aggregator staticlibs + C headers the
+        # FSKit extensions actually link/#import (e.g. fs_ntfs.h). Without it the
+        # archive fails: DiskJockeyNTFS-Bridging-Header.h → 'fs_ntfs.h' not found.
+        run: make vendor-fs-ext4 vendor-fs-ntfs vendor-fs-erofs vendor-fs-squashfs vendor-img-containers vendor-gonetworkfs vendor-bundles
 
       # ---------------------------------------------------------------------------
       # Code signing
@@ -101,13 +107,15 @@ jobs:
 
       - name: Import signing certificates (app + installer)
         env:
-          APPLE_CERTIFICATE:           ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_INSTALLER_CERTIFICATE: ${{ secrets.APPLE_INSTALLER_CERTIFICATE }}
-          P12_PASSWORD:                ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_CERTIFICATE:              ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_INSTALLER_CERTIFICATE:    ${{ secrets.APPLE_INSTALLER_CERTIFICATE }}
+          APPLE_DEVELOPMENT_CERTIFICATE:  ${{ secrets.APPLE_DEVELOPMENT_CERTIFICATE }}
+          P12_PASSWORD:                   ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
           KEYCHAIN_PASSWORD=$(openssl rand -base64 24)   # CI-only keychain, never stored
-          echo -n "$APPLE_CERTIFICATE"           | base64 --decode -o "$RUNNER_TEMP/app_cert.p12"
-          echo -n "$APPLE_INSTALLER_CERTIFICATE" | base64 --decode -o "$RUNNER_TEMP/installer_cert.p12"
+          echo -n "$APPLE_CERTIFICATE"             | base64 --decode -o "$RUNNER_TEMP/app_cert.p12"
+          echo -n "$APPLE_INSTALLER_CERTIFICATE"   | base64 --decode -o "$RUNNER_TEMP/installer_cert.p12"
+          echo -n "$APPLE_DEVELOPMENT_CERTIFICATE" | base64 --decode -o "$RUNNER_TEMP/dev_cert.p12"
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
@@ -115,7 +123,7 @@ jobs:
 
           # app cert = Apple Distribution (signs the app); installer cert = Mac
           # Installer Distribution (signs the .pkg for the store).
-          for p12 in app_cert installer_cert; do
+          for p12 in app_cert installer_cert dev_cert; do
             security import "$RUNNER_TEMP/$p12.p12" \
               -P "$P12_PASSWORD" \
               -A -t cert -f pkcs12 \
@@ -164,17 +172,30 @@ jobs:
             ONLY_ACTIVE_ARCH=YES \
             ARCHS=arm64 \
             DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
             -allowProvisioningUpdates \
             -authenticationKeyPath "$RUNNER_TEMP/asc_key.p8" \
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID"
 
+      # Install the App Store *distribution* provisioning profiles. They are
+      # pre-created in App Store Connect (one per bundle id, each carrying that
+      # target's capabilities, e.g. com.apple.developer.fskit.fsmodule for the
+      # FSKit extensions) and fetched here via the App Store Connect API. Xcode
+      # cloud signing (-allowProvisioningUpdates) cannot manage macOS App Store
+      # distribution profiles for this key — it fails with "Cloud signing
+      # permission error" — so the export below signs manually against them.
+      - name: Install App Store provisioning profiles
+        env:
+          ASC_KEY_ID:      ${{ secrets.APPLE_ASC_KEY_ID }}
+          ASC_ISSUER_ID:   ${{ secrets.APPLE_ASC_ISSUER_ID }}
+          ASC_API_KEY_B64: ${{ secrets.APPLE_ASC_API_KEY }}
+        run: |
+          python3 -m venv "$RUNNER_TEMP/pyvenv"
+          "$RUNNER_TEMP/pyvenv/bin/pip" install --quiet cryptography
+          "$RUNNER_TEMP/pyvenv/bin/python" scripts/install-profiles.py
+
       # Inject the real team ID into the committed template at export time.
       - name: Export for App Store
-        env:
-          ASC_KEY_ID:    ${{ secrets.APPLE_ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.APPLE_ASC_ISSUER_ID }}
         run: |
           sed "s/XXXXXXXXXX/${{ secrets.APPLE_TEAM_ID }}/g" \
             .github/ExportOptions.plist > "$RUNNER_TEMP/ExportOptions.plist"
@@ -182,11 +203,7 @@ jobs:
           xcodebuild -exportArchive \
             -archivePath "$ARCHIVE_PATH" \
             -exportPath "$EXPORT_PATH" \
-            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$RUNNER_TEMP/asc_key.p8" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
 
       # ---------------------------------------------------------------------------
       # Verify signatures — fails the build if the app/pkg aren't correctly signed

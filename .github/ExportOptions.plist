@@ -16,13 +16,49 @@
     <string>XXXXXXXXXX</string>
 
     <!--
-        Automatic (cloud) signing: Xcode generates the App Store distribution
-        provisioning profiles on the fly using the App Store Connect API key that
-        release.yml passes to xcodebuild (-allowProvisioningUpdates + the
-        -authenticationKey* flags). No manual .provisionprofile files are needed.
+        Manual signing. Xcode's cloud signing (-allowProvisioningUpdates + an
+        App Store Connect API key) CANNOT manage macOS App Store *distribution*
+        profiles for this team/key — it fails with "Cloud signing permission
+        error / No profiles were found". So we sign manually:
+          * the App Store distribution profiles are pre-created in App Store
+            Connect (one per bundle id, each carrying that target's capabilities
+            e.g. com.apple.developer.fskit.fsmodule for the FSKit extensions),
+          * release.yml installs them on the runner ("Install App Store
+            provisioning profiles" step) before export,
+          * and we re-sign against the imported "Apple Distribution" certificate.
+        Profile names below must match those created in App Store Connect.
     -->
     <key>signingStyle</key>
-    <string>automatic</string>
+    <string>manual</string>
+
+    <!--
+        Pin BOTH identities by SHA-1 so xcodebuild doesn't conflate them:
+          * signingCertificate           = Apple Distribution (signs .app + extensions)
+          * installerSigningCertificate  = 3rd Party Mac Developer Installer (signs .pkg)
+        Without the installer pin, xcodebuild tried to sign the app targets with
+        the installer identity ("profile doesn't include signing certificate
+        '3rd Party Mac Developer Installer'").
+    -->
+    <key>signingCertificate</key>
+    <string>65F8156857B05C340368A2235792B44FE624365E</string>
+    <key>installerSigningCertificate</key>
+    <string>F1929FCBD230EA7A859A1398918D1E9C233523A8</string>
+
+    <key>provisioningProfiles</key>
+    <dict>
+        <key>com.antimatterstudios.diskjockey</key>
+        <string>DiskJockey-app-AppStore</string>
+        <key>com.antimatterstudios.diskjockey.fileprovider</key>
+        <string>DiskJockey-fileprovider-AppStore</string>
+        <key>com.antimatterstudios.diskjockey.ntfs</key>
+        <string>DiskJockey-ntfs-AppStore</string>
+        <key>com.antimatterstudios.diskjockey.ext4</key>
+        <string>DiskJockey-ext4-AppStore</string>
+        <key>com.antimatterstudios.diskjockey.erofs</key>
+        <string>DiskJockey-erofs-AppStore</string>
+        <key>com.antimatterstudios.diskjockey.squashfs</key>
+        <string>DiskJockey-squashfs-AppStore</string>
+    </dict>
 
     <!-- Bitcode is not supported on macOS. -->
     <key>uploadBitcode</key>
