@@ -32,14 +32,18 @@
     <string>manual</string>
 
     <!--
-        No signingCertificate here on purpose: xcodebuild signs the .app with
-        the certificate embedded in each provisioning profile below (Apple
-        Distribution) and signs the .pkg with the imported "3rd Party Mac
-        Developer Installer" identity automatically. Pinning signingCertificate
-        made xcodebuild mis-select the installer identity for the app targets
-        ("profile doesn't include signing certificate '3rd Party Mac Developer
-        Installer'").
+        Pin BOTH identities by SHA-1 so xcodebuild doesn't conflate them:
+          * signingCertificate           = Apple Distribution (signs .app + extensions)
+          * installerSigningCertificate  = 3rd Party Mac Developer Installer (signs .pkg)
+        Without the installer pin, xcodebuild tried to sign the app targets with
+        the installer identity ("profile doesn't include signing certificate
+        '3rd Party Mac Developer Installer'").
     -->
+    <key>signingCertificate</key>
+    <string>65F8156857B05C340368A2235792B44FE624365E</string>
+    <key>installerSigningCertificate</key>
+    <string>F1929FCBD230EA7A859A1398918D1E9C233523A8</string>
+
     <key>provisioningProfiles</key>
     <dict>
         <key>com.antimatterstudios.diskjockey</key>
