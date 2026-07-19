@@ -194,16 +194,6 @@ jobs:
           "$RUNNER_TEMP/pyvenv/bin/pip" install --quiet cryptography
           "$RUNNER_TEMP/pyvenv/bin/python" scripts/install-profiles.py
 
-      # TEMP diagnostic: show which signing identities xcodebuild can see.
-      - name: Debug signing identities
-        run: |
-          echo "== codesigning identities =="
-          security find-identity -v -p codesigning "$KEYCHAIN_PATH" || true
-          echo "== macappstore identities =="
-          security find-identity -v -p macappstore "$KEYCHAIN_PATH" || true
-          echo "== all identities in CI keychain =="
-          security find-identity -v "$KEYCHAIN_PATH" || true
-
       # Inject the real team ID into the committed template at export time.
       - name: Export for App Store
         run: |
@@ -214,19 +204,6 @@ jobs:
             -archivePath "$ARCHIVE_PATH" \
             -exportPath "$EXPORT_PATH" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
-
-      # TEMP diagnostic: on export failure, dump xcodebuild's IDEDistribution
-      # decision log — it records exactly which identity/profile it chose per
-      # target and why the choice was rejected.
-      - name: Dump distribution logs on failure
-        if: failure()
-        run: |
-          for d in $(find "${TMPDIR:-/tmp}" /var/folders -maxdepth 4 -name '*.xcdistributionlogs' -type d 2>/dev/null); do
-            echo "##### logs dir: $d"
-            find "$d" -type f | while read -r f; do
-              echo "===== $f ====="; cat "$f"; echo
-            done
-          done
 
       # ---------------------------------------------------------------------------
       # Verify signatures — fails the build if the app/pkg aren't correctly signed
