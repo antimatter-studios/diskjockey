@@ -70,7 +70,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: lib/
-          key: vendor-${{ runner.os }}-${{ hashFiles('VENDOR_PINS.txt') }}
+          # v2 salt busts caches saved by earlier failed runs that populated
+          # lib/fs_* but not lib/bundle_* (incomplete tree → missing headers).
+          key: vendor-${{ runner.os }}-v2-${{ hashFiles('VENDOR_PINS.txt', 'scripts/build-bundles.sh') }}
 
       - name: Restore Cargo cache
         if: steps.vendor-cache.outputs.cache-hit != 'true'
@@ -93,7 +95,11 @@ jobs:
 
       - name: Build vendor libraries
         if: steps.vendor-cache.outputs.cache-hit != 'true'
-        run: make vendor-fs-ext4 vendor-fs-ntfs vendor-fs-erofs vendor-fs-squashfs vendor-img-containers vendor-gonetworkfs
+        # vendor-bundles builds lib/bundle_<fs>/{libdj_<fs>_bundle.a,include/*.h}
+        # (via build-bundles.sh) — the aggregator staticlibs + C headers the
+        # FSKit extensions actually link/#import (e.g. fs_ntfs.h). Without it the
+        # archive fails: DiskJockeyNTFS-Bridging-Header.h → 'fs_ntfs.h' not found.
+        run: make vendor-fs-ext4 vendor-fs-ntfs vendor-fs-erofs vendor-fs-squashfs vendor-img-containers vendor-gonetworkfs vendor-bundles
 
       # ---------------------------------------------------------------------------
       # Code signing
