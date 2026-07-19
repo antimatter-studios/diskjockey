@@ -72,7 +72,10 @@ jobs:
           path: lib/
           # v2 salt busts caches saved by earlier failed runs that populated
           # lib/fs_* but not lib/bundle_* (incomplete tree → missing headers).
-          key: vendor-${{ runner.os }}-v2-${{ hashFiles('VENDOR_PINS.txt', 'scripts/build-bundles.sh') }}
+          # Also key on the bundle crates' manifests/lockfiles: lib/bundle_*
+          # (staticlibs + headers) are produced from rust-bundles/dj-*-bundle, so
+          # a dependency/version change there must invalidate the cache too.
+          key: vendor-${{ runner.os }}-v3-${{ hashFiles('VENDOR_PINS.txt', 'scripts/build-bundles.sh', 'rust-bundles/**/Cargo.toml', 'rust-bundles/**/Cargo.lock') }}
 
       - name: Restore Cargo cache
         if: steps.vendor-cache.outputs.cache-hit != 'true'
@@ -138,6 +141,18 @@ jobs:
 
           security list-keychain -d user -s "$KEYCHAIN_PATH"
 
+          # Resolve the imported identities' SHA-1 fingerprints for the export
+          # step (ExportOptions pins them). Derived from whatever certs the .p12
+          # secrets contain, so rotating a cert needs no plist/workflow change.
+          APP_CERT_SHA1=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | awk '/Apple Distribution/{print $2; exit}')
+          INSTALLER_CERT_SHA1=$(security find-identity -v "$KEYCHAIN_PATH" | awk '/3rd Party Mac Developer Installer/{print $2; exit}')
+          if [ -z "$APP_CERT_SHA1" ] || [ -z "$INSTALLER_CERT_SHA1" ]; then
+            echo "::error::Couldn't resolve the Apple Distribution / 3rd Party Mac Developer Installer identities from the imported certificates."
+            exit 1
+          fi
+          echo "APP_CERT_SHA1=$APP_CERT_SHA1" >> "$GITHUB_ENV"
+          echo "INSTALLER_CERT_SHA1=$INSTALLER_CERT_SHA1" >> "$GITHUB_ENV"
+
       - name: Set up App Store Connect API key (cloud signing + upload)
         env:
           ASC_KEY_ID:     ${{ secrets.APPLE_ASC_KEY_ID }}
@@ -197,7 +212,9 @@ jobs:
       # Inject the real team ID into the committed template at export time.
       - name: Export for App Store
         run: |
-          sed "s/XXXXXXXXXX/${{ secrets.APPLE_TEAM_ID }}/g" \
+          sed -e "s/XXXXXXXXXX/${{ secrets.APPLE_TEAM_ID }}/g" \
+              -e "s/APP_CERT_SHA1/$APP_CERT_SHA1/g" \
+              -e "s/INSTALLER_CERT_SHA1/$INSTALLER_CERT_SHA1/g" \
             .github/ExportOptions.plist > "$RUNNER_TEMP/ExportOptions.plist"
 
           xcodebuild -exportArchive \
