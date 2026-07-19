@@ -101,13 +101,15 @@ jobs:
 
       - name: Import signing certificates (app + installer)
         env:
-          APPLE_CERTIFICATE:           ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_INSTALLER_CERTIFICATE: ${{ secrets.APPLE_INSTALLER_CERTIFICATE }}
-          P12_PASSWORD:                ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_CERTIFICATE:              ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_INSTALLER_CERTIFICATE:    ${{ secrets.APPLE_INSTALLER_CERTIFICATE }}
+          APPLE_DEVELOPMENT_CERTIFICATE:  ${{ secrets.APPLE_DEVELOPMENT_CERTIFICATE }}
+          P12_PASSWORD:                   ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
           KEYCHAIN_PASSWORD=$(openssl rand -base64 24)   # CI-only keychain, never stored
-          echo -n "$APPLE_CERTIFICATE"           | base64 --decode -o "$RUNNER_TEMP/app_cert.p12"
-          echo -n "$APPLE_INSTALLER_CERTIFICATE" | base64 --decode -o "$RUNNER_TEMP/installer_cert.p12"
+          echo -n "$APPLE_CERTIFICATE"             | base64 --decode -o "$RUNNER_TEMP/app_cert.p12"
+          echo -n "$APPLE_INSTALLER_CERTIFICATE"   | base64 --decode -o "$RUNNER_TEMP/installer_cert.p12"
+          echo -n "$APPLE_DEVELOPMENT_CERTIFICATE" | base64 --decode -o "$RUNNER_TEMP/dev_cert.p12"
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
@@ -115,7 +117,7 @@ jobs:
 
           # app cert = Apple Distribution (signs the app); installer cert = Mac
           # Installer Distribution (signs the .pkg for the store).
-          for p12 in app_cert installer_cert; do
+          for p12 in app_cert installer_cert dev_cert; do
             security import "$RUNNER_TEMP/$p12.p12" \
               -P "$P12_PASSWORD" \
               -A -t cert -f pkcs12 \
@@ -151,11 +153,10 @@ jobs:
       # ---------------------------------------------------------------------------
 
       - name: Archive
+        env:
+          ASC_KEY_ID:    ${{ secrets.APPLE_ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPLE_ASC_ISSUER_ID }}
         run: |
-          # Archive WITHOUT signing. The app-store export step below re-signs the
-          # app + all extensions with the distribution cert and generates the
-          # provisioning profiles via the ASC key — so the archive needs no
-          # development identity (which CI doesn't have).
           xcodebuild archive \
             -project DiskJockey.xcodeproj \
             -scheme DiskJockey \
@@ -164,7 +165,11 @@ jobs:
             -archivePath "$ARCHIVE_PATH" \
             ONLY_ACTIVE_ARCH=YES \
             ARCHS=arm64 \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+            DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/asc_key.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
 
       # Inject the real team ID into the committed template at export time.
       - name: Export for App Store
