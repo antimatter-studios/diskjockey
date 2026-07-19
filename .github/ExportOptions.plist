@@ -32,17 +32,22 @@
     <string>manual</string>
 
     <!--
-        Pin BOTH identities by SHA-1 so xcodebuild doesn't conflate them:
+        Pin BOTH identities so xcodebuild doesn't conflate them:
           * signingCertificate           = Apple Distribution (signs .app + extensions)
           * installerSigningCertificate  = 3rd Party Mac Developer Installer (signs .pkg)
         Without the installer pin, xcodebuild tried to sign the app targets with
         the installer identity ("profile doesn't include signing certificate
         '3rd Party Mac Developer Installer'").
+
+        The SHA-1 fingerprints are injected at runtime by release.yml from the
+        certificates it actually imported (APP_CERT_SHA1 / INSTALLER_CERT_SHA1),
+        so rotating the .p12 secrets needs no change here. SHA-1 (not a name) is
+        used because multiple "Apple Distribution" certs can share a name.
     -->
     <key>signingCertificate</key>
-    <string>65F8156857B05C340368A2235792B44FE624365E</string>
+    <string>APP_CERT_SHA1</string>
     <key>installerSigningCertificate</key>
-    <string>F1929FCBD230EA7A859A1398918D1E9C233523A8</string>
+    <string>INSTALLER_CERT_SHA1</string>
 
     <key>provisioningProfiles</key>
     <dict>
