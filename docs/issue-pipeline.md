@@ -208,6 +208,35 @@ revert only the source change, leave the test, and confirm the test
 fails. A test that passes with and without the fix proves nothing, and
 this catches it in one step.
 
+**Revert each arm separately, not the whole file.** A fix usually has
+several mechanisms, and a whole-file revert asks only "does anything
+here matter?" — to which the answer is nearly always yes. That proves
+nothing about the parts, and it is also the most natural control for the
+author to run, which is why the gap survives their own check.
+
+The recurring shape is a fix with several mechanisms covered by one test
+that would pass with most of them gone: the suite tests one mechanism
+and is credited for all of them. Three instances in one run —
+
+- a cache fix where the generation counter alone passed the test and the
+  post-write sweep was free;
+- a partition-table fix where four mechanisms shared one fixture, which
+  reached only the neighbour pass and only the upper bound; **two of the
+  four could be deleted outright with 83 tests green**;
+- a bounds fix tested far outside the boundary on one side, so neither
+  edge was exercised.
+
+Two habits catch all three. Delete each arm on its own and see which
+deletions stay green. Then **mutate each comparison by one** — `<` to
+`<=`, `>` to `>=` — and see which mutations survive. A bound worth
+fixing is worth testing from both sides: the last accepted value must
+still be accepted, or a correction that overshoots by one rejects
+legitimate input everywhere and no test notices.
+
+This is the codebase's recurring defect one level up: the second pass
+exists because the first has a blind spot, and nothing checks that the
+check-of-the-check is reachable.
+
 The second most useful is **reproducing before fixing**. A large number
 of filed issues turn out to be false — the case was already handled, the
 arithmetic could not overflow, the guard was already correct. Finding
