@@ -1,0 +1,414 @@
+#!/usr/bin/env bash
+#
+# am-ledger — one local list of every issue a pipeline is working on.
+#
+#   am-ledger refresh              rebuild the issue list from GitHub
+#   am-ledger list [filter...]     print rows, optionally filtered
+#   am-ledger next <stage> [repo]  print one row waiting at <stage>
+#   am-ledger set <repo> <num> <field>=<value> [field=value...]
+#   am-ledger stats                counts by stage
+#   am-ledger stale [hours]        rows sitting too long (default 2h)
+#   am-ledger start <project> <owner/name>... | --org <org>
+#   am-ledger projects             every project that exists
+#
+# PROJECTS. A project is a pipeline scope, not a repository: one project
+# has one ledger and spans as many repositories as it likes. Select one
+# with AM_LEDGER_PROJECT; with it unset every command behaves exactly as
+# it always has, against the original file.
+#
+#   am-ledger start acme acme/api acme/web
+#   export AM_LEDGER_PROJECT=acme && am-ledger refresh
+#
+# WHY THIS EXISTS. Several agents work these repositories at once, and
+# each was re-listing every issue in every project to find out what was
+# left — twelve `gh` calls to answer one question, repeated per agent per
+# decision. That is slow, it is rate-limited, and worst of all it is
+# racy: two agents polling the same moment both see the same issue as
+# unclaimed and both start on it.
+#
+# So the state lives here instead: one file, written under a lock, that
+# says what stage each issue has reached and who is holding it. GitHub
+# stays the source of truth for the CONTENT of an issue; this is the
+# source of truth for WHERE IT IS in the pipeline.
+#
+# FIELDS
+#   repo      short repository name (rust-fs-xfs)
+#   num       issue number
+#   stage     pending | accepted | rejected | fixing | testing | pr | merged | failed
+#   owner     agent that claimed it, or "-"
+#   branch    branch carrying the fix, or "-"
+#   pr        pull request number, or "-"
+#   updated   ISO timestamp of the last change
+#   title     the issue title (last field; may contain spaces)
+#
+# The file is tab-separated so `cut`, `awk` and `grep` all work on it
+# without a parser, and the title is last so it cannot break the columns
+# before it.
+set -euo pipefail
+
+# WHICH LEDGER. A "project" here is a PIPELINE SCOPE, not a repository:
+# one project has one ledger and spans as many repositories as it likes.
+# `diskjockey` is the controlling project for the twelve-repository
+# constellation; a different body of work gets its own project with its
+# own repository list, and the two never see each other's rows.
+#
+# Precedence, and the reason for it:
+#
+#   AM_LEDGER_DIR       an explicit directory, wins over everything
+#   AM_LEDGER_PROJECT   ~/.local/state/am-ledger/<project>
+#   neither             the original path, unchanged
+#
+# The last line is what makes this safe to install while agents are
+# mid-run. Every existing invocation reads and writes exactly the file it
+# did before, because none of them set either variable. Selecting the
+# project by ENVIRONMENT rather than by a leading argument is the same
+# decision for the same reason: `am-ledger set rust-fs-ntfs 168 stage=pr`
+# would still PARSE under a signature that took the project first -- it
+# would simply write to a project named `rust-fs-ntfs`. A silent misfile
+# is worse than a breakage, and a positional argument would have made
+# every running agent do it at once.
+PROJECT="${AM_LEDGER_PROJECT:-}"
+if [ -n "${AM_LEDGER_DIR:-}" ]; then
+    STATE_DIR="$AM_LEDGER_DIR"
+elif [ -n "$PROJECT" ]; then
+    STATE_DIR="$HOME/.local/state/am-ledger/$PROJECT"
+else
+    STATE_DIR="$HOME/.local/state/am-constellation"
+fi
+PROJECTS_ROOT="$HOME/.local/state/am-ledger"
+LEDGER="$STATE_DIR/issues.tsv"
+LOCK="$STATE_DIR/ledger.lock"
+REPO_LIST="$STATE_DIR/repos.tsv"
+
+# The repositories this project spans, as `short<TAB>owner/name`.
+#
+# A project created by `start` writes its own list here. The built-in
+# fallback is the constellation, so the original project keeps working
+# without a file it never had.
+DEFAULT_REPOS=(
+    "rust-fs-core:antimatter-studios/rust-fs-core"
+    "rust-fs-xfs:antimatter-studios/rust-fs-xfs"
+    "rust-fs-ext4:christhomas/rust-fs-ext4"
+    "rust-fs-btrfs:antimatter-studios/rust-fs-btrfs"
+    "rust-fs-erofs:antimatter-studios/rust-fs-erofs"
+    "rust-fs-squashfs:antimatter-studios/rust-fs-squashfs"
+    "rust-fs-ntfs:christhomas/rust-fs-ntfs"
+    "rust-img-qcow2:antimatter-studios/rust-img-qcow2"
+    "rust-img-vhd:antimatter-studios/rust-img-vhd"
+    "rust-img-vhdx:antimatter-studios/rust-img-vhdx"
+    "rust-img-vmdk:antimatter-studios/rust-img-vmdk"
+    "rust-partitions:antimatter-studios/rust-partitions"
+)
+
+REPOS=()
+load_repos() {
+    REPOS=()
+    if [ -f "$REPO_LIST" ]; then
+        local short slug
+        while IFS=$'\t' read -r short slug; do
+            # Skip blanks and comments so the file can be edited by hand.
+            case "$short" in ''|'#'*) continue ;; esac
+            [ -n "$slug" ] || continue
+            REPOS+=("$short:$slug")
+        done < "$REPO_LIST"
+    fi
+    [ ${#REPOS[@]} -gt 0 ] || REPOS=("${DEFAULT_REPOS[@]}")
+}
+load_repos
+
+now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+# Take the lock, run the command, release it. Every write goes through
+# this: a read-modify-write on a shared file from several agents is the
+# textbook lost update, and the whole point of the ledger is that two
+# agents cannot both believe they own the same issue.
+with_lock() {
+    local waited=0
+    # THE STATE DIRECTORY FIRST. The lock lives inside it, so attempting
+    # the lock before the directory exists fails forever rather than
+    # once: `mkdir` cannot create a subdirectory of a path that is not
+    # there, the `until` loop never succeeds, and the command hangs
+    # silently with nothing on disk to explain why. Which is exactly
+    # what the first version of this did.
+    mkdir -p "$STATE_DIR"
+    until mkdir "$LOCK" 2>/dev/null; do
+        sleep 0.2
+        waited=$((waited + 1))
+        if [ "$waited" -gt 300 ]; then
+            # A minute is far longer than any write here takes, so a
+            # lock this old belongs to something that died holding it.
+            echo "am-ledger: breaking a stale lock" >&2
+            rm -rf "$LOCK"
+        fi
+    done
+    trap 'rm -rf "$LOCK"' EXIT
+    "$@"
+    rm -rf "$LOCK"
+    trap - EXIT
+}
+
+repo_slug() {
+    local short="$1" pair
+    for pair in "${REPOS[@]}"; do
+        [ "${pair%%:*}" = "$short" ] && { echo "${pair#*:}"; return 0; }
+    done
+    return 1
+}
+
+do_refresh() {
+    mkdir -p "$STATE_DIR"
+    local tmp="$LEDGER.new" pair short slug
+    : > "$tmp"
+    for pair in "${REPOS[@]}"; do
+        short="${pair%%:*}"; slug="${pair#*:}"
+        gh issue list --repo "$slug" --state open --limit 400 \
+           --json number,title -q '.[] | "\(.number)\t\(.title)"' 2>/dev/null \
+        | while IFS=$'\t' read -r num title; do
+            [ -n "$num" ] || continue
+            # An issue already in the ledger keeps its stage: a refresh
+            # must never walk back work somebody has done. Only genuinely
+            # new issues arrive as `pending`.
+            local existing=""
+            [ -f "$LEDGER" ] && existing=$(awk -F'\t' -v r="$short" -v n="$num" \
+                '$1==r && $2==n {print; exit}' "$LEDGER" || true)
+            if [ -n "$existing" ]; then
+                printf '%s\n' "$existing"
+            else
+                printf '%s\t%s\tpending\t-\t-\t-\t%s\t%s\n' "$short" "$num" "$(now)" "$title"
+            fi
+        done >> "$tmp"
+    done
+    # KEEP WHAT GITHUB NO LONGER LISTS.
+    #
+    # `gh issue list --state open` stops returning an issue the moment a
+    # merged pull request closes it — which is precisely the issues this
+    # pipeline has finished. Rebuilding from that list alone therefore
+    # deletes the completed work from the record, and the count of what
+    # has been fixed silently resets to nothing. It did exactly that
+    # once, and the first sign was a `merged` row disappearing from
+    # `stats` between two calls.
+    #
+    # So any row already in the ledger that the refresh did not see again
+    # is carried forward as it stands. An issue closed by its own fix
+    # stays visible as `merged`; one closed by hand keeps whatever stage
+    # it had reached, which is the honest record of where it stopped.
+    if [ -f "$LEDGER" ]; then
+        while IFS= read -r old_row; do
+            [ -n "$old_row" ] || continue
+            local o_repo o_num
+            o_repo=$(printf '%s' "$old_row" | cut -f1)
+            o_num=$(printf '%s' "$old_row" | cut -f2)
+            if ! awk -F'\t' -v r="$o_repo" -v n="$o_num" \
+                 '$1==r && $2==n {found=1; exit} END {exit !found}' "$tmp"; then
+                printf '%s\n' "$old_row" >> "$tmp"
+            fi
+        done < "$LEDGER"
+    fi
+
+    mv "$tmp" "$LEDGER"
+    echo "$(wc -l < "$LEDGER" | tr -d ' ') issues"
+}
+
+do_set() {
+    local short="$1" num="$2"; shift 2
+    [ -f "$LEDGER" ] || { echo "am-ledger: no ledger; run refresh" >&2; return 1; }
+    local stage owner branch pr row
+    row=$(awk -F'\t' -v r="$short" -v n="$num" '$1==r && $2==n {print; exit}' "$LEDGER")
+    [ -n "$row" ] || { echo "am-ledger: $short#$num not in the ledger" >&2; return 1; }
+    stage=$(printf '%s' "$row" | cut -f3)
+    owner=$(printf '%s' "$row" | cut -f4)
+    branch=$(printf '%s' "$row" | cut -f5)
+    pr=$(printf '%s' "$row" | cut -f6)
+    local title; title=$(printf '%s' "$row" | cut -f8-)
+
+    local kv
+    for kv in "$@"; do
+        case "$kv" in
+            stage=*)  stage="${kv#stage=}" ;;
+            owner=*)  owner="${kv#owner=}" ;;
+            branch=*) branch="${kv#branch=}" ;;
+            pr=*)     pr="${kv#pr=}" ;;
+            *) echo "am-ledger: unknown field '$kv'" >&2; return 1 ;;
+        esac
+    done
+
+    local tmp="$LEDGER.tmp"
+    awk -F'\t' -v OFS='\t' -v r="$short" -v n="$num" -v s="$stage" -v o="$owner" \
+        -v b="$branch" -v p="$pr" -v u="$(now)" -v t="$title" \
+        '{ if ($1==r && $2==n) { print r, n, s, o, b, p, u, t } else { print } }' \
+        "$LEDGER" > "$tmp" && mv "$tmp" "$LEDGER"
+    printf '%s#%s -> %s\n' "$short" "$num" "$stage"
+}
+
+# Claim one issue at a stage, atomically, so two agents cannot take the
+# same one. Prints the row it claimed, or nothing if there is none left.
+do_next() {
+    local want="$1" only="${2:-}" owner="${AM_LEDGER_OWNER:-$$}"
+    [ -f "$LEDGER" ] || return 0
+    local row
+    row=$(awk -F'\t' -v s="$want" -v r="$only" \
+          '$3==s && $4=="-" && (r=="" || $1==r) {print; exit}' "$LEDGER")
+    [ -n "$row" ] || return 0
+    local short num
+    short=$(printf '%s' "$row" | cut -f1)
+    num=$(printf '%s' "$row" | cut -f2)
+    do_set "$short" "$num" "owner=$owner" >/dev/null
+    printf '%s\n' "$row"
+}
+
+do_list() {
+    [ -f "$LEDGER" ] || { echo "am-ledger: no ledger; run refresh" >&2; return 1; }
+    if [ $# -eq 0 ]; then cat "$LEDGER"; return 0; fi
+    local pat
+    pat=$(printf '%s' "$*" | tr ' ' '|')
+    grep -E "$pat" "$LEDGER" || true
+}
+
+# Create a project: its directory, and the repositories it spans.
+#
+#   am-ledger start diskjockey antimatter-studios/rust-fs-xfs christhomas/rust-fs-ntfs
+#   am-ledger start acme --org acme-corp
+#
+# Naming a project does not switch to it. Set AM_LEDGER_PROJECT to use
+# it, which is what keeps every command stateless: two pipelines can run
+# side by side in different shells with no mode to get wrong.
+do_start() {
+    local project="$1"; shift
+    local dir="$PROJECTS_ROOT/$project"
+    local list="$dir/repos.tsv"
+    if [ -f "$list" ]; then
+        echo "am-ledger: project '$project' already exists at $dir" >&2
+        echo "am-ledger: edit $list to change which repositories it spans" >&2
+        return 1
+    fi
+    mkdir -p "$dir"
+
+    local -a pairs=()
+    if [ "${1:-}" = "--org" ]; then
+        local org="${2:?--org needs an organisation}"
+        local slug
+        while IFS= read -r slug; do
+            [ -n "$slug" ] || continue
+            pairs+=("${slug##*/}"$'\t'"$slug")
+        done < <(gh repo list "$org" --limit 200 --json nameWithOwner -q '.[].nameWithOwner')
+    else
+        local arg
+        for arg in "$@"; do
+            case "$arg" in
+                */*) pairs+=("${arg##*/}"$'\t'"$arg") ;;
+                *) echo "am-ledger: '$arg' is not owner/name" >&2; return 1 ;;
+            esac
+        done
+    fi
+
+    if [ ${#pairs[@]} -eq 0 ]; then
+        echo "am-ledger: no repositories given" >&2
+        echo "usage: am-ledger start <project> <owner/name>... | --org <org>" >&2
+        rmdir "$dir" 2>/dev/null || true
+        return 1
+    fi
+
+    {
+        echo "# Repositories in project '$project'."
+        echo "# One per line: short name, a tab, then owner/name."
+        printf '%s\n' "${pairs[@]}"
+    } > "$list"
+
+    printf 'created project %s with %s repositories\n' "$project" "${#pairs[@]}"
+    printf 'use it with:  export AM_LEDGER_PROJECT=%s && am-ledger refresh\n' "$project"
+}
+
+do_projects() {
+    local d name
+    if [ -d "$PROJECTS_ROOT" ]; then
+        for d in "$PROJECTS_ROOT"/*/; do
+            [ -d "$d" ] || continue
+            name="$(basename "$d")"
+            if [ -f "$d/issues.tsv" ]; then
+                printf '%-24s %s issues\n' "$name" "$(wc -l < "$d/issues.tsv" | tr -d ' ')"
+            else
+                printf '%-24s (no ledger yet)\n' "$name"
+            fi
+        done
+    fi
+    # The original project predates the per-project layout and lives
+    # elsewhere. Show it rather than pretending it is not there.
+    if [ -f "$HOME/.local/state/am-constellation/issues.tsv" ]; then
+        printf '%-24s %s issues  (default; no AM_LEDGER_PROJECT)\n' "constellation" \
+            "$(wc -l < "$HOME/.local/state/am-constellation/issues.tsv" | tr -d ' ')"
+    fi
+}
+
+# ISO-8601 to epoch seconds, on either BSD or GNU date.
+to_epoch() {
+    date -j -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null \
+        || date -d "$1" +%s 2>/dev/null \
+        || echo 0
+}
+
+# Rows that have sat in one stage too long.
+#
+# WHY THIS IS HERE. Every stall in the first run looked identical from
+# `stats`: a count that did not move. A row claimed by an agent that had
+# died, a row whose owner was waiting on a message that never arrived, a
+# row left `pending` while GitHub had moved on -- all of them are
+# invisible until someone asks how long a row has been where it is.
+do_stale() {
+    local all=0
+    if [ "${1:-}" = "--all" ]; then all=1; shift; fi
+    local hours="${1:-2}"
+    [ -f "$LEDGER" ] || { echo "am-ledger: no ledger; run refresh" >&2; return 1; }
+    local cutoff now_s
+    now_s=$(date -u +%s)
+    cutoff=$((now_s - hours * 3600))
+    local found=0 repo num stage owner branch pr updated title age
+    while IFS=$'\t' read -r repo num stage owner branch pr updated title; do
+        [ -n "$repo" ] || continue
+        # A terminal row is not stale, it is done.
+        case "$stage" in merged|rejected) continue ;; esac
+        # AN UNCLAIMED ROW IS NOT A STALL, IT IS QUEUE DEPTH.
+        #
+        # Two hundred accepted issues waiting for a free fixer are the
+        # backlog doing exactly what a backlog does, and listing them
+        # here buries the handful of rows that are genuinely stuck. What
+        # this command is for is a row somebody CLAIMED and then stopped
+        # working -- a dead agent, a message that never arrived, a
+        # handoff to a stage that was never launched. Those have an
+        # owner and no progress, and there are never many of them.
+        #
+        # `--all` includes unowned rows for when the question really is
+        # "what has been sitting untouched", such as a `pending` row no
+        # triage stage ever picked up.
+        if [ "$all" = 0 ] && [ "$owner" = "-" ]; then continue; fi
+        local ts; ts=$(to_epoch "$updated")
+        [ "$ts" -gt 0 ] || continue
+        [ "$ts" -lt "$cutoff" ] || continue
+        age=$(( (now_s - ts) / 3600 ))
+        printf '%-18s #%-5s %-9s %-20s %3sh  %s\n' \
+            "$repo" "$num" "$stage" "$owner" "$age" "${title:0:44}"
+        found=$((found + 1))
+    done < "$LEDGER"
+    [ "$found" = 0 ] && echo "nothing claimed has been sitting longer than ${hours}h"
+    return 0
+}
+
+do_stats() {
+    [ -f "$LEDGER" ] || { echo "am-ledger: no ledger; run refresh" >&2; return 1; }
+    awk -F'\t' '{c[$3]++} END {for (s in c) printf "%-10s %s\n", s, c[s]}' "$LEDGER" | sort
+    printf '%-10s %s\n' "TOTAL" "$(wc -l < "$LEDGER" | tr -d ' ')"
+}
+
+case "${1:-}" in
+    refresh) with_lock do_refresh ;;
+    set)     shift; [ $# -ge 3 ] || { echo "usage: am-ledger set <repo> <num> field=value..." >&2; exit 2; }; with_lock do_set "$@" ;;
+    next)    shift; [ $# -ge 1 ] || { echo "usage: am-ledger next <stage> [repo]" >&2; exit 2; }; with_lock do_next "$@" ;;
+    list)    shift; do_list "$@" ;;
+    stats)   do_stats ;;
+    stale)   shift; do_stale "$@" ;;
+    start)   shift; [ $# -ge 1 ] || { echo "usage: am-ledger start <project> <owner/name>... | --org <org>" >&2; exit 2; }; do_start "$@" ;;
+    projects) do_projects ;;
+    *)
+        sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+        exit 2
+        ;;
+esac

@@ -32,8 +32,7 @@ whose build fails is not an end state, it is work returning to the queue.
 
 ## The ledger
 
-`~/.local/bin/am-ledger`, state in
-`~/.local/state/am-constellation/issues.tsv`.
+`scripts/am-ledger`, state in `~/.local/state/am-constellation/issues.tsv`.
 
 One tab-separated row per issue: repository, number, stage, owner,
 branch, pull request, timestamp, title.
@@ -43,6 +42,48 @@ branch, pull request, timestamp, title.
     am-ledger set <repo> <n> stage=...   record progress
     am-ledger list [filter]              rows, optionally filtered
     am-ledger stats                      counts by stage
+    am-ledger stale [hours]              claimed rows that stopped moving
+    am-ledger start <project> <owner/name>...
+    am-ledger projects                   every project that exists
+
+### Projects
+
+A **project is a pipeline scope, not a repository**: one project has one
+ledger and spans as many repositories as it likes. `diskjockey` is the
+controlling project for the twelve-repository constellation — the place
+the stages are run from and the statistics are read, even though the
+work itself lands in other repositories.
+
+    am-ledger start acme acme/api acme/web
+    export AM_LEDGER_PROJECT=acme && am-ledger refresh
+
+`AM_LEDGER_PROJECT` selects the ledger; unset, every command behaves
+exactly as it always has. That is deliberate, and is what allowed this
+to be added **while the pipeline was running**: no agent's command line
+changes.
+
+It is also why the project is *not* a leading argument. `am-ledger set
+rust-fs-ntfs 168 stage=pr` would still parse under a signature that took
+the project first — it would simply write to a project named
+`rust-fs-ntfs`. A silent misfile is worse than a breakage, and a
+positional argument would have made every running agent do it at once.
+
+### Finding what has stopped
+
+    am-ledger stale [hours]      claimed rows that have not moved
+    am-ledger stale --all [hours]  include unclaimed rows too
+
+Every stall in the first run looked identical from `stats`: a count that
+did not move. A row claimed by an agent that had died, a row waiting on
+a message that never arrived, a row left `pending` while GitHub moved
+on — none are visible until you ask **how long a row has been where it
+is**.
+
+By default this lists only rows with an owner, and the distinction
+matters: two hundred `accepted` issues waiting for a free fixer are
+queue depth, not stalls, and listing them buries the handful that are
+genuinely stuck. In this run the honest answer was four rows out of two
+hundred and sixty-four.
 
 **GitHub remains the truth for what an issue says. The ledger is the
 truth for where it is.** That split is what makes the pipeline cheap:
