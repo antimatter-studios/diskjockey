@@ -333,6 +333,86 @@ re-derived held. Every failure was in the **prose** — which job runs
 what, what a tool's default is, whether a hook can see a spelling. That
 is where to point the scepticism.
 
+## Pull requests from outside contributors
+
+A fork pull request is the one case where the pipeline stops and a
+person decides. Merging it runs someone else's code in the project and,
+before that, on the project's runners. The order below is the order the
+checks have to happen in, because each step invalidates the one before.
+
+**1. Audit the diff before touching the branch.** Read it, then scan it
+systematically rather than by impression:
+
+    git diff --name-only $BASE $HEAD | grep -Ei 'Cargo\.(toml|lock)|rust-toolchain|chores\.yml'
+    git diff $BASE $HEAD | grep '^+' | grep -Ei \
+      'curl|wget|/dev/tcp|base64|eval|openssl|secrets\.|GITHUB_TOKEN|
+       pull_request_target|uses:|cargo install|unsafe|transmute|Command::new'
+
+What matters most is what the change *adds to the supply chain*: a new
+dependency, a new third-party action, a workflow trigger change, a
+network call, a reference to a secret. A diff that touches only tests,
+CI steps and source, introduces no dependency and reaches no network is
+a small surface however large it is.
+
+Read the shell too. `read -r -a args <<< "$VAR"` word-splits without
+evaluating, so it passes arguments; that is not the same as `eval`, and
+the difference is the whole question.
+
+**2. A green tick belongs to a commit, not to a pull request.** Before
+believing one, ask what it ran on:
+
+    gh api repos/$SLUG/actions/runs/$ID -q .head_sha
+
+Then ask whether that combination still exists. If the branch is behind
+and main has since changed the same files, the passing run tested a tree
+that will not exist after the merge. In one case here every file the
+pull request touched had also changed on main; the tick was real and
+meaningless.
+
+**3. Update the branch, then re-run.** `gh pr update-branch --rebase`
+where it works. Where it conflicts, resolve locally in a worktree — not
+in a checkout an agent may be using — and force-push with a lease naming
+the sha you actually fetched:
+
+    git push --force-with-lease=<branch>:<sha-you-fetched> <fork-url> HEAD:<branch>
+
+A bare `--force` will silently discard a commit the contributor pushed
+while you were working. `--force-with-lease` with no tracking ref fails
+open with "stale info", so name the sha explicitly and refuse if the
+remote has moved.
+
+**4. Cherry-picking "the one real commit" can lose work.** If the branch
+carries a merge commit, the contributor may have added things *inside*
+it. Replaying only the fix commit drops those, and the suite still
+reports green because what is missing is a test. Compare the function
+lists of their final tree against your rebased one:
+
+    diff <(git show $THEIRS:$FILE | grep -o 'fn [a-z_0-9]*' | sort -u) \
+         <(grep -o 'fn [a-z_0-9]*' $FILE | sort -u)
+
+That is how one restored test was found — a single name absent from a
+filtered run.
+
+**5. Resolve conflicts semantically.** When main has added a guard since
+the branch was cut, a textual resolution keeps one side and silently
+drops the other. The right answer is often a change neither side wrote:
+main's guard, with the contributor's parameter threaded through it.
+Then revert each arm separately to prove both survived.
+
+**6. Approving a held run is a decision, not a formality.** A fork's
+workflow waits for approval, and approving it runs their code on your
+runners. Check the held run's sha is the one you reviewed:
+
+    gh api "repos/$SLUG/actions/runs?status=action_required" -q '.workflow_runs[0].head_sha'
+
+Refuse if it is not. A stale held run from an older sha is common after
+a rebase, and approving it runs code you did not audit.
+
+**7. `action_required` is a claim about a moment.** A run held when you
+looked may have been approved and completed hours later under the same
+run id. Re-check before reporting it as blocked — twice here a stage
+carried "held for approval" as a standing fact long after it had run.
+
 ## Starting a run
 
 1. `am-ledger refresh` — populate from GitHub.
