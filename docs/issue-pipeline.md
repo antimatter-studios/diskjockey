@@ -565,6 +565,42 @@ Each worktree carries its own `target/`, roughly 120 MB. That is the
 running cost, and it is why they get removed rather than accumulate: one
 agent's scratch reached 845 MB across seven of them before anyone looked.
 
+### An orphaned worktree is evidence that outlives the agent
+
+The agent's queue dies with the agent. A worktree does not — and that
+makes it the second detector for abandoned work, independent of the
+first.
+
+A worktree left behind with commits that were never pushed is on-disk
+proof that an issue was started and not finished. Nobody has to remember
+it, and no message has to have arrived. Any stage that trips over one —
+the monitoring stage looking for a branch, a sweep, another fixer
+claiming the same issue — can hand the issue back for dispatch.
+
+The two detectors catch different failures, which is the point of having
+both:
+
+- **`am-ledger stale`** finds a claim that has stopped moving. It sees an
+  agent that died *before* producing anything, where no worktree exists.
+- **An orphaned worktree** finds work that was done and stranded. It sees
+  the case where the row was released, or never claimed, but commits
+  exist.
+
+Neither subsumes the other, and each is cheap. Scan for both.
+
+What gets resurrected is the **issue**, not the agent. A dead agent's
+queue is not recoverable and should not be reconstructed; the issue goes
+back to `accepted` or `failed`, the surviving branch is named in the
+handoff so the work is not repeated, and whichever fixer picks it up
+decides whether to build on that branch or start again.
+
+    git worktree list                 # in each repo
+    git worktree prune                # after removing stale ones
+
+Prune is not optional housekeeping. A worktree entry that points at a
+deleted directory still holds its branch, so the deadlock survives the
+directory that caused it.
+
 ### Concurrent branches will conflict, and that is ordinary
 
 Several issues in one repository, worked at once, will touch the same
