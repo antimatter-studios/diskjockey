@@ -222,7 +222,36 @@ do_set() {
     [ -f "$LEDGER" ] || { echo "am-ledger: no ledger; run refresh" >&2; return 1; }
     local stage owner branch pr row
     row=$(awk -F'\t' -v r="$short" -v n="$num" '$1==r && $2==n {print; exit}' "$LEDGER")
-    [ -n "$row" ] || { echo "am-ledger: $short#$num not in the ledger" >&2; return 1; }
+
+    # A MISSING ROW IS CREATED, NOT REFUSED -- but only after proving the
+    # issue exists.
+    #
+    # Work reaches this pipeline hand to hand as well as through the
+    # ledger: an agent files an issue, another fixes it, and it is merged
+    # before any refresh has seen it. Refusing to record that leaves the
+    # ledger silently wrong about what happened, which is worse than the
+    # typo it was protecting against -- a merge nobody can see is exactly
+    # the failure this file exists to prevent.
+    #
+    # The protection is kept by checking with GitHub rather than by
+    # refusing: an unknown repository or a number that is not an issue
+    # fails loudly here, so a fat-fingered `set` still cannot invent a
+    # row.
+    if [ -z "$row" ]; then
+        local slug title
+        slug=$(repo_slug "$short") || {
+            echo "am-ledger: '$short' is not a repository in this project" >&2
+            return 1
+        }
+        title=$(gh issue view "$num" --repo "$slug" --json title -q .title 2>/dev/null) || true
+        [ -n "$title" ] || {
+            echo "am-ledger: $short#$num is not an issue in $slug" >&2
+            return 1
+        }
+        printf '%s\t%s\tpending\t-\t-\t-\t%s\t%s\n' "$short" "$num" "$(now)" "$title" >> "$LEDGER"
+        echo "am-ledger: added $short#$num (it was not in the ledger)" >&2
+        row=$(awk -F'\t' -v r="$short" -v n="$num" '$1==r && $2==n {print; exit}' "$LEDGER")
+    fi
     stage=$(printf '%s' "$row" | cut -f3)
     owner=$(printf '%s' "$row" | cut -f4)
     branch=$(printf '%s' "$row" | cut -f5)
