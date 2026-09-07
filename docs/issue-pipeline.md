@@ -230,6 +230,29 @@ tooling:
 blind to.** Build the failing case and watch it fail, then build the
 cases you did not think of.
 
+**A broken harness looks exactly like a clean bill of health.** When
+both sides of a comparison agree and the evidence says they should not,
+suspect the harness before the claim. Three times in one run a null or
+symmetric result was a rig that had not run:
+
+- worktrees that vanished mid-run, so the write under test never
+  happened and both sides returned the original byte;
+- a local run without `CI` set, which took a different path from the one
+  being reproduced and reported no defect;
+- a hand-built fixture whose checksum covered fewer bytes than the
+  reader reads, because a Python slice assignment with a short value
+  silently shrank the array — failing identically on both sides, which
+  reads as "the crate rejects my input" rather than "my input is
+  malformed".
+
+Each would have been reported as *no defect found*. The tell in all
+three was agreement that the prior evidence made implausible. Before
+believing a negative, prove the setup did what it claimed: assert the
+file exists, the write landed, the sizes are what you meant.
+
+This is the same defect as a suite that skips and reports `ok`, moved
+from the code being tested into the thing doing the testing.
+
 **A finding gets its own issue.** Not a trailing paragraph on whatever
 is being closed. A finding attached to an unrelated issue cannot be
 found by anyone searching for it, misleads everyone reading the issue it
