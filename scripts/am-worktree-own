@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+#
+# am-worktree-own — say who a worktree belongs to, and that it is alive.
+#
+#   am-worktree-own <path> <agent-name>   claim it, or refresh the heartbeat
+#   am-worktree-own --who <path>          print the owner and how stale it is
+#
+# WHY. The reaper previously inferred "nobody is here" from the directory's
+# modification time, which is the weakest signal available: a build touches
+# the directory constantly, while an agent that is reading or reasoning
+# touches nothing at all. So a busy tree looks idle and an idle tree looks
+# busy, which is precisely backwards.
+#
+# An owner file inverts that. It changes only when an agent deliberately
+# says "still mine", so its age measures the AGENT rather than the
+# filesystem. And it records a name, which turns an anonymous orphan into
+# something a person can ask about.
+#
+# The heartbeat is advisory and its absence proves nothing -- a worktree
+# made before this existed has no owner file and is not therefore
+# abandoned. That is why the reaper treats a missing owner as a reason to
+# be MORE careful, not less.
+set -euo pipefail
+
+OWNER_FILE=".am-worktree-owner"
+
+if [ "${1:-}" = "--who" ]; then
+    path="${2:?usage: am-worktree-own --who <path>}"
+    f="$path/$OWNER_FILE"
+    [ -f "$f" ] || { echo "unowned"; exit 0; }
+    name=$(cut -f1 < "$f")
+    when=$(cut -f2 < "$f")
+    age=$(( $(date +%s) - ${when:-0} ))
+    printf '%s\theartbeat %sm ago\n' "$name" "$((age / 60))"
+    exit 0
+fi
+
+path="${1:?usage: am-worktree-own <path> <agent-name>}"
+name="${2:?usage: am-worktree-own <path> <agent-name>}"
+[ -d "$path" ] || { echo "am-worktree-own: no such directory: $path" >&2; exit 1; }
+
+printf '%s\t%s\n' "$name" "$(date +%s)" > "$path/$OWNER_FILE"
+
+# Keep it out of the diff. A worktree's own bookkeeping is not the
+# repository's business, and a stray untracked file would make every
+# `git status` look dirty -- which would make the reaper refuse to touch
+# anything, quietly, forever.
+excl="$(git -C "$path" rev-parse --git-path info/exclude 2>/dev/null || true)"
+if [ -n "$excl" ]; then
+    mkdir -p "$(dirname "$excl")"
+    grep -qxF "$OWNER_FILE" "$excl" 2>/dev/null || echo "$OWNER_FILE" >> "$excl"
+fi
