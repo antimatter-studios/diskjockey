@@ -448,7 +448,15 @@ and is credited for all of them. Three instances in one run —
 
 Two habits catch all three. Delete each arm on its own and see which
 deletions stay green. Then **mutate each comparison by one** — `<` to
-`<=`, `>` to `>=` — and see which mutations survive. A bound worth
+`<=`, `>` to `>=` — and see which mutations survive.
+
+**Assert the expression is unique before mutating it.** A guard's
+comparison is often written twice: once in the guard, once in a test's
+own assertion about it. A blind substitution then edits the *test*,
+which goes green, and the guard is reported as pinned when nothing
+touched it. One mutation here failed to apply for exactly that reason
+and only the uniqueness check made the near-miss visible. Count the
+occurrences first; if there is more than one, name the file and line. A bound worth
 fixing is worth testing from both sides: the last accepted value must
 still be accepted, or a correction that overshoots by one rejects
 legitimate input everywhere and no test notices.
