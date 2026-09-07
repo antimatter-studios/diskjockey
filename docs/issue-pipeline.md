@@ -1,0 +1,235 @@
+# The issue pipeline
+
+A way of running a large backlog across the twelve repositories of the
+constellation using several agents at once, without them treading on
+each other and without work going missing.
+
+Written 2026-09-07, from the run that built it. Everything here has been
+used; the failure modes described are ones that actually happened rather
+than ones that seemed likely.
+
+## The shape
+
+```
+  audit ──► triage ×5 ──► fix ×2 ──► verify-pr ──► pr-monitor
+              │              ▲                          │
+              │              └────── stage=failed ──────┘
+              ▼
+           am-ledger  (one row per issue, the truth about where it is)
+```
+
+Each stage does one thing and hands on. The loop back from
+`pr-monitor` to the fixing agents is the important part: a pull request
+whose build fails is not an end state, it is work returning to the queue.
+
+| stage | what it does | what it writes |
+|---|---|---|
+| `audit` | reads code, files issues that do not exist yet | new GitHub issues |
+| `triage` | decides whether each issue is true and worth doing | `This issue is selected for development` / `This issue is rejected because of the following reasons` |
+| `fix` | reproduces, fixes, pushes a branch | `This issue is ready for testing` |
+| `verify-pr` | runs the full test spectrum, opens the PR | `This issue is ready for PR` |
+| `pr-monitor` | watches the build, merges or returns it | `The PR failed` + the decisive output |
+
+## The ledger
+
+`~/.local/bin/am-ledger`, state in
+`~/.local/state/am-constellation/issues.tsv`.
+
+One tab-separated row per issue: repository, number, stage, owner,
+branch, pull request, timestamp, title.
+
+    am-ledger refresh                    rebuild from GitHub, keeping stages
+    am-ledger next <stage> [repo]        claim one row atomically
+    am-ledger set <repo> <n> stage=...   record progress
+    am-ledger list [filter]              rows, optionally filtered
+    am-ledger stats                      counts by stage
+
+**GitHub remains the truth for what an issue says. The ledger is the
+truth for where it is.** That split is what makes the pipeline cheap:
+without it, every agent re-listed every issue in every project to find
+out what was left — twelve API calls to answer one question, repeated
+per agent per decision.
+
+`next` is the part that matters. It finds an unclaimed row at a stage,
+writes the caller's name into it, and prints it — all under a directory
+lock, so two agents polling the same instant cannot both start the same
+issue. Every write goes through that lock, because a read-modify-write
+on a shared file from several agents is the textbook lost update.
+
+Set `AM_LEDGER_OWNER` to the agent's name, and release rows with
+`owner=-` when handing on, or the next stage cannot claim them.
+
+## Messaging, and why the ledger exists anyway
+
+Agents message the next stage as they finish — per repository, not per
+batch, so a fixing agent can start on one repository while another is
+still being triaged.
+
+Messaging is the fast path. **The ledger is the reliable one.** During
+the first run an agent was given an address for a stage that had not yet
+been launched; its messages went nowhere. It kept working and recorded
+state in the ledger, and the next stage picked the work up regardless.
+Had the pipeline depended on messaging alone, that would have been a
+silent stall.
+
+Use both. Message for latency, ledger for truth, and never let a stage
+block on a message that may not arrive.
+
+## The rule about comments
+
+An issue accumulates comments across cycles: accepted, ready for
+testing, PR failed, ready for testing again. **Sort by time and act only
+on the newest status marker.** An older comment that a newer one
+supersedes is history, not state.
+
+This matters most in the failure loop, where an issue carries several
+`ready for testing` comments and only the last names the branch worth
+looking at.
+
+### Each stage has its own words, and may not borrow another's
+
+| stage | markers |
+|---|---|
+| triage | `This issue is selected for development` / `This issue is rejected because of the following reasons` |
+| fixing | `This issue is ready for testing` |
+| verification | `This issue is ready for PR` / `Verification found defects in the branch` / `Verification is blocked` |
+| PR monitoring | `The PR failed` |
+
+Because the newest marker is read as the truth, a stage that reuses
+another's vocabulary rewrites a decision it never made.
+
+That is not hypothetical. A verification agent needed to say that a
+branch could not be verified yet — it was stacked on two unmerged
+branches and would be rebuilt when they landed — and the only negative
+marker available was triage's. It wrote `This issue is rejected because
+of the following reasons`, and `rust-img-vhd` #43 then read as a
+rejected issue when it was accepted and its fix was sound. The
+verification agent's reasoning and decision were both correct; the
+vocabulary was the defect.
+
+The lesson is that this was **a missing marker rather than a careless
+agent**. Verification has three outcomes and had words for one, so the
+other two were forced into the nearest wrong phrase. All three now
+exist:
+
+- `This issue is ready for PR` — verified, pull request opened;
+- `Verification found defects in the branch` — verified, and the branch
+  is wrong; back to fixing, the issue still accepted;
+- `Verification is blocked` — the fix is sound and something in the
+  environment prevents proving it: a stacked branch, an absent fixture,
+  a VM in use. It parks an issue where a rejection would have sent it
+  backwards.
+
+The middle one is the most common outcome of that stage, and was the
+last to be noticed — because an agent with no word for its usual result
+does not complain, it improvises, and the improvisation reads as
+something else entirely.
+
+When adding a stage, enumerate its outcomes and give each one a sentence
+before giving it any work.
+
+## What went wrong, and what to keep
+
+These are the failures worth designing against, because each cost real
+time on the first run.
+
+**Agents in the same checkout.** One agent ran `git stash -u` while
+another was mid-edit in the same repository, sweeping up its untracked
+work. Give each stage **exclusive ownership of a set of repositories**,
+and have the fixing stage wait until triage of a repository is finished
+before editing it.
+
+**Heavy jobs in parallel.** Two 4–8 GB oracle VMs plus concurrent
+`cargo test` runs filled the machine, and it did not fail cleanly — it
+killed background work, with nothing connecting the deaths to the cause.
+Contention on this hardware also produces test failures that are not
+real, and several hours went into chasing them.
+
+The first attempt at a fix was to tell every agent **one `cargo test` at
+a time**. That does not work, and why it does not work is the more
+useful lesson: every agent obeyed the instruction, and none of them
+could see the others. Five obedient agents produced five concurrent
+runs. An instruction that each party can follow individually and none
+can enforce collectively is not a limit — it is a wish.
+
+So both limits now live outside the agents, where something can count:
+
+- oracle VMs, one at a time, through `scripts/vm-slot.sh` in each
+  repository that has one — taken by `vm.sh up`, released by `down`;
+- builds and tests, two at a time, through `scripts/am-slot` (put it on
+  your PATH, or in `~/.local/bin`):
+
+      am-slot cargo cargo test --locked
+
+`am-slot` runs the command and exits with the command's status, so
+nothing about reading a result changes and a wrapper can never turn a
+failure into a pass. A test that needs a VM takes both slots.
+
+Work now queues instead of overlapping, and a run waits for the ones
+ahead of it. That is slower on a good day and much better on a bad one,
+because the failure it removes was silent and the cost it adds is
+visible. Re-running a failure alone before believing it remains good
+practice regardless.
+
+**Guards that are themselves unguarded.** The recurring defect of this
+whole codebase, and the pipeline reproduced it twice in its own
+tooling:
+
+- A dependency-pin check passed as soon as *one* workflow named the
+  right version, so a repository with two pins was told it was fine
+  while only one had been read. Three successive fixes each closed one
+  spelling and left another, because each was verified against the case
+  it had just added.
+- A test asserting CI had built its fixtures was added to a job that
+  invokes suites by name — and was never named. The check written to
+  catch silently-skipping suites was itself silently skipped, in the
+  commit that introduced it, and reported green.
+
+**Checking that a guard fires is not the same as checking what it is
+blind to.** Build the failing case and watch it fail, then build the
+cases you did not think of.
+
+**Reproducing CI means reproducing its environment, not its command.**
+`CI=true` changes behaviour in several of these repositories. A local
+run without it answers a different question, and answers it more
+permissively — which manufactures false findings rather than missing
+real ones.
+
+**Three ways a build lies.** A conflicting pull request gets no CI at
+all and looks like a slow runner. A run held at `action_required` has
+not executed either. A fixture-gated suite skips and reports `ok`.
+Teach the monitoring stage all three, because from the checks list they
+are indistinguishable from success.
+
+## Verification, which is the whole value
+
+The single most useful thing any stage does is the **negative control**:
+revert only the source change, leave the test, and confirm the test
+fails. A test that passes with and without the fix proves nothing, and
+this catches it in one step.
+
+The second most useful is **reproducing before fixing**. A large number
+of filed issues turn out to be false — the case was already handled, the
+arithmetic could not overflow, the guard was already correct. Finding
+that out costs one test; implementing a fix for a defect that does not
+exist costs a great deal more, and leaves a worse codebase.
+
+Across the first run, every *numeric* claim that was independently
+re-derived held. Every failure was in the **prose** — which job runs
+what, what a tool's default is, whether a hook can see a spelling. That
+is where to point the scepticism.
+
+## Starting a run
+
+1. `am-ledger refresh` — populate from GitHub.
+2. Launch the triage agents over disjoint repository sets, sized by
+   issue count.
+3. Launch the fixing agents with disjoint ownership, told to wait for
+   triage per repository.
+4. Launch `verify-pr` and `pr-monitor`; they idle until work arrives.
+5. Launch `audit` if you want new issues discovered as the backlog
+   drains.
+6. Watch with `am-ledger stats`.
+
+Completion is every row at `merged` or `rejected`. Rows at `failed` are
+in flight, not finished.

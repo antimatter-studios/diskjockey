@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+#
+# am-slot — run a command holding one of N shared slots.
+#
+#   am-slot <pool> <command...>     wait for a slot, run, release
+#   am-slot --status <pool>         who holds the pool right now
+#
+#   AM_SLOT_LIMIT   how many may run at once (default 2)
+#   AM_SLOT_NAME    who is asking (default: the pid)
+#   AM_SLOT_WAIT    seconds to wait before giving up (default 1800)
+#
+# WHY THIS EXISTS. Telling each agent "run one `cargo test` at a time"
+# does not work, and the reason is worth stating: every agent obeys it,
+# and none of them can see the others. Five obedient agents produce five
+# concurrent runs.
+#
+# On an SD-card-backed volume that is not merely slow. It produces test
+# failures that are not real — suites that pass alone and fail under
+# contention — and hours have gone into chasing them. Worse, it fills
+# memory, and when this machine fills it does not fail cleanly: it kills
+# background work with nothing to connect the deaths to the cause.
+#
+# So the limit has to live outside the agents, where it can count.
+#
+#   am-slot cargo cargo test --locked
+#
+# The cost is honest: work queues instead of overlapping, and a run
+# waits for the ones ahead of it. That is slower on a good day and much
+# better on a bad one, which is the same trade the oracle-VM slot makes.
+set -euo pipefail
+
+POOL_DIR_BASE="${AM_SLOT_DIR:-$HOME/.local/state/am-slots}"
+LIMIT="${AM_SLOT_LIMIT:-2}"
+NAME="${AM_SLOT_NAME:-pid-$$}"
+WAIT_SECS="${AM_SLOT_WAIT:-1800}"
+
+if [ "${1:-}" = "--status" ]; then
+    pool="${2:?usage: am-slot --status <pool>}"
+    dir="$POOL_DIR_BASE/$pool"
+    [ -d "$dir" ] || { echo "pool '$pool' is idle"; exit 0; }
+    held=0
+    for f in "$dir"/*.slot; do
+        [ -e "$f" ] || continue
+        holder=$(cat "$f" 2>/dev/null || echo "?")
+        pid=${holder##*|}
+        if kill -0 "$pid" 2>/dev/null; then
+            echo "  held by ${holder%%|*} (pid $pid)"
+            held=$((held + 1))
+        else
+            echo "  stale slot from ${holder%%|*} (pid $pid is gone) — reclaimable"
+        fi
+    done
+    [ "$held" = 0 ] && echo "pool '$pool' is idle"
+    exit 0
+fi
+
+POOL="${1:?usage: am-slot <pool> <command...>}"
+shift
+[ $# -gt 0 ] || { echo "am-slot: nothing to run" >&2; exit 2; }
+
+DIR="$POOL_DIR_BASE/$POOL"
+mkdir -p "$DIR"
+
+MY_SLOT=""
+
+# A slot file is named by index and holds "name|pid". Liveness is the
+# pid, which works here — unlike the VM slot, where the thing being
+# protected outlives the process that took it — because the command runs
+# as a child of this script and dies with it.
+take_slot() {
+    local i f
+    for i in $(seq 1 "$LIMIT"); do
+        f="$DIR/$i.slot"
+        # Reclaim a slot whose holder is gone. A run killed by the OOM
+        # killer -- which is exactly what this exists to prevent, and
+        # therefore exactly what will happen while it is still being
+        # rolled out -- leaves its file behind.
+        if [ -e "$f" ]; then
+            local pid
+            pid=$(cut -d'|' -f2 < "$f" 2>/dev/null || echo "")
+            if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+                rm -f "$f"
+            fi
+        fi
+        # `noclobber` makes this atomic: two processes racing for the
+        # same index, one wins.
+        if (set -o noclobber; printf '%s|%s\n' "$NAME" "$$" > "$f") 2>/dev/null; then
+            MY_SLOT="$f"
+            return 0
+        fi
+    done
+    return 1
+}
+
+release_slot() {
+    [ -n "$MY_SLOT" ] && rm -f "$MY_SLOT"
+    MY_SLOT=""
+}
+trap release_slot EXIT INT TERM
+
+waited=0
+announced=0
+until take_slot; do
+    if [ "$announced" = 0 ]; then
+        echo "[am-slot] waiting for a '$POOL' slot ($LIMIT in use) — queued, not stuck" >&2
+        announced=1
+    fi
+    if [ "$waited" -ge "$WAIT_SECS" ]; then
+        echo "[am-slot] gave up after ${waited}s waiting for a '$POOL' slot" >&2
+        echo "[am-slot] 'am-slot --status $POOL' shows who holds them." >&2
+        exit 1
+    fi
+    sleep 3
+    waited=$((waited + 3))
+done
+
+[ "$announced" = 1 ] && echo "[am-slot] got a slot after ${waited}s" >&2
+
+# The command's exit status is this script's, so callers cannot tell the
+# difference between running under the slot and running directly. A
+# wrapper that swallowed a failure would be worse than no wrapper.
+set +e
+"$@"
+rc=$?
+set -e
+exit "$rc"
