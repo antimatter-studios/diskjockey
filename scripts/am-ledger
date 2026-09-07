@@ -323,11 +323,24 @@ do_start() {
     local -a pairs=()
     if [ "${1:-}" = "--org" ]; then
         local org="${2:?--org needs an organisation}"
-        local slug
+        local slug listing
+        # A TEMPORARY FILE RATHER THAN `< <(...)`. Process substitution is
+        # a bash extension: under `sh` the whole file fails to parse, and
+        # the failure is at parse time, so EVERY subcommand dies with a
+        # syntax error pointing at a line the caller never asked for.
+        # That happened once here and read as the tool being broken
+        # rather than as being invoked with the wrong shell.
+        #
+        # A pipeline would not do: the `while` would run in a subshell
+        # and the array it filled would be discarded, which fails
+        # silently and is worse.
+        listing="$(mktemp)"
+        gh repo list "$org" --limit 200 --json nameWithOwner -q '.[].nameWithOwner' > "$listing"
         while IFS= read -r slug; do
             [ -n "$slug" ] || continue
             pairs+=("${slug##*/}"$'\t'"$slug")
-        done < <(gh repo list "$org" --limit 200 --json nameWithOwner -q '.[].nameWithOwner')
+        done < "$listing"
+        rm -f "$listing"
     else
         local arg
         for arg in "$@"; do
