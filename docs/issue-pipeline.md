@@ -189,6 +189,27 @@ tooling:
 blind to.** Build the failing case and watch it fail, then build the
 cases you did not think of.
 
+**A finding gets its own issue.** Not a trailing paragraph on whatever
+is being closed. A finding attached to an unrelated issue cannot be
+found by anyone searching for it, misleads everyone reading the issue it
+landed on, and — worst — never passes through triage, so its framing is
+never checked. One did exactly that: a note about an inert test suite
+rode along on a merge comment for an unrelated fix, carrying a remedy
+that would have made things worse, and no stage saw it.
+
+**An empty search result is not evidence unless you know what the search
+covers.** `gh issue list --search` does not index comment bodies. A
+search for a term that lives in a comment returns nothing, which reads
+identically to the term not existing. To ask whether something is
+already recorded:
+
+    gh issue view <n> --repo <slug> --json comments \
+      -q '.comments[] | select(.body | test("<term>"; "i"))'
+
+This is the guard-that-is-itself-unguarded defect again, in the act of
+checking: it is possible to confirm a search ran and never establish
+what it was blind to.
+
 **Reproducing CI means reproducing its environment, not its command.**
 `CI=true` changes behaviour in several of these repositories. A local
 run without it answers a different question, and answers it more
