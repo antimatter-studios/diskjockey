@@ -293,6 +293,23 @@ revert only the source change, leave the test, and confirm the test
 fails. A test that passes with and without the fix proves nothing, and
 this catches it in one step.
 
+A negative control proves something about the *harness* as well as the
+fix: that the checking method can report a failure at all. That is not a
+given. A verification step built on `awk '/^test result:/{...}'` reads
+what the harness printed and never asks whether it finished — a compile
+error in one target, a panic outside a test, a signal, an aborted binary
+all leave a clean-looking count. Two of us ran that pattern for most of
+a session; what made the results trustworthy was watching a reverted arm
+actually fail. Capture the status where it cannot be omitted:
+
+    am-slot cargo cargo test --locked; echo "EXIT=$?"
+
+The general shape is worth naming, because it is the same defect the
+whole pipeline hunts for: **a check whose output does not depend on the
+failure it exists to detect.** A test that passes with the fix reverted
+is one instance. A verification step that cannot see a crash is the same
+thing, one level up, in the thing doing the checking.
+
 **Revert each arm separately, not the whole file.** A fix usually has
 several mechanisms, and a whole-file revert asks only "does anything
 here matter?" — to which the answer is nearly always yes. That proves
