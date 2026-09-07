@@ -67,9 +67,45 @@ MY_SLOT=""
 # pid, which works here — unlike the VM slot, where the thing being
 # protected outlives the process that took it — because the command runs
 # as a child of this script and dies with it.
+# RESERVING A SLOT, AND WHY.
+#
+# A pool shared by producers and a consumer starves the consumer. Two
+# fixing agents build continuously -- that is the job -- while the
+# verification stage needs eight to twelve cargo invocations to check a
+# single branch. With both slots held by producers on every sample, the
+# verifier queued fifteen minutes and was heading for its wait limit.
+#
+# Nothing goes red when this happens. Work accumulates at the
+# verification stage, which is why it is worth naming rather than
+# tuning: the symptom is a growing queue, not a failure.
+#
+# So slot 1 can be reserved for one caller by name. Write the name into
+# <pool>.reserved; only AM_SLOT_NAME matching it may take slot 1, and
+# everyone else starts at slot 2. The reserved caller may still use any
+# free slot, so nothing is wasted while it is idle.
+#
+#   echo verify-pr > ~/.local/state/am-slots/cargo.reserved
+#
+# The configuration lives HERE rather than in the agents, for the same
+# reason the limit does: an agent cannot see the others, so a rule each
+# applies to itself is not a rule. Deleting the file removes the
+# reservation, which makes this the cheapest available fix to undo --
+# and cheaper than raising the limit, which exists because two was not
+# obviously safe and guards the failure that kills background work with
+# nothing connecting the deaths to the cause.
+RESERVED_FILE="$POOL_DIR_BASE/$POOL.reserved"
+reserved_for() {
+    [ -f "$RESERVED_FILE" ] || return 1
+    tr -d ' \n' < "$RESERVED_FILE"
+}
+
 take_slot() {
-    local i f
-    for i in $(seq 1 "$LIMIT"); do
+    local i f first=1 holder
+    if holder="$(reserved_for)" && [ -n "$holder" ] && [ "$holder" != "$NAME" ]; then
+        first=2
+        [ "$LIMIT" -ge 2 ] || return 1
+    fi
+    for i in $(seq "$first" "$LIMIT"); do
         f="$DIR/$i.slot"
         # Reclaim a slot whose holder is gone. A run killed by the OOM
         # killer -- which is exactly what this exists to prevent, and
