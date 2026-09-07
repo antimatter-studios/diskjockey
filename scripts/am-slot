@@ -93,15 +93,43 @@ MY_SLOT=""
 # and cheaper than raising the limit, which exists because two was not
 # obviously safe and guards the failure that kills background work with
 # nothing connecting the deaths to the cause.
+# The reservation file holds one name per line -- a SET of callers, not a
+# single one, because a stage can be more than one agent. Two
+# verification agents share the reserved slot: they queue behind each
+# other, which is ordinary, rather than behind the fixers, which was the
+# starvation. Comments and blank lines are ignored so the file can say
+# who it is for.
 RESERVED_FILE="$POOL_DIR_BASE/$POOL.reserved"
-reserved_for() {
+
+# Is $NAME a member of the reserved set? Returns 1 if there is no
+# reservation at all, so an absent file means "everyone may take slot 1".
+name_is_reserved() {
     [ -f "$RESERVED_FILE" ] || return 1
-    tr -d ' \n' < "$RESERVED_FILE"
+    local line
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%%#*}"
+        line="$(printf '%s' "$line" | tr -d ' \t\r')"
+        [ -n "$line" ] || continue
+        [ "$line" = "$NAME" ] && return 0
+    done < "$RESERVED_FILE"
+    return 1
+}
+
+# Does a reservation exist at all (any non-comment line)?
+reservation_exists() {
+    [ -f "$RESERVED_FILE" ] || return 1
+    local line
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%%#*}"
+        line="$(printf '%s' "$line" | tr -d ' \t\r')"
+        [ -n "$line" ] && return 0
+    done < "$RESERVED_FILE"
+    return 1
 }
 
 take_slot() {
-    local i f first=1 holder
-    if holder="$(reserved_for)" && [ -n "$holder" ] && [ "$holder" != "$NAME" ]; then
+    local i f first=1
+    if reservation_exists && ! name_is_reserved; then
         first=2
         [ "$LIMIT" -ge 2 ] || return 1
     fi
