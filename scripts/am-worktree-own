@@ -4,49 +4,55 @@
 #
 #   am-worktree-own <path> <agent-name>   claim it, or refresh the heartbeat
 #   am-worktree-own --who <path>          print the owner and how stale it is
+#   am-worktree-own --forget <path>       drop the claim
 #
-# WHY. The reaper previously inferred "nobody is here" from the directory's
-# modification time, which is the weakest signal available: a build touches
-# the directory constantly, while an agent that is reading or reasoning
-# touches nothing at all. So a busy tree looks idle and an idle tree looks
-# busy, which is precisely backwards.
+# WHY THE STATE IS NOT IN THE WORKTREE.
 #
-# An owner file inverts that. It changes only when an agent deliberately
-# says "still mine", so its age measures the AGENT rather than the
-# filesystem. And it records a name, which turns an anonymous orphan into
-# something a person can ask about.
+# The first version wrote `.am-worktree-owner` into the worktree itself
+# and added it to `info/exclude`. That was wrong, and it was wrong in the
+# way that matters: an agent ran `git add -A` and **committed the
+# heartbeat into its fix branch**. A tool whose whole purpose is to be
+# invisible to git had put a file into somebody's pull request.
 #
-# The heartbeat is advisory and its absence proves nothing -- a worktree
-# made before this existed has no owner file and is not therefore
-# abandoned. That is why the reaper treats a missing owner as a reason to
-# be MORE careful, not less.
+# Excluding it harder would not fix this. Anything inside the tree can be
+# force-added, can appear in `git status` if the exclude write ever
+# fails, and makes a verification result arguable the moment somebody
+# notices an unexplained modification. So the state lives OUTSIDE, keyed
+# by the worktree's path. It cannot dirty a tree it is not in.
+#
+# WHY AN OWNER FILE AT ALL, rather than the directory's timestamp: a
+# build touches the directory constantly while an agent that is reading
+# or reasoning touches nothing, so mtime reports a busy tree as idle and
+# an idle tree as busy. This changes only when an agent says "still
+# mine", so its age measures the agent.
 set -euo pipefail
 
-OWNER_FILE=".am-worktree-owner"
+STATE_DIR="${AM_WORKTREE_STATE:-$HOME/.local/state/am-worktrees}"
 
-if [ "${1:-}" = "--who" ]; then
-    path="${2:?usage: am-worktree-own --who <path>}"
-    f="$path/$OWNER_FILE"
-    [ -f "$f" ] || { echo "unowned"; exit 0; }
-    name=$(cut -f1 < "$f")
-    when=$(cut -f2 < "$f")
-    age=$(( $(date +%s) - ${when:-0} ))
-    printf '%s\theartbeat %sm ago\n' "$name" "$((age / 60))"
-    exit 0
-fi
+# One file per worktree, named by a hash of its absolute path so the name
+# is stable, filesystem-safe and collision-free.
+key_for() {
+    printf '%s' "$1" | shasum -a 256 | cut -c1-32
+}
+
+case "${1:-}" in
+    --who)
+        path="${2:?usage: am-worktree-own --who <path>}"
+        f="$STATE_DIR/$(key_for "$path")"
+        [ -f "$f" ] || { echo "unowned"; exit 0; }
+        name=$(cut -f1 < "$f"); when=$(cut -f2 < "$f")
+        printf '%s\theartbeat %sm ago\n' "$name" "$(( ( $(date +%s) - ${when:-0} ) / 60 ))"
+        exit 0 ;;
+    --forget)
+        path="${2:?usage: am-worktree-own --forget <path>}"
+        # An explicit single path, never a pattern.
+        rm -f "$STATE_DIR/$(key_for "$path")"
+        exit 0 ;;
+esac
 
 path="${1:?usage: am-worktree-own <path> <agent-name>}"
 name="${2:?usage: am-worktree-own <path> <agent-name>}"
 [ -d "$path" ] || { echo "am-worktree-own: no such directory: $path" >&2; exit 1; }
 
-printf '%s\t%s\n' "$name" "$(date +%s)" > "$path/$OWNER_FILE"
-
-# Keep it out of the diff. A worktree's own bookkeeping is not the
-# repository's business, and a stray untracked file would make every
-# `git status` look dirty -- which would make the reaper refuse to touch
-# anything, quietly, forever.
-excl="$(git -C "$path" rev-parse --git-path info/exclude 2>/dev/null || true)"
-if [ -n "$excl" ]; then
-    mkdir -p "$(dirname "$excl")"
-    grep -qxF "$OWNER_FILE" "$excl" 2>/dev/null || echo "$OWNER_FILE" >> "$excl"
-fi
+mkdir -p "$STATE_DIR"
+printf '%s\t%s\t%s\n' "$name" "$(date +%s)" "$path" > "$STATE_DIR/$(key_for "$path")"

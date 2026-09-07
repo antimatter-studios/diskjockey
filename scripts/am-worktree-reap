@@ -110,10 +110,16 @@ recently_touched() {
 # An absent owner file proves nothing -- it may predate the convention --
 # so it makes this MORE cautious rather than less: the fallback window is
 # several times the heartbeat one.
-owner_name() { [ -f "$1/.am-worktree-owner" ] && cut -f1 < "$1/.am-worktree-owner" || true; }
+# The claim lives OUTSIDE the worktree, keyed by a hash of its path.
+# It was briefly stored inside, and an agent committed it into a fix
+# branch -- a tool meant to be invisible to git ended up in somebody's
+# pull request. Anything inside the tree can be force-added.
+AM_WT_STATE="${AM_WORKTREE_STATE:-$HOME/.local/state/am-worktrees}"
+owner_file() { printf '%s/%s' "$AM_WT_STATE" "$(printf '%s' "$1" | shasum -a 256 | cut -c1-32)"; }
+owner_name() { local f; f="$(owner_file "$1")"; [ -f "$f" ] && cut -f1 < "$f" || true; }
 owner_age_mins() {
-    local when
-    when=$(cut -f2 < "$1/.am-worktree-owner" 2>/dev/null || echo 0)
+    local f when; f="$(owner_file "$1")"
+    when=$(cut -f2 < "$f" 2>/dev/null || echo 0)
     echo $(( ( $(date +%s) - ${when:-0} ) / 60 ))
 }
 
