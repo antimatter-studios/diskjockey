@@ -594,6 +594,39 @@ back to `accepted` or `failed`, the surviving branch is named in the
 handoff so the work is not repeated, and whichever fixer picks it up
 decides whether to build on that branch or start again.
 
+**A worktree with work in it is never discarded.** Half-finished code is
+not waste to be swept up — it is the most expensive thing in the
+pipeline, because it is the part that was hard enough to still be
+unfinished. It gets resurrected and completed, and then goes through the
+ordinary path to a pull request like anything else.
+
+So on finding an orphaned worktree, **preserve before judging**:
+
+    git -C <worktree> add -A
+    git -C <worktree> commit -m "wip: recovered from an abandoned worktree"
+    git -C <worktree> push -u <remote> HEAD:<branch>
+
+Commit and push first, whatever state it is in. That costs nothing, it
+cannot lose anything, and it converts a deadlock that lives on one
+machine's disk into a branch anyone can pick up. Only then look at
+whether the work is any good.
+
+Judging first is the mistake, and it is tempting because a half-written
+change often does not compile. **A branch that does not build is still
+worth more than the absence of it**, because it carries the shape of an
+attempt: which files the author had decided to touch, what they had
+already ruled out. Reconstructing that costs far more than reading it.
+
+Two constraints on the agent that picks it up. It must **read the
+recovered state before continuing** — a worktree abandoned mid-refactor
+can be internally inconsistent in ways that are invisible if you only
+read the diff of the last file touched. And it must **re-verify from
+scratch**: whatever the previous agent proved, it proved about a tree
+that has since had `main` move underneath it.
+
+Remove a worktree only once its work is pushed, and pruned only once
+the branch is merged or a person has said to abandon it.
+
     git worktree list                 # in each repo
     git worktree prune                # after removing stale ones
 
