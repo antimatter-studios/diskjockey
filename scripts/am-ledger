@@ -34,7 +34,15 @@
 # FIELDS
 #   repo      short repository name (rust-fs-xfs)
 #   num       issue number
-#   stage     pending | accepted | rejected | fixing | testing | pr | merged | failed
+#   stage     pending | accepted | rejected | fixing | testing | pr
+#             merged | failed | blocked
+#
+#             `failed` and `blocked` both return a row to a fixer, and
+#             they are kept apart because the work is different: `failed`
+#             means a build said no and wants diagnosing, `blocked` means
+#             nothing ran and the branch needs rebasing and re-verifying.
+#             Collapsing them sends someone hunting a test failure that
+#             does not exist.
 #   owner     agent that claimed it, or "-"
 #   branch    branch carrying the fix, or "-"
 #   pr        pull request number, or "-"

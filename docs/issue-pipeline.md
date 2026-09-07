@@ -68,6 +68,43 @@ the project first — it would simply write to a project named
 `rust-fs-ntfs`. A silent misfile is worse than a breakage, and a
 positional argument would have made every running agent do it at once.
 
+### `failed` and `blocked` are different work
+
+Both return a row to a fixer, and they are kept apart because what the
+fixer must do differs:
+
+- `failed` — a build ran and said no. Diagnose the failure.
+- `blocked` — **nothing ran.** The pull request is DIRTY, its branch is
+  behind, or an oracle was unavailable. There is no test failure to
+  find; the work is rebase, resolve, re-verify, push.
+
+Someone who picks up a blocked row expecting a failure hunts a defect
+that does not exist. This is the marker-overload lesson again, in the
+ledger rather than in comments: when two things need different work,
+they need different words, and a stage that nobody drains strands its
+rows — so say which agents drain each.
+
+**Verification does not survive a rebase.** Mutation testing, negative
+controls and arm-by-arm reverts are evidence about *one tree*. If the
+code around the fix has been rewritten since, that evidence is stale and
+must be re-established rather than inherited: a fix can be correct
+before a rebase and wrong after it, with every earlier tick still green.
+
+This is the second-order cost of a stack, and it is easy to miss.
+`rust-fs-core` #55 was made un-runnable by #54 merging — nothing was
+wrong with #55. **When two pull requests touch the same file, merging
+one invalidates the other's evidence as well as its mergeability.** Land
+a stack in order and re-verify each after its parent lands, rather than
+preparing them in parallel.
+
+A conflict that is textual — two documentation paragraphs that both
+belong — can be resolved by whoever finds it. A conflict that is
+semantic goes back to the author. Where a refusal sits relative to a
+pre-write sweep, a post-write sweep and a generation counter is not a
+merge decision; get it wrong by one line and the result merges green and
+is quietly wrong. Resolving a conflict you cannot verify is the one
+irreversible step in the pipeline taken on its weakest evidence.
+
 ### Finding what has stopped
 
     am-ledger stale [hours]      claimed rows that have not moved
