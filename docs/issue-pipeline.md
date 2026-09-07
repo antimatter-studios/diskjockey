@@ -90,6 +90,24 @@ code around the fix has been rewritten since, that evidence is stale and
 must be re-established rather than inherited: a fix can be correct
 before a rebase and wrong after it, with every earlier tick still green.
 
+**Look for the collision at branch level, not pull-request level.** By
+the time two pull requests are open the damage is already scheduled, and
+sometimes the sibling does not exist yet: one collision here was between
+a merged pull request and a branch that had not been proposed. The
+overlap was visible, though — the branch was sitting at `fixing` in the
+ledger with its name recorded, touching the same file.
+
+The ledger carries a `branch` field for exactly this. Before merging,
+compare against every branch the ledger has in flight for that
+repository:
+
+    am-ledger list <repo> | awk -F'\t' '$3=="fixing" || $3=="testing" {print $5}'
+    gh api repos/<slug>/compare/main...<branch> -q '.files[].filename'
+
+Where the file lists intersect, say so in the merge comment. It does not
+prevent the collision; it turns a surprise into a note, and tells the
+next fixer their evidence is stale before they discover it.
+
 This is the second-order cost of a stack, and it is easy to miss.
 `rust-fs-core` #55 was made un-runnable by #54 merging — nothing was
 wrong with #55. **When two pull requests touch the same file, merging
@@ -466,6 +484,32 @@ lists of their final tree against your rebased one:
 
 That is how one restored test was found — a single name absent from a
 filtered run.
+
+**4a. Two checks on a resolution, and neither substitutes for the
+other.** The function-set comparison above answers *"was anything
+dropped"* — the invisible failure, since a missing test still reports
+green. It says nothing about whether the file is well-formed.
+
+A conflict boundary can bisect a function: one side ending inside one
+test before its closing brace, the other ending inside a different test,
+with exactly one trailing `}` that both sides want. A keep-both
+resolution then passes the set comparison — 53 functions on main, 56 on
+the branch, 61 in the result, nothing missing — and does not compile.
+Worse, the near-miss version *does* compile: one test's body ending up
+inside another passes, and is wrong.
+
+So pair them. Set comparison for silent loss, compilation for structural
+damage:
+
+    am-slot cargo cargo test --locked --no-run
+
+`--no-run` builds the test binaries without running them, which is the
+cheap half and catches this in seconds.
+
+The general point is worth more than the recipe: **a check can be sound
+for its own question and unsound as a proxy for a larger one.** Treating
+"nothing was dropped" as "this resolution is good" is the same
+substitution the pipeline keeps finding elsewhere.
 
 **5. Resolve conflicts semantically.** When main has added a guard since
 the branch was cut, a textual resolution keeps one side and silently
