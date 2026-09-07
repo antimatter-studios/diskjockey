@@ -263,9 +263,29 @@ tooling:
   catch silently-skipping suites was itself silently skipped, in the
   commit that introduced it, and reported green.
 
+- The one-VM-at-a-time slot, written to stop two virtual machines
+  running at once, would free a lock that was in the middle of being
+  taken. Its release path checks that the caller owns the slot, and
+  falls through to an unconditional `rm -rf` when *no holder is recorded
+  yet* — which is exactly the state `acquire` occupies between creating
+  the lock directory and writing its holder file. `vm.sh down` calls
+  release unconditionally from repositories that never booted, so the
+  collision is ordinary rather than exotic, and the result is two
+  holders, two `acquire` calls returning success, and two VMs.
+
+  The comment directly above that code reads *"Only the holder may
+  release... otherwise a script that never took the slot can free
+  somebody else's, which is the same bug as not having a lock at all."*
+  **The comment states the rule correctly and the code does not
+  implement it.** That is worse than an unguarded path, because it
+  reassures every reader who checks — including the person who wrote
+  both.
+
 **Checking that a guard fires is not the same as checking what it is
 blind to.** Build the failing case and watch it fail, then build the
-cases you did not think of.
+cases you did not think of. And when a comment asserts an invariant,
+test the invariant rather than reading the comment — the two are
+independent claims, and the comment is the one that cannot fail.
 
 **A broken harness looks exactly like a clean bill of health.** When
 both sides of a comparison agree and the evidence says they should not,
