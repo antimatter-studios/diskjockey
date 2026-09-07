@@ -476,6 +476,120 @@ re-derived held. Every failure was in the **prose** — which job runs
 what, what a tool's default is, whether a hook can see a spelling. That
 is where to point the scepticism.
 
+## Dispatch: who wakes a fixing agent
+
+The first version of this pipeline partitioned repositories between two
+fixing agents. That was wrong in a way that took a day to see: three
+repositories were assigned to nobody, and **52 of 187 accepted issues
+sat unowned rather than merely slow** — a gap invisible from `stats`,
+because an unclaimed row looks the same whether it is queued or
+orphaned.
+
+Assignment belongs to the issue, not the repository. Every stage that
+produces work for a fixer sends it:
+
+| stage | when it messages a fixer |
+|---|---|
+| triage | an issue reaches `accepted` |
+| verification | `Verification found defects in the branch` |
+| PR monitoring | a build fails, or a pull request is `blocked` |
+| review | a bot finding becomes an issue worth fixing now |
+
+**Verification is the one most easily forgotten.** It returns work at
+least as often as the monitoring stage does, and it sits in the middle
+of the pipeline rather than at either end, so it is not where anyone
+looks for a producer.
+
+### A message enqueues; it does not interrupt
+
+Each agent keeps its own list of what it has been given, and works
+through it. A message **appends to that list** — it is not an
+instruction to drop what is in hand, and the work it carries may wait
+behind several other items before it is started.
+
+That distinction is what makes the rest safe. An agent busy on one issue
+does not lose the message about the next, because arrival and execution
+are separate: arrival is cheap and immediate, execution is ordered. It
+also means a sender must not infer anything from silence. A stage that
+has handed off and heard nothing back has no evidence about whether the
+work has started, and asking is more expensive than waiting.
+
+Three lists, and they are not the same list:
+
+- **the agent's queue** — what it intends to do, in order. Fast, private,
+  and **lost if the agent dies**.
+- **the ledger** — what is claimed and at what stage. Durable, shared,
+  and the only one that survives an agent.
+- **GitHub** — what each issue says. The truth about content, never
+  about position.
+
+An agent should record a claim in the ledger when it *starts* an item,
+not when it queues one. A row claimed on receipt would show as in
+progress while it sat fifth in a list, and `am-ledger stale` could not
+tell that from an agent that had stopped.
+
+**Messages are the fast path and the ledger is the reliable one.** A
+message already went nowhere in this run — a stage was given an address
+that did not resolve, and it flagged the failure rather than dropping
+it, which is the only reason anyone noticed. If dispatch is purely
+event-driven, a lost message is a silently stalled row; polling used to
+cover for that. So a periodic sweep re-dispatches anything at
+`accepted`, `failed` or `blocked` with no owner, and anything claimed
+that has stopped moving (`am-ledger stale`). That makes a lost message a
+delay rather than a stall.
+
+### A worktree per issue
+
+Two agents in one checkout is a real collision — one ran `git stash -u`
+over another's in-flight work. The fix is not to serialise the
+repository, which would throw away the concurrency dispatch just bought.
+It is to give each issue its own worktree:
+
+    git worktree add <scratch>/<repo>-<issue> -b fix/<issue>-<slug> origin/main
+
+Two obligations come with it, and neither is optional.
+
+**A worktree holds its branch.** Nothing else can check that branch out
+while the worktree exists. So a finished issue must be committed,
+pushed, **and its worktree removed** — `git worktree remove`, then
+`git worktree prune`. An agent that finishes and walks away leaves a
+branch nobody else can touch, and the deadlock is silent.
+
+**Sibling path dependencies must exist beside it.** These crates resolve
+`am-fs-core` through `../rust-fs-core` at a pinned tag, so a worktree in
+a scratch directory does not build until that sibling is provisioned
+there too. Discovered the hard way mid-rebase; provision it with the
+worktree rather than at first build failure.
+
+Each worktree carries its own `target/`, roughly 120 MB. That is the
+running cost, and it is why they get removed rather than accumulate: one
+agent's scratch reached 845 MB across seven of them before anyone looked.
+
+### Concurrent branches will conflict, and that is ordinary
+
+Several issues in one repository, worked at once, will touch the same
+code. The second branch to reach a pull request finds its base changed
+underneath it, and its author has to rebase and resolve in a way that
+satisfies both changes.
+
+This is not a hypothetical cost of the design — it happened twice in one
+day before the design existed. `rust-fs-core` #55 was made un-runnable by
+#54 merging; `rust-fs-ext4` #101 by #100. **Both times nothing was wrong
+with the child.**
+
+Three things make it survivable:
+
+- **The fixer that wrote the change resolves it.** A textual conflict can
+  be settled by whoever finds it; a semantic one — where a refusal sits
+  relative to two sweeps and a generation counter — cannot.
+- **Verification does not survive the rebase.** Mutation evidence and
+  arm-by-arm reverts describe one tree. Re-establish them, do not
+  inherit them.
+- **Check for the collision before merging, at branch level.** The
+  ledger records each row's branch, so the overlap is visible before the
+  second pull request exists — which is earlier than the pull-request
+  list can see it.
+
 ## Pull requests from outside contributors
 
 A fork pull request is the one case where the pipeline stops and a
