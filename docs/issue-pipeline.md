@@ -349,6 +349,30 @@ This is the guard-that-is-itself-unguarded defect again, in the act of
 checking: it is possible to confirm a search ran and never establish
 what it was blind to.
 
+**State the scope of a survey with its result.** Two agents surveyed the
+same question and got different answers: one read `ci.yml`, the other
+read all of `.github/workflows/`. Both were correct answers to the
+question each had actually asked, and neither was the question that
+mattered — *can the gate that decides a merge see this defect?* Each
+then read the other's number as an answer to their own question, and
+four issues were filed on the wrong claim before the disagreement
+surfaced.
+
+One line of scope in each report would have made the conflict visible
+immediately. "Across `ci.yml` on main" and "across every workflow file"
+are different findings even when the number is the same.
+
+**Two agents disagreeing is a control worth arranging.** The
+reconciliation produced a better answer than either had: five
+repositories affected rather than four or one, and two distinct remedies
+— one group has no debug run at all, the other has one on the wrong side
+of the merge, triggered by `push: tags` rather than `pull_request`. That
+distinction is invisible unless someone asks why the two surveys differ.
+
+For a finding that will drive work across several repositories, having
+two agents reach it independently costs less than either one being more
+careful, and catches a class of error that care does not.
+
 **Ask whether the gate's profile can observe *this* defect.** Not
 whether CI runs both profiles — whether the one it gates on could fail
 for the reason under test.
