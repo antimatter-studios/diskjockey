@@ -349,6 +349,25 @@ This is the guard-that-is-itself-unguarded defect again, in the act of
 checking: it is possible to confirm a search ran and never establish
 what it was blind to.
 
+**Ask whether the gate's profile can observe *this* defect.** Not
+whether CI runs both profiles — whether the one it gates on could fail
+for the reason under test.
+
+Every `cargo test` in one crate's CI is `--release`, and its
+`[profile.release]` sets no `overflow-checks`, so the default applies
+and arithmetic overflow wraps silently instead of panicking. A fix for
+an overflow defect merged there with four tests that ran, passed, and
+**could not fail**: in release the old code returned the right answer by
+accident. The tests were real, the run was real, the green tick was
+real, and it certified nothing.
+
+This is the strongest form of the pattern. Not a suite that skipped, not
+a job that never ran, not a result nothing read — a test that executed
+and whose outcome was independent of the bug. It generalises past
+overflow: any defect whose symptom depends on build configuration —
+`debug_assert!`, bounds behaviour, sanitisers, timing — needs its gate
+checked against the specific failure, not against a coverage policy.
+
 **Reproducing CI means reproducing its environment, not its command.**
 `CI=true` changes behaviour in several of these repositories. A local
 run without it answers a different question, and answers it more
