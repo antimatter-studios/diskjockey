@@ -659,20 +659,40 @@ Three things make it survivable:
   second pull request exists — which is earlier than the pull-request
   list can see it.
 
-## Every agent reports tersely
+## Nobody reads the chatter
 
-**Put this in every agent brief**, alongside the name and the working
-rules. It is not a style preference — a stage's reports are pure
-overhead, and prose costs the same as evidence.
+The only output anyone reads is what lands on GitHub: issue comments,
+pull request descriptions, review replies. Everything else — a stage's
+report to the coordinator, the coordinator's brief to a stage, the
+messages between them — is machinery, and it was being written as though
+it were prose for publication.
 
-> Report tersely. Drop articles, filler and hedging. Fragments are fine.
-> Lead with the finding, not the narrative. No preamble, no restating the
-> question, no summary of what you are about to say. Numbers and file
-> paths exact; error strings verbatim. If a table says it in four rows,
-> do not write four paragraphs.
+**The coordinator was the worst offender.** Agent briefs ran past a
+thousand words; individual messages four to six hundred. Each is input
+tokens for the receiving agent, which then replies at similar length,
+and neither side reads the other's prose closely. That is a wall of text
+built by both ends of every conversation.
 
-Compression applies to **reporting**, never to the work. A verification
-that skips an arm-revert to save output has saved nothing.
+Three rules, and the first two are the coordinator's:
+
+**A brief is a pointer, not a manual.** Name the stage, its identity
+variables, the markers it may use, and **point at this document** for
+the working rules. Do not restate them — they are written down, and
+restating them costs the same as writing them again from scratch. A
+brief should be twenty lines.
+
+**A message to an agent is a few lines.** What changed, what to do, what
+not to do. If it needs a rationale, one sentence. An agent that needs
+convincing at length is being given the wrong instruction.
+
+**A report says only what changes a decision.** What was verified, what
+failed, what is blocked and why, what needs a human. Not the method, not
+the reasoning, not a narrative of the investigation — unless the method
+*is* the finding, which happens and is worth saying in one line. No
+tables of things that went as expected.
+
+Compression never applies to the work. A verification that skips an
+arm-revert to shorten its output has saved nothing.
 
 ### What stays in normal prose
 
