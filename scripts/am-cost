@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+#
+# am-cost — what a stage spent on an issue.
+#
+#   am-cost add <repo> <issue> <stage> <tokens> [tools] [note]
+#   am-cost report              per-stage and per-issue averages
+#   am-cost raw                 the rows
+#
+# WHY. A night of this pipeline consumed a fifth of an account's monthly
+# allowance, and the post-mortem had to reconstruct per-issue cost by
+# dividing agent totals by issue counts -- which mixes a stage's startup
+# with its marginal work and cannot distinguish a fresh agent from a
+# resumed one. Recording it as it happens turns the next decision from an
+# argument into a lookup.
+#
+# Only the coordinator sees an agent's reported usage, so only the
+# coordinator writes here.
+set -euo pipefail
+F="${AM_COST_FILE:-$HOME/.local/state/am-constellation/cost.tsv}"
+mkdir -p "$(dirname "$F")"
+
+case "${1:-report}" in
+  add)
+    [ $# -ge 5 ] || { echo "usage: am-cost add <repo> <issue> <stage> <tokens> [tools] [note]" >&2; exit 2; }
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$2" "$3" "$4" "$5" "${6:-0}" "${7:-}" >> "$F"
+    echo "recorded: $2#$3 $4 ${5} tokens"
+    ;;
+  raw) [ -f "$F" ] && cat "$F" || echo "no data" ;;
+  report)
+    [ -f "$F" ] || { echo "no data yet"; exit 0; }
+    awk -F'\t' '
+      { tok[$4]+=$5; n[$4]++; total+=$5; issues[$2"#"$3]=1 }
+      END {
+        printf "  %-14s %10s %6s %10s\n", "stage", "tokens", "runs", "per run"
+        for (s in tok) printf "  %-14s %10d %6d %10d\n", s, tok[s], n[s], tok[s]/n[s]
+        ni=0; for (i in issues) ni++
+        printf "  %-14s %10d %6d %10d\n", "TOTAL", total, ni, (ni ? total/ni : 0)
+        printf "\n  %d distinct issues\n", ni
+      }' "$F"
+    ;;
+  *) echo "am-cost: unknown command '$1'" >&2; exit 2 ;;
+esac

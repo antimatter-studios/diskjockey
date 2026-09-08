@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+#
+# am-worktree-own — say who a worktree belongs to, and that it is alive.
+#
+#   am-worktree-own <path> <agent-name>   claim it, or refresh the heartbeat
+#   am-worktree-own --who <path>          print the owner and how stale it is
+#   am-worktree-own --forget <path>       drop the claim
+#
+# WHY THE STATE IS NOT IN THE WORKTREE.
+#
+# The first version wrote `.am-worktree-owner` into the worktree itself
+# and added it to `info/exclude`. That was wrong, and it was wrong in the
+# way that matters: an agent ran `git add -A` and **committed the
+# heartbeat into its fix branch**. A tool whose whole purpose is to be
+# invisible to git had put a file into somebody's pull request.
+#
+# Excluding it harder would not fix this. Anything inside the tree can be
+# force-added, can appear in `git status` if the exclude write ever
+# fails, and makes a verification result arguable the moment somebody
+# notices an unexplained modification. So the state lives OUTSIDE, keyed
+# by the worktree's path. It cannot dirty a tree it is not in.
+#
+# WHY AN OWNER FILE AT ALL, rather than the directory's timestamp: a
+# build touches the directory constantly while an agent that is reading
+# or reasoning touches nothing, so mtime reports a busy tree as idle and
+# an idle tree as busy. This changes only when an agent says "still
+# mine", so its age measures the agent.
+set -euo pipefail
+
+STATE_DIR="${AM_WORKTREE_STATE:-$HOME/.local/state/am-worktrees}"
+
+# One file per worktree, named by a hash of its absolute path so the name
+# is stable, filesystem-safe and collision-free.
+key_for() {
+    printf '%s' "$1" | shasum -a 256 | cut -c1-32
+}
+
+case "${1:-}" in
+    --who)
+        path="${2:?usage: am-worktree-own --who <path>}"
+        f="$STATE_DIR/$(key_for "$path")"
+        [ -f "$f" ] || { echo "unowned"; exit 0; }
+        name=$(cut -f1 < "$f"); when=$(cut -f2 < "$f")
+        printf '%s\theartbeat %sm ago\n' "$name" "$(( ( $(date +%s) - ${when:-0} ) / 60 ))"
+        exit 0 ;;
+    --forget)
+        path="${2:?usage: am-worktree-own --forget <path>}"
+        # An explicit single path, never a pattern.
+        rm -f "$STATE_DIR/$(key_for "$path")"
+        exit 0 ;;
+esac
+
+path="${1:?usage: am-worktree-own <path> <agent-name>}"
+name="${2:?usage: am-worktree-own <path> <agent-name>}"
+[ -d "$path" ] || { echo "am-worktree-own: no such directory: $path" >&2; exit 1; }
+
+mkdir -p "$STATE_DIR"
+printf '%s\t%s\t%s\n' "$name" "$(date +%s)" "$path" > "$STATE_DIR/$(key_for "$path")"

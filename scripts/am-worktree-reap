@@ -1,0 +1,224 @@
+#!/usr/bin/env bash
+#
+# am-worktree-reap — remove worktrees that are finished and forgotten.
+#
+#   am-worktree-reap                 report what it would do, change nothing
+#   am-worktree-reap --remove        actually remove the ones it can prove are safe
+#   am-worktree-reap --repo <name>   restrict to one repository
+#
+#   AM_REAP_GRACE_MINS   how long a worktree must be untouched (default 30)
+#   AM_REAP_ROOT         where the repositories live
+#
+# WHY THIS EXISTS. Every agent that needs a sibling crate beside its work
+# creates a worktree, and an agent that dies -- or simply finishes and
+# forgets -- leaves it behind. Thirty-six accumulated in a single day.
+# They are individually harmless and collectively expensive: each carries
+# its own `target/`, and one agent's scratch reached 845 MB across seven
+# of them.
+#
+# THE HARD PART IS NOT DELETING, IT IS REFUSING TO. Half-finished work is
+# the most expensive thing in this pipeline, because it is the part that
+# was hard enough to still be unfinished. So this removes a worktree only
+# when it can PROVE there is nothing in it, and reports everything it
+# declined to touch and why. A worktree carrying work is not this tool's
+# business -- it goes back to a fixing agent to be finished.
+#
+# Every refusal below is a case where the tool cannot prove safety, not a
+# case where it found danger. That asymmetry is deliberate: the cost of
+# skipping a reapable worktree is some disk, and the cost of removing an
+# unreapable one is somebody's afternoon.
+set -euo pipefail
+
+ROOT="${AM_REAP_ROOT:-/Volumes/sdcard256gb/projects}"
+
+# THE REPOSITORIES THIS TOOL MAY TOUCH, NAMED.
+#
+# The first version globbed the root directory, and the dry run reported
+# it was about to prune worktrees in three unrelated projects of the
+# user's -- a mail service, a homebrew tap, a Go library. Nothing was
+# wrong with the logic; the SCOPE was wrong, and a scope error in a tool
+# that deletes is the whole ballgame.
+#
+# So the set is enumerated. A repository that is not on this list is not
+# this tool's business, however much it looks like one.
+REPOS=(
+    rust-fs-core rust-fs-xfs rust-fs-ext4 rust-fs-btrfs
+    rust-fs-erofs rust-fs-squashfs rust-fs-ntfs
+    rust-img-qcow2 rust-img-vhd rust-img-vhdx rust-img-vmdk
+    rust-partitions diskjockey
+)
+# An agent that is reading or reasoning touches nothing on disk, so the
+# window has to be long enough to cover thinking rather than only
+# building. An hour is comfortably longer than any single build here and
+# still short enough to keep the count down.
+GRACE_MINS="${AM_REAP_GRACE_MINS:-60}"
+# A worktree nobody has claimed cannot be attributed to a live agent, so
+# it gets a far longer benefit of the doubt than one whose owner has
+# simply gone quiet.
+UNOWNED_GRACE_MINS="${AM_REAP_UNOWNED_GRACE_MINS:-240}"
+DO_REMOVE=0
+ONLY_REPO=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --remove) DO_REMOVE=1; shift ;;
+        --repo)   ONLY_REPO="${2:?--repo needs a name}"; shift 2 ;;
+        --help|-h) sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "am-worktree-reap: unknown argument '$1'" >&2; exit 2 ;;
+    esac
+done
+
+# COUNTERS IN A FILE, NOT IN VARIABLES.
+#
+# The loop below reads from a pipe, so bash runs its body in a subshell
+# and every `reaped=$((reaped + 1))` is discarded when it exits. The
+# first version therefore printed "would remove: 0" while listing
+# seventeen -- a summary that disagreed with the report above it, which
+# is worse than no summary at all.
+TALLY="$(mktemp -d)"
+trap 'rm -rf "$TALLY"' EXIT
+: > "$TALLY/reap"; : > "$TALLY/keep"
+bump() { echo x >> "$TALLY/$1"; }
+count() { grep -c . < "$TALLY/$1" 2>/dev/null || echo 0; }
+
+# Is anything actually using this directory right now? A process with its
+# working directory inside it is the clearest possible "somebody is here",
+# and it is the check that survives an agent that has gone quiet but not
+# died.
+in_use() {
+    local dir="$1"
+    command -v lsof >/dev/null 2>&1 || return 1
+    lsof -a -d cwd -- "$dir" >/dev/null 2>&1
+}
+
+# Recently touched? Cheap proxy for work in progress that has not written
+# to git yet -- an editor buffer, a build, a test run mid-flight.
+recently_touched() {
+    local dir="$1" mins="${2:-$GRACE_MINS}"
+    [ -n "$(find "$dir" -maxdepth 2 -newermt "-${mins} minutes" -print -quit 2>/dev/null)" ]
+}
+
+# Who claimed this worktree, and when did they last say so?
+#
+# THIS IS A BETTER SIGNAL THAN THE DIRECTORY'S TIMESTAMP, and in the
+# opposite direction to what you would guess. A build touches the
+# directory constantly while an agent that is reading or reasoning
+# touches nothing, so directory mtime reports a busy tree as idle and an
+# idle tree as busy. The owner file changes only when an agent
+# deliberately says "still mine", so its age measures the agent.
+#
+# An absent owner file proves nothing -- it may predate the convention --
+# so it makes this MORE cautious rather than less: the fallback window is
+# several times the heartbeat one.
+# The claim lives OUTSIDE the worktree, keyed by a hash of its path.
+# It was briefly stored inside, and an agent committed it into a fix
+# branch -- a tool meant to be invisible to git ended up in somebody's
+# pull request. Anything inside the tree can be force-added.
+AM_WT_STATE="${AM_WORKTREE_STATE:-$HOME/.local/state/am-worktrees}"
+owner_file() { printf '%s/%s' "$AM_WT_STATE" "$(printf '%s' "$1" | shasum -a 256 | cut -c1-32)"; }
+owner_name() { local f; f="$(owner_file "$1")"; [ -f "$f" ] && cut -f1 < "$f" || true; }
+owner_age_mins() {
+    local f when; f="$(owner_file "$1")"
+    when=$(cut -f2 < "$f" 2>/dev/null || echo 0)
+    echo $(( ( $(date +%s) - ${when:-0} ) / 60 ))
+}
+
+keep() { printf '  KEEP    %-58s %s\n' "$1" "$2"; bump keep; }
+
+consider() {
+    local repo="$1" main="$2" path="$3" branch="$4"
+
+    # The directory is gone but git still has the entry. This is the one
+    # case where `prune` is the whole remedy: there is nothing on disk to
+    # preserve, and the entry still holds the branch if it had one.
+    if [ ! -d "$path" ]; then
+        printf '  PRUNE   %-58s directory is gone; entry still holds its branch\n' "$path"
+        [ "$DO_REMOVE" = 1 ] && git -C "$main" worktree prune
+        bump reap
+        return
+    fi
+
+    # Uncommitted work. NOT this tool's business -- it belongs to a fixing
+    # agent, to be committed and finished.
+    local dirty
+    dirty=$(git -C "$path" status --porcelain 2>/dev/null | grep -c . || true)
+    if [ "${dirty:-0}" -gt 0 ]; then
+        keep "$path" "$dirty uncommitted change(s) — send to a fixing agent"
+        return
+    fi
+
+    # Committed but never pushed. The work exists only here, so removing
+    # the worktree would destroy it.
+    if [ "$branch" != "detached" ]; then
+        local unpushed
+        # `grep -c` exits 1 on zero matches, so a naive `|| echo unknown`
+        # emits BOTH the count and the word. Ask git whether an upstream
+        # exists first, then count separately.
+        if ! git -C "$path" rev-parse --abbrev-ref '@{upstream}' >/dev/null 2>&1; then
+            unpushed="unknown"
+        else
+            unpushed=$(git -C "$path" rev-list --count '@{upstream}..HEAD' 2>/dev/null || echo 0)
+        fi
+        if [ "$unpushed" = "unknown" ]; then
+            keep "$path" "branch '$branch' has no upstream — cannot prove it is pushed"
+            return
+        fi
+        if [ "$unpushed" -gt 0 ]; then
+            keep "$path" "$unpushed unpushed commit(s) on '$branch'"
+            return
+        fi
+    fi
+
+    if in_use "$path"; then
+        keep "$path" "a process is working in it right now"
+        return
+    fi
+
+    local owner; owner="$(owner_name "$path")"
+    if [ -n "$owner" ]; then
+        local age; age="$(owner_age_mins "$path")"
+        if [ "$age" -lt "$GRACE_MINS" ]; then
+            keep "$path" "owned by $owner, heartbeat ${age}m ago"
+            return
+        fi
+        printf '  REAP    %-58s clean, pushed; %s silent for %sm\n' "$path" "$owner" "$age"
+    else
+        # No owner recorded. Fall back to the filesystem, with a much
+        # longer window, because this is the case we cannot attribute.
+        if recently_touched "$path" "$UNOWNED_GRACE_MINS"; then
+            keep "$path" "unowned and touched within ${UNOWNED_GRACE_MINS}m — cannot prove it is idle"
+            return
+        fi
+        printf '  REAP    %-58s clean, pushed, unowned, untouched %sm+\n' "$path" "$UNOWNED_GRACE_MINS"
+    fi
+    if [ "$DO_REMOVE" = 1 ]; then
+        # `git worktree remove` refuses a dirty tree on its own, which is
+        # a second guard behind the check above -- and it names the exact
+        # path rather than expanding a pattern.
+        git -C "$main" worktree remove "$path" 2>/dev/null \
+            || { echo "          (git declined; left in place)"; bump keep; return; }
+    fi
+    bump reap
+}
+
+for repo in "${REPOS[@]}"; do
+    main="$ROOT/$repo"
+    [ -n "$ONLY_REPO" ] && [ "$repo" != "$ONLY_REPO" ] && continue
+    [ -e "$main/.git" ] || continue
+    git -C "$main" worktree list --porcelain 2>/dev/null | awk '
+        /^worktree /{p=$2} /^branch /{b=$2} /^detached/{b="detached"}
+        /^$/{ if (p != "") { print p "\t" (b == "" ? "detached" : b); p=""; b="" } }
+        END  { if (p != "") print p "\t" (b == "" ? "detached" : b) }
+    ' | tail -n +2 | while IFS=$'\t' read -r path branch; do
+        [ -n "$path" ] || continue
+        consider "$repo" "$main" "$path" "${branch##refs/heads/}"
+    done
+done
+
+echo
+if [ "$DO_REMOVE" = 1 ]; then
+    echo "  removed/pruned: $(count reap)   kept: $(count keep)"
+else
+    echo "  would remove: $(count reap)   would keep: $(count keep)"
+    echo "  (nothing has been changed; pass --remove to act)"
+fi

@@ -1,0 +1,237 @@
+#!/usr/bin/env bash
+#
+# am-slot — run a command holding one of N shared slots.
+#
+#   am-slot <pool> <command...>     wait for a slot, run, release
+#   am-slot --status <pool>         who holds the pool right now
+#
+#   AM_SLOT_LIMIT   how many may run at once (default 2)
+#   AM_SLOT_NAME    who is asking (default: the pid)
+#   AM_SLOT_WAIT    seconds to wait before giving up (default 1800)
+#
+# WHY THIS EXISTS. Telling each agent "run one `cargo test` at a time"
+# does not work, and the reason is worth stating: every agent obeys it,
+# and none of them can see the others. Five obedient agents produce five
+# concurrent runs.
+#
+# On an SD-card-backed volume that is not merely slow. It produces test
+# failures that are not real — suites that pass alone and fail under
+# contention — and hours have gone into chasing them. Worse, it fills
+# memory, and when this machine fills it does not fail cleanly: it kills
+# background work with nothing to connect the deaths to the cause.
+#
+# So the limit has to live outside the agents, where it can count.
+#
+#   am-slot cargo cargo test --locked
+#
+# The cost is honest: work queues instead of overlapping, and a run
+# waits for the ones ahead of it. That is slower on a good day and much
+# better on a bad one, which is the same trade the oracle-VM slot makes.
+set -euo pipefail
+
+POOL_DIR_BASE="${AM_SLOT_DIR:-$HOME/.local/state/am-slots}"
+LIMIT="${AM_SLOT_LIMIT:-2}"
+NAME="${AM_SLOT_NAME:-pid-$$}"
+WAIT_SECS="${AM_SLOT_WAIT:-1800}"
+
+if [ "${1:-}" = "--status" ]; then
+    pool="${2:?usage: am-slot --status <pool>}"
+    dir="$POOL_DIR_BASE/$pool"
+    [ -d "$dir" ] || { echo "pool '$pool' is idle"; exit 0; }
+    held=0
+    for f in "$dir"/*.slot; do
+        [ -e "$f" ] || continue
+        holder=$(cat "$f" 2>/dev/null || echo "?")
+        pid=${holder##*|}
+        if kill -0 "$pid" 2>/dev/null; then
+            echo "  held by ${holder%%|*} (pid $pid)"
+            held=$((held + 1))
+        else
+            echo "  stale slot from ${holder%%|*} (pid $pid is gone) — reclaimable"
+        fi
+    done
+    [ "$held" = 0 ] && echo "pool '$pool' is idle"
+    exit 0
+fi
+
+POOL="${1:?usage: am-slot <pool> <command...>}"
+shift
+[ $# -gt 0 ] || { echo "am-slot: nothing to run" >&2; exit 2; }
+
+DIR="$POOL_DIR_BASE/$POOL"
+mkdir -p "$DIR"
+
+MY_SLOT=""
+
+# A slot file is named by index and holds "name|pid". Liveness is the
+# pid, which works here — unlike the VM slot, where the thing being
+# protected outlives the process that took it — because the command runs
+# as a child of this script and dies with it.
+# RESERVING A SLOT, AND WHY.
+#
+# A pool shared by producers and a consumer starves the consumer. Two
+# fixing agents build continuously -- that is the job -- while the
+# verification stage needs eight to twelve cargo invocations to check a
+# single branch. With both slots held by producers on every sample, the
+# verifier queued fifteen minutes and was heading for its wait limit.
+#
+# Nothing goes red when this happens. Work accumulates at the
+# verification stage, which is why it is worth naming rather than
+# tuning: the symptom is a growing queue, not a failure.
+#
+# So slot 1 can be reserved for one caller by name. Write the name into
+# <pool>.reserved; only AM_SLOT_NAME matching it may take slot 1, and
+# everyone else starts at slot 2. The reserved caller may still use any
+# free slot, so nothing is wasted while it is idle.
+#
+#   echo verify-pr > ~/.local/state/am-slots/cargo.reserved
+#
+# The configuration lives HERE rather than in the agents, for the same
+# reason the limit does: an agent cannot see the others, so a rule each
+# applies to itself is not a rule. Deleting the file removes the
+# reservation, which makes this the cheapest available fix to undo --
+# and cheaper than raising the limit, which exists because two was not
+# obviously safe and guards the failure that kills background work with
+# nothing connecting the deaths to the cause.
+# The reservation file holds one name per line -- a SET of callers, not a
+# single one, because a stage can be more than one agent. Two
+# verification agents share the reserved slot: they queue behind each
+# other, which is ordinary, rather than behind the fixers, which was the
+# starvation. Comments and blank lines are ignored so the file can say
+# who it is for.
+RESERVED_FILE="$POOL_DIR_BASE/$POOL.reserved"
+
+# Is $NAME a member of the reserved set? Returns 1 if there is no
+# reservation at all, so an absent file means "everyone may take slot 1".
+name_is_reserved() {
+    [ -f "$RESERVED_FILE" ] || return 1
+    local line
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%%#*}"
+        line="$(printf '%s' "$line" | tr -d ' \t\r')"
+        [ -n "$line" ] || continue
+        [ "$line" = "$NAME" ] && return 0
+    done < "$RESERVED_FILE"
+    return 1
+}
+
+# Does a reservation exist at all (any non-comment line)?
+reservation_exists() {
+    [ -f "$RESERVED_FILE" ] || return 1
+    local line
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%%#*}"
+        line="$(printf '%s' "$line" | tr -d ' \t\r')"
+        [ -n "$line" ] && return 0
+    done < "$RESERVED_FILE"
+    return 1
+}
+
+# How long slot 1 must sit visibly free before a non-reserved caller may
+# fall back into it.
+#
+# A STATIC RESERVATION SOLVES THE PROBLEM IT WAS WRITTEN FOR AND THEN
+# KEEPS SOLVING IT. Slot 1 was pinned when the verification stage was
+# starving behind two producers, which was real. The constraint then
+# moved upstream -- the backlog is now at the fixing stage, verification
+# runs an empty queue -- and the pin stayed where it was, so the fixers
+# serialised on one slot while the slot held against starvation sat
+# idle. Measured waits of 297s, 309s, 606s, 762s and 1101s, against a
+# reserved slot nobody was using.
+#
+# So the reservation is now soft in one direction. A reserved caller
+# still takes slot 1 immediately, always. A non-reserved caller uses the
+# other slots first and may fall back to slot 1 only after finding it
+# continuously free for this long -- which is evidence that no reserved
+# caller wants it, rather than an assumption either way.
+#
+# It is self-correcting, which is the property that matters: the moment
+# a verifier queues, it takes slot 1 the instant it frees, and every
+# waiting fixer's grace timer resets. The worst case is bounded at one
+# build, and no configuration has to be revisited when the constraint
+# moves again -- which it will.
+RESERVE_GRACE="${AM_SLOT_RESERVE_GRACE:-45}"
+
+# Set by the wait loop: how long slot 1 has been observed free.
+SLOT1_FREE_SINCE=""
+
+slot_is_free() {
+    local f="$DIR/$1.slot" pid
+    [ -e "$f" ] || return 0
+    pid=$(cut -d'|' -f2 < "$f" 2>/dev/null || echo "")
+    [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null && return 0
+    return 1
+}
+
+take_slot() {
+    local i f first=1
+    if reservation_exists && ! name_is_reserved; then
+        first=2
+        [ "$LIMIT" -ge 2 ] || return 1
+        # Fall back into the reserved slot only after it has been free
+        # for the whole grace window. Observed, not assumed.
+        if slot_is_free 1; then
+            [ -n "$SLOT1_FREE_SINCE" ] || SLOT1_FREE_SINCE=$(date +%s)
+            if [ $(( $(date +%s) - SLOT1_FREE_SINCE )) -ge "$RESERVE_GRACE" ]; then
+                first=1
+            fi
+        else
+            # Somebody took it: start the clock again from scratch.
+            SLOT1_FREE_SINCE=""
+        fi
+    fi
+    for i in $(seq "$first" "$LIMIT"); do
+        f="$DIR/$i.slot"
+        # Reclaim a slot whose holder is gone. A run killed by the OOM
+        # killer -- which is exactly what this exists to prevent, and
+        # therefore exactly what will happen while it is still being
+        # rolled out -- leaves its file behind.
+        if [ -e "$f" ]; then
+            local pid
+            pid=$(cut -d'|' -f2 < "$f" 2>/dev/null || echo "")
+            if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+                rm -f "$f"
+            fi
+        fi
+        # `noclobber` makes this atomic: two processes racing for the
+        # same index, one wins.
+        if (set -o noclobber; printf '%s|%s\n' "$NAME" "$$" > "$f") 2>/dev/null; then
+            MY_SLOT="$f"
+            return 0
+        fi
+    done
+    return 1
+}
+
+release_slot() {
+    [ -n "$MY_SLOT" ] && rm -f "$MY_SLOT"
+    MY_SLOT=""
+}
+trap release_slot EXIT INT TERM
+
+waited=0
+announced=0
+until take_slot; do
+    if [ "$announced" = 0 ]; then
+        echo "[am-slot] waiting for a '$POOL' slot ($LIMIT in use) — queued, not stuck" >&2
+        announced=1
+    fi
+    if [ "$waited" -ge "$WAIT_SECS" ]; then
+        echo "[am-slot] gave up after ${waited}s waiting for a '$POOL' slot" >&2
+        echo "[am-slot] 'am-slot --status $POOL' shows who holds them." >&2
+        exit 1
+    fi
+    sleep 3
+    waited=$((waited + 3))
+done
+
+[ "$announced" = 1 ] && echo "[am-slot] got a slot after ${waited}s" >&2
+
+# The command's exit status is this script's, so callers cannot tell the
+# difference between running under the slot and running directly. A
+# wrapper that swallowed a failure would be worse than no wrapper.
+set +e
+"$@"
+rc=$?
+set -e
+exit "$rc"
