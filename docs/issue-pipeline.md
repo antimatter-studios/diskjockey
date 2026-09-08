@@ -170,6 +170,35 @@ inside, and an agent committed the heartbeat into its fix branch.
 **The negative control is the whole value.** Revert only the source,
 keep the test, confirm the test fails.
 
+**An empty result is not an answer.** Four separate false conclusions in
+one sitting, all the same shape — a query that *failed* returned nothing,
+and nothing was read as data:
+
+| what was run | what it seemed to say |
+|---|---|
+| `git fetch ... 2>/dev/null` (failed) | four branches touch no files |
+| `gh issue list --search` (no comment index) | the finding was never filed |
+| `jq 'select(.name\|test("ubuntu"))'` (wrong job) | zero tests ran in CI |
+| `git checkout -- <path>` (restored the index) | the tests do not pin the fix |
+
+Each was **no answer**, and no answer is indistinguishable from a
+negative one. So: **any query whose emptiness would be meaningful must
+assert non-emptiness first.** Count the rows, check the exit status,
+name the thing you expected to find. Never redirect stderr on a command
+whose failure would change the conclusion.
+
+This is the same defect the pipeline exists to find, committed by the
+thing doing the finding. It is worth expecting rather than regretting.
+
+**`git checkout <ref> -- <path>` stages the file.** So the obvious undo,
+`git checkout -- <path>`, restores from the *index* — which still holds
+the reverted content — and the file is never put back. Every test after
+that runs against a half-reverted tree and passes, which reads exactly
+like "the tests do not pin the fix". Three measurements were lost to
+this in one sitting. Use `git reset --hard HEAD` to undo a per-arm
+revert, and check `git status` is clean before believing the next
+result.
+
 **Revert each arm separately, not the whole file.** A whole-file revert
 asks "does anything here matter?", to which the answer is nearly always
 yes. Three fixes had several mechanisms covered by one test that would
