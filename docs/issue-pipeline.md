@@ -735,6 +735,47 @@ A worked contrast, same defect:
 
 The second is shorter and tells the fixer more.
 
+### Measured: what terseness actually buys
+
+Four issues in one crate, fresh agents, two per arm. Same verification
+standard on both sides; the only variables were brief length and how
+much reporting was asked for.
+
+| | issue | tokens | tool calls |
+|---|---|---|---|
+| verbose brief, nine-item report | #38 | 166,582 | 75 |
+| verbose brief, nine-item report | #53 | 115,472 | 54 |
+| short brief, three-line report | #43 | 105,360 | 45 |
+| short brief, three-line report | #40 | 120,170 | 48 |
+| **average** | | **141,027 → 112,765** | **65 → 47** |
+
+**About 20% fewer tokens and 28% fewer tool calls.** Not the 37% the
+first pair suggested — that pair gave the verbose arm the harder issue,
+and the second pair, with the assignment reversed, closed the gap. The
+ranges overlap, so with two samples per arm this is suggestive rather
+than settled.
+
+**The tool-call count is the better measure.** It counts work done
+rather than words written, and it moved in the same direction, which is
+what makes the token figure credible at all.
+
+**Quality did not move.** Both short-briefed runs produced the stronger
+controls of the four. One caught its own invalid measurement —
+`--test caching_lru --lib caching_device` filters *both* binaries, so a
+suite reported `0 passed; 6 filtered out`, EXIT=0, while a mutation was
+live. The other built an eight-arm control in which one arm, a
+renumbering applied to *both* files, is invisible to the text comparison
+and caught only by the literal assertions — proving neither of its two
+tests is redundant.
+
+**So keep the short briefs and terse reports**: a fifth of the cost for
+nothing given up. But the saving is not where the money is. Every one of
+those four issues cost over a hundred thousand tokens whatever the
+style, and there are hundreds of issues. **Brief length is a rounding
+error against issue count.** The scope of a run is the only lever that
+matters at that scale, and it is a decision for the person paying rather
+than a setting to tune.
+
 ## What this costs, and where the money actually goes
 
 A night of running this consumed a fifth of an account's monthly
