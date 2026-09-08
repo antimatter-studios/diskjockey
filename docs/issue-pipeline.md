@@ -694,28 +694,46 @@ tables of things that went as expected.
 Compression never applies to the work. A verification that skips an
 arm-revert to shorten its output has saved nothing.
 
-### What stays in normal prose
+### GitHub too
 
-Terse output is for what dies with the session. Anything that outlives
-it, or is read by a person who was not here, is written properly:
+An earlier version of this section exempted issue bodies, commit
+messages and pull request descriptions on the grounds that they are read
+by a stranger weeks later. That was wrong. **A wall of text nobody reads
+is no better on GitHub than in a transcript**, and the filed issues here
+had grown to several screens each.
 
-- **issue bodies** — read by whoever fixes it, weeks later, with none of
-  the context;
-- **commit messages and pull request descriptions** — the permanent
-  record of why, and the only explanation a future reader gets;
-- **comments in code** — the same, at closer range;
-- **comments posted to GitHub**, including the stage markers and any
-  correction.
+What a fixing agent needs from an issue is a short list:
 
-The rule is the audience, not the medium. A report to the coordinator is
-a working note between two processes that will both be gone tomorrow. An
-issue body is a letter to a stranger. **Compress the first, write the
-second.**
+- what is wrong, in one sentence;
+- where — `file.rs:120`, exact;
+- how to reproduce, as a command or the input values;
+- what is already established, and what is not;
+- the remedy if it is known, and a warning if the obvious one is wrong.
 
-This distinction is easy to get backwards under instruction to be brief,
-and getting it backwards is expensive: a terse issue body costs a fixing
-agent an hour of rediscovery, which is the exact trade the compression
-was meant to avoid.
+That is the whole requirement. What had accumulated around it was
+narrative: how the defect was found, why it matters in general, the
+reasoning chain that led to the conclusion, a restatement of the
+conclusion. None of it changes what the fixer does.
+
+**The distinction is facts against narrative, not prose against
+shorthand.** Keep every fact — an exact error string, a line number, a
+measured figure, a reproduction command, a named caveat. Cut the story
+around them. Compression that loses a fact has failed; compression that
+loses three paragraphs of explanation has worked.
+
+A worked contrast, same defect:
+
+> **Before.** Four paragraphs on why release-mode overflow semantics
+> differ from debug, a history of how it was discovered, the general
+> principle, then the finding.
+>
+> **After.** `ci.yml:138` — every `cargo test` is `--release`.
+> `[profile.release]` sets no `overflow-checks`, so it defaults off.
+> Measured on one commit: `--release --lib` EXIT=0, 615 passed;
+> `--locked --lib` EXIT=101, 4 failed. Four tests that could not fail.
+> Fix: add a debug run; needs a test that fails without it.
+
+The second is shorter and tells the fixer more.
 
 ## What this costs, and where the money actually goes
 
