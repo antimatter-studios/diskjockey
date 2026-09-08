@@ -30,6 +30,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # First, and needs nothing but the checkout -- no network, no
+      # toolchain. A stale transitive pin can sit for a long time
+      # otherwise: am-fs-core sat six releases behind for eight
+      # releases, missing a silent-wrong-bytes fix, because a lockfile
+      # can be internally self-consistent and still not use a version
+      # anyone has actually verified. See diskjockey#90 and the
+      # script's own header for why this is not the same check as the
+      # pre-commit hook's `cargo metadata --locked`.
+      - name: Check bundle dependency floor
+        run: scripts/check-bundle-core-pin.sh
+
       # The siblings are checkouts beside this repository now, not
       # submodules. Cloned at the ref SIBLING_PINS.txt names, so CI builds
       # what the pin says rather than whatever a developer has locally.
@@ -71,6 +82,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: stable
+
 
       # lib/ output is keyed on what now determines it: the bundle
       # manifests, which name the published crate versions, and the
