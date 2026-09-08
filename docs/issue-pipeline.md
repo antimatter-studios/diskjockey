@@ -170,6 +170,15 @@ inside, and an agent committed the heartbeat into its fix branch.
 **The negative control is the whole value.** Revert only the source,
 keep the test, confirm the test fails.
 
+**`git checkout <ref> -- <path>` stages the file.** So the obvious undo,
+`git checkout -- <path>`, restores from the *index* — which still holds
+the reverted content — and the file is never put back. Every test after
+that runs against a half-reverted tree and passes, which reads exactly
+like "the tests do not pin the fix". Three measurements were lost to
+this in one sitting. Use `git reset --hard HEAD` to undo a per-arm
+revert, and check `git status` is clean before believing the next
+result.
+
 **Revert each arm separately, not the whole file.** A whole-file revert
 asks "does anything here matter?", to which the answer is nearly always
 yes. Three fixes had several mechanisms covered by one test that would
