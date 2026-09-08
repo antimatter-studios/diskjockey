@@ -164,7 +164,23 @@ consider() {
             return
         fi
         if [ "$unpushed" -gt 0 ]; then
-            keep "$path" "$unpushed unpushed commit(s) on '$branch'"
+            # AHEAD OF THE TRACKING REF, WHICH IS NOT THE SAME AS
+            # UNPUSHED. `@{upstream}` is a local remote-tracking branch
+            # and it is only as current as the last fetch, so a commit
+            # pushed from elsewhere -- or pushed from here by explicit
+            # refspec, which does not move it -- reads as ahead forever.
+            #
+            # One worktree here reported "1 unpushed commit" for a commit
+            # that was already on the remote at the same sha. Keeping it
+            # was still right; claiming it was unpushed was not, and a
+            # message that overstates its evidence is how a correct
+            # refusal gets argued with.
+            #
+            # Asking the remote per worktree would be a network call
+            # apiece, which is too slow for the several dozen this scans.
+            # So the wording states what was actually measured and the
+            # decision stays conservative.
+            keep "$path" "$unpushed commit(s) ahead of a tracking ref that may be stale — not proven pushed"
             return
         fi
     fi
