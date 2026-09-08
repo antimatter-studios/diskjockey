@@ -376,6 +376,13 @@ in this environment.
 ref, and fails open with "stale info" without one. Name the sha you
 fetched and refuse if the remote has moved.
 
+**Brace a ref before a colon in zsh: `${REF}:path`, never `$REF:path`.**
+`:t` is a zsh history modifier meaning "tail", so `$M:tests/x` expands to
+`basename($M)` followed by `ests/x` — `mainests/x`. Five separate silent
+failures in one session traced to this: branches that appeared to touch
+no files, a CI job that appeared to run no tests, a test set that came
+back empty. Each looked like a finding.
+
 **No `grep -q` at the end of a pipeline under `set -o pipefail`.** It
 exits on first match, the producer gets SIGPIPE, and the pipeline exits
 141 *because* the match succeeded.
@@ -421,8 +428,29 @@ what is missing is a test.
     diff <(git show $THEIRS:$FILE | grep -o 'fn [a-z_0-9]*' | sort -u) \
          <(grep -o 'fn [a-z_0-9]*' $FILE | sort -u)
 
-**4a. A function-set comparison answers "was anything dropped" and
-nothing else.** A conflict boundary can bisect a function, leaving one
+**4a. A resolution needs three checks, and each catches what the others
+cannot.**
+
+| check | catches | misses |
+|---|---|---|
+| function-set comparison | a side silently dropped | anything structural |
+| `cargo test --no-run` | a bisected function, unclosed delimiter | a valid but wrong splice |
+| the full suite | a splice that compiles and means something else | — |
+
+The third is not redundant. One resolution here had whole-file brace
+balance `+0`, dropped nothing from either side, and **compiled** — and
+had spliced the tail of one test into the body of another. `124 passed,
+1 failed`, `assertion left == right, left: 2, right: 1`. Two of the
+three checks passed.
+
+**Brace-counting says how many braces are missing, not where they go**,
+and a plausible placement compiles. So when a conflict bisects a
+function, resolve it structurally rather than textually: take one side's
+file whole, append the other's additions as complete units, and verify
+each affected function name appears exactly once.
+
+**A function-set comparison answers "was anything dropped" and nothing
+else.** A conflict boundary can bisect a function, leaving one
 trailing brace two tests want: the set comparison passes and the file
 does not compile — and the near-miss version *does* compile, with one
 test's body inside another. Pair it with `cargo test --no-run`.
