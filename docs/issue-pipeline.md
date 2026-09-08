@@ -659,6 +659,104 @@ Three things make it survivable:
   second pull request exists — which is earlier than the pull-request
   list can see it.
 
+## Every agent reports tersely
+
+**Put this in every agent brief**, alongside the name and the working
+rules. It is not a style preference — a stage's reports are pure
+overhead, and prose costs the same as evidence.
+
+> Report tersely. Drop articles, filler and hedging. Fragments are fine.
+> Lead with the finding, not the narrative. No preamble, no restating the
+> question, no summary of what you are about to say. Numbers and file
+> paths exact; error strings verbatim. If a table says it in four rows,
+> do not write four paragraphs.
+
+Compression applies to **reporting**, never to the work. A verification
+that skips an arm-revert to save output has saved nothing.
+
+### What stays in normal prose
+
+Terse output is for what dies with the session. Anything that outlives
+it, or is read by a person who was not here, is written properly:
+
+- **issue bodies** — read by whoever fixes it, weeks later, with none of
+  the context;
+- **commit messages and pull request descriptions** — the permanent
+  record of why, and the only explanation a future reader gets;
+- **comments in code** — the same, at closer range;
+- **comments posted to GitHub**, including the stage markers and any
+  correction.
+
+The rule is the audience, not the medium. A report to the coordinator is
+a working note between two processes that will both be gone tomorrow. An
+issue body is a letter to a stranger. **Compress the first, write the
+second.**
+
+This distinction is easy to get backwards under instruction to be brief,
+and getting it backwards is expensive: a terse issue body costs a fixing
+agent an hour of rediscovery, which is the exact trade the compression
+was meant to avoid.
+
+## What this costs, and where the money actually goes
+
+A night of running this consumed a fifth of an account's monthly
+allowance. The causes were measured afterwards rather than guessed, and
+they were not where they looked.
+
+**Parallelism was not the expense; duplicated discovery was.** Nine
+investigators split ninety-seven issues and reported 1,393,248 tokens
+between them — about 14.4k per issue. But five of them independently
+opened the same shell script, three independently read the same test
+file, and two independently reached the same conclusion about the same
+function. Each reloaded its brief and re-derived the repository layout.
+**Run serially, those ninety-seven issues would have cost less in total**,
+because the rediscovery would have happened once.
+
+So fan-out buys wall-clock and pays for it in tokens. The binding
+constraint on working alone is the context window, not the budget, which
+argues for **batching with checkpoints** rather than parallel agents:
+work twenty-odd items, post them, and carry forward the cross-repo
+surveys rather than the file contents.
+
+**One agent per stage.** Five stages became twenty-two live agents in a
+night, because agents spawned their own helpers mid-task on efficiency
+grounds and nobody put a number in front of anybody. An agent that wants
+parallelism should describe the shape — how many items, how independent,
+roughly what it costs — and wait for an answer. That is a decision
+somebody makes in one line, either way.
+
+### Verification without paying twenty times over
+
+The standard in this document is expensive by construction. A fix with
+four mechanisms wants one baseline, four arm-reverts and perhaps five
+mutations — ten runs, twenty if both profiles are used — and a suite
+here can hold six hundred tests. Per issue.
+
+Almost all of that is waste, and removing it costs nothing:
+
+- **Target the specific test.** `cargo test --test gpt_overlap`, not
+  `cargo test`. A mutation only has to prove *that* assertion can fail;
+  running six hundred unrelated tests to learn one thing is compute
+  spent on a question nobody asked. **Run the full suite once at the
+  end** to catch collateral damage — that run earns its cost.
+- **Both profiles only when the defect is profile-sensitive.** Overflow
+  needs debug and release. A carry *within* a `u64` into flag bits does
+  not, because `overflow-checks` never sees it.
+- **`git show <ref>:<path>` instead of a worktree, for reading.** No
+  checkout, no sibling provisioning, nothing to clean up. Worktrees are
+  for building and running. One agent created twelve before discovering
+  this covered nearly everything it needed.
+- **Fetch an issue body once and keep it.** A local copy turns a later
+  audit into a regex over files instead of a hundred more API calls.
+
+The evidence is identical afterwards. Arm-by-arm reverts, uniqueness
+before mutation, the negative control, capturing the exit status — all
+unchanged. What stops is dragging an entire test suite behind each
+individual piece of evidence.
+
+Cross-repository surveys are the opposite case and worth doing eagerly:
+three commands corrected findings in five separate issues.
+
 ## Pull requests from outside contributors
 
 A fork pull request is the one case where the pipeline stops and a
