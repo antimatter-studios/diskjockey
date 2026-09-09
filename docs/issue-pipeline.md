@@ -338,8 +338,10 @@ at the first failing target, so a repository with a known fixture gap
 has every target after it silently unmeasured. An ntfs run reached 4
 targets and printed no `Doc-tests` line; the two unfenced doctests it
 hid then failed CI on a tree verification had just certified. An ext4
-run reached 8 of 110 and was reported as "300 passed, 8 failed" — the
-truncation was even observed, and nobody asked what it had hidden.
+run reached 8 of 113 and its "8 failed" was taken for the crate's whole
+benign set — the truncation was even observed, and nobody asked what it
+had hidden. The worked example below is that same commit, measured both
+ways.
 
 **Count the targets against what the crate contains.** A short list is
 the reliable signal. The `Doc-tests` line only means something for an
@@ -351,10 +353,44 @@ a symptom.
 test.** Establish it per repository by measuring `main` the same way and
 **comparing failing-test name sets** — a branch is clean when its set
 equals main's, not when its failures look familiar. Naming one test is
-what made four reached targets look like the whole story. Measured:
-`rust-fs-ext4` 8 fixture-absence failures; `rust-fs-ntfs` very nearly
-every integration target, 262 `.img` fixtures present and not one named
-`ntfs-*`; `rust-fs-xfs` none, 35 targets clean.
+what made four reached targets look like the whole story.
+
+**Take the figure from a `--no-fail-fast` run and say which run it came
+from**, because the two readings of one commit are different numbers and
+the smaller one looks entirely plausible. `rust-fs-ext4` at `4e88c3e`:
+
+| | fail-fast | `--no-fail-fast` |
+|---|---|---|
+| targets reporting a result | 8 | 114 |
+| failing tests | 8 | 248 |
+| passed | 301 | 614 |
+| `Doc-tests` line | absent | present |
+
+The fail-fast column stops at `error: test failed, to rerun pass
+--test capi_basic`, and its **8 failures out of 8 targets reached** is
+the number this paragraph carried for a day as "ext4 has 8
+fixture-absence failures". A truncated count wearing the shape of an
+answer, quoted inside the passage warning about truncated counts — and
+plausible precisely because 8-of-113 reads like a small known set
+rather than like a run that stopped.
+
+Measured the same way on the commits named:
+
+| repository | fail-fast | `--no-fail-fast` |
+|---|---|---|
+| `rust-fs-ext4` `4e88c3e` | 8 targets, 8 failures | 114 result lines, **48 failing binaries of 113**, 248 failing tests |
+| `rust-fs-ntfs` `0ea1b3d` | 4 targets, 4 failures, stops at `--test ads` | 109 result lines, **63 failing binaries of 108**, 348 failing tests |
+| `rust-fs-xfs` `0831c73` | no truncation; nothing fails | 36 result lines, **0 failing**, 463 passed |
+
+`rust-fs-ntfs` was described here as failing "very nearly every
+integration target". It is 63 of 108. **Both neighbouring figures were
+wrong, in opposite directions** — which is what happens when one number
+in a list is measured and the rest are remembered.
+
+These are absent fixtures rather than broken code: 234 of ext4's 248
+failures carry `No such file or directory`. That is why they are benign,
+and it is also why the set is large enough that a truncated count of it
+is not obviously wrong.
 
 This applies to any stage that reads a suite log to reach a conclusion,
 not only to verification.
