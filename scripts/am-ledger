@@ -106,6 +106,23 @@ DEFAULT_REPOS=(
     "rust-img-vhdx:antimatter-studios/rust-img-vhdx"
     "rust-img-vmdk:antimatter-studios/rust-img-vmdk"
     "rust-partitions:antimatter-studios/rust-partitions"
+    # Not a driver, and tracked anyway. The dependency-pin guard that every
+    # repo above carries a copy of has its fix location HERE, not in the
+    # constellation: the upstream copy never had the sibling-version check
+    # at all, so syncing the copies onto it would delete the capability
+    # from eleven repositories. Until a corrected version is ported up,
+    # agent-skills#34 is the parent of five defects in three generations
+    # of that script — and an untracked repository is one no stage ever
+    # dispatches, which is how it sat unowned.
+    "agent-skills:antimatter-studios/agent-skills"
+    # And the controller project itself. It was left out because it
+    # orchestrates the twelve rather than being one of them — but issues
+    # get filed against it like anywhere else (the reaper, the ledger,
+    # the merge gate, the bundle lockfiles), and an untracked repository
+    # is one no stage dispatches. diskjockey#90 sat selected-for-
+    # development with a marker on GitHub and no way for a fixer to find
+    # it, which is the same hole agent-skills was in one line above.
+    "diskjockey:antimatter-studios/diskjockey"
 )
 
 REPOS=()
