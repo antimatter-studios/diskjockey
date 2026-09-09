@@ -309,10 +309,21 @@ complete!`, zero compile errors, no `TEST SUCCEEDED` or `TEST FAILED`
 line, and a non-zero exit: the natural reading is "my branch broke the
 tests" and the natural next step is hunting a defect that is not there.
 **Run `launchctl managername` before believing an `xcodebuild test`
-failure.** If it says `Background`, the host-app targets did not run and
-the failure carries no information about the branch. Confirm it the way
-it was confirmed here: run an untouched suite from `main` and watch it
-abort identically.
+failure**, then check the failure has this signature: `Build complete!`,
+zero compile errors, and the `IDELaunchServicesLauncher` /
+`childPID > 0` abort at exit 134. `Background` on its own discharges
+nothing. **Every session in this pipeline reports `Background`**, so a
+rule keyed on the manager name alone is true of every `xcodebuild test`
+failure there is, a branch that did not compile included — `xcodebuild
+test` builds before it launches, and a broken branch fails the same
+command under the same manager name. The manager name says the launch
+*would* fail; the signature says this failure *is* that one.
+
+Confirm it the way it was confirmed here: run an untouched suite from
+`main` and watch it abort identically. Keep both, in that order. The
+manager check is a two-second command and the `main` run is a full
+Xcode build of the app target, so making the expensive one the only one
+is how it comes to be skipped.
 
 **The route that does work** for dependency-light code in
 `DiskJockeyApplication`: compile the real source file together with its
@@ -400,6 +411,23 @@ failures carry `No such file or directory`. That is why they are benign,
 and it is also why the set is large enough that a truncated count of it
 is not obviously wrong.
 
+**The other 14 are the same cause wearing a different error string, and
+that took a second measurement to say.** They are the C-ABI suites —
+`tests/capi_basic.rs`, `capi_concurrency.rs`, `capi_errno.rs` — where
+`fs_ext4_mount` answers a missing image with a NULL pointer rather than
+an `io::Error`, so the tests assert `!fs.is_null()` and panic with
+`assertion failed: !fs.is_null()` or `mount`. The phrase never reaches
+the message. `test-disks/` holds zero `.img` files at that commit, which
+is why all 248 fail and why none of the 14 is a different defect.
+
+**Certifying a set on a phrase 94% of it carries is the shape this
+document is about.** The remedy is to measure the residue, not to
+shrink the total to the part the sentence covered: 248 is what the
+`--no-fail-fast` run printed, it is the figure in the table above, and
+it is the contrast against the truncated 8. Editing it to make the
+prose consistent would put a count that does not match its run inside
+the passage warning against exactly that.
+
 **A pipeline reports the LAST command's status, not the interesting
 one.** `./prog 2>&1 | tail -3; echo "EXIT=$?"` prints `tail`'s status,
 so a program that trapped — exit 133, `SIGTRAP` — is reported as
@@ -407,6 +435,19 @@ so a program that trapped — exit 133, `SIGTRAP` — is reported as
 verifying it, on the claim this section exists to support. Use
 `${PIPESTATUS[0]}` in bash or `$pipestatus[1]` in zsh, or drop the pipe
 when the command's own status is the thing being measured.
+
+**That diagnosis holds only where `pipefail` is off, and the failure
+flips between a prompt and a script.** With `set -o pipefail`, `$?` is
+the rightmost non-zero status, so the same example reports `EXIT=133`
+and a reader trying it inside a script concludes the passage is false.
+The agent shell is zsh with `pipefail` off, so at a prompt the example
+is exactly right; the CI Test step (`ci.yml:125`) and 13 of the 21
+entries in `scripts/` — 13 of the 16 that are shell, all five `am-*`
+tools among them, the exceptions being `build-disk-probe.sh`,
+`build-gonetworkfs.sh` and `sibling-build.sh` — set it. **The
+prescription above needs no qualifier**: `${PIPESTATUS[0]}` and
+`$pipestatus[1]` give the first command's status either way, and so
+does dropping the pipe. Only the diagnosis moves.
 
 This applies to any stage that reads a suite log to reach a conclusion,
 not only to verification.
