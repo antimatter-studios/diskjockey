@@ -51,7 +51,7 @@ not have it produces exit 127 rather than an error anyone reads.
     am-ledger refresh                    rebuild from GitHub, keeping stages
     am-ledger next <stage> [repo]        claim one row atomically
     am-ledger set <repo> <n> stage=...   record progress
-    am-ledger list [filter]              rows
+    am-ledger list [--stage s] [--repo r] [--owner o] [text...]
     am-ledger stats                      counts by stage
     am-ledger stale [--all] [hours]      claimed rows that stopped moving
     am-ledger start <project> <owner/name>... | --org <org>
@@ -66,6 +66,21 @@ about where it is.** Release rows with `owner=-` when handing on.
 
 Stages: `pending accepted rejected fixing testing pr merged failed
 blocked`.
+
+**`list` filters a COLUMN only through a flag.** `--stage`, `--repo` and
+`--owner` compare that column literally and AND together; bare words are
+still an unanchored `grep -E` over the whole row, several of them ORed.
+`am-ledger list pr` used to return 90 rows, 2 of them at stage `pr` —
+`ci_profile`, `fingerprint`, `prefix`, `github-protect-main` — and a
+report was made on that listing and retracted. It is now refused with a
+suggestion; `-- pr` greps for the text.
+
+**This is the empty-result rule inverted, which is why it slipped past
+it.** An empty result invites suspicion; a screenful of plausible rows
+reads as a successful query. So `list` prints `matched N of M rows` on
+stderr on **every** call — the zero case was never the one that misled —
+and exits non-zero when N is 0. The line carries no tab, so a caller
+piping into `awk -F'\t'` is unaffected even if it merged stderr.
 
 **`failed` and `blocked` are different work.** `failed` — a build ran
 and said no; diagnose it. `blocked` — nothing ran (conflicting PR,

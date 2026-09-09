@@ -3,7 +3,7 @@
 # am-ledger — one local list of every issue a pipeline is working on.
 #
 #   am-ledger refresh              rebuild the issue list from GitHub
-#   am-ledger list [filter...]     print rows, optionally filtered
+#   am-ledger list [--stage s] [--repo r] [--owner o] [text...]
 #   am-ledger next <stage> [repo]  print one row waiting at <stage>
 #   am-ledger set <repo> <num> <field>=<value> [field=value...]
 #   am-ledger stats                counts by stage
@@ -293,12 +293,138 @@ do_next() {
     printf '%s\n' "$row"
 }
 
+# Every stage a row can be at. Here rather than only in the header
+# comment because `list` needs to recognise one when it is handed one.
+STAGES="pending accepted rejected fixing testing pr merged failed blocked"
+
+# A `case` rather than a loop: `[ "$s" = "$want" ] && return 0` inside a
+# `for` is the classic `set -e` footgun, and this file runs under
+# `set -euo pipefail`.
+is_stage() {
+    [ -n "${1-}" ] || return 1
+    case " $STAGES " in *" $1 "*) return 0 ;; esac
+    return 1
+}
+
+# Print rows.
+#
+#   am-ledger list                       every row
+#   am-ledger list --stage pr            rows AT stage pr
+#   am-ledger list --repo rust-fs-xfs --owner fix
+#   am-ledger list refcount              free text, over the whole row
+#
+# THIS USED TO BE AN UNANCHORED `grep -E` OVER THE WHOLE ROW, with
+# `tr ' ' '|'` turning every extra word into an ALTERNATION. So a filter
+# that looked like it named a column named nothing of the kind, and a
+# two-term filter that looked like it narrowed actually broadened.
+#
+# `am-ledger list pr` returned 90 rows, 2 of which were at stage `pr`.
+# The other 88 matched the substring somewhere: `ci_profile`,
+# `fingerprint`, `prefix`, `github-protect-main`. A pipeline decision
+# was taken on that listing and later retracted.
+#
+# WHAT MAKES IT WORSE THAN RETURNING NOTHING: an empty result invites
+# suspicion, and a screenful of plausible rows reads as a successful
+# query. The standing rule -- assert non-emptiness before believing a
+# zero -- does not fire here, because the result is not empty. This is
+# the inverse case and it slips past the rule written for it.
+#
+# So:
+#
+#   * `--stage`, `--repo` and `--owner` compare a COLUMN, LITERALLY, and
+#     several of them are ANDed. No regex, no substring: `--repo
+#     rust-fs-core` does not match `rust-fs-core-x`, and a repository
+#     name containing `.` matches only itself.
+#   * FREE TEXT IS STILL A REGEX and still ORs its words, unchanged,
+#     because that is what several callers use and `list <repo> <num>`
+#     works today only by accident of the OR. Documented rather than
+#     changed.
+#   * THE MATCH COUNT GOES TO STDERR ON EVERY CALL, not only on zero.
+#     The zero case was never the one that misled; the 90-row case was,
+#     and it was silent. The line carries no tab, so a caller piping
+#     stdout into `awk -F'\t'` is unaffected even if it merged stderr.
+#   * A filter that is EXACTLY A STAGE NAME is refused rather than run.
+#     `stats` and `next` both take a stage as a real argument, so `list
+#     pr` reads as the same vocabulary and is not -- and the collision
+#     is knowable from in here, because the stage list is right above.
 do_list() {
     [ -f "$LEDGER" ] || { echo "am-ledger: no ledger; run refresh" >&2; return 1; }
-    if [ $# -eq 0 ]; then cat "$LEDGER"; return 0; fi
-    local pat
-    pat=$(printf '%s' "$*" | tr ' ' '|')
-    grep -E "$pat" "$LEDGER" || true
+
+    local stage="" repo="" owner="" free="" literal=0
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --stage|--repo|--owner)
+                [ $# -ge 2 ] && [ -n "$2" ] || { echo "am-ledger list: $1 needs a value" >&2; return 2; }
+                case "$1" in
+                    --stage) stage="$2" ;;
+                    --repo)  repo="$2" ;;
+                    --owner) owner="$2" ;;
+                esac
+                shift 2
+                continue
+                ;;
+            # An EMPTY value is an error rather than "no filter". A
+            # flag that silently stops filtering is the same defect
+            # this command is being repaired for, in a new spelling.
+            --stage=*) stage="${1#--stage=}"
+                       [ -n "$stage" ] || { echo "am-ledger list: --stage needs a value" >&2; return 2; } ;;
+            --repo=*)  repo="${1#--repo=}"
+                       [ -n "$repo" ] || { echo "am-ledger list: --repo needs a value" >&2; return 2; } ;;
+            --owner=*) owner="${1#--owner=}"
+                       [ -n "$owner" ] || { echo "am-ledger list: --owner needs a value" >&2; return 2; } ;;
+            # `--` IS THE ESCAPE HATCH the stage-name refusal below points
+            # at, so everything after it is text and the refusal does not
+            # apply. Without this the message names a way out that does
+            # not work, which is worse than no message.
+            --) literal=1; shift
+                while [ $# -gt 0 ]; do free="${free:+$free|}$1"; shift; done
+                continue ;;
+            -*) echo "am-ledger list: unknown option $1" >&2; return 2 ;;
+            *) free="${free:+$free|}$1" ;;
+        esac
+        shift
+    done
+
+    # A stage that is not a stage matches nothing, and matching nothing
+    # is exactly the failure this command is being repaired for. Say it.
+    if [ -n "$stage" ] && ! is_stage "$stage"; then
+        echo "am-ledger list: --stage $stage is not a stage; one of: $STAGES" >&2
+        return 2
+    fi
+
+    # The collision that produced the retracted report.
+    if [ "$literal" = 0 ] && [ -z "$stage$repo$owner" ] && is_stage "$free"; then
+        echo "am-ledger list: '$free' is a stage name, and free text does not read the" >&2
+        echo "am-ledger list: stage column -- it greps the whole row. Did you mean" >&2
+        echo "am-ledger list: --stage $free ?  Use -- $free to grep for it anyway." >&2
+        return 2
+    fi
+
+    # ENVIRON rather than -v: awk processes escape sequences in a -v
+    # value, so a filter containing a backslash would not be the filter
+    # the caller typed.
+    local out total matched
+    total=$(wc -l < "$LEDGER" | tr -d ' ')
+    out=$(AMLL_STAGE="$stage" AMLL_REPO="$repo" AMLL_OWNER="$owner" AMLL_PAT="$free" \
+        awk -F'\t' '
+        BEGIN {
+            stage = ENVIRON["AMLL_STAGE"]; repo  = ENVIRON["AMLL_REPO"]
+            owner = ENVIRON["AMLL_OWNER"]; pat   = ENVIRON["AMLL_PAT"]
+        }
+        stage != "" && $3 != stage { next }
+        repo  != "" && $1 != repo  { next }
+        owner != "" && $4 != owner { next }
+        pat   != "" && $0 !~ pat   { next }
+        { print }
+    ' "$LEDGER")
+
+    matched=0
+    if [ -n "$out" ]; then
+        printf '%s\n' "$out"
+        matched=$(printf '%s\n' "$out" | wc -l | tr -d ' ')
+    fi
+    printf 'am-ledger list: matched %s of %s rows\n' "$matched" "$total" >&2
+    [ "$matched" != 0 ] || return 1
 }
 
 # Create a project: its directory, and the repositories it spans.
