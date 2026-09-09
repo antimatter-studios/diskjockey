@@ -299,8 +299,65 @@ checksum covered fewer bytes than the reader reads, a test device
 sharing the wrapping defect it was testing for. Before believing a
 negative, prove the setup did what it claimed.
 
+**App-hosted Swift tests cannot run here at all, and their failure looks
+exactly like a defect.** These sessions run under a launchctl
+`Background` manager and `DiskJockeyTests` sets `TEST_HOST` to the GUI
+app, so `xcodebuild test` builds cleanly and then dies in Xcode's own
+launcher — `IDELaunchServicesLauncher ... Assertion failed: childPID >
+0`, exit 134 — before one test runs. What an agent sees is `Build
+complete!`, zero compile errors, no `TEST SUCCEEDED` or `TEST FAILED`
+line, and a non-zero exit: the natural reading is "my branch broke the
+tests" and the natural next step is hunting a defect that is not there.
+**Run `launchctl managername` before believing an `xcodebuild test`
+failure.** If it says `Background`, the host-app targets did not run and
+the failure carries no information about the branch. Confirm it the way
+it was confirmed here: run an untouched suite from `main` and watch it
+abort identically.
+
+**The route that does work** for dependency-light code in
+`DiskJockeyApplication`: compile the real source file together with its
+**real committed test file** into a throwaway SwiftPM package, rewriting
+only the `@testable import` line, and `swift test` — which needs no app
+launch. Reimplementing the test file instead makes the workaround a
+substitute that proves nothing about what ships. It does not generalise
+to code that needs the real app target; there CI is the only route, and
+a branch handed on that way must say plainly that its tests were never
+watched executing locally.
+
+**Swift traps on arithmetic overflow in release as well as debug.** The
+instinct built on the Rust side of this codebase — that a release build
+wraps rather than traps — is wrong here.
+
 **Searching your own logs for evidence of your own actions writes new
 evidence as it goes.** A grep for a command name matched the grep.
+
+### Reading a suite log
+
+**`--no-fail-fast` whenever a benign failure is expected.** Cargo stops
+at the first failing target, so a repository with a known fixture gap
+has every target after it silently unmeasured. An ntfs run reached 4
+targets and printed no `Doc-tests` line; the two unfenced doctests it
+hid then failed CI on a tree verification had just certified. An ext4
+run reached 8 of 110 and was reported as "300 passed, 8 failed" — the
+truncation was even observed, and nobody asked what it had hidden.
+
+**Count the targets against what the crate contains.** A short list is
+the reliable signal. The `Doc-tests` line only means something for an
+invocation that would have compiled doctests: `--all-targets` excludes
+them by design, so its absence there is the expected output rather than
+a symptom.
+
+**A benign-failure set is a property of the environment, not a named
+test.** Establish it per repository by measuring `main` the same way and
+**comparing failing-test name sets** — a branch is clean when its set
+equals main's, not when its failures look familiar. Naming one test is
+what made four reached targets look like the whole story. Measured:
+`rust-fs-ext4` 8 fixture-absence failures; `rust-fs-ntfs` very nearly
+every integration target, 262 `.img` fixtures present and not one named
+`ntfs-*`; `rust-fs-xfs` none, 35 targets clean.
+
+This applies to any stage that reads a suite log to reach a conclusion,
+not only to verification.
 
 ## Reporting
 
