@@ -193,9 +193,17 @@ enum SwiftPartitionProbe {
         let entrySize     = UInt64(le32(header, offset: 84))
         guard entrySize >= 128, entryCount > 0, entryCount <= 256 else { return [] }
 
+        // An entry-array LBA too large to express as a byte offset makes the
+        // whole table unreadable, not just one entry of it.
+        guard let entryTableStart = byteOffset(lba: entryStartLBA) else { return [] }
+
         var parts: [DiskProbeResult.Partition] = []
         for i in 0..<entryCount {
-            let entryOffset = (entryStartLBA * 512) + i * entrySize
+            let (indexOffset, indexOverflow) = i.multipliedReportingOverflow(by: entrySize)
+            guard !indexOverflow else { continue }
+            let (entryOffset, offsetOverflow) = entryTableStart.addingReportingOverflow(indexOffset)
+            guard !offsetOverflow else { continue }
+
             guard let entry = try? readBytes(handle: handle, at: entryOffset, count: Int(entrySize)),
                   entry.count >= 56 else { continue }
 
@@ -203,10 +211,15 @@ enum SwiftPartitionProbe {
             let typeBytes = Data(entry[0..<16])
             guard typeBytes.contains(where: { $0 != 0 }) else { continue }
 
-            let partStart  = le64(entry, offset: 32) * 512
-            let partEnd    = le64(entry, offset: 40) * 512
-            guard partEnd > partStart else { continue }
-            let partLength = partEnd - partStart + 512
+            // A single unrepresentable entry is skipped; the rest of an
+            // otherwise-parseable table still yields its partitions.
+            guard let partStart = byteOffset(lba: le64(entry, offset: 32)),
+                  let partEnd   = byteOffset(lba: le64(entry, offset: 40)),
+                  partEnd > partStart else { continue }
+            // GPT's last-LBA is inclusive, so the span is one sector more than
+            // the difference — and that last sector can be what tips it over.
+            let (partLength, lengthOverflow) = (partEnd - partStart).addingReportingOverflow(512)
+            guard !lengthOverflow else { continue }
 
             let typeGuid = formatGPTGUID(typeBytes)
 
@@ -354,6 +367,22 @@ enum SwiftPartitionProbe {
     }
 
     // MARK: - Low-level helpers
+
+    /// Convert an on-disk LBA to a byte offset, or nil when the sector count
+    /// is too large for the byte offset to be expressed in a `UInt64`.
+    ///
+    /// Every LBA reaching this comes off the disk with no upper bound, and
+    /// Swift's `*` and `+` on fixed-width integers trap on overflow in
+    /// **every** build configuration — there is no equivalent of the
+    /// `overflow-checks = false` release default this project's Rust crates
+    /// have to reason about separately. So an unchecked conversion here is not
+    /// a wrong number on a corrupt or crafted image, it is the shipped app
+    /// terminating the moment it probes one. Callers drop the entry, or the
+    /// whole table, instead.
+    private static func byteOffset(lba: UInt64) -> UInt64? {
+        let (bytes, overflow) = lba.multipliedReportingOverflow(by: 512)
+        return overflow ? nil : bytes
+    }
 
     private static func readBytes(handle: FileHandle, at offset: UInt64, count: Int) throws -> Data {
         try handle.seek(toOffset: offset)
