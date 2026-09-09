@@ -20,6 +20,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # THE SCRIPTS IN scripts/ HAD NO GATE AT ALL, and the pipeline is
+  # steered by them. `am-ledger list pr` returned 90 rows, 2 of them at
+  # stage `pr`, and a decision was taken on that listing and later
+  # retracted -- a filter that read the wrong thing and returned a
+  # screenful of plausible rows rather than an error.
+  #
+  # ubuntu-latest and no toolchain: this must be cheap enough that
+  # nobody is tempted to make it conditional. It does not touch the real
+  # ledger -- each test points AM_LEDGER_DIR at a temporary directory.
+  #
+  # `set -euo pipefail` around a bare `bash "$t"` so a non-zero exit
+  # fails the step, and the loop names the file it is running: a
+  # step whose result nothing reads is the defect this job exists for.
+  scripts:
+    name: Shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Semantics the Xcode job cannot reach
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          found=0
+          for t in scripts/tests/*.sh; do
+            echo "::group::$t"
+            bash "$t"
+            echo "::endgroup::"
+            found=$((found + 1))
+          done
+          # A glob that matches nothing makes this step pass having run
+          # nothing, which reads exactly like a clean bill of health.
+          [ "$found" -gt 0 ] || { echo "scripts/tests/ matched no test files" >&2; exit 1; }
+          echo "ran $found script test(s)"
+
   test:
     name: Build & Test
     # macos-26 is the Apple Silicon runner for macOS 26.
