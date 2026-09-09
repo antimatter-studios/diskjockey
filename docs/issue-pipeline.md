@@ -368,11 +368,19 @@ the smaller one looks entirely plausible. `rust-fs-ext4` at `4e88c3e`:
 
 The fail-fast column stops at `error: test failed, to rerun pass
 --test capi_basic`, and its **8 failures out of 8 targets reached** is
-the number this paragraph carried for a day as "ext4 has 8
-fixture-absence failures". A truncated count wearing the shape of an
-answer, quoted inside the passage warning about truncated counts — and
-plausible precisely because 8-of-113 reads like a small known set
+the figure that circulated as "ext4 has 8 fixture-absence failures" —
+in briefings, in the working knowledge the stages run on, and into this
+section's own first draft, where it lasted 142 minutes before being
+corrected. It never reached `main`. A truncated count wearing the shape
+of an answer, quoted inside the passage warning about truncated counts
+— and plausible precisely because 8-of-113 reads like a small known set
 rather than like a run that stopped.
+
+**The vector is briefs and remembered numbers, not the doc.** That is
+worth separating, because it decides where a correction has to go: a
+wrong figure on `main` is fixed by editing `main`, and a wrong figure
+in circulation is still being repeated by everyone who learnt it before
+the edit.
 
 Measured the same way on the commits named:
 
@@ -391,6 +399,14 @@ These are absent fixtures rather than broken code: 234 of ext4's 248
 failures carry `No such file or directory`. That is why they are benign,
 and it is also why the set is large enough that a truncated count of it
 is not obviously wrong.
+
+**A pipeline reports the LAST command's status, not the interesting
+one.** `./prog 2>&1 | tail -3; echo "EXIT=$?"` prints `tail`'s status,
+so a program that trapped — exit 133, `SIGTRAP` — is reported as
+`EXIT=0`. Measured while verifying this section, by the person
+verifying it, on the claim this section exists to support. Use
+`${PIPESTATUS[0]}` in bash or `$pipestatus[1]` in zsh, or drop the pipe
+when the command's own status is the thing being measured.
 
 This applies to any stage that reads a suite log to reach a conclusion,
 not only to verification.
