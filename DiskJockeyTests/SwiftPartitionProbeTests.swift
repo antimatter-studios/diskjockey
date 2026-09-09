@@ -226,3 +226,162 @@ struct ClassifyExtTests {
         #expect(SwiftPartitionProbe.classifyExt(extBytes(incompat: allFlags)) == "ext4")
     }
 }
+
+// MARK: - parseGPT overflow tests
+
+/// A GPT header, and every partition entry inside it, carries LBA values with
+/// no upper bound. Turning one into a byte offset is a multiply, and Swift
+/// traps on integer overflow in **every** build configuration — Release
+/// included — so before these guards a corrupt or crafted image terminated the
+/// app the moment Disk Inspector probed it.
+///
+/// Each malformed image below is built so that the overflowing value *wraps
+/// onto a real partition entry*. That matters: the guards use
+/// `multipliedReportingOverflow`/`addingReportingOverflow`, which wrap
+/// silently rather than trapping, so an image whose wrapped offset pointed at
+/// nothing would read back as "no partitions" whether the guard was there or
+/// not. Landing the wrap on a valid entry makes the guard's presence
+/// observable — unguarded yields a partition, guarded yields none.
+struct GPTOverflowTests {
+
+    /// UInt64.max / 512 — the largest LBA whose byte offset is representable.
+    static let maxSafeLBA = UInt64.max / 512          // 0x1FF_FFFF_FFFF_FFFF
+    /// `lba * 512` overflows and wraps to exactly 1024: any lba ≡ 2 (mod 2^55).
+    static let wrapsTo1024: UInt64 = (1 << 55) + 2
+    /// Same shape, wrapping to 2048.
+    static let wrapsTo2048: UInt64 = (1 << 55) + 4
+
+    /// A well-formed entry at LBA 34-40 → start 17408, length 3584.
+    static let goodEntryStart: UInt64 = 34 * 512
+    static let goodEntryLength: UInt64 = (40 - 34) * 512 + 512
+
+    private struct Entry {
+        let at: Int             // byte offset of the entry within the image
+        let firstLBA: UInt64
+        let lastLBA: UInt64
+    }
+
+    /// Build a raw GPT image. Header fields are written verbatim so a hostile
+    /// value can be injected, and entries are placed at explicit byte offsets
+    /// so a wrap has something to land on.
+    private func gptImage(entryTableLBA: UInt64,
+                          entryCount: UInt32,
+                          entrySize: UInt32,
+                          entries: [Entry],
+                          sectors: Int = 64) -> Data {
+        var d = Data(count: sectors * 512)
+        func le(_ v: UInt64, _ n: Int, at off: Int) {
+            for k in 0..<n { d[off + k] = UInt8((v >> (8 * UInt64(k))) & 0xFF) }
+        }
+        let h = 512                                    // LBA 1 = GPT header
+        d.replaceSubrange(h..<(h + 8), with: Array("EFI PART".utf8))
+        le(entryTableLBA, 8, at: h + 72)
+        le(UInt64(entryCount), 4, at: h + 80)
+        le(UInt64(entrySize), 4, at: h + 84)
+        for e in entries {
+            d[e.at] = 0xAB                             // non-zero type GUID
+            le(e.firstLBA, 8, at: e.at + 32)
+            le(e.lastLBA, 8, at: e.at + 40)
+        }
+        return d
+    }
+
+    /// Per-pid-and-counter fixture name — never a fixed one, so tests running
+    /// in parallel and concurrent runs of the suite can't collide on a path.
+    private static let counterLock = NSLock()
+    private static var counter = 0
+    private func writeImage(_ d: Data) throws -> URL {
+        Self.counterLock.lock()
+        Self.counter += 1
+        let n = Self.counter
+        Self.counterLock.unlock()
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dj-gpt-overflow-\(getpid())-\(n).img")
+        try d.write(to: url)
+        return url
+    }
+
+    /// Probe an image, then delete it.
+    private func probe(_ d: Data) throws -> DiskProbeResult? {
+        let url = try writeImage(d)
+        defer { try? FileManager.default.removeItem(at: url) }
+        return SwiftPartitionProbe.probe(at: url)
+    }
+
+    // MARK: The five overflow sites
+
+    @Test func entryTableLBATooLargeYieldsNoPartitions() throws {
+        // entryStartLBA * 512 overflows, wrapping onto the entry at byte 1024.
+        let r = try probe(gptImage(entryTableLBA: Self.wrapsTo1024,
+                                   entryCount: 1, entrySize: 128,
+                                   entries: [Entry(at: 1024, firstLBA: 34, lastLBA: 40)]))
+        #expect(r?.table == "gpt")
+        #expect(r?.partitions.isEmpty == true)
+    }
+
+    @Test func entryOffsetSumOverflowSkipsEntry() throws {
+        // tableStart is exactly representable; tableStart + 1*512 overflows
+        // and wraps to 0, where a real entry sits.
+        let r = try probe(gptImage(entryTableLBA: Self.maxSafeLBA,
+                                   entryCount: 2, entrySize: 512,
+                                   entries: [Entry(at: 0, firstLBA: 34, lastLBA: 40)]))
+        #expect(r?.table == "gpt")
+        #expect(r?.partitions.isEmpty == true)
+    }
+
+    @Test func partitionFirstLBATooLargeSkipsEntry() throws {
+        // firstLBA * 512 overflows, wrapping to 1024 — under the 2048 partEnd,
+        // so an unguarded wrap would satisfy `partEnd > partStart`.
+        let r = try probe(gptImage(entryTableLBA: 2, entryCount: 1, entrySize: 128,
+                                   entries: [Entry(at: 1024,
+                                                   firstLBA: Self.wrapsTo1024,
+                                                   lastLBA: 4)]))
+        #expect(r?.partitions.isEmpty == true)
+    }
+
+    @Test func partitionLastLBATooLargeSkipsEntry() throws {
+        // lastLBA * 512 overflows, wrapping to 2048 — over the 1024 partStart.
+        let r = try probe(gptImage(entryTableLBA: 2, entryCount: 1, entrySize: 128,
+                                   entries: [Entry(at: 1024,
+                                                   firstLBA: 2,
+                                                   lastLBA: Self.wrapsTo2048)]))
+        #expect(r?.partitions.isEmpty == true)
+    }
+
+    @Test func partitionLengthOverflowSkipsEntry() throws {
+        // Both multiplies fit. GPT's last-LBA is inclusive, so the span is the
+        // difference plus one sector, and that last sector is what overflows:
+        // an unguarded wrap reports a partition of length 0.
+        let r = try probe(gptImage(entryTableLBA: 2, entryCount: 1, entrySize: 128,
+                                   entries: [Entry(at: 1024,
+                                                   firstLBA: 0,
+                                                   lastLBA: Self.maxSafeLBA)]))
+        #expect(r?.partitions.isEmpty == true)
+    }
+
+    // MARK: Scope of the rejection
+
+    @Test func oneBadEntryDoesNotDiscardTheGoodOnes() throws {
+        // An unrepresentable entry is dropped on its own; the rest of an
+        // otherwise-parseable table still yields its partitions.
+        let r = try probe(gptImage(entryTableLBA: 2, entryCount: 2, entrySize: 128,
+                                   entries: [Entry(at: 1024,
+                                                   firstLBA: 2,
+                                                   lastLBA: Self.wrapsTo2048),
+                                             Entry(at: 1152, firstLBA: 34, lastLBA: 40)]))
+        #expect(r?.partitions.count == 1)
+        #expect(r?.partitions.first?.start == Self.goodEntryStart)
+        #expect(r?.partitions.first?.length == Self.goodEntryLength)
+    }
+
+    @Test func wellFormedGPTStillParses() throws {
+        // The control: without this, every assertion above could be satisfied
+        // by a probe that rejects all GPTs.
+        let r = try probe(gptImage(entryTableLBA: 2, entryCount: 1, entrySize: 128,
+                                   entries: [Entry(at: 1024, firstLBA: 34, lastLBA: 40)]))
+        #expect(r?.table == "gpt")
+        #expect(r?.partitions.count == 1)
+        #expect(r?.partitions.first?.start == Self.goodEntryStart)
+        #expect(r?.partitions.first?.length == Self.goodEntryLength)
+    }
+}
