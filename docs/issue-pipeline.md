@@ -494,6 +494,22 @@ matters in general.
     Four tests that could not fail. Fix: add a debug run; needs a test
     that fails without it.
 
+**An issue's citations must resolve against the ref the issue is filed
+about.** Filed 2026-09-10 against `main` from a tree that only ever
+existed on a pull request's branch: the issue named a test file with no
+commit history in the repository, and no path matching it anywhere in
+`main`. It named four affected tests; on `main` there is one. The defect
+was real and the inventory was fiction, which is the worst combination —
+a triage agent has to re-derive the whole body before it can accept
+something that is true.
+
+Reading a branch is fine and often necessary; the discipline is to say
+which ref each citation came from, and to re-resolve every path against
+the filing ref before posting. This is the same rule as "never read a
+shared checkout's working tree and call it `main`", one step later in the
+process: there, a wrong ref produces a wrong answer; here, it produces a
+right answer about the wrong tree.
+
 **A finding gets its own issue**, never a paragraph appended to
 something being closed — attached elsewhere it cannot be searched for,
 misleads readers of that issue, and never passes triage.
