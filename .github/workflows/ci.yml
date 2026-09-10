@@ -244,30 +244,28 @@ jobs:
         timeout-minutes: 25
         run: |
           set -o pipefail
-          # DiskJockeyTests IS SKIPPED BECAUSE IT CANNOT RUN HERE, AND
-          # SAYING SO IS THE POINT. It is app-hosted — TEST_HOST is
-          # DiskJockey.app — and this step builds with
-          # CODE_SIGNING_ALLOWED=NO, so the host has no entitlements and no
-          # app group. `xcodebuild` then hangs in "preparing to run tests"
-          # until it gives up: measured repeatedly on 2026-09-10 as
+          # THE APP-HOSTED SUITE STAYS IN, AND THE COUNT IS THE GUARD.
+          #
+          # An earlier version of this step skipped DiskJockeyTests, on the
+          # evidence that every FAILED run today reported only the seven
+          # library suites — 90 cases of 250 — with
           # `DiskJockey (NNNN) encountered an error (The test runner timed
-          # out while preparing to run tests.)` after 7-8 minutes, and on a
-          # bad day as a 61-minute run or a two-hour wedge.
+          # out while preparing to run tests.)`. That inference was wrong,
+          # and measuring the SUCCESSFUL runs is what showed it: nine of
+          # them executed 244-250 cases across 24 suites. The app-hosted
+          # target runs here routinely and passes; it intermittently fails
+          # to PREPARE, and when it does the run dies early having reported
+          # no failures at all.
           #
-          # Those runs were ALREADY library-only — 90 executed cases of the
-          # 250 a full local run reports — they simply took minutes to fail
-          # at it and then reported a truncated pass or an unexplained
-          # timeout. Skipping the target explicitly loses no coverage; it
-          # converts a coin flip into a green that means what it says, and
-          # leaves the gap on the record instead of in the logs.
-          #
-          # To put those 15 suites back, CI has to sign the host app.
+          # So skipping it would have discarded ~160 passing cases to avoid
+          # an intermittent stall. What catches the stall without losing the
+          # coverage is the floor below: a truncated run reports zero
+          # failures, so only a count can see it.
           xcodebuild test \
             -project DiskJockey.xcodeproj \
             -scheme DiskJockey \
             -destination 'platform=macOS,arch=arm64' \
             -skip-testing DiskJockeyUITests \
-            -skip-testing DiskJockeyTests \
             ONLY_ACTIVE_ARCH=YES \
             ARCHS=arm64 \
             CODE_SIGNING_REQUIRED=NO \
@@ -281,12 +279,14 @@ jobs:
           # A truncated run reports no failures at all — it simply stops
           # early — so nothing that greps for a failure can see it. Count
           # what executed and refuse a run that quietly did less.
-          # 85 against 90 observed: a floor, not a target. Raise it when the
-          # library suite grows; a run below it is the defect, not a pass.
+          # 240 against 244-250 observed across nine successful runs today:
+          # a floor, not a target. A library-only truncation reports ~90 and
+          # fails here, which is the whole point — that shape used to pass.
+          # Raise it as the suite grows; a run below it is the defect.
           executed=$(grep -c 'Test Case .* passed\|✔' "$RUNNER_TEMP/test-output.log" 2>/dev/null || true)
-          echo "executed cases: ${executed:-0} (floor 85)"
-          if [ "${executed:-0}" -lt 85 ]; then
-              echo "::error::only ${executed:-0} test cases executed, floor is 85 — a run that stops early reports no failures, so this is the truncation defect (diskjockey#139) rather than a pass"
+          echo "executed cases: ${executed:-0} (floor 240)"
+          if [ "${executed:-0}" -lt 240 ]; then
+              echo "::error::only ${executed:-0} test cases executed, floor is 240 — a run that stops early reports no failures, so this is the truncation defect (diskjockey#139) rather than a pass"
               exit 1
           fi
           exit "$rc"

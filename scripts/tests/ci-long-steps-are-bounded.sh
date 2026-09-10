@@ -144,24 +144,32 @@ for job in scripts; do
     fi
 done
 
-# ------------------------------------------- the suite that cannot run here
-# The app-hosted target is skipped because CODE_SIGNING_ALLOWED=NO leaves its
-# host app without entitlements, so `xcodebuild` hangs in "preparing to run
-# tests". Both halves are asserted: the skip, and the floor that stops the
-# remaining suites truncating silently — the failure being replaced reported
-# NO failures at all, so only a count can see it.
+# ------------------------------------------------- the count is the guard
+# The app-hosted target stays in the run: nine successful runs on 2026-09-10
+# executed 244-250 cases across 24 suites, so it works here and only
+# intermittently fails to prepare. What must not come back is the truncated
+# pass — a run that dies early reports ZERO failures, so only a count sees it.
 test_run="$(ruby -ryaml -e 'd=YAML.load_file(ARGV[0]); s=d["jobs"]["test"]["steps"].find{|x| x["name"]=="Test"}; print s["run"]' "$WORKFLOW" 2>/dev/null)"
 case "$test_run" in
     *"-skip-testing DiskJockeyTests"*)
-        echo "ok    the app-hosted target is skipped, and the workflow says why" ;;
-    *)  echo "FAIL  DiskJockeyTests is not skipped: it is app-hosted, the host is built unsigned, and xcodebuild hangs in 'preparing to run tests'" >&2
+        echo "FAIL  DiskJockeyTests is skipped: it executes 244-250 cases here when the host prepares, so skipping it discards ~160 passing cases to dodge an intermittent stall" >&2
+        fails=$((fails + 1)) ;;
+    *)  echo "ok    the app-hosted target is still in the run" ;;
+esac
+# ASSERT THE COMPARISON, NOT THE COMMENT. The first version of this check
+# matched the string "floor is 240" — which survives replacing the whole
+# `if` with `if false`, so an arm that disarmed the floor passed it. The
+# comparison is the behaviour; the message is decoration.
+case "$test_run" in
+    *'"${executed:-0}" -lt 240'*)
+        echo "ok    the executed-case floor compares against 240" ;;
+    *)  echo "FAIL  no live comparison against a 240 floor: a truncated run reports ~90 cases and zero failures, which is the shape that used to pass" >&2
         fails=$((fails + 1)) ;;
 esac
 case "$test_run" in
-    *"floor is 85"*)
-        echo "ok    the executed-case floor is present" ;;
-    *)  echo "FAIL  no executed-case floor: a truncated run reports zero failures, so nothing that looks for a failure can see it" >&2
-        fails=$((fails + 1)) ;;
+    *"floor is 240"*) echo "ok    and it says so when it fires" ;;
+    *) echo "FAIL  the floor fires without naming itself, so a red run will not explain which defect it caught" >&2
+       fails=$((fails + 1)) ;;
 esac
 
 if [ "$fails" -eq 0 ]; then
