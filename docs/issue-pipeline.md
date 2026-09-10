@@ -317,6 +317,23 @@ command's.** Measured 2026-09-10: an arm printed `EXIT=0` beside a
 caught the same way — by the `test result:` line disagreeing with the
 exit code. Check the result line first and the exit code second.
 
+**Assert the number of arms, because a suite can lose them silently.**
+Measured 2026-09-10: deleting one arm from a runner took its **two
+neighbours** with it, so the next round's reported "ten arms" were eight
+— and the two that vanished were the pair that had settled an earlier
+question. The report overstated its own coverage and nothing in the run
+disagreed with it. An arm suite is a check like any other: count what
+ran, and refuse a figure whose arm count does not match the list.
+
+**An enumerated battery bounds what it enumerates, and "0 unclassified"
+is not a claim about anything outside it.** A 316-case differential over
+generated shell fragments reported zero unclassified disagreements
+through three rounds; it could not have found the defect a reviewer then
+found, because **no generated fragment contained a literal `{`** and that
+case was never in the battery. State what a battery enumerates alongside
+its result, the same way a survey states its scope — otherwise its
+clean sheet reads as coverage it never had.
+
 **A surviving mutation may mean the test is missing, not the code.** Ask
 whether the check is unwitnessed rather than inert, and build the case it
 exists for.
