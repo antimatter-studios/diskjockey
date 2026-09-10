@@ -864,6 +864,16 @@ the push often names a commit no clone can produce. Check reachability
 "addressed at" claim, and re-derive at the head when it fails. The
 findings did hold; nothing about the citation established that.
 
+**The same applies to your own verification evidence after a rewrite.**
+Measured 2026-09-10: four branches were rebuilt so that one commit sat
+directly on `main` carrying both a port and a later fix, and the port
+commits verified earlier that day no longer existed on any branch — so
+that verification described nothing reachable. A force-push does not only
+move the tip; it can replace the base a measurement was taken against.
+Re-resolve the head before trusting any earlier pass, and say when a
+branch became a wholesale replacement rather than an update on a verified
+base, because those are different things to gate.
+
 **A run id resolves to the latest attempt, not to the run you looked
 at.** `actions/runs/<id>` returns whichever attempt ran last, so a
 failure cited by run id reads **green** to the next person the moment
