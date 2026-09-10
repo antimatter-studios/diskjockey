@@ -6,10 +6,21 @@ name: CI
 # `push` run and a `pull_request` run fired for the same commit and raced for
 # the limited macos-26 runner pool, leaving one of them cancelled.
 # No code signing — unit + library tests only.
+#
+# A `v*` TAG RUNS THE TESTS AND NOTHING ELSE. This repository ships a paid app
+# through the App Store, so it publishes no release artefacts: a tag is
+# metadata that records which commit a version was built from, and the only
+# thing it should produce is public evidence that the tree at that commit
+# passes. `release.yml` deliberately does NOT trigger on tags for the same
+# reason — see the note at its own `on:` block.
+#
+# The concurrency group below keys on `ref_name`, which for a tag is the tag
+# itself, so a tag run and a `main` run never cancel each other.
 
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
 

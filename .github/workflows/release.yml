@@ -20,9 +20,20 @@ name: Release
 #   The CI keychain password is generated in-pipeline (no secret). Uploads are
 #   gated by the repo variable MAS_SUBMIT (set =true to actually submit).
 
+# MANUAL ONLY, DELIBERATELY. This used to trigger on `push: tags: ['v*']`, and
+# that coupling is why the repository had no tags at all: marking which commit
+# a version shipped from and producing a signed, downloadable build were the
+# same action, so the only way to avoid the second was to never do the first.
+#
+# Two reasons it stays manual. The app is sold through the App Store, so a
+# release asset in a public repository is a free copy of a paid product. And a
+# tag push must not sign anything with the owner's Developer ID as a side
+# effect of recording provenance.
+#
+# So: tags are metadata, `ci.yml` runs the tests on them, and a release is an
+# explicit `workflow_dispatch` by someone who means it.
+
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
 
 concurrency:
