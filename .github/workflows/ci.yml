@@ -155,6 +155,22 @@ jobs:
 
       # UI tests are excluded — they require a running app and virtual display.
       - name: Test
+        # A BOUND ON THE STEP, NOT ON THE JOB, and the difference is the
+        # whole point. This job also carries `Build libraries`, which is
+        # skipped on a vendor-cache hit and unmeasured on a miss — a
+        # bound big enough to be safe for a cold cache is too big to
+        # catch this step hanging.
+        #
+        # WHAT IT DOES AND DOES NOT DO. It caps the bill. It does not
+        # diagnose the hang: one run held a macos runner for 67m39s on a
+        # docs-only diff and went green, and what it was doing for the
+        # extra hour is not established. Without a bound the ceiling is
+        # GitHub's default of 360 minutes, at 10x macOS billing.
+        #
+        # 25 against an observed 8-12 minute range: wide enough that a
+        # slow runner or a cold Xcode does not fail a good build, narrow
+        # enough that a hang is caught inside the hour it used to burn.
+        timeout-minutes: 25
         run: |
           set -o pipefail
           xcodebuild test \
