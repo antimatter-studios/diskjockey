@@ -4,6 +4,62 @@ Reverse-chronological history of DiskJockey, distilled from `git log`. Cascade a
 
 The README carries an abbreviated tail of this file (last ten dated sections).
 
+Releases are listed first, by version, because that is what a tag names and
+what `.githooks/pre-push.d/git-changelog.sh` requires of a `v*` tag: a
+`## vX.Y.Z` section in the changelog of the commit being tagged. The dated
+sections below carry the detail; these say what shipped and from where.
+
+---
+
+## v1.2.0
+
+**2026-06-22 · build 4 · `e9fb77d`**
+
+Home and About pages. The app opens on a Home landing page — live counts for
+local volumes, network drives and empty drives, a supported-filesystem
+showcase, and Add Disk Image / Add Network Drive actions. A new About page
+carries the architecture summary and the vendored-library version table, and
+the menu-bar About window becomes a compact box pointing at it. Also in this
+release: EROFS and SquashFS volumes auto-mount from real media, the Home page
+reads live FSKit extension enable-state through `FSClient`, and filesystem
+detection stops guessing — an unrecognised partition reports `unknown` rather
+than being mis-typed.
+
+Detail in the `2026-06-22` and `2026-06-02` sections below.
+
+## v1.1.0
+
+**2026-06-21 · build 3 · `e18511a`**
+
+EROFS and SquashFS read-only filesystems integrated into the app: two new
+FSKit extensions, their probes, and the sidebar and mount plumbing that goes
+with them.
+
+This version was never tagged at the time. The tag was written on 2026-09-10
+from the project file's own `MARKETING_VERSION` at that commit.
+
+## v1.0.1
+
+**2026-04-22 · build 2 · `cab66a8`**
+
+Vendor refresh and extension version alignment: the EXT4 and NTFS extensions'
+declared versions brought into line with the app's, and the vendored driver
+crates advanced to their then-current releases.
+
+Detail in the dated sections below.
+
+## v0.0.0
+
+Everything below predates versioned releases. The dated sections are the
+project's working history and are kept because they carry the reasoning, not
+just the change.
+
+This heading is also load-bearing: `changelog_section` in
+`.githooks/pre-push.d/git-changelog.sh` reads from one `## v` heading to the
+next, so without a `## v` after the oldest release, that release's notes
+swallow the rest of the file. Measured — `git-changelog.sh notes v1.0.1`
+returned 227 lines before this existed and 6 after.
+
 ---
 
 ## 2026-06-22

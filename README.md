@@ -137,7 +137,16 @@ Gaps to know about before trusting this with real data:
 
 ## Changelog
 
-Last ten dated sections only — the full project history lives in [`CHANGELOG.md`](CHANGELOG.md). Reverse-chronological, breakthroughs highlighted.
+Releases first, then the last ten dated sections. Full history in [`CHANGELOG.md`](CHANGELOG.md); reverse-chronological, breakthroughs highlighted.
+
+### v1.2.0
+2026-06-22 · build 4 — Home and About pages; EROFS/SquashFS auto-mount from real media; live FSKit extension state; honest filesystem detection.
+
+### v1.1.0
+2026-06-21 · build 3 — EROFS and SquashFS read-only filesystems integrated into the app.
+
+### v1.0.1
+2026-04-22 · build 2 — vendor refresh and extension version alignment.
 
 ### 2026-06-22
 - **Home and About pages (v1.2.0).** The app opens on a new Home landing page — welcome header, live counts (local volumes / network drives / empty drives), a supported-filesystem showcase (ext4·rw, NTFS·rw, EROFS·ro, SquashFS·ro, qcow2/VHD/VHDX/VMDK, and the eight network/cloud schemes), and Add Disk Image / Add Network Drive quick actions. A new About page carries the project description, architecture summary, the full vendored-library version table, and licence/source links; the menu-bar About window is now a compact about box that points to it.
