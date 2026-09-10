@@ -325,6 +325,21 @@ question. The report overstated its own coverage and nothing in the run
 disagreed with it. An arm suite is a check like any other: count what
 ran, and refuse a figure whose arm count does not match the list.
 
+**But separate the figures from the conclusion.** When that suite's
+missing arms were re-derived they reproduced exactly, because the
+verifier had measured those cases **by hand in its own tree** rather than
+through the runner that lost them. The reported coverage was unfounded;
+the conclusion it supported was not. "Count what ran" catches a reporting
+defect and does not by itself invalidate a finding that was reached
+another way — say which of the two you are retracting.
+
+**And the inputs are the evidence; the arms only prove they are
+load-bearing.** Four arms sharing one test name looked like one rule
+tested four ways until each was shown to fail on **its own input**, and
+the check that settled it was reading the shipped test for those four
+inputs rather than trusting the arm count. Where a fix has parts, assert
+the parts are present before asserting the mutations kill them.
+
 **An enumerated battery bounds what it enumerates, and "0 unclassified"
 is not a claim about anything outside it.** A 316-case differential over
 generated shell fragments reported zero unclassified disagreements
