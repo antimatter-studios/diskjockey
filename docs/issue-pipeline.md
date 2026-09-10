@@ -263,6 +263,55 @@ that assertion can fail. Full suite once at the end.
 debug and release; a carry *within* a `u64` into flag bits does not,
 because `overflow-checks` never sees it.
 
+### Three families in the pipeline's own tooling
+
+Named on 2026-09-10 after four members of the second one turned up in
+four different files in a single day. A family is worth naming when it
+makes the next member findable — the third one below was found by asking
+what the first two did **not** cover.
+
+**1. Destructive re-resolution.** A command whose target is re-resolved
+between reading the state and acting on it: `ext4#104` (`break_lock`
+deletes whichever lock is present, not the one the waiter inspected),
+`diskjockey#123`/`#124` (the ledger lock's stale break and the slot
+reclaim), `btrfs#141` (the oracle slot's release compares the *invoked
+script's own path*). General form: **bind a destructive act to a token
+you recorded, never to an identity you re-derive.**
+
+**2. A check that cannot answer returning the permissive one.**
+`diskjockey#131`'s `in_use` probe answering the same when `lsof` is
+absent; `#127`'s `${when:-0}` epoch default; `#132`'s unparseable
+timestamp silently skipping the row; `#145`'s `sibling-build.sh:73`,
+where a failed `git status` leaves `DIRTY` empty and one unread status
+**disarms the guard and asserts the property the guard exists to
+establish** in a single step.
+
+**The blanket remedy for this family is wrong, measured.** Adding
+`set -o pipefail` everywhere fixes only the members that lose a status —
+and it breaks `#145` specifically, because `git status … | head -20`
+exits **141** whenever the producer has more than twenty lines to write
+(`set -o pipefail; yes | head -3` → 141, three of three), so under
+`set -e` it aborts in exactly the very-dirty case while still reading no
+status. Two of that row's three sites are **missing assertions rather
+than lost statuses**. Read each member before patching the family.
+
+**3. An unvalidated write that makes a later measurement quietly wrong,
+always in the reassuring direction.** `diskjockey#142`: `am-cost add`
+has an arity check and nothing else, so a non-numeric token count
+aggregates as 0 while still counting the run (141027 → 70513 per run), a
+swapped `<stage> <tokens>` pair invents a stage named `99999`, and a
+newline in the free-text note **forges a whole row** — all exiting 0,
+every error biasing the number **downward**. No reading of the file
+recovers the truth: `raw` shows the bad token, `report` shows a halved
+average, nothing connects them. This family is *annoy the human, do not
+corrupt the output* inverted, and it was found only because an agent
+finally **ran** the tool that every stage had declined to write to.
+
+**Two of those rows also carry a confident number from a path that did
+not act** — `#142`'s halved average and `#144`'s `removed/pruned: 1` for
+a worktree that still exists. Where a count and an action can disagree,
+assert the action.
+
 ### The recurring defect
 
 **A check whose output does not depend on the failure it exists to
