@@ -824,9 +824,15 @@ only because the survey carried a known-positive control that went to
 zero at the same time. `cdpath`, `fpath`, `manpath` and `mailpath` are
 tied the same way.
 
-That is the third of these in one session, and they are one family:
+**`status` is read-only in zsh.** A loop variable named `status` fails to
+assign there — zsh ties it to `$?` — so a script written that way works
+on a bash runner and dies on the author's machine, or the reverse. Use
+`rc`. Measured 2026-09-10, and it is the fourth member of the family
+below.
+
+That is the fourth of these in one session, and they are one family:
 `$REF:path` taking `:t` as a history modifier, an unquoted expansion not
-word-splitting, and `path=` clobbering `PATH`. **zsh's departures from
+word-splitting, `path=` clobbering `PATH`, and `status` being read-only. **zsh's departures from
 bash turn a failed query into a plausible negative**, which is why every
 survey needs a control that must be non-zero — the control is not
 diligence, it is the only thing that separates "no hits" from "no
