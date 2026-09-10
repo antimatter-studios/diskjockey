@@ -202,14 +202,16 @@ jobs:
           # Both test frameworks are in this target and each prints its own
           # total: XCTest says "Executed N tests" (once per suite plus once
           # for the bundle, so take the largest) and swift-testing says
-          # "Test run with N tests". Measured 2026-09-10: 51 + 39 = 90.
+          # "Test run with N tests". Measured 2026-09-10: 51 + 39 = 90, then
+          # 51 + 65 = 116 once the mount personalities got covered. The floor
+          # moves up with the suite; it never moves down.
           log="$RUNNER_TEMP/library-output.log"
           xct=$(grep -aoE 'Executed [0-9]+ tests' "$log" | grep -oE '[0-9]+' | sort -n | tail -1)
           swt=$(grep -aoE 'Test run with [0-9]+ tests' "$log" | grep -oE '[0-9]+' | sort -n | tail -1)
           total=$(( ${xct:-0} + ${swt:-0} ))
-          echo "library cases executed: $total = ${xct:-0} XCTest + ${swt:-0} swift-testing (floor 85)"
-          if [ "$total" -lt 85 ]; then
-              echo "::error::only $total library cases executed, floor is 85 — 90 ran on 2026-09-10, and a run that executes less than that has stopped early rather than passed (diskjockey#139)"
+          echo "library cases executed: $total = ${xct:-0} XCTest + ${swt:-0} swift-testing (floor 110)"
+          if [ "$total" -lt 110 ]; then
+              echo "::error::only $total library cases executed, floor is 110 — 116 ran on 2026-09-10, and a run that executes less than that has stopped early rather than passed (diskjockey#139)"
               exit 1
           fi
           exit "$rc"
