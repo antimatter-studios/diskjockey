@@ -59,6 +59,20 @@ check "ci.yml still runs on main" \
 check "ci.yml still runs on pull requests" \
       "true" "$(trigger "$CI" 'on.key?("pull_request")')"
 
+# AND EVERY PULL REQUEST IS RUN, WHICHEVER BRANCH IT TARGETS.
+#
+# `pull_request: branches: [main]` gave a stacked pull request NO run at all,
+# and GitHub then reports it as `CLEAN` -- a pull request with no checks has no
+# failing checks. Measured 2026-09-10 on two of them: `gh run list --branch
+# <head>` returned nothing while `gh pr view` called both mergeable. An absent
+# check reads exactly like a passing one to anything scanning for failures.
+#
+# Asserted as "no `branches` filter" rather than "main is in the filter",
+# because the failing shape is a filter that EXCLUDES a base, and any list at
+# all excludes every base not on it.
+check "ci.yml runs on a pull request against any base branch" \
+      "true" "$(trigger "$CI" '!(on["pull_request"] || {}).is_a?(Hash) || !(on["pull_request"] || {}).key?("branches")')"
+
 # A tag run must not cancel a main run. The group keys on ref_name, which for a
 # tag is the tag itself; if someone keys it on `github.workflow` alone, pushing
 # a tag cancels whatever main is doing.
