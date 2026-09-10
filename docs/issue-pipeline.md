@@ -834,6 +834,16 @@ a third-party action, a trigger change, a network call, a secret
 reference. Read the shell too — `read -r -a args <<< "$VAR"` splits
 without evaluating, which is not `eval`.
 
+**A resolution claim citing a sha nobody can reach is not evidence.**
+Measured 2026-09-10: a report stated three review findings were addressed
+"at `ccbf257f`", and that commit is **not reachable from the branch
+head** — a force-pushed intermediate. Under `--force-with-lease` the
+branch's own history is rewritten routinely, so a sha cited from before
+the push often names a commit no clone can produce. Check reachability
+(`git merge-base --is-ancestor <cited> <head>`) before relying on any
+"addressed at" claim, and re-derive at the head when it fails. The
+findings did hold; nothing about the citation established that.
+
 **A run id resolves to the latest attempt, not to the run you looked
 at.** `actions/runs/<id>` returns whichever attempt ran last, so a
 failure cited by run id reads **green** to the next person the moment
