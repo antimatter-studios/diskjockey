@@ -30,19 +30,40 @@ public struct MountConfigStore: Sendable {
     public static let groupIdentifier = "group.com.antimatterstudios.diskjockey"
     private static let subdirName = "MountConfigs"
 
-    public init() {}
+    private let directory: URL?
+
+    /// - Parameter directory: where the plists live. Defaults to the shared
+    ///   app-group container's `MountConfigs/`, which is what every real call
+    ///   site wants and none of them pass.
+    ///
+    ///   IT EXISTS FOR THE TESTS. The default resolves through
+    ///   `containerURL(forSecurityApplicationGroupIdentifier:)`, which
+    ///   returns a real path even to a process holding no app-group
+    ///   entitlement, so a test cannot steer this by arranging for the
+    ///   container to be absent — it would write into the developer's own
+    ///   container instead. The alternative was to duplicate this path
+    ///   logic in the test, which is the same defect shape as duplicating
+    ///   an implementation: it passes while the real one is wrong.
+    public init(directory: URL? = nil) {
+        self.directory = directory
+    }
 
     /// The parent directory every stored config lives under. Created
     /// on demand. Intentionally a method, not a stored property, so
     /// permission changes mid-session are picked up.
     private func configsDir() throws -> URL {
         let fm = FileManager.default
-        guard let base = fm.containerURL(
-            forSecurityApplicationGroupIdentifier: Self.groupIdentifier
-        ) else {
-            throw MountConfigStoreError.groupContainerUnavailable
+        let dir: URL
+        if let directory {
+            dir = directory
+        } else {
+            guard let base = fm.containerURL(
+                forSecurityApplicationGroupIdentifier: Self.groupIdentifier
+            ) else {
+                throw MountConfigStoreError.groupContainerUnavailable
+            }
+            dir = base.appendingPathComponent(Self.subdirName, isDirectory: true)
         }
-        let dir = base.appendingPathComponent(Self.subdirName, isDirectory: true)
         if !fm.fileExists(atPath: dir.path) {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         }
