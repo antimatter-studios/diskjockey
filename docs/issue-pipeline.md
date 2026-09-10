@@ -88,6 +88,18 @@ branch behind, held run); rebase, re-verify, push. Both go back to a
 fixer; sending someone to diagnose a failure that does not exist wastes
 the trip.
 
+**A terminal row that never released its claim is invisible to both
+readings.** `stale` lists claimed rows because an unclaimed one is queue
+depth; `merged` and `rejected` are skipped because a terminal row is
+done. A row that is *both* — terminal and still owned — falls between the
+two and would sit there forever as a phantom stall under some stage's
+identity. Measured 2026-09-10: **24 of them**, owners `fasttrack`,
+`pr-monitor-2`, `verify-pr` and `fix-drivers`, the oldest claimed
+2026-09-08 by an agent that no longer exists. Sweep them with
+`am-ledger list --owner <stage>` filtered to `merged`/`rejected` after
+each run, and release with `owner=-`. Found by a monitor auditing its own
+stage's claims rather than by anything looking for stalls.
+
 **`stale` lists claimed rows only.** An unclaimed row is queue depth,
 not a stall, and listing 200 of them buries the four that are stuck.
 
@@ -244,6 +256,19 @@ Two of the three needed a **neutered guard** instead — the specific
 comparison replaced with `if false`, uniqueness asserted first — which
 yields named failures and leaves the sibling assertions green, so a fix
 that over-corrected would fail too.
+
+**Cargo walks up out of the scratchpad, and the scratchpad root is
+shared.** A throwaway crate exported under `<scratch>/x/` has every
+ancestor searched for a manifest, so another agent's stray `Cargo.toml`
+at the scratchpad root becomes your workspace parent. Measured
+2026-09-10: a guard's three mutation arms all returned `EXIT=101` —
+including the arm that was supposed to pass — with `failed to parse
+manifest … can't find library qcow2`, from a stray manifest written by
+another agent minutes earlier. Put a `[workspace]` table in the export's
+own manifest, and keep the arm whose job is to *pass*: without a baseline
+that must succeed, an environment failure is indistinguishable from
+finding the defect everywhere. Counting compile errors separately from
+test failures is what exposed it.
 
     compile-errors=$(grep -acE '^error\[E[0-9]+\]' log)
     test-failures=$(grep -acE '^test .* FAILED' log)
