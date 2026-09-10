@@ -294,6 +294,23 @@ loose pattern returns 2, the anchored one returns 1. A fixer caught it
 only because the number looked odd, which is the least reliable way to
 catch anything — anchor on the `... FAILED` that follows a test name.
 
+**A mis-sited arm reads exactly like a surviving mutation.** Twice on
+2026-09-10, both against branches that turned out to be correct: an arm
+mutated `collect_siblings` to recurse into mapping keys, which changes
+nothing because no key in that file contains `../` — the narrowing being
+tested lives at the *caller*, which walks only two specific fields; and
+an arm cut a guard's paren counter where the escape handling it was
+probing sat fifteen lines away. Both printed green and both would have
+been recorded as a hole in the branch. **Verify the site, not just the
+line:** assert the expression is unique, name the enclosing function, and
+when an arm survives, re-site it once before believing it.
+
+**`f=$LOG; echo "EXIT=$?"` reads the assignment's status, not the
+command's.** Measured 2026-09-10: an arm printed `EXIT=0` beside a
+`FAILED` result line. Same family as the two count defects above, and
+caught the same way — by the `test result:` line disagreeing with the
+exit code. Check the result line first and the exit code second.
+
 **A surviving mutation may mean the test is missing, not the code.** Ask
 whether the check is unwitnessed rather than inert, and build the case it
 exists for.
