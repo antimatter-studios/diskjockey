@@ -553,6 +553,22 @@ agent totals divided by issue counts.
 no `git checkout`, no `git pull` in a repository you do not own — one
 agent swept up another's untracked work.
 
+**Bind a destructive act to a token you recorded, never to an identity
+you re-derive.** Four rows this week converge on this one primitive:
+`ext4#104` (break_lock deletes whichever lock is present, not the one the
+waiter inspected), `xfs#158`, `diskjockey#123`/`#124` (the ledger lock
+and the slot reclaim, same shape), and `btrfs#141` — where the oracle
+slot's release compares the *invoked script's own path*, derived from
+`BASH_SOURCE`, against the path recorded at acquire time. Under
+one-worktree-per-issue a different checkout is the **normal** case, so
+the holder-only guard that `#100` added — the right instinct — silently
+declines to release and leaks the slot.
+
+The fix is not to drop the guard; it is to compare a recorded token
+rather than a re-derived identity, and to reach the release on every exit
+path. Watch for the trap that inherits the defect: an `EXIT` trap whose
+token is still the checkout path is the same leak with better manners.
+
 **Never `rm` with a glob or a bare variable.** Name the exact path.
 
 **Push over HTTPS** with the `gh` credential helper; SSH to GitHub fails
