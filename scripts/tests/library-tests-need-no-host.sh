@@ -234,6 +234,40 @@ for pattern in 'Executed [0-9]+ tests' 'Test run with [0-9]+ tests'; do
     esac
 done
 
+# ------------------------------------- and the two builds see the same files
+# THIS IS WHAT MAKES "the same tests" TRUE, and it is a property of the Xcode
+# project rather than of anything written here. Both targets take a whole
+# DIRECTORY rather than a list of files: Xcode through
+# `fileSystemSynchronizedGroups`, SwiftPM through `path:`. So a test file
+# added to DiskJockeyLibraryTests/ joins both builds at once and neither can
+# silently miss it.
+#
+# If the Xcode target ever goes back to an explicit PBXSourcesBuildPhase that
+# stops being true: the two builds would compile lists that drift, and
+# `swift test` could report a full green while the file nobody added to the
+# Xcode target is the broken one. Assert the synchronised group, not the file
+# count -- the count is what would be equal right up until somebody adds a
+# file.
+synchronised_with_its_directory() {
+    python3 -c '
+import re, sys
+src, name = sys.argv[1], sys.argv[2]
+s = open(src).read()
+m = re.search(r"/\* " + re.escape(name) + r" \*/ = \{\n\t+isa = PBXNativeTarget;(.*?)\n\t+name = " + re.escape(name) + ";", s, re.S)
+if not m:
+    sys.exit(2)
+g = re.search(r"fileSystemSynchronizedGroups = \((.*?)\);", m.group(1), re.S)
+sys.exit(0 if g and name in g.group(1) else 1)
+' "$PBXPROJ" "$1"
+}
+for target in DiskJockeyLibrary DiskJockeyLibraryTests; do
+    case "$(synchronised_with_its_directory "$target"; echo $?)" in
+        0) ok "the Xcode $target target is synchronised with its directory, so both builds see the same files" ;;
+        2) fail "no Xcode target named $target: this check compared nothing" ;;
+        *) fail "the Xcode $target target no longer takes its whole directory; with an explicit source list the SwiftPM and Xcode builds compile different files, and \`swift test\` can go green over a file only Xcode was missing" ;;
+    esac
+done
+
 # ------------------------------------------------ the dead route stays dead
 # DiskJockeyLibraryOnly.xcscheme was the first attempt and it does not work.
 # Leaving it in the project invites the next person to wire it up again.
