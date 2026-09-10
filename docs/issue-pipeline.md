@@ -281,6 +281,15 @@ reviewing, repeatedly:
 - a scan whose pattern cannot match — `\s` is not honoured by every
   `grep`, so it matched nothing everywhere and read as twelve clean
   repositories;
+- a scan whose pattern matches something else entirely, which is the
+  same defect with the sign flipped: an unanchored `grep -q 'up to
+  date'` for a task-skip check matched `rustup`'s own `info: component
+  rust-std is up to date`, so every run recorded as skipped and
+  "the `sources:` list has no effect" was briefly a finding. Measured
+  2026-09-10 by the verifier that wrote it, caught because a run it had
+  called skipped had regenerated a file it had just deleted. Anchor the
+  pattern, and keep a control that shows the check discriminates — here,
+  a `README.md` edit that genuinely does skip;
 - an empty search result whose coverage was never established —
   `gh issue list --search` does not index comment bodies; use
   `gh issue view --json comments`;
