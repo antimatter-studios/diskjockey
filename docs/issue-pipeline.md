@@ -246,7 +246,15 @@ yields named failures and leaves the sibling assertions green, so a fix
 that over-corrected would fail too.
 
     compile-errors=$(grep -acE '^error\[E[0-9]+\]' log)
-    test-failures=$(grep -acE '^test .* FAILED' log)
+    test-failures=$(grep -acE '^test [a-z].*\.\.\. FAILED' log)
+
+**The obvious pattern for the second one is off by exactly one.** `^test
+.* FAILED` also matches the summary line `test result: FAILED. 52
+passed; 1 failed`, so a single failure counts as two and every arm's
+figure is inflated by one. Measured 2026-09-10 on a two-line fixture: the
+loose pattern returns 2, the anchored one returns 1. A fixer caught it
+only because the number looked odd, which is the least reliable way to
+catch anything — anchor on the `... FAILED` that follows a test name.
 
 **A surviving mutation may mean the test is missing, not the code.** Ask
 whether the check is unwitnessed rather than inert, and build the case it
