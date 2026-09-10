@@ -370,6 +370,27 @@ jobs:
           # an intermittent stall. What catches the stall without losing the
           # coverage is the floor below: a truncated run reports zero
           # failures, so only a count can see it.
+          #
+          # UNSIGNED, AND THE AD-HOC ALTERNATIVE WAS MEASURED WORSE.
+          #
+          # This branch first set CODE_SIGN_IDENTITY="-" with
+          # CODE_SIGNING_ALLOWED=YES, on the reasoning that an unsigned bundle
+          # cannot execute on Apple Silicon. What that actually changed is that
+          # ad-hoc signing APPLIES THE ENTITLEMENTS, and DiskJockey's include
+          # the App Sandbox. A sandboxed binary whose entitlements no profile
+          # authorises is refused at spawn, so the run went from intermittently
+          # failing to failing every time, in 5.053 seconds, on both bundles:
+          #
+          #   Could not launch "DiskJockeyTests"
+          #   Could not launch "DiskJockeyLibraryTests"
+          #   Runningboard has returned error 5
+          #     (Underlying Error: Launchd job spawn failed)
+          #
+          # CODE_SIGNING_ALLOWED=NO never applies entitlements at all, which is
+          # why this configuration launches at least some of the time. It is not
+          # a fix for #139 and is not claimed as one — the result bundle kept
+          # below is what this branch is for, and it is what produced the error
+          # quoted above.
           xcodebuild test \
             -project DiskJockey.xcodeproj \
             -scheme DiskJockey \
@@ -378,8 +399,8 @@ jobs:
             ONLY_ACTIVE_ARCH=YES \
             ARCHS=arm64 \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="-" \
-            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_ALLOWED=NO \
             -resultBundlePath "$RUNNER_TEMP/Test.xcresult" \
           | tee "$RUNNER_TEMP/test-output.log" \
           | xcbeautify --renderer github-actions

@@ -155,6 +155,12 @@ done
 # intermittently fails to prepare. What must not come back is the truncated
 # pass — a run that dies early reports ZERO failures, so only a count sees it.
 test_run="$(ruby -ryaml -e 'd=YAML.load_file(ARGV[0]); s=d["jobs"]["test"]["steps"].find{|x| x["name"]=="Test"}; print s["run"]' "$WORKFLOW" 2>/dev/null)"
+# THE COMMENTS ARE NOT THE COMMAND, and conflating them made this file fail on
+# its own explanation: the signing check below rejects CODE_SIGN_IDENTITY="-",
+# and the comment in ci.yml that records WHY quotes that string. Every
+# assertion about the shape of the command reads this instead — comment-only
+# lines dropped, everything else including the echoes kept verbatim.
+test_run="$(printf '%s\n' "$test_run" | grep -v '^[[:space:]]*#')"
 case "$test_run" in
     *"-skip-testing DiskJockeyTests"*)
         echo "FAIL  DiskJockeyTests is skipped: it executes 244-250 cases here when the host prepares, so skipping it discards ~160 passing cases to dodge an intermittent stall" >&2
@@ -194,14 +200,28 @@ else
     echo "FAIL  the result bundle is written and then discarded, which is the state that made #139 undiagnosable" >&2
     fails=$((fails + 1))
 fi
-# An unsigned bundle cannot execute on Apple Silicon, so the host app of an
-# app-hosted test target has to carry at least an ad-hoc signature.
+# THIS CHECK ASSERTED THE OPPOSITE FOR ONE COMMIT, and the reversal is what
+# measuring it produced. It read: an unsigned bundle cannot execute on Apple
+# Silicon, so the host app must carry at least an ad-hoc signature. That is
+# true of a bundle you double-click and false of this one. Ad-hoc signing
+# APPLIES THE ENTITLEMENTS, DiskJockey's include the App Sandbox, and a
+# sandboxed binary whose entitlements no profile authorises is refused at
+# spawn — so CODE_SIGN_IDENTITY="-" took the job from intermittently failing
+# to failing every time, in 5.053 seconds, on both bundles:
+#
+#   Could not launch "DiskJockeyTests" / "DiskJockeyLibraryTests"
+#   Runningboard has returned error 5 (Launchd job spawn failed)
+#
+# CODE_SIGNING_ALLOWED=NO never applies entitlements at all, which is why it
+# launches at least some of the time. Keep it, and keep the reason here so the
+# next person does not re-derive the same wrong inference from first
+# principles.
 case "$test_run" in
-    *'CODE_SIGNING_ALLOWED=NO'*)
-        echo "FAIL  CODE_SIGNING_ALLOWED=NO leaves the host app unsigned, and an unsigned bundle cannot launch on arm64" >&2
+    *'CODE_SIGN_IDENTITY="-"'*)
+        echo "FAIL  CODE_SIGN_IDENTITY=\"-\" ad-hoc signs the host app, which applies its App Sandbox entitlements; an unauthorised sandbox is refused at spawn with RunningBoard error 5, measured on every run" >&2
         fails=$((fails + 1)) ;;
-    *'CODE_SIGN_IDENTITY="-"'*) echo "ok    the host app is ad-hoc signed" ;;
-    *)  echo "FAIL  no ad-hoc signing identity for the host app" >&2
+    *'CODE_SIGNING_ALLOWED=NO'*) echo "ok    the host app is unsigned, so no entitlements are applied to be refused" ;;
+    *)  echo "FAIL  the test step neither disables signing nor explains what it signs with" >&2
         fails=$((fails + 1)) ;;
 esac
 
