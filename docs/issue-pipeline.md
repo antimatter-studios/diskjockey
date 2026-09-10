@@ -270,6 +270,19 @@ that must succeed, an environment failure is indistinguishable from
 finding the defect everywhere. Counting compile errors separately from
 test failures is what exposed it.
 
+**Neither count sees a syntax error, and the discriminator is the
+`test result:` line.** A mis-spliced brace gives `error: unexpected
+closing delimiter`, which carries **no `E`-code**, so the compile-error
+pattern below cannot match it; widening to a bare `error:` then matches
+cargo's own `error: test failed, to rerun pass …` on every real failure,
+so neither form is a reliable count. Measured 2026-09-10: an arm
+reported `EXIT=101` with **0 compile errors and 0 named failures**,
+which reads exactly like a surviving mutation. **A run that produced no
+`test result:` line at all did not run tests** — assert its presence
+before calling an arm behavioural, and refuse to report rather than
+record a survival. Caught only because `EXIT=101` with zero of both is
+internally inconsistent.
+
     compile-errors=$(grep -acE '^error\[E[0-9]+\]' log)
     test-failures=$(grep -acE '^test [a-z].*\.\.\. FAILED' log)
 
