@@ -55,5 +55,53 @@ let package = Package(
             path: "DiskJockeyLibraryTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+
+        // THE EXT4 VOLUME LOGIC, WITHOUT THE EXTENSION AROUND IT.
+        //
+        // `sources:` is a deliberate SUBSET of DiskJockeyEXT4/, not an
+        // oversight. The rest of that directory — EXT4Backend, EXT4Load,
+        // EXT4Maintenance — makes 61 calls into the fs_ext4 C ABI, so it
+        // needs the Rust static library and its bridging header, which is
+        // exactly what this target exists to avoid. What is listed here is
+        // pure Swift over pure Swift types, and it holds the logic the app
+        // -hosted suite could only reach through hand-written mirrors:
+        // the FSKit attribute-mask conversion and the item cache's
+        // path/parent validation.
+        //
+        // The Xcode target still compiles the whole directory (it is a
+        // file-system-synchronised group), so this is a second view of the
+        // same files, never a copy of them.
+        .target(
+            name: "DiskJockeyEXT4Core",
+            dependencies: ["DiskJockeyLibrary"],
+            path: "DiskJockeyEXT4",
+            // Named rather than globbed so adding a file to the directory is
+            // a decision here too — and so the warning about "unhandled
+            // files" does not become background noise that hides a real one.
+            exclude: [
+                "EXT4Backend.swift",
+                "EXT4FileSystem.swift",
+                "EXT4Load.swift",
+                "EXT4Maintenance.swift",
+                "EXT4Probe.swift",
+                "RepairXPCService.swift",
+                "DiskJockeyEXT4-Bridging-Header.h",
+                "DiskJockeyEXT4.entitlements",
+                "Info.plist",
+            ],
+            sources: [
+                "EXT4Volume.swift",
+                "FileSystemBackend.swift",
+                "EXT4Watchdog.swift",
+                "EXT4Log.swift",
+            ],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "DiskJockeyEXT4CoreTests",
+            dependencies: ["DiskJockeyEXT4Core", "DiskJockeyLibrary"],
+            path: "DiskJockeyEXT4CoreTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
     ]
 )

@@ -28,10 +28,6 @@ import Foundation
 import os
 import DiskJockeyLibrary
 
-/// Single logging surface — fans out to os_log (system) + NDJSON file
-/// (tailed by host app UI) via AppLog's configured sinks.
-let log = AppLog(source: "ext4", sinks: AppLog.defaultSinks(source: "ext4"))
-
 @objc(EXT4FileSystem)
 final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
 
@@ -64,59 +60,11 @@ final class EXT4FileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
     }
     static let mountedResources = MountedResourceRegistry<MountedResource>()
 
-    /// Shared parent-death watchdog for fsck / repair / format. See
-    /// `DetachedOperationWatchdog` for the rationale. The `onExpire`
-    /// closure logs + exits the process so `storagekitd` respawns the
-    /// appex cleanly.
-    static let watchdog: DetachedOperationWatchdog = {
-        // Fix D — stuck-progress monitor. If `heartbeat()` doesn't
-        // fire for `stuckDeadline` seconds while at least one op
-        // is in flight, the op is presumed wedged (e.g. fsck stuck
-        // on a corrupted inode loop) and the appex `exit`s the
-        // same way deactivate-watchdog does. Default 60 s,
-        // overridable via the App Group default
-        // `ext4StuckDeadlineSeconds` (read once at static-let init
-        // time, same one-shot pattern as the deactivate side's
-        // `ext4WatchdogDeadlineSeconds` override).
-        let defaults = UserDefaults(suiteName: AppLog.groupIdentifier)
-        let configuredStuck = defaults?.double(forKey: "ext4StuckDeadlineSeconds") ?? 0
-        let stuckDeadline: TimeInterval = configuredStuck > 0 ? configuredStuck : 60
-        return DetachedOperationWatchdog(
-            label: "ext4",
-            defaultDeadline: 30,
-            stuckDeadline: stuckDeadline
-        ) { pending, deadline in
-            log.error(
-                "watchdog: \(pending) op(s) still pending after \(Int(deadline))s — exiting (EX_TEMPFAIL) so storagekitd respawns",
-                scope: AppLogScope.lifecycle
-            )
-            exit(Int32(EX_TEMPFAIL))
-        }
-    }()
-
-    /// Thin wrappers preserved so call sites (this file, RepairXPCService)
-    /// don't need to know about the underlying class.
-    static func enterOperation() { watchdog.enter() }
-    static func exitOperation() { watchdog.leave() }
-
-    /// Called from `EXT4Volume.deactivate` after the volume's normal
-    /// teardown. Consults the App Group default
-    /// `ext4WatchdogDeadlineSeconds` to allow runtime extension for
-    /// slow-disk diagnostics without recompiling.
-    static func scheduleWatchdogIfNeeded() {
-        let defaults = UserDefaults(suiteName: AppLog.groupIdentifier)
-        let configured = defaults?.double(forKey: "ext4WatchdogDeadlineSeconds") ?? 0
-        let deadline: TimeInterval? = configured > 0 ? configured : nil
-        let pending = watchdog.pending
-        let scheduled = watchdog.scheduleExpiryIfNeeded(deadline: deadline)
-        if scheduled {
-            let effective = deadline ?? watchdog.defaultDeadline
-            log.warn(
-                "deactivate: \(pending) detached op(s) still in flight; watchdog will exit appex in \(Int(effective))s if not done",
-                scope: AppLogScope.lifecycle
-            )
-        }
-    }
+    /// Thin wrappers preserved so call sites (this file, EXT4Maintenance,
+    /// RepairXPCService) do not need to know where the watchdog lives.
+    /// See EXT4Watchdog for the watchdog itself.
+    static func enterOperation() { EXT4Watchdog.enter() }
+    static func exitOperation() { EXT4Watchdog.leave() }
 
     override init() {
         super.init()

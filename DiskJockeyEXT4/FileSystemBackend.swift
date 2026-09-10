@@ -184,6 +184,17 @@ protocol FileSystemBackend: AnyObject {
     /// Returns 0 if the last call succeeded.
     func lastErrno() -> Int32
 
+    /// The driver's last error message, or a stand-in when it set none.
+    ///
+    /// A COMPANION TO `lastErrno`, AND THE REASON IT IS ON THE PROTOCOL:
+    /// the volume used to read this straight out of the C ABI with
+    /// `fs_ext4_last_error()`, which was the ONLY C reference in 903 lines
+    /// of otherwise pure Swift — enough on its own to make the whole file
+    /// need the Rust static library to compile, and so to make it
+    /// untestable without one. The conforming type already owns the C
+    /// boundary; this is the one call that had leaked past it.
+    func lastErrorMessage() -> String
+
     /// Replay the on-disk journal if the volume is dirty. Idempotent —
     /// safe to call on a clean volume. Returns true on success (or
     /// already-clean), false on failure.

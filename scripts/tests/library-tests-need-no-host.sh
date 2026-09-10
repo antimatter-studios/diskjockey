@@ -287,6 +287,54 @@ for target in DiskJockeyLibrary DiskJockeyLibraryTests; do
     esac
 done
 
+# --------------------------------- and the EXT4 subset stays free of the C ABI
+# THE WHOLE POINT OF THAT TARGET IS WHAT IT LEAVES OUT. DiskJockeyEXT4Core
+# compiles four files out of DiskJockeyEXT4/ so the EXT4 volume logic can be
+# tested with no Rust static library and nothing to launch. The other files in
+# that directory make 61 calls into the fs_ext4 C ABI; adding any of them to
+# `sources:` puts the bridging header and libfs_ext4.a back in the way, and
+# the job fails with a missing-header error that says nothing about why.
+#
+# So the rule is stated over the FILES rather than over their names: every
+# file the manifest lists must be free of C-ABI calls. A file that grows one
+# later fails here, which is the point at which somebody can still choose
+# where to put it.
+ext4_sources="$(awk '/name: "DiskJockeyEXT4Core"/,/^        \),/' "$MANIFEST" \
+                | awk '/sources: \[/,/\]/' \
+                | grep -oE '"[A-Za-z0-9_]+\.swift"' | tr -d '"')"
+if [ -z "$ext4_sources" ]; then
+    fail "could not read DiskJockeyEXT4Core's source list out of Package.swift, so nothing below was checked"
+else
+    ext4_bad=0
+    ext4_n=0
+    for src in $ext4_sources; do
+        ext4_n=$((ext4_n + 1))
+        if [ ! -f "$REPO/DiskJockeyEXT4/$src" ]; then
+            fail "DiskJockeyEXT4Core lists $src, which is not in DiskJockeyEXT4/"
+            ext4_bad=$((ext4_bad + 1))
+        # COMMENTS ARE NOT CODE, and this check failed on its own
+        # documentation first: FileSystemBackend.swift's doc comment for
+        # `lastErrorMessage()` names the `fs_ext4_last_error()` call it
+        # replaced, which is exactly the string being searched for. Drop
+        # comment-only lines before looking.
+        elif sed -e 's|^[[:space:]]*//.*||' -e 's|^[[:space:]]*[*].*||' "$REPO/DiskJockeyEXT4/$src" \
+             | grep -qE '(fs_ext4_|fs_core_|qcow2_|vhdx?_|vmdk_)[a-z0-9_]*\('; then
+            fail "DiskJockeyEXT4Core compiles $src, which calls into the C ABI: that target exists to build without the Rust static library, and with this file it cannot"
+            ext4_bad=$((ext4_bad + 1))
+        fi
+    done
+    if [ "$ext4_bad" -eq 0 ]; then
+        ok "all $ext4_n files in DiskJockeyEXT4Core are free of C-ABI calls"
+    fi
+fi
+
+# And the target is actually there. Without this the loop above prints
+# nothing and reports nothing when somebody deletes it.
+case "$manifest" in
+    *'name: "DiskJockeyEXT4Core"'*) ok "the EXT4 volume logic has a target that builds outside the extension" ;;
+    *) fail "no DiskJockeyEXT4Core target: the EXT4 volume logic is only reachable through the appex again, which is what forced the hand-written mirrors" ;;
+esac
+
 # ------------------------------------------------ the dead route stays dead
 # DiskJockeyLibraryOnly.xcscheme was the first attempt and it does not work.
 # Leaving it in the project invites the next person to wire it up again.
