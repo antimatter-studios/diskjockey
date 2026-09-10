@@ -47,6 +47,9 @@ jobs:
   scripts:
     name: Shell scripts
     runs-on: ubuntu-latest
+    # Seven seconds in practice. Five minutes is a hang, not a slow runner —
+    # and an unbounded ubuntu job is cheap enough to be forgotten for hours.
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - name: Semantics the Xcode job cannot reach
@@ -113,6 +116,20 @@ jobs:
     # macos-26 is the Apple Silicon runner for macOS 26.
     # Fall back to macos-15 if the runner isn't available in your plan yet.
     runs-on: macos-26
+    # THE STEP BOUND IS NOT A JOB BOUND, and this is what that costs.
+    # `Test` has carried timeout-minutes: 25 since #117, chosen because that
+    # step was the one observed hanging. On 2026-09-10 a post-merge run on
+    # main hung in **Set up Go** — step 8 of 25, long before Test — and ran
+    # for TWO HOURS before a person noticed and cancelled it, holding the
+    # only macos-26 runner in the pool while the pull requests waiting to
+    # merge got no runner at all.
+    #
+    # 40 rather than 25: the job is the sum of its steps, and the slowest
+    # good run measured so far is 16.8 minutes of Test plus the setup and
+    # cache steps around it. This is the ceiling that stops a hang billing
+    # macOS minutes for six hours; the per-step bound stays where it is,
+    # because a bound that fires tells you which step it was.
+    timeout-minutes: 40
 
     steps:
       - name: Checkout
@@ -227,6 +244,23 @@ jobs:
         timeout-minutes: 25
         run: |
           set -o pipefail
+          # THE APP-HOSTED SUITE STAYS IN, AND THE COUNT IS THE GUARD.
+          #
+          # An earlier version of this step skipped DiskJockeyTests, on the
+          # evidence that every FAILED run today reported only the seven
+          # library suites — 90 cases of 250 — with
+          # `DiskJockey (NNNN) encountered an error (The test runner timed
+          # out while preparing to run tests.)`. That inference was wrong,
+          # and measuring the SUCCESSFUL runs is what showed it: nine of
+          # them executed 244-250 cases across 24 suites. The app-hosted
+          # target runs here routinely and passes; it intermittently fails
+          # to PREPARE, and when it does the run dies early having reported
+          # no failures at all.
+          #
+          # So skipping it would have discarded ~160 passing cases to avoid
+          # an intermittent stall. What catches the stall without losing the
+          # coverage is the floor below: a truncated run reports zero
+          # failures, so only a count can see it.
           xcodebuild test \
             -project DiskJockey.xcodeproj \
             -scheme DiskJockey \
@@ -237,4 +271,22 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_ALLOWED=NO \
+          | tee "$RUNNER_TEMP/test-output.log" \
           | xcbeautify --renderer github-actions
+          rc=${PIPESTATUS[0]}
+
+          # AND A FLOOR, because the failure this replaces was an ABSENCE.
+          # A truncated run reports no failures at all — it simply stops
+          # early — so nothing that greps for a failure can see it. Count
+          # what executed and refuse a run that quietly did less.
+          # 240 against 244-250 observed across nine successful runs today:
+          # a floor, not a target. A library-only truncation reports ~90 and
+          # fails here, which is the whole point — that shape used to pass.
+          # Raise it as the suite grows; a run below it is the defect.
+          executed=$(grep -c 'Test Case .* passed\|✔' "$RUNNER_TEMP/test-output.log" 2>/dev/null || true)
+          echo "executed cases: ${executed:-0} (floor 240)"
+          if [ "${executed:-0}" -lt 240 ]; then
+              echo "::error::only ${executed:-0} test cases executed, floor is 240 — a run that stops early reports no failures, so this is the truncation defect (diskjockey#139) rather than a pass"
+              exit 1
+          fi
+          exit "$rc"

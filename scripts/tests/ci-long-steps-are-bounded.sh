@@ -101,12 +101,76 @@ job_level="$(ruby -ryaml -e '
   doc = YAML.safe_load(File.read(ARGV[0]), aliases: true)
   print doc["jobs"]["test"]["timeout-minutes"].inspect
 ' "$REPO/.github/workflows/ci.yml" 2>/dev/null)"
+# THIS CHECK USED TO ASSERT THE OPPOSITE, and the reversal is deliberate.
+#
+# It read: the bound belongs on the step, not on the job, because the job also
+# runs `Build libraries` "whose cold cost is unmeasured, so a job bound cannot
+# be tight enough". The first half of that reasoning was right and the
+# conclusion did not follow: the alternative to a loose bound was not a step
+# bound, it was NO bound. On 2026-09-10 a post-merge run hung in `Set up Go` —
+# step 8 of 25, nowhere near the bounded step — and ran for TWO HOURS on the
+# only macos-26 runner in the pool, starving the pull requests queued behind
+# it, until a person cancelled it by hand.
+#
+# And the cold cost is no longer unmeasured. Eight successful `Build & Test`
+# jobs on 2026-09-10: 19m08s, 16m48s, 16m45s, 16m31s, 7m56s, 2m10s, 2m07s,
+# 1m50s. The slowest good job is **19m08s**, so the job ceiling has to clear
+# that with room and the floor below keeps a later reader from tightening it
+# into a flaky failure.
 if [ "$job_level" = "nil" ]; then
-    ok "the bound is on the step, not on the job"
+    fail "ci.yml's test job has no job-level timeout-minutes: a hang in any step \
+other than the bounded one runs to GitHub's 360-minute default, which is what \
+happened on 2026-09-10 in Set up Go"
+elif [ "$job_level" -lt 30 ] 2>/dev/null; then
+    fail "ci.yml's test job ceiling is ${job_level}m, under the 30m floor: the \
+slowest good job measured is 19m08s and a tight ceiling turns a slow runner into \
+a red build"
 else
-    fail "ci.yml's test job carries a job-level timeout-minutes ($job_level); it also runs \
-Build libraries, whose cold cost is unmeasured, so a job bound cannot be tight enough"
+    ok "the test job has a ceiling (${job_level}m) above the 19m08s slowest good run"
 fi
+
+# ---------------------------------------------------------------- job bounds
+# The ubuntu job needs one too, for the same reason and at a different scale:
+# seven seconds in practice, so five minutes is a hang rather than a slow
+# runner — and an unbounded ubuntu job is cheap enough to be forgotten for
+# hours, which is how the macOS one was.
+for job in scripts; do
+    got="$(ruby -ryaml -e 'd=YAML.load_file(ARGV[0]); print(d["jobs"][ARGV[1]]["timeout-minutes"].to_i)' "$WORKFLOW" "$job" 2>/dev/null)"
+    if [ "${got:-0}" -gt 0 ] 2>/dev/null; then
+        echo "ok    the '$job' job has a ceiling of ${got} minutes"
+    else
+        echo "FAIL  the '$job' job has no timeout-minutes: a hang outside a bounded step runs for GitHub's default 360" >&2
+        fails=$((fails + 1))
+    fi
+done
+
+# ------------------------------------------------- the count is the guard
+# The app-hosted target stays in the run: nine successful runs on 2026-09-10
+# executed 244-250 cases across 24 suites, so it works here and only
+# intermittently fails to prepare. What must not come back is the truncated
+# pass — a run that dies early reports ZERO failures, so only a count sees it.
+test_run="$(ruby -ryaml -e 'd=YAML.load_file(ARGV[0]); s=d["jobs"]["test"]["steps"].find{|x| x["name"]=="Test"}; print s["run"]' "$WORKFLOW" 2>/dev/null)"
+case "$test_run" in
+    *"-skip-testing DiskJockeyTests"*)
+        echo "FAIL  DiskJockeyTests is skipped: it executes 244-250 cases here when the host prepares, so skipping it discards ~160 passing cases to dodge an intermittent stall" >&2
+        fails=$((fails + 1)) ;;
+    *)  echo "ok    the app-hosted target is still in the run" ;;
+esac
+# ASSERT THE COMPARISON, NOT THE COMMENT. The first version of this check
+# matched the string "floor is 240" — which survives replacing the whole
+# `if` with `if false`, so an arm that disarmed the floor passed it. The
+# comparison is the behaviour; the message is decoration.
+case "$test_run" in
+    *'"${executed:-0}" -lt 240'*)
+        echo "ok    the executed-case floor compares against 240" ;;
+    *)  echo "FAIL  no live comparison against a 240 floor: a truncated run reports ~90 cases and zero failures, which is the shape that used to pass" >&2
+        fails=$((fails + 1)) ;;
+esac
+case "$test_run" in
+    *"floor is 240"*) echo "ok    and it says so when it fires" ;;
+    *) echo "FAIL  the floor fires without naming itself, so a red run will not explain which defect it caught" >&2
+       fails=$((fails + 1)) ;;
+esac
 
 if [ "$fails" -eq 0 ]; then
     echo "ci-long-steps-are-bounded: all checks passed"
