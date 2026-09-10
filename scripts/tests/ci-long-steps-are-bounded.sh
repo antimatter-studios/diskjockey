@@ -144,6 +144,26 @@ for job in scripts; do
     fi
 done
 
+# ------------------------------------------- the suite that cannot run here
+# The app-hosted target is skipped because CODE_SIGNING_ALLOWED=NO leaves its
+# host app without entitlements, so `xcodebuild` hangs in "preparing to run
+# tests". Both halves are asserted: the skip, and the floor that stops the
+# remaining suites truncating silently — the failure being replaced reported
+# NO failures at all, so only a count can see it.
+test_run="$(ruby -ryaml -e 'd=YAML.load_file(ARGV[0]); s=d["jobs"]["test"]["steps"].find{|x| x["name"]=="Test"}; print s["run"]' "$WORKFLOW" 2>/dev/null)"
+case "$test_run" in
+    *"-skip-testing DiskJockeyTests"*)
+        echo "ok    the app-hosted target is skipped, and the workflow says why" ;;
+    *)  echo "FAIL  DiskJockeyTests is not skipped: it is app-hosted, the host is built unsigned, and xcodebuild hangs in 'preparing to run tests'" >&2
+        fails=$((fails + 1)) ;;
+esac
+case "$test_run" in
+    *"floor is 85"*)
+        echo "ok    the executed-case floor is present" ;;
+    *)  echo "FAIL  no executed-case floor: a truncated run reports zero failures, so nothing that looks for a failure can see it" >&2
+        fails=$((fails + 1)) ;;
+esac
+
 if [ "$fails" -eq 0 ]; then
     echo "ci-long-steps-are-bounded: all checks passed"
 else
