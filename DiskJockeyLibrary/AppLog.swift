@@ -267,12 +267,33 @@ public final class NDJSONFileSink: AppLogSink {
     private let handle: FileHandle?
     private let queue: DispatchQueue
 
-    public init(source: String) {
+    /// - Parameters:
+    ///   - source: names the file, one per emitting process.
+    ///   - directory: where to write. Defaults to the shared container's
+    ///     `Logs/`, which is what every real call site wants and none of
+    ///     them pass.
+    ///
+    ///     IT EXISTS FOR THE TESTS, and the alternative was worse. The
+    ///     default resolves through
+    ///     `containerURL(forSecurityApplicationGroupIdentifier:)`, which
+    ///     returns a real path even to a process that holds no app-group
+    ///     entitlement — so a test could not steer this by arranging for
+    ///     the container to be absent, and testing the wire format meant
+    ///     either writing into the developer's own container or
+    ///     duplicating this path logic in the test. A duplicated path is
+    ///     the same defect shape as a duplicated implementation: it passes
+    ///     while the real one is wrong.
+    public init(source: String, directory: URL? = nil) {
         self.queue = DispatchQueue(label: "com.antimatterstudios.diskjockey.applog.file.\(source)")
         let fm = FileManager.default
-        let base = fm.containerURL(forSecurityApplicationGroupIdentifier: AppLog.groupIdentifier)
-            ?? fm.temporaryDirectory
-        let dir = base.appendingPathComponent(AppLog.logDirName, isDirectory: true)
+        let dir: URL
+        if let directory {
+            dir = directory
+        } else {
+            let base = fm.containerURL(forSecurityApplicationGroupIdentifier: AppLog.groupIdentifier)
+                ?? fm.temporaryDirectory
+            dir = base.appendingPathComponent(AppLog.logDirName, isDirectory: true)
+        }
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         self.fileURL = dir.appendingPathComponent("\(source).ndjson")
         if !fm.fileExists(atPath: fileURL.path) {

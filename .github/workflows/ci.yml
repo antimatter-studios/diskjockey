@@ -204,15 +204,15 @@ jobs:
           # for the bundle, so take the largest) and swift-testing says
           # "Test run with N tests". Measured 2026-09-10: 51 + 39 = 90, then
           # 51 + 65 = 116 with the mount personalities covered, then
-          # 51 + 78 = 129 with the operation lock. The floor moves up with
-          # the suite; it never moves down.
+          # 51 + 78 = 129 with the operation lock, then 51 + 109 = 160 with
+          # AppLog. The floor moves up with the suite; it never moves down.
           log="$RUNNER_TEMP/library-output.log"
           xct=$(grep -aoE 'Executed [0-9]+ tests' "$log" | grep -oE '[0-9]+' | sort -n | tail -1)
           swt=$(grep -aoE 'Test run with [0-9]+ tests' "$log" | grep -oE '[0-9]+' | sort -n | tail -1)
           total=$(( ${xct:-0} + ${swt:-0} ))
-          echo "library cases executed: $total = ${xct:-0} XCTest + ${swt:-0} swift-testing (floor 120)"
-          if [ "$total" -lt 120 ]; then
-              echo "::error::only $total library cases executed, floor is 120 — 129 ran on 2026-09-10, and a run that executes less than that has stopped early rather than passed (diskjockey#139)"
+          echo "library cases executed: $total = ${xct:-0} XCTest + ${swt:-0} swift-testing (floor 150)"
+          if [ "$total" -lt 150 ]; then
+              echo "::error::only $total library cases executed, floor is 150 — 160 ran on 2026-09-10, and a run that executes less than that has stopped early rather than passed (diskjockey#139)"
               exit 1
           fi
           exit "$rc"
