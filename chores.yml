@@ -1,0 +1,56 @@
+version: "3"
+chore_min_version: 0.6.0
+
+# WHAT THIS FILE IS FOR, AND WHAT IT IS NOT.
+#
+# diskjockey is the controller: it orchestrates the twelve library
+# repositories rather than being one of them, so it has no `staticlib` and no
+# `artifact` — the two tasks every sibling exposes. What it does have is
+# oversight, and that is what lives here.
+#
+# The tasks are thin on purpose. Each one names a script in scripts/ and
+# nothing else: the knowledge of HOW to answer a question belongs in the
+# script, which is testable, reviewable and runnable without chore at all.
+# A task that grows a pipeline of its own is a task nobody can test.
+
+tasks:
+  overview:
+    desc: Every open issue across the constellation, as a table
+    # NO `sources`, DELIBERATELY. Freshness here is not a property of any
+    # file in this repository — the answer lives on GitHub and changes when
+    # somebody files an issue. A `sources` list would let chore report this
+    # task as up to date while the backlog moved underneath it, which is the
+    # exact shape of defect the pipeline spends its time filing: a check
+    # whose output does not depend on what it is meant to detect.
+    cmds:
+      - scripts/am-overview
+
+  overview:summary:
+    desc: Counts only — one row per project, no issue detail
+    cmds:
+      - scripts/am-overview --summary
+
+  overview:tsv:
+    desc: The detail rows as TSV, for piping somewhere else
+    cmds:
+      - scripts/am-overview --tsv
+
+  check:scripts:
+    desc: Run every scripts/tests/*.sh guard
+    # The same loop the `Shell scripts` CI job runs, so a guard that passes
+    # here passes there. It refuses an empty glob rather than reporting
+    # success for a set whose size nothing asserted.
+    cmds:
+      - |
+        set -euo pipefail
+        shopt -s nullglob
+        tests=(scripts/tests/*.sh)
+        if [ ${#tests[@]} -eq 0 ]; then
+            echo "check:scripts: no tests found under scripts/tests/" >&2
+            exit 1
+        fi
+        for t in "${tests[@]}"; do
+            echo "== $t"
+            bash "$t"
+        done
+        echo "check:scripts: ${#tests[@]} test file(s) passed"

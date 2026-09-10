@@ -1,0 +1,228 @@
+#!/usr/bin/env bash
+#
+# am-overview — one table of every open issue across the constellation.
+#
+# The projects are the array at the top of this file. Each entry is
+# `<name>:<owner>/<repo>`; the name is what the tables print and the slug
+# is what `gh` is asked about.
+#
+#   scripts/am-overview                 summary table, then one row per issue
+#   scripts/am-overview --summary       counts only
+#   scripts/am-overview --project NAME  one project (repeatable)
+#   scripts/am-overview --tsv           detail rows as TSV, no padding
+#   scripts/am-overview --print-jq      the issue filter, for its own test
+#
+# EXIT STATUS IS PART OF THE OUTPUT. A project whose fetch fails still
+# gets a row, marked `FETCH FAILED`, and the command exits 4 — because a
+# missing row reads as "no open issues", which is the failure this
+# constellation keeps paying for. A row you cannot miss beats a silent
+# omission; see docs/issue-pipeline.md on a check that cannot answer
+# returning the permissive one.
+#
+# THE ARRAY IS CHECKED AGAINST THE LEDGER'S. scripts/am-ledger already
+# carries the same list, and a second copy that drifts is diskjockey#128
+# exactly — the reaper's list omits agent-skills while the ledger has it,
+# so a whole repository is invisible to one tool and not the other. This
+# script parses am-ledger's DEFAULT_REPOS and refuses to print anything
+# if the two disagree, naming the difference in both directions.
+#
+# Environment, for tests and for pointing at a different constellation:
+#   AM_OVERVIEW_LEDGER_BIN   the am-ledger to compare against
+#   AM_OVERVIEW_FETCH        command called with a slug instead of gh
+#   AM_OVERVIEW_STALE_DAYS   what counts as stale in the summary (30)
+set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ---------------------------------------------------------------- projects
+# Same shape as am-ledger's DEFAULT_REPOS, deliberately: one list to read,
+# one list to diff. Add a project here AND there, or this refuses to run.
+PROJECTS=(
+    "rust-fs-core:antimatter-studios/rust-fs-core"
+    "rust-fs-xfs:antimatter-studios/rust-fs-xfs"
+    "rust-fs-ext4:christhomas/rust-fs-ext4"
+    "rust-fs-btrfs:antimatter-studios/rust-fs-btrfs"
+    "rust-fs-erofs:antimatter-studios/rust-fs-erofs"
+    "rust-fs-squashfs:antimatter-studios/rust-fs-squashfs"
+    "rust-fs-ntfs:christhomas/rust-fs-ntfs"
+    "rust-img-qcow2:antimatter-studios/rust-img-qcow2"
+    "rust-img-vhd:antimatter-studios/rust-img-vhd"
+    "rust-img-vhdx:antimatter-studios/rust-img-vhdx"
+    "rust-img-vmdk:antimatter-studios/rust-img-vmdk"
+    "rust-partitions:antimatter-studios/rust-partitions"
+    "agent-skills:antimatter-studios/agent-skills"
+    "diskjockey:antimatter-studios/diskjockey"
+)
+
+# The one jq program this tool depends on, hoisted so a test can run it
+# against a fixture rather than asserting it exists in the source. `--print-jq`
+# prints it for exactly that reason.
+ISSUE_JQ='.[] | select(.pull_request == null)
+    | [(.number|tostring), .created_at,
+       (([.labels[].name] | join(",")) | if . == "" then "-" else . end),
+       (.title | if . == "" then "(no title)" else . end)]
+    | join("\u001f")'
+
+LEDGER_BIN="${AM_OVERVIEW_LEDGER_BIN:-$HERE/am-ledger}"
+STALE_DAYS="${AM_OVERVIEW_STALE_DAYS:-30}"
+MODE=full
+WANT=()
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --summary) MODE=summary ;;
+        --tsv)     MODE=tsv ;;
+        --project) shift; [ $# -gt 0 ] || { echo "am-overview: --project needs a name" >&2; exit 2; }; WANT+=("$1") ;;
+        --print-jq) printf '%s\n' "$ISSUE_JQ"; exit 0 ;;
+        -h|--help) sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *)         echo "am-overview: unknown argument '$1'" >&2; exit 2 ;;
+    esac
+    shift
+done
+
+# --------------------------------------------------------------- drift check
+# Parse the ledger's list rather than sourcing it: am-ledger runs work at
+# load time, and sourcing it would import its `set -euo pipefail` into this
+# shell — the trap that silently truncated a test file after check 7 on
+# 2026-09-10.
+ledger_names() {
+    [ -r "$LEDGER_BIN" ] || return 1
+    sed -n '/^DEFAULT_REPOS=(/,/^)/p' "$LEDGER_BIN" \
+        | sed -n 's/^[[:space:]]*"\([^:"]*\):\([^"]*\)".*/\1:\2/p'
+}
+
+check_drift() {
+    local theirs mine
+    theirs="$(ledger_names || true)"
+    # An unparseable ledger must not read as agreement. Twelve is the
+    # count below which this cannot be the real list.
+    if [ "$(printf '%s\n' "$theirs" | grep -c ':' || true)" -lt 12 ]; then
+        echo "am-overview: could not read DEFAULT_REPOS from $LEDGER_BIN" >&2
+        echo "am-overview: refusing to run rather than assume the lists agree" >&2
+        return 1
+    fi
+    mine="$(printf '%s\n' "${PROJECTS[@]}")"
+    local only_here only_there
+    only_here="$(comm -23 <(printf '%s\n' "$mine" | sort) <(printf '%s\n' "$theirs" | sort))"
+    only_there="$(comm -13 <(printf '%s\n' "$mine" | sort) <(printf '%s\n' "$theirs" | sort))"
+    if [ -n "$only_here$only_there" ]; then
+        echo "am-overview: this file and $LEDGER_BIN disagree about the projects." >&2
+        [ -n "$only_here" ]  && { echo "  only in am-overview:" >&2; printf '    %s\n' $only_here >&2; }
+        [ -n "$only_there" ] && { echo "  only in am-ledger:"   >&2; printf '    %s\n' $only_there >&2; }
+        echo "am-overview: fix one of them; a drifted second copy is diskjockey#128." >&2
+        return 1
+    fi
+    return 0
+}
+
+check_drift || exit 3
+
+# -------------------------------------------------------------------- fetch
+# `repos/<slug>/issues` RETURNS PULL REQUESTS TOO. Every PR is an issue in
+# that endpoint, so the `.pull_request == null` filter is what makes this a
+# list of issues; without it the counts are wrong in the direction that
+# looks busy.
+fetch_repo() {
+    local slug="$1"
+    if [ -n "${AM_OVERVIEW_FETCH:-}" ]; then
+        "$AM_OVERVIEW_FETCH" "$slug"
+        return $?
+    fi
+    # An EMPTY FIELD IS NOT SAFE to hand to `read`, whatever the delimiter:
+    # TAB is IFS whitespace, so bash collapses a run of them and every later
+    # field shifts left. Measured while writing this: an unlabelled issue put
+    # its title in the labels column and left the title empty — a plausible
+    # table, not an error. So jq emits `-` for no labels, and the reader below
+    # uses a non-whitespace separator as well. Belt and braces, because the
+    # failure is silent and looks like data.
+    gh api "repos/$slug/issues" -X GET -f state=open -f per_page=100 --paginate --jq "$ISSUE_JQ"
+}
+
+# Epoch of an ISO-8601 Z timestamp. `date -j -f` parses in LOCAL time and
+# ignores the trailing Z, which inflated every age in am-ledger by the
+# operator's UTC offset (diskjockey#132) — hence -u here, and the GNU
+# fallback for a Linux runner.
+to_epoch() {
+    date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null \
+        || date -u -d "$1" +%s 2>/dev/null \
+        || echo 0
+}
+
+wanted() {
+    [ ${#WANT[@]} -eq 0 ] && return 0
+    local w
+    for w in "${WANT[@]}"; do [ "$w" = "$1" ] && return 0; done
+    return 1
+}
+
+NOW="$(date -u +%s)"
+rows="$(mktemp)"; summary="$(mktemp)"; failed="$(mktemp)"
+trap 'rm -f "$rows" "$summary" "$failed"' EXIT
+
+for entry in "${PROJECTS[@]}"; do
+    name="${entry%%:*}"; slug="${entry#*:}"
+    wanted "$name" || continue
+    out="$(fetch_repo "$slug")"; rc=$?
+    if [ "$rc" -ne 0 ]; then
+        printf '%s\n' "$name" >> "$failed"
+        printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\n' "$name" "FETCH FAILED" "-" "-" "-" >> "$summary"
+        continue
+    fi
+    count=0; oldest=0; stale=0
+    while IFS=$'\x1f' read -r num created labels title; do
+        [ -n "${num:-}" ] || continue
+        count=$((count + 1))
+        ts="$(to_epoch "$created")"
+        days=0
+        [ "$ts" -gt 0 ] && days=$(( (NOW - ts) / 86400 ))
+        [ "$days" -gt "$oldest" ] && oldest=$days
+        [ "$days" -ge "$STALE_DAYS" ] && stale=$((stale + 1))
+        printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\n' "$name" "$num" "${days}d" "${labels:--}" "$title" >> "$rows"
+    done <<< "$out"
+    printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\n' "$name" "$count" "${oldest}d" "$stale" "-" >> "$summary"
+done
+
+total="$(wc -l < "$rows" | tr -d ' ')"
+nfailed="$(wc -l < "$failed" | tr -d ' ')"
+
+# An empty table and a broken query look identical, so say which this is.
+if [ "$total" -eq 0 ] && [ "$nfailed" -eq 0 ]; then
+    if [ ${#WANT[@]} -gt 0 ]; then
+        echo "am-overview: no open issues in the named project(s)"
+    else
+        echo "am-overview: no open issues in any of the ${#PROJECTS[@]} projects"
+    fi
+    exit 0
+fi
+
+if [ "$MODE" = tsv ]; then
+    # The internal separator is US; TSV is what a caller asked for.
+    tr '\037' '\t' < "$rows"
+else
+    printf '%-18s %6s %7s %6s\n' PROJECT OPEN OLDEST "≥${STALE_DAYS}d"
+    while IFS=$'\x1f' read -r name count oldest stale _; do
+        if [ "$count" = "FETCH FAILED" ]; then
+            printf '%-18s %6s\n' "$name" "FETCH FAILED"
+        else
+            printf '%-18s %6s %7s %6s\n' "$name" "$count" "$oldest" "$stale"
+        fi
+    done < "$summary"
+    printf '%-18s %6s\n' TOTAL "$total"
+
+    if [ "$MODE" = full ] && [ "$total" -gt 0 ]; then
+        echo
+        printf '%-18s %6s %6s  %s\n' PROJECT ISSUE AGE TITLE
+        sort -t$'\x1f' -k1,1 -k2,2n "$rows" | while IFS=$'\x1f' read -r name num age labels title; do
+            printf '%-18s %6s %6s  %s\n' "$name" "#$num" "$age" "${title:0:88}"
+        done
+    fi
+fi
+
+if [ "$nfailed" -gt 0 ]; then
+    echo >&2
+    echo "am-overview: $nfailed project(s) could not be read:" >&2
+    sed 's/^/    /' "$failed" >&2
+    echo "am-overview: the counts above are incomplete BY THAT MUCH." >&2
+    exit 4
+fi
+exit 0
