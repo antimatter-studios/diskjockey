@@ -645,6 +645,24 @@ not a repository`. Both read exactly like findings. Use an array, or
 shape as the `${REF}:path` rule above: zsh's departures from bash are
 silent and produce empty results, and an empty result is not an answer.
 
+**`path=` is not a variable name in zsh — it is `PATH`.** zsh ties the
+`path` array to `PATH`, so `path="$repo/include"` inside a loop replaces
+the search path and every external command afterwards is gone. Measured
+2026-09-10: a header survey assigned `path=` per file, `wc`, `tr` and
+then `gh` itself vanished, and every `grep -c` returned **0** — which
+read exactly as "these headers never mention the symbol". It was caught
+only because the survey carried a known-positive control that went to
+zero at the same time. `cdpath`, `fpath`, `manpath` and `mailpath` are
+tied the same way.
+
+That is the third of these in one session, and they are one family:
+`$REF:path` taking `:t` as a history modifier, an unquoted expansion not
+word-splitting, and `path=` clobbering `PATH`. **zsh's departures from
+bash turn a failed query into a plausible negative**, which is why every
+survey needs a control that must be non-zero — the control is not
+diligence, it is the only thing that separates "no hits" from "no
+command".
+
 **Process substitution is a bashism.** `done < <(...)` is rejected at
 parse time, so running the script with `sh` kills every subcommand with
 a syntax error pointing at a line the caller never asked for.
