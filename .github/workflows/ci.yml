@@ -410,19 +410,42 @@ jobs:
           # A truncated run reports no failures at all — it simply stops
           # early — so nothing that greps for a failure can see it. Count
           # what executed and refuse a run that quietly did less.
-          # 240 against 244-250 observed across nine successful runs today:
-          # a floor, not a target. A library-only truncation reports ~90 and
-          # fails here, which is the whole point — that shape used to pass.
-          # Raise it as the suite grows; a run below it is the defect.
-          # ONE SPELLING. This counted 'Test Case .* passed\|✔', which matches
-          # both renderings of the same case: a complete run reported 273 where
-          # the distinct case count is 251. The floor still held, but the number
-          # it printed was not a case count, and the next person to size the
-          # floor would have sized it against a doubled figure.
-          executed=$(grep -c '✔' "$RUNNER_TEMP/test-output.log" 2>/dev/null || true)
-          echo "executed cases: ${executed:-0} (floor 240)"
+          #
+          # COUNTED FROM THE RESULT BUNDLE, NOT FROM THE OUTPUT, and two
+          # wrong answers in a row are why.
+          #
+          # It first counted `Test Case .* passed\|✔`, which matches BOTH
+          # renderings of the same case and reported 273 for a 250-case run.
+          # Sized against that doubled figure, the floor became 240.
+          # Then it counted `✔` alone — one spelling, and the wrong one:
+          # `✔` is swift-testing's, XCTest writes `Test Case '...' passed`,
+          # so on the raw stream that reads 222 for the same 250 cases and
+          # failed a run in which every single test passed.
+          #
+          # Both numbers were artefacts of a text format. The bundle this
+          # step already writes carries the count as data:
+          #
+          #   "passedTests": 250, "failedTests": 0, "result": "Passed"
+          #
+          # so ask it. No renderer in the path, nothing to double-count,
+          # and it reports the same number whether xcbeautify is in the
+          # pipeline or not. A missing or unreadable bundle yields 0, which
+          # the floor then refuses — the right answer when xcodebuild died
+          # before writing one.
+          summary=$(xcrun xcresulttool get test-results summary \
+                      --path "$RUNNER_TEMP/Test.xcresult" --format json 2>/dev/null || true)
+          executed=$(printf '%s' "$summary" | jq '(.passedTests//0)+(.failedTests//0)+(.expectedFailures//0)' 2>/dev/null || true)
+          verdict=$(printf '%s' "$summary" | jq -r '.result // "no result bundle"' 2>/dev/null || true)
+          echo "executed cases: ${executed:-0} (floor 240), bundle verdict: ${verdict:-unknown}"
           if [ "${executed:-0}" -lt 240 ]; then
-              echo "::error::only ${executed:-0} test cases executed, floor is 240 — a run that stops early reports no failures, so this is the truncation defect (diskjockey#139) rather than a pass"
+              echo "::error::only ${executed:-0} test cases executed, floor is 240 — 250 ran on 2026-09-10, and a run that stops early reports no failures, so this is the truncation defect (diskjockey#139) rather than a pass"
+              exit 1
+          fi
+          # THE BUNDLE'S OWN VERDICT, as a cross-check on the exit status.
+          # These have disagreed: the run measured above exited non-zero from
+          # the floor while the bundle said "Passed".
+          if [ "${verdict:-}" != "Passed" ]; then
+              echo "::error::the result bundle reports ${verdict:-unknown} rather than Passed"
               exit 1
           fi
           exit "$rc"

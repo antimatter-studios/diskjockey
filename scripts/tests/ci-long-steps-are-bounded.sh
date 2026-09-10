@@ -171,15 +171,63 @@ esac
 # matched the string "floor is 240" — which survives replacing the whole
 # `if` with `if false`, so an arm that disarmed the floor passed it. The
 # comparison is the behaviour; the message is decoration.
+#
+# THE FLOOR IS READ OUT OF THE COMMAND rather than restated here, because two
+# copies of a number that moves with the suite are two things to forget.
+floor="$(printf '%s' "$test_run" | grep -oE '\-lt [0-9]+' | head -1 | awk '{print $2}')"
+if [ -n "$floor" ]; then
+    echo "ok    the executed-case floor is a live comparison, against $floor"
+else
+    echo "FAIL  no live comparison against a case floor: a truncated run reports far fewer cases and zero failures, which is the shape that used to pass" >&2
+    fails=$((fails + 1))
+fi
+if [ -n "$floor" ]; then
+    case "$test_run" in
+        *"floor is $floor"*) echo "ok    and the message it prints names $floor too" ;;
+        *) echo "FAIL  the floor compares against $floor but does not say so when it fires, so a red run will not explain which defect it caught" >&2
+           fails=$((fails + 1)) ;;
+    esac
+fi
+if [ -n "$floor" ] && [ "$floor" -ge 200 ] 2>/dev/null; then
+    echo "ok    and it is at or above 200, so a library-only truncation cannot clear it"
+else
+    echo "FAIL  the floor is ${floor:-unset}: the library half alone reports over a hundred cases, so a floor beneath that passes the truncation it exists to catch" >&2
+    fails=$((fails + 1))
+fi
+
+# ------------------------------------ AND THE COUNT COMES FROM THE BUNDLE
+# Two text-derived counts were wrong in a row, in opposite directions, and
+# both of them were artefacts of a rendering rather than of the run:
+#
+#   `Test Case .* passed\|✔`  matched both renderings of one case and
+#                             reported 273 for a 250-case run, which is the
+#                             figure the 240 floor was sized against.
+#   `✔` alone                 is swift-testing's spelling only; XCTest
+#                             writes `Test Case '...' passed`, so the raw
+#                             stream read 222 for the same 250 cases and
+#                             failed a run in which every test passed.
+#
+# The result bundle carries the number as data. Requiring it means the floor
+# is comparing a case count rather than a line count, which is the whole
+# reason the floor exists.
 case "$test_run" in
-    *'"${executed:-0}" -lt 240'*)
-        echo "ok    the executed-case floor compares against 240" ;;
-    *)  echo "FAIL  no live comparison against a 240 floor: a truncated run reports ~90 cases and zero failures, which is the shape that used to pass" >&2
-        fails=$((fails + 1)) ;;
+    *"xcresulttool"*) echo "ok    the case count is read from the result bundle" ;;
+    *) echo "FAIL  the case count is not read from the result bundle; every text-derived count so far has been an artefact of the renderer rather than the run" >&2
+       fails=$((fails + 1)) ;;
 esac
 case "$test_run" in
-    *"floor is 240"*) echo "ok    and it says so when it fires" ;;
-    *) echo "FAIL  the floor fires without naming itself, so a red run will not explain which defect it caught" >&2
+    *"grep -c"*'test-output.log'*)
+        echo "FAIL  the case count greps test-output.log again: that is the measurement that reported 273 and then 222 for the same 250 cases" >&2
+        fails=$((fails + 1)) ;;
+    *) echo "ok    and not by grepping the log" ;;
+esac
+# AND THE BUNDLE'S VERDICT IS CHECKED, not just its count. These have
+# disagreed: the 2026-09-10 run exited non-zero from the floor while the
+# bundle said "Passed". A count alone cannot catch the converse — a bundle
+# that says Failed on a run xcodebuild exited 0 from.
+case "$test_run" in
+    *'!= "Passed"'*) echo "ok    and the bundle's own verdict is compared against Passed" ;;
+    *) echo "FAIL  the bundle's verdict is read but never compared: a run whose bundle says Failed while xcodebuild exits 0 would pass" >&2
        fails=$((fails + 1)) ;;
 esac
 
