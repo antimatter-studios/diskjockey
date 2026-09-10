@@ -140,59 +140,79 @@ jobs:
   # "The test runner timed out while preparing to run tests". The tests are not
   # slow: every suite reports in hundredths of a second.
   #
-  # So this job answers "did the library break" in about a minute, with no app,
-  # no seven FSKit extensions, no File Provider and nothing to launch. It runs
+  # So this job answers "did the library break" in seconds, with no app, no
+  # seven FSKit extensions, no File Provider and nothing to launch. It runs
   # BESIDE `Build & Test` rather than replacing it, because the app-hosted
   # suites cover real behaviour and losing them would be the trade I already
   # got wrong once today.
   library-tests:
     name: Library tests
     runs-on: macos-26
-    timeout-minutes: 12
+    # Measured locally on 2026-09-10: 11 seconds cold from an empty build
+    # directory, of which 0.4s is the testing. 10 minutes is a hang, not a
+    # slow runner, and the step bound below is what says which step it was.
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Same auto-select as the `test` job: the image's default Xcode is not
+      # necessarily the newest installed, and Package.swift needs a Swift 6
+      # toolchain to read `swift-tools-version: 6.0`.
       - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_26.app
+        run: |
+          XCODE=$(find /Applications -maxdepth 1 -name 'Xcode*.app' -type d 2>/dev/null | sort -V | tail -1)
+          echo "Using Xcode: $XCODE"
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          swift --version
 
-      # NO RUST, NO GO, NO SIBLINGS, NO CACHES. The library test target links
-      # DiskJockeyLibrary and nothing from the vendored static libraries, so the
-      # inputs those steps exist for are not inputs here. If that stops being
-      # true this job fails to build, which is the honest signal.
-      - name: Test the library alone
-        # The guard in scripts/tests/ caught this step with no bound the moment
-        # it was written, which is what that guard is for. 10 minutes is a
-        # placeholder chosen wide: this job has never run, so there is no
-        # measurement to take 1.5x of yet. Re-derive it from the first green
-        # runs — the expectation is one to two minutes, since the library build
-        # is small and the suites report in hundredths of a second.
-        timeout-minutes: 10
+      # NO RUST, NO GO, NO SIBLINGS, NO CACHES, NOTHING TO SIGN AND NOTHING
+      # TO LAUNCH.
+      #
+      # This job was first written as `xcodebuild test -scheme
+      # DiskJockeyLibraryOnly`, on the theory that a scheme with no app in it
+      # would avoid the launch. It did not, and the run that proved it is the
+      # reason this step reads `swift test` instead:
+      #
+      #     Could not launch "DiskJockeyLibraryTests".
+      #     Runningboard has returned error 5
+      #       (Underlying Error: Launchd job spawn failed)
+      #
+      # An .xctest bundle is a dylib and needs a process to host it. With
+      # TEST_HOST set that host is DiskJockey.app; without it xcodebuild
+      # substitutes its own `xctest` runner and launches THAT through
+      # RunningBoard. The launch belongs to xcodebuild, not to the app, so no
+      # arrangement of schemes or signing flags removes it. `swift test` links
+      # the test code into a binary and runs it — there is no runner to spawn
+      # and nothing for RunningBoard to refuse. See Package.swift's header and
+      # diskjockey#139.
+      - name: Test the library with no host
+        # 6 against a measured 11 seconds. Wide because a cold runner has to
+        # fetch nothing but still compiles 35 files from scratch.
+        timeout-minutes: 6
         run: |
           set -o pipefail
-          xcodebuild test \
-            -project DiskJockey.xcodeproj \
-            -scheme DiskJockeyLibraryOnly \
-            -destination 'platform=macOS,arch=arm64' \
-            ONLY_ACTIVE_ARCH=YES \
-            ARCHS=arm64 \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="-" \
-            -resultBundlePath "$RUNNER_TEMP/Library.xcresult" \
-          | tee "$RUNNER_TEMP/library-output.log"
+          swift test 2>&1 | tee "$RUNNER_TEMP/library-output.log"
           rc=${PIPESTATUS[0]}
-          executed=$(grep -c "passed$\|✔" "$RUNNER_TEMP/library-output.log" 2>/dev/null || true)
-          echo "library cases executed: ${executed:-0}"
-          exit "$rc"
 
-      - name: Keep the result bundle when the library suite fails
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: library-xcresult-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/Library.xcresult
-          retention-days: 7
-          if-no-files-found: warn
+          # A FLOOR, BECAUSE THE FAILURE MODE HERE IS AN ABSENCE TOO.
+          # A run that builds and then executes nothing exits 0 having
+          # reported no failures, which reads as a pass. Only a count sees it.
+          #
+          # Both test frameworks are in this target and each prints its own
+          # total: XCTest says "Executed N tests" (once per suite plus once
+          # for the bundle, so take the largest) and swift-testing says
+          # "Test run with N tests". Measured 2026-09-10: 51 + 39 = 90.
+          log="$RUNNER_TEMP/library-output.log"
+          xct=$(grep -aoE 'Executed [0-9]+ tests' "$log" | grep -oE '[0-9]+' | sort -n | tail -1)
+          swt=$(grep -aoE 'Test run with [0-9]+ tests' "$log" | grep -oE '[0-9]+' | sort -n | tail -1)
+          total=$(( ${xct:-0} + ${swt:-0} ))
+          echo "library cases executed: $total = ${xct:-0} XCTest + ${swt:-0} swift-testing (floor 85)"
+          if [ "$total" -lt 85 ]; then
+              echo "::error::only $total library cases executed, floor is 85 — 90 ran on 2026-09-10, and a run that executes less than that has stopped early rather than passed (diskjockey#139)"
+              exit 1
+          fi
+          exit "$rc"
 
   test:
     name: Build & Test
