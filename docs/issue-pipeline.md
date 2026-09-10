@@ -88,6 +88,18 @@ branch behind, held run); rebase, re-verify, push. Both go back to a
 fixer; sending someone to diagnose a failure that does not exist wastes
 the trip.
 
+**A terminal row that never released its claim is invisible to both
+readings.** `stale` lists claimed rows because an unclaimed one is queue
+depth; `merged` and `rejected` are skipped because a terminal row is
+done. A row that is *both* — terminal and still owned — falls between the
+two and would sit there forever as a phantom stall under some stage's
+identity. Measured 2026-09-10: **24 of them**, owners `fasttrack`,
+`pr-monitor-2`, `verify-pr` and `fix-drivers`, the oldest claimed
+2026-09-08 by an agent that no longer exists. Sweep them with
+`am-ledger list --owner <stage>` filtered to `merged`/`rejected` after
+each run, and release with `owner=-`. Found by a monitor auditing its own
+stage's claims rather than by anything looking for stalls.
+
 **`stale` lists claimed rows only.** An unclaimed row is queue depth,
 not a stall, and listing 200 of them buries the four that are stuck.
 
@@ -245,8 +257,97 @@ comparison replaced with `if false`, uniqueness asserted first — which
 yields named failures and leaves the sibling assertions green, so a fix
 that over-corrected would fail too.
 
+**Cargo walks up out of the scratchpad, and the scratchpad root is
+shared.** A throwaway crate exported under `<scratch>/x/` has every
+ancestor searched for a manifest, so another agent's stray `Cargo.toml`
+at the scratchpad root becomes your workspace parent. Measured
+2026-09-10: a guard's three mutation arms all returned `EXIT=101` —
+including the arm that was supposed to pass — with `failed to parse
+manifest … can't find library qcow2`, from a stray manifest written by
+another agent minutes earlier. Put a `[workspace]` table in the export's
+own manifest, and keep the arm whose job is to *pass*: without a baseline
+that must succeed, an environment failure is indistinguishable from
+finding the defect everywhere. Counting compile errors separately from
+test failures is what exposed it.
+
+**Neither count sees a syntax error, and the discriminator is the
+`test result:` line.** A mis-spliced brace gives `error: unexpected
+closing delimiter`, which carries **no `E`-code**, so the compile-error
+pattern below cannot match it; widening to a bare `error:` then matches
+cargo's own `error: test failed, to rerun pass …` on every real failure,
+so neither form is a reliable count. Measured 2026-09-10: an arm
+reported `EXIT=101` with **0 compile errors and 0 named failures**,
+which reads exactly like a surviving mutation. **A run that produced no
+`test result:` line at all did not run tests** — assert its presence
+before calling an arm behavioural, and refuse to report rather than
+record a survival. Caught only because `EXIT=101` with zero of both is
+internally inconsistent.
+
     compile-errors=$(grep -acE '^error\[E[0-9]+\]' log)
-    test-failures=$(grep -acE '^test .* FAILED' log)
+    test-failures=$(grep -acE '^test [a-z].*\.\.\. FAILED' log)
+
+**The obvious pattern for the second one is off by exactly one.** `^test
+.* FAILED` also matches the summary line `test result: FAILED. 52
+passed; 1 failed`, so a single failure counts as two and every arm's
+figure is inflated by one. Measured 2026-09-10 on a two-line fixture: the
+loose pattern returns 2, the anchored one returns 1. A fixer caught it
+only because the number looked odd, which is the least reliable way to
+catch anything — anchor on the `... FAILED` that follows a test name.
+
+**A mis-sited arm reads exactly like a surviving mutation.** Twice on
+2026-09-10, both against branches that turned out to be correct: an arm
+mutated `collect_siblings` to recurse into mapping keys, which changes
+nothing because no key in that file contains `../` — the narrowing being
+tested lives at the *caller*, which walks only two specific fields; and
+an arm cut a guard's paren counter where the escape handling it was
+probing sat fifteen lines away. Both printed green and both would have
+been recorded as a hole in the branch. **Verify the site, not just the
+line:** assert the expression is unique, name the enclosing function, and
+when an arm survives, re-site it once before believing it.
+
+**A counter incremented inside `$( )` never persists**, so a harness that
+counts in a subshell reports nothing at all rather than a wrong number —
+the fix is a file, not a variable. Measured 2026-09-10; caught, like the
+two below, by the output disagreeing with the exit code rather than by
+reading the script.
+
+**`f=$LOG; echo "EXIT=$?"` reads the assignment's status, not the
+command's.** Measured 2026-09-10: an arm printed `EXIT=0` beside a
+`FAILED` result line. Same family as the two count defects above, and
+caught the same way — by the `test result:` line disagreeing with the
+exit code. Check the result line first and the exit code second.
+
+**Assert the number of arms, because a suite can lose them silently.**
+Measured 2026-09-10: deleting one arm from a runner took its **two
+neighbours** with it, so the next round's reported "ten arms" were eight
+— and the two that vanished were the pair that had settled an earlier
+question. The report overstated its own coverage and nothing in the run
+disagreed with it. An arm suite is a check like any other: count what
+ran, and refuse a figure whose arm count does not match the list.
+
+**But separate the figures from the conclusion.** When that suite's
+missing arms were re-derived they reproduced exactly, because the
+verifier had measured those cases **by hand in its own tree** rather than
+through the runner that lost them. The reported coverage was unfounded;
+the conclusion it supported was not. "Count what ran" catches a reporting
+defect and does not by itself invalidate a finding that was reached
+another way — say which of the two you are retracting.
+
+**And the inputs are the evidence; the arms only prove they are
+load-bearing.** Four arms sharing one test name looked like one rule
+tested four ways until each was shown to fail on **its own input**, and
+the check that settled it was reading the shipped test for those four
+inputs rather than trusting the arm count. Where a fix has parts, assert
+the parts are present before asserting the mutations kill them.
+
+**An enumerated battery bounds what it enumerates, and "0 unclassified"
+is not a claim about anything outside it.** A 316-case differential over
+generated shell fragments reported zero unclassified disagreements
+through three rounds; it could not have found the defect a reviewer then
+found, because **no generated fragment contained a literal `{`** and that
+case was never in the battery. State what a battery enumerates alongside
+its result, the same way a survey states its scope — otherwise its
+clean sheet reads as coverage it never had.
 
 **A surviving mutation may mean the test is missing, not the code.** Ask
 whether the check is unwitnessed rather than inert, and build the case it
@@ -256,12 +357,71 @@ exists for.
 one tree. When two PRs touch the same file, merging one invalidates the
 other's *evidence* as well as its mergeability.
 
+**A fail-fast run reports a truncated world, and the number it gives
+looks like a measurement.** The benign-failure set of one repository was
+recorded as **four** tests from a fail-fast run, which stops at the first
+failing target; measured with `--no-fail-fast` on the same commit it is
+**347 names across 63 of 111 targets**, which agrees with this document's
+own 63-of-108 figure for that crate. Every comparison against a
+fail-fast baseline is therefore a comparison against an arbitrary prefix
+of the failures. Use `--no-fail-fast` for any figure you intend to
+subtract, and say which you used.
+
 **Run the targeted test, not the suite.** A mutation only has to prove
 that assertion can fail. Full suite once at the end.
 
 **One profile unless the defect is profile-sensitive.** Overflow needs
 debug and release; a carry *within* a `u64` into flag bits does not,
 because `overflow-checks` never sees it.
+
+### Three families in the pipeline's own tooling
+
+Named on 2026-09-10 after four members of the second one turned up in
+four different files in a single day. A family is worth naming when it
+makes the next member findable — the third one below was found by asking
+what the first two did **not** cover.
+
+**1. Destructive re-resolution.** A command whose target is re-resolved
+between reading the state and acting on it: `ext4#104` (`break_lock`
+deletes whichever lock is present, not the one the waiter inspected),
+`diskjockey#123`/`#124` (the ledger lock's stale break and the slot
+reclaim), `btrfs#141` (the oracle slot's release compares the *invoked
+script's own path*). General form: **bind a destructive act to a token
+you recorded, never to an identity you re-derive.**
+
+**2. A check that cannot answer returning the permissive one.**
+`diskjockey#131`'s `in_use` probe answering the same when `lsof` is
+absent; `#127`'s `${when:-0}` epoch default; `#132`'s unparseable
+timestamp silently skipping the row; `#145`'s `sibling-build.sh:73`,
+where a failed `git status` leaves `DIRTY` empty and one unread status
+**disarms the guard and asserts the property the guard exists to
+establish** in a single step.
+
+**The blanket remedy for this family is wrong, measured.** Adding
+`set -o pipefail` everywhere fixes only the members that lose a status —
+and it breaks `#145` specifically, because `git status … | head -20`
+exits **141** whenever the producer has more than twenty lines to write
+(`set -o pipefail; yes | head -3` → 141, three of three), so under
+`set -e` it aborts in exactly the very-dirty case while still reading no
+status. Two of that row's three sites are **missing assertions rather
+than lost statuses**. Read each member before patching the family.
+
+**3. An unvalidated write that makes a later measurement quietly wrong,
+always in the reassuring direction.** `diskjockey#142`: `am-cost add`
+has an arity check and nothing else, so a non-numeric token count
+aggregates as 0 while still counting the run (141027 → 70513 per run), a
+swapped `<stage> <tokens>` pair invents a stage named `99999`, and a
+newline in the free-text note **forges a whole row** — all exiting 0,
+every error biasing the number **downward**. No reading of the file
+recovers the truth: `raw` shows the bad token, `report` shows a halved
+average, nothing connects them. This family is *annoy the human, do not
+corrupt the output* inverted, and it was found only because an agent
+finally **ran** the tool that every stage had declined to write to.
+
+**Two of those rows also carry a confident number from a path that did
+not act** — `#142`'s halved average and `#144`'s `removed/pruned: 1` for
+a worktree that still exists. Where a count and an action can disagree,
+assert the action.
 
 ### The recurring defect
 
@@ -273,6 +433,15 @@ reviewing, repeatedly:
 - a scan whose pattern cannot match — `\s` is not honoured by every
   `grep`, so it matched nothing everywhere and read as twelve clean
   repositories;
+- a scan whose pattern matches something else entirely, which is the
+  same defect with the sign flipped: an unanchored `grep -q 'up to
+  date'` for a task-skip check matched `rustup`'s own `info: component
+  rust-std is up to date`, so every run recorded as skipped and
+  "the `sources:` list has no effect" was briefly a finding. Measured
+  2026-09-10 by the verifier that wrote it, caught because a run it had
+  called skipped had regenerated a file it had just deleted. Anchor the
+  pattern, and keep a control that shows the check discriminates — here,
+  a `README.md` edit that genuinely does skip;
 - an empty search result whose coverage was never established —
   `gh issue list --search` does not index comment bodies; use
   `gh issue view --json comments`;
@@ -286,18 +455,77 @@ reviewing, repeatedly:
   binary, or a compile error in one target. **Always capture the exit
   status.**
 
-**Ask whether the gate's profile can observe *this* defect.** Five
-repositories run their PR tests only under `--release`, where
-`overflow-checks` is off: `rust-fs-xfs`, `rust-fs-ext4`,
-`rust-fs-erofs`, `rust-fs-squashfs`, `rust-fs-btrfs`. An overflow test
-there cannot fail. Not "does CI run both profiles" but "could the gate
-fail for the reason under test".
+**Ask whether the gate's profile can observe *this* defect.** Not "does
+CI run both profiles" but "could the gate fail for the reason under
+test".
+
+This passage used to name five repositories as running their PR tests
+only under `--release`, where `overflow-checks` is off: `rust-fs-xfs`,
+`rust-fs-ext4`, `rust-fs-erofs`, `rust-fs-squashfs`, `rust-fs-btrfs`.
+**All five have had a debug run since; the figure was stale and it was
+still being quoted into briefs and issues.** Measured 2026-09-10 by
+fetching each `refs/heads/main` from its remote: every one now runs
+`EXPECT_OVERFLOW_CHECKS=1 cargo test --locked --lib` on a pull request
+(`xfs:116`, `ext4:76`, `btrfs:87`, `erofs:97`, `squashfs:93`), and the
+variable is what tells
+`overflow_checks::the_build_the_gate_asked_to_check_does_check` in
+`src/lib.rs` that this is the run that must trap. The issues that closed
+it — `erofs#68`, `squashfs#66` among them — are CLOSED.
+
+**The residual gap is real and narrower: the debug run is `--lib` only.**
+An overflow reachable only from an integration target still cannot fail
+the gate. Ask the question about the target as well as the profile.
+
+Two lessons, and the second is the reason this paragraph now carries its
+own measurement date: a repository-by-repository figure decays, and a
+figure in this document is quoted into stage briefs, which are quoted
+into issues, where nothing can correct it. Re-measure before citing, and
+say where and when.
 
 **A comment asserting an invariant is not the invariant.** Test the
 behaviour. One release path's comment stated its ownership rule
 correctly while the code did not implement it in the one case that
 mattered — worse than an unguarded path, because it reassures every
 reader who checks.
+
+**The authoritative copy is authoritative per defect, not per file.**
+Measured 2026-09-10 across five copies of one guard. Four were a single
+generation and a whole-file replace was correct — licensed by a check
+worth reusing: with comments stripped, of 27 function bodies **22 were
+identical, 5 differed, 4 were missing, and 0 were present in the copy and
+absent from the authoritative one**. That last count is the one that
+makes a replace safe; without it a replace is a deletion nobody
+measured.
+
+**The fifth copy was a third design and already correct on 11 of 12
+inputs.** Its escape handling sat *ahead* of the separator arm, so the
+two spellings the brief said to carry were immune by construction, and
+`cp` would have deleted a test closing a hole the other four only
+document, plus two more tests and nine cases. Its only shared defect was
+one nobody's report or review had named in any copy. **"Port, do not
+rewrite" and "replace the file" are the same instruction until you
+establish direction per function** — and a family that has already been
+wrong twice about what propagated is not a family to take on faith.
+
+**N reviews of N identical copies is a partition of the coverage, not N
+times it. Take the union.** Measured 2026-09-10 on five byte-identical
+copies of one guard — md5 equal, 126982 bytes, 76 tests — reviewed
+independently: verdicts came back **5/5, 4/5, 4/5, 3/5 and 2/5**, with
+standing P1 counts of 0, 1, 1, 2 and 4. The bytes were the same in every
+case, so the score is not a property of the code; it tracks which threads
+each repository happened to resolve. **No single review saw the whole
+defect set**, and the one that scored 5/5 was the copy that had already
+merged.
+
+Two consequences. **Cheap to gate is not cheap to fix**: fixing one
+copy's subset fixes a fraction of the problem, the rest resurface at the
+next copy's review, and the copies stop being byte-identical — which was
+the property that made the family cheap to verify in the first place. So
+fix the union once and land it everywhere as the same bytes. And **a
+finding resolved by hand in one copy may be legitimate there and live
+everywhere else**: separate the ones whose gap the code *declares* from
+the ones it merely lacks, and record that ruling where every copy's next
+reviewer will meet it.
 
 **State the scope of a survey with its result.** Two agents surveyed the
 same question, one reading `ci.yml` and one reading every workflow, and
@@ -460,9 +688,14 @@ is exactly right; the CI Test step (`ci.yml:125`) and 13 of the 21
 entries in `scripts/` — 13 of the 16 that are shell, all five `am-*`
 tools among them, the exceptions being `build-disk-probe.sh`,
 `build-gonetworkfs.sh` and `sibling-build.sh` — set it. **The
-prescription above needs no qualifier**: `${PIPESTATUS[0]}` and
-`$pipestatus[1]` give the first command's status either way, and so
-does dropping the pipe. Only the diagnosis moves.
+prescription above needs one word of qualifier**: in zsh, use
+`$pipestatus[1]`, or drop the pipe. `${PIPESTATUS[0]}` is a bashism and
+**expands to the empty string here** — measured 2026-09-10,
+`zsh -c 'false | true; echo "[${PIPESTATUS[0]}] [$pipestatus[1]]"'`
+prints `[] [1]`. So a guard written on it compares an empty string to
+`0`, which is the recurring defect in one line: a check whose output
+cannot depend on the failure it exists to detect. Only the diagnosis
+moves; the remedy loses one of its two spellings.
 
 This applies to any stage that reads a suite log to reach a conclusion,
 not only to verification.
@@ -493,6 +726,22 @@ matters in general.
     --release --lib EXIT=0, 615 passed; --locked --lib EXIT=101, 4 failed.
     Four tests that could not fail. Fix: add a debug run; needs a test
     that fails without it.
+
+**An issue's citations must resolve against the ref the issue is filed
+about.** Filed 2026-09-10 against `main` from a tree that only ever
+existed on a pull request's branch: the issue named a test file with no
+commit history in the repository, and no path matching it anywhere in
+`main`. It named four affected tests; on `main` there is one. The defect
+was real and the inventory was fiction, which is the worst combination —
+a triage agent has to re-derive the whole body before it can accept
+something that is true.
+
+Reading a branch is fine and often necessary; the discipline is to say
+which ref each citation came from, and to re-resolve every path against
+the filing ref before posting. This is the same rule as "never read a
+shared checkout's working tree and call it `main`", one step later in the
+process: there, a wrong ref produces a wrong answer; here, it produces a
+right answer about the wrong tree.
 
 **A finding gets its own issue**, never a paragraph appended to
 something being closed — attached elsewhere it cannot be searched for,
@@ -553,6 +802,22 @@ agent totals divided by issue counts.
 no `git checkout`, no `git pull` in a repository you do not own — one
 agent swept up another's untracked work.
 
+**Bind a destructive act to a token you recorded, never to an identity
+you re-derive.** Four rows this week converge on this one primitive:
+`ext4#104` (break_lock deletes whichever lock is present, not the one the
+waiter inspected), `xfs#158`, `diskjockey#123`/`#124` (the ledger lock
+and the slot reclaim, same shape), and `btrfs#141` — where the oracle
+slot's release compares the *invoked script's own path*, derived from
+`BASH_SOURCE`, against the path recorded at acquire time. Under
+one-worktree-per-issue a different checkout is the **normal** case, so
+the holder-only guard that `#100` added — the right instinct — silently
+declines to release and leaks the slot.
+
+The fix is not to drop the guard; it is to compare a recorded token
+rather than a re-derived identity, and to reach the release on every exit
+path. Watch for the trap that inherits the defect: an `EXIT` trap whose
+token is still the checkout path is the same leak with better manners.
+
 **Never `rm` with a glob or a bare variable.** Name the exact path.
 
 **Push over HTTPS** with the `gh` credential helper; SSH to GitHub fails
@@ -587,6 +852,30 @@ not a repository`. Both read exactly like findings. Use an array, or
 shape as the `${REF}:path` rule above: zsh's departures from bash are
 silent and produce empty results, and an empty result is not an answer.
 
+**`path=` is not a variable name in zsh — it is `PATH`.** zsh ties the
+`path` array to `PATH`, so `path="$repo/include"` inside a loop replaces
+the search path and every external command afterwards is gone. Measured
+2026-09-10: a header survey assigned `path=` per file, `wc`, `tr` and
+then `gh` itself vanished, and every `grep -c` returned **0** — which
+read exactly as "these headers never mention the symbol". It was caught
+only because the survey carried a known-positive control that went to
+zero at the same time. `cdpath`, `fpath`, `manpath` and `mailpath` are
+tied the same way.
+
+**`status` is read-only in zsh.** A loop variable named `status` fails to
+assign there — zsh ties it to `$?` — so a script written that way works
+on a bash runner and dies on the author's machine, or the reverse. Use
+`rc`. Measured 2026-09-10, and it is the fourth member of the family
+below.
+
+That is the fourth of these in one session, and they are one family:
+`$REF:path` taking `:t` as a history modifier, an unquoted expansion not
+word-splitting, `path=` clobbering `PATH`, and `status` being read-only. **zsh's departures from
+bash turn a failed query into a plausible negative**, which is why every
+survey needs a control that must be non-zero — the control is not
+diligence, it is the only thing that separates "no hits" from "no
+command".
+
 **Process substitution is a bashism.** `done < <(...)` is rejected at
 parse time, so running the script with `sh` kills every subcommand with
 a syntax error pointing at a line the caller never asked for.
@@ -608,6 +897,36 @@ What matters is what the change adds to the supply chain: a dependency,
 a third-party action, a trigger change, a network call, a secret
 reference. Read the shell too — `read -r -a args <<< "$VAR"` splits
 without evaluating, which is not `eval`.
+
+**A resolution claim citing a sha nobody can reach is not evidence.**
+Measured 2026-09-10: a report stated three review findings were addressed
+"at `ccbf257f`", and that commit is **not reachable from the branch
+head** — a force-pushed intermediate. Under `--force-with-lease` the
+branch's own history is rewritten routinely, so a sha cited from before
+the push often names a commit no clone can produce. Check reachability
+(`git merge-base --is-ancestor <cited> <head>`) before relying on any
+"addressed at" claim, and re-derive at the head when it fails. The
+findings did hold; nothing about the citation established that.
+
+**The same applies to your own verification evidence after a rewrite.**
+Measured 2026-09-10: four branches were rebuilt so that one commit sat
+directly on `main` carrying both a port and a later fix, and the port
+commits verified earlier that day no longer existed on any branch — so
+that verification described nothing reachable. A force-push does not only
+move the tip; it can replace the base a measurement was taken against.
+Re-resolve the head before trusting any earlier pass, and say when a
+branch became a wholesale replacement rather than an update on a verified
+base, because those are different things to gate.
+
+**A run id resolves to the latest attempt, not to the run you looked
+at.** `actions/runs/<id>` returns whichever attempt ran last, so a
+failure cited by run id reads **green** to the next person the moment
+anybody re-runs it. Measured 2026-09-10: an issue filed against a flaky
+check cited `runs/34446493979`, which by the time triage read it returned
+`attempt 2, success` — the failure lives only at
+`…/runs/<id>/attempts/1`. Cite the attempt, and treat a re-run as
+destroying the evidence unless the attempt number is in the citation.
+Same family as the rule below, one level further down.
 
 **2. A green tick belongs to a commit, not to a pull request.**
 
