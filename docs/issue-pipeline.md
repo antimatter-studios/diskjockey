@@ -256,6 +256,16 @@ exists for.
 one tree. When two PRs touch the same file, merging one invalidates the
 other's *evidence* as well as its mergeability.
 
+**A fail-fast run reports a truncated world, and the number it gives
+looks like a measurement.** The benign-failure set of one repository was
+recorded as **four** tests from a fail-fast run, which stops at the first
+failing target; measured with `--no-fail-fast` on the same commit it is
+**347 names across 63 of 111 targets**, which agrees with this document's
+own 63-of-108 figure for that crate. Every comparison against a
+fail-fast baseline is therefore a comparison against an arbitrary prefix
+of the failures. Use `--no-fail-fast` for any figure you intend to
+subtract, and say which you used.
+
 **Run the targeted test, not the suite.** A mutation only has to prove
 that assertion can fail. Full suite once at the end.
 
@@ -596,6 +606,16 @@ What matters is what the change adds to the supply chain: a dependency,
 a third-party action, a trigger change, a network call, a secret
 reference. Read the shell too — `read -r -a args <<< "$VAR"` splits
 without evaluating, which is not `eval`.
+
+**A run id resolves to the latest attempt, not to the run you looked
+at.** `actions/runs/<id>` returns whichever attempt ran last, so a
+failure cited by run id reads **green** to the next person the moment
+anybody re-runs it. Measured 2026-09-10: an issue filed against a flaky
+check cited `runs/34446493979`, which by the time triage read it returned
+`attempt 2, success` — the failure lives only at
+`…/runs/<id>/attempts/1`. Cite the attempt, and treat a re-run as
+destroying the evidence unless the attempt number is in the citation.
+Same family as the rule below, one level further down.
 
 **2. A green tick belongs to a commit, not to a pull request.**
 
