@@ -305,6 +305,12 @@ been recorded as a hole in the branch. **Verify the site, not just the
 line:** assert the expression is unique, name the enclosing function, and
 when an arm survives, re-site it once before believing it.
 
+**A counter incremented inside `$( )` never persists**, so a harness that
+counts in a subshell reports nothing at all rather than a wrong number —
+the fix is a file, not a variable. Measured 2026-09-10; caught, like the
+two below, by the output disagreeing with the exit code rather than by
+reading the script.
+
 **`f=$LOG; echo "EXIT=$?"` reads the assignment's status, not the
 command's.** Measured 2026-09-10: an arm printed `EXIT=0` beside a
 `FAILED` result line. Same family as the two count defects above, and
