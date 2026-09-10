@@ -286,12 +286,32 @@ reviewing, repeatedly:
   binary, or a compile error in one target. **Always capture the exit
   status.**
 
-**Ask whether the gate's profile can observe *this* defect.** Five
-repositories run their PR tests only under `--release`, where
-`overflow-checks` is off: `rust-fs-xfs`, `rust-fs-ext4`,
-`rust-fs-erofs`, `rust-fs-squashfs`, `rust-fs-btrfs`. An overflow test
-there cannot fail. Not "does CI run both profiles" but "could the gate
-fail for the reason under test".
+**Ask whether the gate's profile can observe *this* defect.** Not "does
+CI run both profiles" but "could the gate fail for the reason under
+test".
+
+This passage used to name five repositories as running their PR tests
+only under `--release`, where `overflow-checks` is off: `rust-fs-xfs`,
+`rust-fs-ext4`, `rust-fs-erofs`, `rust-fs-squashfs`, `rust-fs-btrfs`.
+**All five have had a debug run since; the figure was stale and it was
+still being quoted into briefs and issues.** Measured 2026-09-10 by
+fetching each `refs/heads/main` from its remote: every one now runs
+`EXPECT_OVERFLOW_CHECKS=1 cargo test --locked --lib` on a pull request
+(`xfs:116`, `ext4:76`, `btrfs:87`, `erofs:97`, `squashfs:93`), and the
+variable is what tells
+`overflow_checks::the_build_the_gate_asked_to_check_does_check` in
+`src/lib.rs` that this is the run that must trap. The issues that closed
+it — `erofs#68`, `squashfs#66` among them — are CLOSED.
+
+**The residual gap is real and narrower: the debug run is `--lib` only.**
+An overflow reachable only from an integration target still cannot fail
+the gate. Ask the question about the target as well as the profile.
+
+Two lessons, and the second is the reason this paragraph now carries its
+own measurement date: a repository-by-repository figure decays, and a
+figure in this document is quoted into stage briefs, which are quoted
+into issues, where nothing can correct it. Re-measure before citing, and
+say where and when.
 
 **A comment asserting an invariant is not the invariant.** Test the
 behaviour. One release path's comment stated its ownership rule
