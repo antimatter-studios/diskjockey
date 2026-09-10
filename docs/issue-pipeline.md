@@ -450,6 +450,25 @@ correctly while the code did not implement it in the one case that
 mattered — worse than an unguarded path, because it reassures every
 reader who checks.
 
+**The authoritative copy is authoritative per defect, not per file.**
+Measured 2026-09-10 across five copies of one guard. Four were a single
+generation and a whole-file replace was correct — licensed by a check
+worth reusing: with comments stripped, of 27 function bodies **22 were
+identical, 5 differed, 4 were missing, and 0 were present in the copy and
+absent from the authoritative one**. That last count is the one that
+makes a replace safe; without it a replace is a deletion nobody
+measured.
+
+**The fifth copy was a third design and already correct on 11 of 12
+inputs.** Its escape handling sat *ahead* of the separator arm, so the
+two spellings the brief said to carry were immune by construction, and
+`cp` would have deleted a test closing a hole the other four only
+document, plus two more tests and nine cases. Its only shared defect was
+one nobody's report or review had named in any copy. **"Port, do not
+rewrite" and "replace the file" are the same instruction until you
+establish direction per function** — and a family that has already been
+wrong twice about what propagated is not a family to take on faith.
+
 **State the scope of a survey with its result.** Two agents surveyed the
 same question, one reading `ci.yml` and one reading every workflow, and
 four issues were filed on a false claim before the disagreement
