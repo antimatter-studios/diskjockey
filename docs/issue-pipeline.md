@@ -469,6 +469,26 @@ rewrite" and "replace the file" are the same instruction until you
 establish direction per function** — and a family that has already been
 wrong twice about what propagated is not a family to take on faith.
 
+**N reviews of N identical copies is a partition of the coverage, not N
+times it. Take the union.** Measured 2026-09-10 on five byte-identical
+copies of one guard — md5 equal, 126982 bytes, 76 tests — reviewed
+independently: verdicts came back **5/5, 4/5, 4/5, 3/5 and 2/5**, with
+standing P1 counts of 0, 1, 1, 2 and 4. The bytes were the same in every
+case, so the score is not a property of the code; it tracks which threads
+each repository happened to resolve. **No single review saw the whole
+defect set**, and the one that scored 5/5 was the copy that had already
+merged.
+
+Two consequences. **Cheap to gate is not cheap to fix**: fixing one
+copy's subset fixes a fraction of the problem, the rest resurface at the
+next copy's review, and the copies stop being byte-identical — which was
+the property that made the family cheap to verify in the first place. So
+fix the union once and land it everywhere as the same bytes. And **a
+finding resolved by hand in one copy may be legitimate there and live
+everywhere else**: separate the ones whose gap the code *declares* from
+the ones it merely lacks, and record that ruling where every copy's next
+reviewer will meet it.
+
 **State the scope of a survey with its result.** Two agents surveyed the
 same question, one reading `ci.yml` and one reading every workflow, and
 four issues were filed on a false claim before the disagreement
