@@ -335,6 +335,46 @@ case "$manifest" in
     *) fail "no DiskJockeyEXT4Core target: the EXT4 volume logic is only reachable through the appex again, which is what forced the hand-written mirrors" ;;
 esac
 
+# --------------------------- and the extension compiles every file beside it
+# THE LIBRARY IS SYNCHRONISED WITH ITS DIRECTORY; THE EXTENSIONS ARE NOT.
+# DiskJockeyEXT4 carries an explicit PBXSourcesBuildPhase, so a .swift file
+# added to DiskJockeyEXT4/ is compiled by NOTHING until somebody edits
+# project.pbxproj — and the file still builds under SwiftPM, so `swift test`
+# goes green while the extension does not compile at all.
+#
+# Measured 2026-09-10: EXT4Log.swift and EXT4Watchdog.swift were added to the
+# directory, passed `swift test`, passed every guard here, and failed the
+# Xcode build with "cannot find 'EXT4Watchdog' in scope" — because the target
+# was still compiling the original eight files. This check is that failure,
+# moved to somewhere it costs seconds instead of a CI round trip.
+ext4_missing=""
+ext4_phase="$(python3 -c '
+import re, sys
+s = open(sys.argv[1]).read()
+t = re.search(r"/\* DiskJockeyEXT4 \*/ = \{\n\t+isa = PBXNativeTarget;(.*?)\n\t+name = DiskJockeyEXT4;", s, re.S)
+if not t:
+    sys.exit(2)
+phases = re.search(r"buildPhases = \((.*?)\);", t.group(1), re.S).group(1)
+for pid, _ in re.findall(r"([0-9A-F]{24}) /\* ([^*]+) \*/", phases):
+    blk = re.search(re.escape(pid) + r" /\* [^*]+ \*/ = \{\n\t+isa = PBXSourcesBuildPhase;(.*?)\n\t+\};", s, re.S)
+    if blk:
+        for f in re.findall(r"/\* ([^ ]+\.swift) in Sources \*/", blk.group(1)):
+            print(f)
+' "$PBXPROJ" 2>/dev/null)"
+if [ -z "$ext4_phase" ]; then
+    fail "could not read DiskJockeyEXT4's source list out of project.pbxproj, so nothing below was checked"
+else
+    for src in "$REPO"/DiskJockeyEXT4/*.swift; do
+        base="$(basename "$src")"
+        printf '%s\n' "$ext4_phase" | grep -qxF "$base" || ext4_missing="$ext4_missing $base"
+    done
+    if [ -z "$ext4_missing" ]; then
+        ok "the DiskJockeyEXT4 target compiles every .swift file in its directory"
+    else
+        fail "DiskJockeyEXT4/ contains files the Xcode target does not compile:${ext4_missing} — that target has an explicit source list, so a new file is invisible to it until project.pbxproj says otherwise, and SwiftPM will keep passing meanwhile"
+    fi
+fi
+
 # ------------------------------------------------ the dead route stays dead
 # DiskJockeyLibraryOnly.xcscheme was the first attempt and it does not work.
 # Leaving it in the project invites the next person to wire it up again.
