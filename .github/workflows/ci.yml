@@ -47,6 +47,9 @@ jobs:
   scripts:
     name: Shell scripts
     runs-on: ubuntu-latest
+    # Seven seconds in practice. Five minutes is a hang, not a slow runner —
+    # and an unbounded ubuntu job is cheap enough to be forgotten for hours.
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - name: Semantics the Xcode job cannot reach
@@ -113,6 +116,20 @@ jobs:
     # macos-26 is the Apple Silicon runner for macOS 26.
     # Fall back to macos-15 if the runner isn't available in your plan yet.
     runs-on: macos-26
+    # THE STEP BOUND IS NOT A JOB BOUND, and this is what that costs.
+    # `Test` has carried timeout-minutes: 25 since #117, chosen because that
+    # step was the one observed hanging. On 2026-09-10 a post-merge run on
+    # main hung in **Set up Go** — step 8 of 25, long before Test — and ran
+    # for TWO HOURS before a person noticed and cancelled it, holding the
+    # only macos-26 runner in the pool while the pull requests waiting to
+    # merge got no runner at all.
+    #
+    # 40 rather than 25: the job is the sum of its steps, and the slowest
+    # good run measured so far is 16.8 minutes of Test plus the setup and
+    # cache steps around it. This is the ceiling that stops a hang billing
+    # macOS minutes for six hours; the per-step bound stays where it is,
+    # because a bound that fires tells you which step it was.
+    timeout-minutes: 40
 
     steps:
       - name: Checkout
