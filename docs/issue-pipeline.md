@@ -460,9 +460,14 @@ is exactly right; the CI Test step (`ci.yml:125`) and 13 of the 21
 entries in `scripts/` — 13 of the 16 that are shell, all five `am-*`
 tools among them, the exceptions being `build-disk-probe.sh`,
 `build-gonetworkfs.sh` and `sibling-build.sh` — set it. **The
-prescription above needs no qualifier**: `${PIPESTATUS[0]}` and
-`$pipestatus[1]` give the first command's status either way, and so
-does dropping the pipe. Only the diagnosis moves.
+prescription above needs one word of qualifier**: in zsh, use
+`$pipestatus[1]`, or drop the pipe. `${PIPESTATUS[0]}` is a bashism and
+**expands to the empty string here** — measured 2026-09-10,
+`zsh -c 'false | true; echo "[${PIPESTATUS[0]}] [$pipestatus[1]]"'`
+prints `[] [1]`. So a guard written on it compares an empty string to
+`0`, which is the recurring defect in one line: a check whose output
+cannot depend on the failure it exists to detect. Only the diagnosis
+moves; the remedy loses one of its two spellings.
 
 This applies to any stage that reads a suite log to reach a conclusion,
 not only to verification.
