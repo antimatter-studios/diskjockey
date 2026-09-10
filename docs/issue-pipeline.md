@@ -575,6 +575,18 @@ back empty. Each looked like a finding.
 exits on first match, the producer gets SIGPIPE, and the pipeline exits
 141 *because* the match succeeded.
 
+**zsh does not word-split an unquoted parameter expansion.** `for r in
+$refs` iterates **once**, over the whole string, and `set -- $pair`
+assigns the entire string to `$1` — so a loop over a variable holding a
+list runs one iteration with a nonsense value, every command inside it
+fails, and the result is an empty table. Measured twice on 2026-09-10:
+an audit's first cross-repo drift table came back `0/12` on all fifteen
+rows, and a coordinator's release loop reported `'rust-fs-xfs 158' is
+not a repository`. Both read exactly like findings. Use an array, or
+`${=var}` where a split is what you actually want. This is the same
+shape as the `${REF}:path` rule above: zsh's departures from bash are
+silent and produce empty results, and an empty result is not an answer.
+
 **Process substitution is a bashism.** `done < <(...)` is rejected at
 parse time, so running the script with `sh` kills every subcommand with
 a syntax error pointing at a line the caller never asked for.

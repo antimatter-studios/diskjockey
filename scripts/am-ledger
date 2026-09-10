@@ -109,11 +109,25 @@ DEFAULT_REPOS=(
     # Not a driver, and tracked anyway. The dependency-pin guard that every
     # repo above carries a copy of has its fix location HERE, not in the
     # constellation: the upstream copy never had the sibling-version check
-    # at all, so syncing the copies onto it would delete the capability
-    # from eleven repositories. Until a corrected version is ported up,
-    # agent-skills#34 is the parent of five defects in three generations
-    # of that script — and an untracked repository is one no stage ever
-    # dispatches, which is how it sat unowned.
+    # at all, while ALL TWELVE consumers have it — measured 2026-09-10,
+    # `grep -c 'the lock must record the sibling version'` is 12/12 in
+    # the consumers and 0 upstream, across three generations of the file.
+    #
+    # THE MECHANISM IS NOT DELETION, and this comment said it was for a
+    # week. `install.sh` writes <repo>/.git/hooks and never
+    # <repo>/.githooks/ — it only reads the latter. So a sync leaves the
+    # tracked file, its section 5 and a clean `git status` exactly as
+    # they were, and changes only which copy `git commit` executes. A
+    # fixer confirming the risk by looking at the tree gets a false
+    # all-clear either way, which is agent-skills#44.
+    #
+    # The asymmetry is also one file wide, not the hook set: 14 of 15
+    # files sync upstream->consumer safely today and 8 need no sync at
+    # all. Read as a general caution it inflates the diff-them-all job
+    # that agent-skills#34 and #35 both gate on. #34 is the parent of
+    # eight defects, not five — five in its body plus the addendum's
+    # ext4#111/#115/#116 — and an untracked repository is one no stage
+    # ever dispatches, which is how it sat unowned.
     "agent-skills:antimatter-studios/agent-skills"
     # And the controller project itself. It was left out because it
     # orchestrates the twelve rather than being one of them — but issues
