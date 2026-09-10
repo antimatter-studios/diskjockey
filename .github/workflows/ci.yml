@@ -56,8 +56,51 @@ jobs:
           found=0
           for t in scripts/tests/*.sh; do
             echo "::group::$t"
-            bash "$t"
+            # THE SUMMARY LINE IS PART OF THE CONTRACT, because exit 0
+            # is not evidence a script finished. An `exit 0` injected
+            # anywhere in one of these files gives EXIT=0 having run a
+            # prefix of its checks, with no failure named and nothing
+            # here to notice. Measured on am-ledger-lock.sh: 13 of 22
+            # checks, exit 0, accepted by this step. Same shape as a
+            # suite reporting `ok` with 0 tests.
+            #
+            # Every script here ends by printing
+            # `<name>: all checks passed`, so requiring it turns a
+            # truncated run into a failure. `tee` keeps the output in
+            # the group; ${PIPESTATUS[0]} is the script's own status
+            # rather than tee's.
+            # NO PIPE, AND `|| rc=$?` SO THE DIAGNOSTIC IS REACHABLE.
+            #
+            # This was `bash "$t" 2>&1 | tee "$out"` followed by
+            # `rc=${PIPESTATUS[0]}` and a friendly message. Under this
+            # step's own `set -euo pipefail` that message could never
+            # print: a script exiting 3 aborted the step at the
+            # pipeline, before `rc` was ever read, so the gate exited 3
+            # with nothing said. Writing to the file and echoing it back
+            # keeps the output inside the group and lets the failure be
+            # reported rather than merely propagated. The truncation
+            # branch below was always reached; this one was not.
+            #
+            # `rc`, not `status`: `status` is READ-ONLY in zsh, so a
+            # loop written with it works under bash and dies with
+            # "read-only variable" anywhere else. Measured, running this
+            # same loop locally.
+            out="$(mktemp)"
+            rc=0
+            bash "$t" > "$out" 2>&1 || rc=$?
+            cat "$out"
             echo "::endgroup::"
+            if [ "$rc" != 0 ]; then
+              echo "$t exited $rc" >&2
+              exit 1
+            fi
+            want="$(basename "$t" .sh): all checks passed"
+            if ! tail -1 "$out" | grep -qxF "$want"; then
+              echo "$t exited 0 but its last line is not '$want'" >&2
+              echo "so it did not run to the end: a truncated pass" >&2
+              exit 1
+            fi
+            rm -f "$out"
             found=$((found + 1))
           done
           # A glob that matches nothing makes this step pass having run

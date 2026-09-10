@@ -86,6 +86,27 @@ fi
 PROJECTS_ROOT="$HOME/.local/state/am-ledger"
 LEDGER="$STATE_DIR/issues.tsv"
 LOCK="$STATE_DIR/ledger.lock"
+# The lock's holder record, inside the lock directory so it appears and
+# disappears with the lock rather than beside it.
+LOCK_HOLDER="$LOCK/holder"
+# How old a lock must be, BY ITS OWN RECORD, before a waiter may break
+# it. Overridable the way the oracle slot's thresholds are
+# (`AM_ORACLE_VM_WAIT`, `AM_ORACLE_VM_BOOT_GRACE`), and for the same
+# reason: a break path that can only be reached by sleeping a minute is
+# a break path no test exercises.
+LOCK_STALE_SECS="${AM_LEDGER_STALE_SECS:-60}"
+# Grace for a lock carrying no record AT ALL. Two things look like that:
+# an acquirer between its `mkdir` and its write, which lasts
+# microseconds, and a lock left behind by a version of this script that
+# recorded nothing, which lasts forever. Refusing to break the second
+# would strand every project's ledger across an upgrade.
+LOCK_RECORDLESS_GRACE_SECS="${AM_LEDGER_RECORDLESS_GRACE:-5}"
+# The generation THIS process holds, or empty.
+#
+# Global rather than local to `with_lock` on purpose: the EXIT trap has
+# to read it, and a trap can fire after the frame that declared a local
+# is gone.
+LOCK_TOKEN=""
 REPO_LIST="$STATE_DIR/repos.tsv"
 
 # The repositories this project spans, as `short<TAB>owner/name`.
@@ -161,8 +182,96 @@ now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 # this: a read-modify-write on a shared file from several agents is the
 # textbook lost update, and the whole point of the ledger is that two
 # agents cannot both believe they own the same issue.
+# Epoch seconds. `now` above is the ledger's timestamp format; this is
+# for arithmetic on the lock's age.
+now_epoch() { date -u +%s; }
+
+# The lock's holder record — `pid<TAB>epoch<TAB>token` — or nothing.
+#
+# THE FIELDS ARE COUNTED BEFORE THEY ARE SPLIT. `cut -f` does not
+# enforce its delimiter: on a line carrying no tab at all it returns the
+# WHOLE LINE for every field index, so a record reading `123` would
+# answer `123` to a request for the token and pass any check that only
+# asked whether the answer was non-empty. Counting first is what makes
+# the split real. `awk` does the split too, because it returns EMPTY for
+# a field that is not there, which is what asking for a field a record
+# does not have should get.
+lock_record() {
+    [ -f "$LOCK_HOLDER" ] || return 1
+    local line fields
+    IFS= read -r line < "$LOCK_HOLDER" 2>/dev/null || return 1
+    [ -n "$line" ] || return 1
+    fields="$(printf '%s\n' "$line" | awk -F'\t' '{print NF}')"
+    [ "$fields" = 3 ] || return 1
+    printf '%s\n' "$line"
+}
+
+lock_field() { lock_record | awk -F'\t' -v n="$1" '{print $n}'; }
+
+# Remove the generation whose token is $1, or nothing at all.
+#
+# A DESTRUCTIVE ACT IS BOUND TO A TOKEN THE CALLER RECORDED, NEVER TO AN
+# IDENTITY IT RE-DERIVES.
+#
+# `$LOCK` is a fixed path and all three removals in this function used
+# to be `rm -rf "$LOCK"`. Between a waiter deciding a lock was stale — a
+# decision that involves reading a record and doing arithmetic — and the
+# `rm` running, the lock it examined can be gone and a different, LIVE
+# lock can occupy the same path. Two waiters agreeing that one holder is
+# stale then produced: the first breaks and acquires, the second's
+# `rm -rf` deletes the first's lock, and both ran a read-modify-write on
+# the ledger. That is the lost update the whole function exists to
+# prevent.
+#
+# Adding a condition does not fix it, because no condition was missing:
+# what was missing is the binding between the check and the action. So
+# the caller passes the token it saw, this re-reads the token as late as
+# it can, and refuses if it has changed.
+#
+# The deletion then goes through a rename into a path only this process
+# knows. `rename(2)` is atomic, so exactly one of several waiters can
+# take a given generation away, and the `rm -rf` that follows targets a
+# private directory rather than the shared path. The loser's `mv` fails,
+# it returns non-zero, and the wait loop tries again — where `mkdir`'s
+# own atomicity decides who acquires.
+#
+# RESIDUAL WINDOW, STATED RATHER THAN GLOSSED: between the token check
+# and the `mv` a lock can still be replaced, so a live holder's record
+# could be moved aside. It is two statements wide instead of a whole
+# decision wide, and the `mkdir` below still admits only one acquirer,
+# so the outcome is a lock that has to be re-taken rather than two
+# writers. Closing it entirely needs a compare-and-swap the shell does
+# not have.
+lock_remove_generation() {
+    local want="$1" staged
+    [ -n "$want" ] || return 1
+    [ "$(lock_field 3 2>/dev/null || true)" = "$want" ] || return 1
+    staged="${LOCK}.gone.$$"
+    rm -rf "$staged"
+    mv "$LOCK" "$staged" 2>/dev/null || return 1
+    rm -rf "$staged"
+}
+
+# Remove a lock that carries no record, or nothing.
+#
+# There is no token to bind to here, which is the whole difficulty. What
+# is available is the same atomic `mv`: several waiters may all decide a
+# recordless lock is breakable and exactly one will succeed in taking it
+# away. The absence is re-checked immediately before the rename, so an
+# acquirer that finished writing its record in the meantime keeps its
+# lock.
+lock_remove_recordless() {
+    local staged
+    lock_record >/dev/null 2>&1 && return 1
+    staged="${LOCK}.gone.$$"
+    rm -rf "$staged"
+    mv "$LOCK" "$staged" 2>/dev/null || return 1
+    rm -rf "$staged"
+}
+
 with_lock() {
-    local waited=0
+    local token since age pid recordless_ticks announced='' recordless_seen=0
+    recordless_ticks=$(( LOCK_RECORDLESS_GRACE_SECS * 5 ))
     # THE STATE DIRECTORY FIRST. The lock lives inside it, so attempting
     # the lock before the directory exists fails forever rather than
     # once: `mkdir` cannot create a subdirectory of a path that is not
@@ -172,17 +281,95 @@ with_lock() {
     mkdir -p "$STATE_DIR"
     until mkdir "$LOCK" 2>/dev/null; do
         sleep 0.2
-        waited=$((waited + 1))
-        if [ "$waited" -gt 300 ]; then
-            # A minute is far longer than any write here takes, so a
-            # lock this old belongs to something that died holding it.
-            echo "am-ledger: breaking a stale lock" >&2
-            rm -rf "$LOCK"
+        if token="$(lock_field 3 2>/dev/null)" && [ -n "$token" ]; then
+            # A RECORD IS PRESENT, SO THE RECORDLESS GRACE HAS NOT
+            # STARTED. See the `else` branch: the grace has to count
+            # from when a RECORDLESS lock was first seen, not from when
+            # this process started queuing.
+            recordless_seen=0
+            # THE AGE COMES FROM THE RECORD, NOT FROM HOW LONG WE
+            # HAVE QUEUED. A loop counter measures how long WE have
+            # been here, which says nothing about how long the lock
+            # in front of us has existed -- a lock created one tick
+            # ago was removed by a waiter queuing for a minute.
+            since="$(lock_field 2 2>/dev/null || true)"
+            case "$since" in
+                '' | *[!0-9]*) since=0 ;;
+            esac
+            age=$(( $(now_epoch) - since ))
+            if [ "$age" -gt "$LOCK_STALE_SECS" ]; then
+                # ONE ANNOUNCEMENT PER GENERATION.
+                #
+                # The original defect was phrased as "the wait counter
+                # is never reset, so past the threshold the removal runs
+                # every 0.2s". Resetting it does not fix that, and the
+                # first version of this change put the reset here where
+                # it CANNOT: the staleness decision is made from the
+                # record's own age, so a lock that is old is old on
+                # every iteration whatever a wait counter says. The
+                # reset was unobservable, and a mutation deleting it
+                # left every check green -- correctly, because it did
+                # nothing. WORSE, the counter it reset was SHARED with
+                # the recordless branch below, so removing the reset
+                # moved that branch's grace to zero. They now have
+                # nothing in common but the loop.
+                #
+                # What the repetition actually costs is a line of log per
+                # 0.2s for as long as a stale lock persists, and the
+                # removal itself is harmless now that it is bound: each
+                # attempt refuses unless the token still matches. So the
+                # ANNOUNCEMENT is what gets rate-limited, keyed on the
+                # generation it is about, and the recordless branch
+                # below counts its own grace rather than borrowing a
+                # counter this branch was resetting.
+                if [ "$announced" != "$token" ]; then
+                    pid="$(lock_field 1 2>/dev/null || true)"
+                    echo "am-ledger: breaking a lock held by pid ${pid:-?} for ${age}s" >&2
+                    announced="$token"
+                fi
+                lock_remove_generation "$token" || true
+            fi
+        else
+            # THE GRACE COUNTS FROM WHEN A RECORDLESS LOCK WAS FIRST
+            # SEEN, WHICH IS NOT THE SAME AS HOW LONG WE HAVE QUEUED.
+            #
+            # This read `waited`, a counter shared with the loop as a
+            # whole, and this branch was its only reader. So a waiter
+            # that had already spent a minute in front of a RECORDED
+            # lock -- an ordinary thing, since that is what the stale
+            # break is for -- broke a recordless lock on the FIRST
+            # iteration it saw one, with no grace at all. The
+            # mixed-version upgrade window is exactly when both happen
+            # in sequence: an old holder's recordless lock appearing
+            # after a wait.
+            #
+            # Measured with a stubbed `lock_field`: a stale recorded
+            # lock whose removal always refuses, then the record
+            # vanishing. As shipped the recordless lock was broken
+            # immediately; with a counter of its own it gets its full
+            # grace. Every existing recordless check started from a
+            # LONE recordless lock, which is the control -- broken
+            # after its declared grace -- and cannot see the
+            # difference.
+            recordless_seen=$((recordless_seen + 1))
+            if [ "$recordless_seen" -gt "$recordless_ticks" ]; then
+                echo "am-ledger: breaking a lock that records no holder" >&2
+                lock_remove_recordless || true
+                recordless_seen=0
+            fi
         fi
     done
-    trap 'rm -rf "$LOCK"' EXIT
+    LOCK_TOKEN="$(now_epoch)-$$-${RANDOM}"
+    printf '%s\t%s\t%s\n' "$$" "$(now_epoch)" "$LOCK_TOKEN" > "$LOCK_HOLDER"
+    # THE TRAP IS BOUND TOO, and this is the site most easily left
+    # behind: an EXIT trap that removes `$LOCK` is the same unbound
+    # removal with better manners. If our lock was broken and somebody
+    # else acquired, a path-based trap deletes THEIR lock on our way
+    # out.
+    trap 'lock_remove_generation "$LOCK_TOKEN" || true' EXIT
     "$@"
-    rm -rf "$LOCK"
+    lock_remove_generation "$LOCK_TOKEN" || true
+    LOCK_TOKEN=""
     trap - EXIT
 }
 
@@ -604,6 +791,19 @@ do_stats() {
     awk -F'\t' '{c[$3]++} END {for (s in c) printf "%-10s %s\n", s, c[s]}' "$LEDGER" | sort
     printf '%-10s %s\n' "TOTAL" "$(wc -l < "$LEDGER" | tr -d ' ')"
 }
+
+# SOURCEABLE, SO THE REMOVALS CAN BE TESTED DIRECTLY.
+#
+# The defect this file was changed for is a check-then-act crossing.
+# Driving one through the CLI can only be RACED, and a racing test is one
+# that passes on a quiet machine and says nothing. Setting
+# `AM_LEDGER_SOURCED=1` and sourcing the file makes
+# `lock_remove_generation` callable, so the invariant — a removal removes
+# only the generation it was authorised against — is asserted rather than
+# hoped for. See `scripts/tests/am-ledger-lock.sh`.
+if [ "${AM_LEDGER_SOURCED:-}" = 1 ]; then
+    return 0
+fi
 
 case "${1:-}" in
     refresh) with_lock do_refresh ;;
