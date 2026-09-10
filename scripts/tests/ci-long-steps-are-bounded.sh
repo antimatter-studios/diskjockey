@@ -177,6 +177,34 @@ case "$test_run" in
        fails=$((fails + 1)) ;;
 esac
 
+# --------------------------------------- the launch failure must be capturable
+# #139 was diagnosed from beautified stdout for a whole day, which is why nobody
+# could say WHY the app-hosted bundle fails to launch: xcodebuild says only
+# "timed out while preparing to run tests", and the .xcresult holding the launch
+# error was thrown away at the end of every run. Both halves are asserted: the
+# bundle is written, and it is kept when the suite fails.
+case "$test_run" in
+    *"-resultBundlePath"*) echo "ok    the run writes a result bundle" ;;
+    *) echo "FAIL  no -resultBundlePath: the launch error stays invisible and #139 can only be guessed at" >&2
+       fails=$((fails + 1)) ;;
+esac
+if ruby -ryaml -e 'd=YAML.load_file(ARGV[0]); exit(d["jobs"]["test"]["steps"].any? { |s| s["if"].to_s.include?("failure") && s["uses"].to_s.include?("upload-artifact") } ? 0 : 1)' "$WORKFLOW" 2>/dev/null; then
+    echo "ok    and keeps it when the suite fails"
+else
+    echo "FAIL  the result bundle is written and then discarded, which is the state that made #139 undiagnosable" >&2
+    fails=$((fails + 1))
+fi
+# An unsigned bundle cannot execute on Apple Silicon, so the host app of an
+# app-hosted test target has to carry at least an ad-hoc signature.
+case "$test_run" in
+    *'CODE_SIGNING_ALLOWED=NO'*)
+        echo "FAIL  CODE_SIGNING_ALLOWED=NO leaves the host app unsigned, and an unsigned bundle cannot launch on arm64" >&2
+        fails=$((fails + 1)) ;;
+    *'CODE_SIGN_IDENTITY="-"'*) echo "ok    the host app is ad-hoc signed" ;;
+    *)  echo "FAIL  no ad-hoc signing identity for the host app" >&2
+        fails=$((fails + 1)) ;;
+esac
+
 if [ "$fails" -eq 0 ]; then
     echo "ci-long-steps-are-bounded: all checks passed"
 else

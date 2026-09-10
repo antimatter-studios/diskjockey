@@ -378,8 +378,9 @@ jobs:
             ONLY_ACTIVE_ARCH=YES \
             ARCHS=arm64 \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_ALLOWED=YES \
+            -resultBundlePath "$RUNNER_TEMP/Test.xcresult" \
           | tee "$RUNNER_TEMP/test-output.log" \
           | xcbeautify --renderer github-actions
           rc=${PIPESTATUS[0]}
@@ -392,10 +393,30 @@ jobs:
           # a floor, not a target. A library-only truncation reports ~90 and
           # fails here, which is the whole point — that shape used to pass.
           # Raise it as the suite grows; a run below it is the defect.
-          executed=$(grep -c 'Test Case .* passed\|✔' "$RUNNER_TEMP/test-output.log" 2>/dev/null || true)
+          # ONE SPELLING. This counted 'Test Case .* passed\|✔', which matches
+          # both renderings of the same case: a complete run reported 273 where
+          # the distinct case count is 251. The floor still held, but the number
+          # it printed was not a case count, and the next person to size the
+          # floor would have sized it against a doubled figure.
+          executed=$(grep -c '✔' "$RUNNER_TEMP/test-output.log" 2>/dev/null || true)
           echo "executed cases: ${executed:-0} (floor 240)"
           if [ "${executed:-0}" -lt 240 ]; then
               echo "::error::only ${executed:-0} test cases executed, floor is 240 — a run that stops early reports no failures, so this is the truncation defect (diskjockey#139) rather than a pass"
               exit 1
           fi
           exit "$rc"
+
+      # THE DIAGNOSTIC THIS DEFECT HAS BEEN MISSING. #139 has been diagnosed
+      # from beautified stdout all day, which is why nobody can say WHY the
+      # app-hosted bundle fails to launch: `xcodebuild` says only
+      # "The test runner timed out while preparing to run tests", and the
+      # .xcresult that holds the launch error was discarded at the end of every
+      # run. Keep it, and the next stall names its own cause.
+      - name: Keep the result bundle when the suite fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcresult-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/Test.xcresult
+          retention-days: 7
+          if-no-files-found: warn
