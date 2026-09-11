@@ -15,7 +15,7 @@ diskjockey-backend/test-mount/mount*/
 
 # Compiled artifacts from vendored sources — regenerated via `make vendor-*`.
 # Source submodules under vendor/ ARE tracked; only the root /lib/ is ignored
-# (anchored so it can't also swallow nested dirs like .githooks/lib/).
+# (anchored, so a lib/ inside a vendored crate is not swallowed with it).
 /lib/
 .wip/
 
