@@ -216,14 +216,33 @@ fi
 # which reads as a pass. Only a count sees it. ASSERT THE COMPARISON, NOT THE
 # MESSAGE: the same check written against the words "floor is 85" survives
 # replacing the whole `if` with `if false`.
-case "$run" in
-    *'"$total" -lt 85'*) ok "the executed-case floor compares against 85" ;;
-    *) fail "no live comparison against a case floor: 90 cases ran on 2026-09-10, and a run that executes none of them exits 0 reporting no failures" ;;
-esac
-case "$run" in
-    *"floor is 85"*) ok "and it names itself when it fires" ;;
-    *) fail "the floor fires without saying what it is, so a red run will not explain what it caught" ;;
-esac
+# READ THE FLOOR OUT OF THE COMMAND rather than restating it here. Two copies
+# of a number that has to move with the suite is two things to forget: the
+# first version named 85 twice, so raising the floor after adding tests meant
+# editing the workflow, its message and both halves of this file.
+floor="$(printf '%s' "$run" | grep -oE '\-lt [0-9]+' | head -1 | awk '{print $2}')"
+if [ -n "$floor" ]; then
+    ok "the executed-case floor is a live comparison, against $floor"
+else
+    fail "no live comparison against a case floor: 116 cases ran on 2026-09-10, and a run that executes none of them exits 0 reporting no failures"
+fi
+# AND THE MESSAGE NAMES THE SAME NUMBER THE COMPARISON USES. A floor that
+# fires saying 85 while comparing against 110 sends the next reader to the
+# wrong measurement.
+if [ -n "$floor" ]; then
+    case "$run" in
+        *"floor is $floor"*) ok "and the message it prints names $floor too" ;;
+        *) fail "the floor compares against $floor but does not say so when it fires, so a red run will not explain what it caught" ;;
+    esac
+fi
+# A FLOOR THAT CAN BE LOWERED IS NOT A FLOOR. 90 cases existed on 2026-09-10
+# before anything was added, so a later floor under that would pass the run
+# shape this whole check exists to reject.
+if [ -n "$floor" ] && [ "$floor" -ge 85 ] 2>/dev/null; then
+    ok "and it is at or above the 85 that 2026-09-10's 90 cases justified"
+else
+    fail "the floor is ${floor:-unset}, below the 85 justified by the 90 cases measured on 2026-09-10: a truncated library run reports about that many and would pass"
+fi
 
 # Both frameworks are in this target, and each prints only its own total.
 # Counting one of them silently halves the floor's reach.
