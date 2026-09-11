@@ -17,7 +17,8 @@
 #
 # The rule is stated over the COMMAND rather than over one step's name,
 # so a second step running the suite is covered without anyone
-# remembering this file exists.
+# remembering this file exists. Two commands qualify: `xcodebuild test`
+# and `swift test`.
 #
 # PARSED, NOT GREPPED. `timeout-minutes:` can sit at job level or step
 # level and a line scan cannot tell which — and job level is the answer
@@ -52,7 +53,11 @@ report="$(ruby -ryaml -e '
   doc = YAML.safe_load(File.read(ARGV[0]), aliases: true) || {}
   (doc["jobs"] || {}).each do |job_name, job|
     (job["steps"] || []).each do |step|
-      next unless step["run"].to_s.include?("xcodebuild test")
+      # THE RULE IS OVER THE COMMAND, and there are two commands now: the
+      # library gate runs `swift test`, which is a suite run with no
+      # xcodebuild in it at all and would otherwise be invisible here.
+      next unless step["run"].to_s.include?("xcodebuild test") ||
+                  step["run"].to_s.include?("swift test")
       label = step["name"] || "(unnamed)"
       puts [job_name, label, step["timeout-minutes"]].join("\t")
     end
