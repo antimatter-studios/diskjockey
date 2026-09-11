@@ -21,8 +21,26 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+  # EVERY PULL REQUEST, NOT ONLY THE ONES TARGETING main.
+  #
+  # This carried `branches: [main]`, which means a pull request based on
+  # another branch got NO run at all -- and GitHub then reports that PR as
+  # `CLEAN`, because a PR with no checks has no failing checks. Measured
+  # 2026-09-10 on two stacked pull requests: `gh run list --branch <head>`
+  # returned nothing for either, while `gh pr view` called both mergeable.
+  #
+  # An absent check reads exactly like a passing one to anything that scans
+  # for failures, which is the whole reason this filter is a defect rather
+  # than a preference. Stacking is how the work arrives here -- a chain four
+  # deep was open when this was found -- so the shape that gets no coverage
+  # is the shape most of the queue is in, and the coverage arrives only after
+  # the base merges and the PR is retargeted at main. That is the wrong order:
+  # the point of the gate is to know BEFORE merging.
+  #
+  # The cost is bounded. A pull request gets one run either way; this changes
+  # which pull requests get one, not how many runs each gets, and the
+  # concurrency group below still cancels superseded runs per head branch.
   pull_request:
-    branches: [main]
 
 # Cancel an in-progress run when a newer commit supersedes it: keyed per source
 # branch for PRs (head_ref), per ref for main pushes (ref_name).
