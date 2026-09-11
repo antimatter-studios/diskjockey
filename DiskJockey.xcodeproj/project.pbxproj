@@ -7,6 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		DA9E17A00000000000000007 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA9E17A00000000000000000 /* main.swift */; };
+		DA9E17A00000000000000008 /* AgentImpl.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA9E17A00000000000000001 /* AgentImpl.swift */; };
+		DA9E17A00000000000000009 /* DJAgentProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA9E17A00000000000000002 /* DJAgentProtocol.swift */; };
+		DA9E17A0000000000000000A /* ProcessRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA9E17A00000000000000003 /* ProcessRunner.swift */; };
+		DA9E17A0000000000000000B /* DiskJockeyAgent in Copy LaunchAgents */ = {isa = PBXBuildFile; fileRef = DA9E17A00000000000000005 /* DiskJockeyAgent */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		022580FD53834B63CA736B5E /* ErofsVolume.swift in Sources */ = {isa = PBXBuildFile; fileRef = 425C54678D107E1DAA3C3C5D /* ErofsVolume.swift */; };
 		027139E38C99564FE69885EA /* NTFSVolume.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FAA4308D6EB33A49E406790 /* NTFSVolume.swift */; };
 		02A5ECFB350AC0A504E975EB /* FSKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EA52B7280D02F6F8D737A4DF /* FSKit.framework */; };
@@ -46,6 +51,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		DA9E17A00000000000000014 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 50A51F8A2E05892200AC6D10 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = DA9E17A00000000000000012;
+			remoteInfo = DiskJockeyAgent;
+		};
 		501F02692E058C51009EBB59 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 50A51F8A2E05892200AC6D10 /* Project object */;
@@ -482,6 +494,17 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		DA9E17A0000000000000000E /* Copy LaunchAgents */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "Contents/Library/LaunchAgents";
+			dstSubfolderSpec = 1;
+			files = (
+				DA9E17A0000000000000000B /* DiskJockeyAgent in Copy LaunchAgents */,
+			);
+			name = "Copy LaunchAgents";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		501F02572E058BAF009EBB59 /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -534,6 +557,12 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		DA9E17A00000000000000000 /* main.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		DA9E17A00000000000000001 /* AgentImpl.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentImpl.swift; sourceTree = "<group>"; };
+		DA9E17A00000000000000002 /* DJAgentProtocol.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DJAgentProtocol.swift; sourceTree = "<group>"; };
+		DA9E17A00000000000000003 /* ProcessRunner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProcessRunner.swift; sourceTree = "<group>"; };
+		DA9E17A00000000000000004 /* DiskJockeyAgent.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = DiskJockeyAgent.entitlements; sourceTree = "<group>"; };
+		DA9E17A00000000000000005 /* DiskJockeyAgent */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = DiskJockeyAgent; sourceTree = BUILT_PRODUCTS_DIR; };
 		0BC347BB938FDDB740155389 /* DiskJockeyEXT4.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; path = DiskJockeyEXT4.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		0E5062D8CC66429138B1AE0E /* DiskJockeyEROFS.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = DiskJockeyEROFS.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		0FC57EEA658C5ABB35712078 /* DiskJockeyEROFS.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = DiskJockeyEROFS.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -1224,6 +1253,13 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		DA9E17A0000000000000000D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		501F02402E058BAF009EBB59 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -1331,6 +1367,18 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		DA9E17A00000000000000006 /* DiskJockeyAgent */ = {
+			isa = PBXGroup;
+			children = (
+				DA9E17A00000000000000000 /* main.swift */,
+				DA9E17A00000000000000001 /* AgentImpl.swift */,
+				DA9E17A00000000000000002 /* DJAgentProtocol.swift */,
+				DA9E17A00000000000000003 /* ProcessRunner.swift */,
+				DA9E17A00000000000000004 /* DiskJockeyAgent.entitlements */,
+			);
+			path = DiskJockeyAgent;
+			sourceTree = "<group>";
+		};
 		0EB438E9BA213FCCBE974E88 /* DiskJockeyNTFS */ = {
 			isa = PBXGroup;
 			children = (
@@ -1431,7 +1479,8 @@
 				9DFB5358C058B255853B0F95 /* DiskJockeyBTRFS */,
 				4F5621A298CDBDD304305E39 /* DiskJockeyXFS */,
 				19150E0A63FF8D677B3E7C39 /* DiskJockeySQUASHFS */,
-			);
+							DA9E17A00000000000000006 /* DiskJockeyAgent */,
+);
 			sourceTree = "<group>";
 		};
 		50A51F932E05892200AC6D10 /* Products */ = {
@@ -1452,7 +1501,8 @@
 				0FC57EEA658C5ABB35712078 /* DiskJockeyEROFS.appex */,
 				8C5B7CF534C315C2E9041E92 /* DiskJockeyBTRFS.appex */,
 				F9237570A5F61E8E2766A574 /* DiskJockeyXFS.appex */,
-			);
+							DA9E17A00000000000000005 /* DiskJockeyAgent */,
+);
 			name = Products;
 			sourceTree = "<group>";
 		};
@@ -1527,6 +1577,22 @@
 /* End PBXHeadersBuildPhase section */
 
 /* Begin PBXNativeTarget section */
+		DA9E17A00000000000000012 /* DiskJockeyAgent */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DA9E17A00000000000000011 /* Build configuration list for PBXNativeTarget "DiskJockeyAgent" */;
+			buildPhases = (
+				DA9E17A0000000000000000C /* Sources */,
+				DA9E17A0000000000000000D /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = DiskJockeyAgent;
+			productName = DiskJockeyAgent;
+			productReference = DA9E17A00000000000000005 /* DiskJockeyAgent */;
+			productType = "com.apple.product-type.tool";
+		};
 		3652767A4E95F56A42259420 /* DiskJockeySQUASHFS */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 88A5F4B9EA80BA744E30831C /* Build configuration list for PBXNativeTarget "DiskJockeySQUASHFS" */;
@@ -1621,6 +1687,7 @@
 				501F02572E058BAF009EBB59 /* Embed Foundation Extensions */,
 				501F02772E058C51009EBB59 /* Embed Frameworks */,
 				EC707CEC95F594A0FBA80A25 /* Embed ExtensionKit Extensions */,
+				DA9E17A0000000000000000E /* Copy LaunchAgents */,
 			);
 			buildRules = (
 			);
@@ -1633,6 +1700,7 @@
 				56FD87773864447044F56701 /* PBXTargetDependency */,
 				4E23DDB0581672220281A2AC /* PBXTargetDependency */,
 				12E218A9352001743993B7B7 /* PBXTargetDependency */,
+				DA9E17A00000000000000013 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				50A51F942E05892200AC6D10 /* DiskJockeyApplication */,
@@ -1835,7 +1903,8 @@
 				8E3B20692D9B65313AFCAF97 /* DiskJockeyEROFS */,
 				CFF7FB1DEDE80CE41AB38F50 /* DiskJockeyBTRFS */,
 				B08D898525E61171F97416A2 /* DiskJockeyXFS */,
-			);
+							DA9E17A00000000000000012 /* DiskJockeyAgent */,
+);
 		};
 /* End PBXProject section */
 
@@ -1951,6 +2020,17 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		DA9E17A0000000000000000C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DA9E17A00000000000000007 /* main.swift in Sources */,
+				DA9E17A00000000000000008 /* AgentImpl.swift in Sources */,
+				DA9E17A00000000000000009 /* DJAgentProtocol.swift in Sources */,
+				DA9E17A0000000000000000A /* ProcessRunner.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		501F023F2E058BAF009EBB59 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -2059,6 +2139,12 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		DA9E17A00000000000000013 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = DiskJockeyAgent;
+			target = DA9E17A00000000000000012 /* DiskJockeyAgent */;
+			targetProxy = DA9E17A00000000000000014 /* PBXContainerItemProxy */;
+		};
 		1996BE72C26966848BDD20AF /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			name = DiskJockeyNTFS;
@@ -2158,6 +2244,52 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		DA9E17A0000000000000000F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = DiskJockeyAgent/DiskJockeyAgent.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 4;
+				DEAD_CODE_STRIPPING = NO;
+				DEVELOPMENT_TEAM = 43UMKXZ8P4;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = NO;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		DA9E17A00000000000000010 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = DiskJockeyAgent/DiskJockeyAgent.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 4;
+				DEAD_CODE_STRIPPING = NO;
+				DEVELOPMENT_TEAM = 43UMKXZ8P4;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = NO;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 		0768422891ABC91AC33637F6 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -3193,6 +3325,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		DA9E17A00000000000000011 /* Build configuration list for PBXNativeTarget "DiskJockeyAgent" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DA9E17A00000000000000010 /* Release */,
+				DA9E17A0000000000000000F /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		501F02542E058BAF009EBB59 /* Build configuration list for PBXNativeTarget "DiskJockeyFileProvider" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

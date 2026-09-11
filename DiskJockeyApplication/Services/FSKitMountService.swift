@@ -771,13 +771,36 @@ private func plural(_ n: Int, _ word: String) -> String {
 
 extension LogRepository {
     /// Append a user-visible log entry tagged with the FSKit source.
-    /// The Logs panel filters on `category`, so we keep "error" / "info" etc
-    /// for classification and stuff the subsystem context into `source`.
+    ///
+    /// WRITTEN THROUGH AppLog, NOT STRAIGHT INTO THE ARRAY, and the
+    /// difference is the whole reason this comment is long.
+    ///
+    /// `LogRepository` is an in-memory store: `addLogEntry` inserts into a
+    /// published array for the Logs panel and touches nothing else. Every
+    /// message the attach/detach flow produced therefore existed only inside
+    /// the running process — not in `app.ndjson`, not in the unified log,
+    /// gone the moment the app quit. On 2026-09-10 a user reported "I try to
+    /// add a disk image and nothing happens", and the whole flow had left no
+    /// trace anywhere on disk to read: the helper it depends on was missing,
+    /// the throw was caught, the message went into an array nobody could see
+    /// from outside, and diagnosing it took hours of guessing instead of one
+    /// `grep`.
+    ///
+    /// `AppLog` writes the NDJSON file in the shared container, and
+    /// `LogTailService` watches that directory and feeds every `*.ndjson`
+    /// line back into this very repository — so routing through it keeps the
+    /// Logs panel working AND leaves the evidence on disk. One path, not two,
+    /// so there is nothing to keep in step.
     fileprivate func logFSKit(_ message: String, category: String) {
-        addLogEntry(LogEntry(
-            message: message,
-            category: category,
-            source: "FSKit"
-        ))
+        let level: AppLogLevel
+        switch category {
+        case "error": level = .error
+        case "warn":  level = .warn
+        case "debug": level = .debug
+        default:      level = .info
+        }
+        AppLog.shared.event(kind: "app.fskit", fields: ["source": "FSKit"],
+                            level: level, message: message,
+                            scope: AppLogScope.lifecycle)
     }
 }
