@@ -194,15 +194,29 @@ struct DetachedOperationWatchdogTests {
         let w = DetachedOperationWatchdog(
             label: "test",
             defaultDeadline: 100,
-            stuckDeadline: 0.1,
-            stuckCheckInterval: 0.03
+            stuckDeadline: 0.3,
+            stuckCheckInterval: 0.05
         ) { _, _ in
             fireCount.set(fireCount.get() + 1)
         }
         w.enter()
-        // Beat every 30ms for 250ms. Each heartbeat resets the clock,
-        // so we should never exceed the 100ms stuckDeadline.
-        for _ in 0..<8 {
+        // TWO RATIOS, AND BOTH MATTER.
+        //
+        // Beat every 30ms against a 300ms deadline, thirty times — so the
+        // run lasts ~900ms in total. The gap between beats is 10x the
+        // deadline, which is what makes the assertion survive a loaded
+        // machine; the total run is 3x the deadline, which is what gives it
+        // teeth, because a build where `heartbeat()` stopped resetting the
+        // clock would fire at 300ms and fail.
+        //
+        // It was 8 beats of 30ms against a 100ms deadline: teeth intact
+        // (240ms total > 100ms) but only 3.3x of jitter tolerance, and on
+        // 2026-09-11 CI it fired once. Every neighbour in this bundle that
+        // floods a pipe or sleeps is competing for the same cores, so
+        // `Task.sleep(30ms)` overshooting 100ms is not a remote event —
+        // `docs/constellation-report-2026-08-30.md` records this suite
+        // failing the same way once before.
+        for _ in 0..<30 {
             w.heartbeat()
             try await Task.sleep(nanoseconds: 30_000_000)
         }
