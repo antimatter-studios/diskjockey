@@ -287,6 +287,94 @@ for target in DiskJockeyLibrary DiskJockeyLibraryTests; do
     esac
 done
 
+# --------------------------------- and the EXT4 subset stays free of the C ABI
+# THE WHOLE POINT OF THAT TARGET IS WHAT IT LEAVES OUT. DiskJockeyEXT4Core
+# compiles four files out of DiskJockeyEXT4/ so the EXT4 volume logic can be
+# tested with no Rust static library and nothing to launch. The other files in
+# that directory make 61 calls into the fs_ext4 C ABI; adding any of them to
+# `sources:` puts the bridging header and libfs_ext4.a back in the way, and
+# the job fails with a missing-header error that says nothing about why.
+#
+# So the rule is stated over the FILES rather than over their names: every
+# file the manifest lists must be free of C-ABI calls. A file that grows one
+# later fails here, which is the point at which somebody can still choose
+# where to put it.
+ext4_sources="$(awk '/name: "DiskJockeyEXT4Core"/,/^        \),/' "$MANIFEST" \
+                | awk '/sources: \[/,/\]/' \
+                | grep -oE '"[A-Za-z0-9_]+\.swift"' | tr -d '"')"
+if [ -z "$ext4_sources" ]; then
+    fail "could not read DiskJockeyEXT4Core's source list out of Package.swift, so nothing below was checked"
+else
+    ext4_bad=0
+    ext4_n=0
+    for src in $ext4_sources; do
+        ext4_n=$((ext4_n + 1))
+        if [ ! -f "$REPO/DiskJockeyEXT4/$src" ]; then
+            fail "DiskJockeyEXT4Core lists $src, which is not in DiskJockeyEXT4/"
+            ext4_bad=$((ext4_bad + 1))
+        # COMMENTS ARE NOT CODE, and this check failed on its own
+        # documentation first: FileSystemBackend.swift's doc comment for
+        # `lastErrorMessage()` names the `fs_ext4_last_error()` call it
+        # replaced, which is exactly the string being searched for. Drop
+        # comment-only lines before looking.
+        elif sed -e 's|^[[:space:]]*//.*||' -e 's|^[[:space:]]*[*].*||' "$REPO/DiskJockeyEXT4/$src" \
+             | grep -qE '(fs_ext4_|fs_core_|qcow2_|vhdx?_|vmdk_)[a-z0-9_]*\('; then
+            fail "DiskJockeyEXT4Core compiles $src, which calls into the C ABI: that target exists to build without the Rust static library, and with this file it cannot"
+            ext4_bad=$((ext4_bad + 1))
+        fi
+    done
+    if [ "$ext4_bad" -eq 0 ]; then
+        ok "all $ext4_n files in DiskJockeyEXT4Core are free of C-ABI calls"
+    fi
+fi
+
+# And the target is actually there. Without this the loop above prints
+# nothing and reports nothing when somebody deletes it.
+case "$manifest" in
+    *'name: "DiskJockeyEXT4Core"'*) ok "the EXT4 volume logic has a target that builds outside the extension" ;;
+    *) fail "no DiskJockeyEXT4Core target: the EXT4 volume logic is only reachable through the appex again, which is what forced the hand-written mirrors" ;;
+esac
+
+# --------------------------- and the extension compiles every file beside it
+# THE LIBRARY IS SYNCHRONISED WITH ITS DIRECTORY; THE EXTENSIONS ARE NOT.
+# DiskJockeyEXT4 carries an explicit PBXSourcesBuildPhase, so a .swift file
+# added to DiskJockeyEXT4/ is compiled by NOTHING until somebody edits
+# project.pbxproj — and the file still builds under SwiftPM, so `swift test`
+# goes green while the extension does not compile at all.
+#
+# Measured 2026-09-10: EXT4Log.swift and EXT4Watchdog.swift were added to the
+# directory, passed `swift test`, passed every guard here, and failed the
+# Xcode build with "cannot find 'EXT4Watchdog' in scope" — because the target
+# was still compiling the original eight files. This check is that failure,
+# moved to somewhere it costs seconds instead of a CI round trip.
+ext4_missing=""
+ext4_phase="$(python3 -c '
+import re, sys
+s = open(sys.argv[1]).read()
+t = re.search(r"/\* DiskJockeyEXT4 \*/ = \{\n\t+isa = PBXNativeTarget;(.*?)\n\t+name = DiskJockeyEXT4;", s, re.S)
+if not t:
+    sys.exit(2)
+phases = re.search(r"buildPhases = \((.*?)\);", t.group(1), re.S).group(1)
+for pid, _ in re.findall(r"([0-9A-F]{24}) /\* ([^*]+) \*/", phases):
+    blk = re.search(re.escape(pid) + r" /\* [^*]+ \*/ = \{\n\t+isa = PBXSourcesBuildPhase;(.*?)\n\t+\};", s, re.S)
+    if blk:
+        for f in re.findall(r"/\* ([^ ]+\.swift) in Sources \*/", blk.group(1)):
+            print(f)
+' "$PBXPROJ" 2>/dev/null)"
+if [ -z "$ext4_phase" ]; then
+    fail "could not read DiskJockeyEXT4's source list out of project.pbxproj, so nothing below was checked"
+else
+    for src in "$REPO"/DiskJockeyEXT4/*.swift; do
+        base="$(basename "$src")"
+        printf '%s\n' "$ext4_phase" | grep -qxF "$base" || ext4_missing="$ext4_missing $base"
+    done
+    if [ -z "$ext4_missing" ]; then
+        ok "the DiskJockeyEXT4 target compiles every .swift file in its directory"
+    else
+        fail "DiskJockeyEXT4/ contains files the Xcode target does not compile:${ext4_missing} — that target has an explicit source list, so a new file is invisible to it until project.pbxproj says otherwise, and SwiftPM will keep passing meanwhile"
+    fi
+fi
+
 # ------------------------------------------------ the dead route stays dead
 # DiskJockeyLibraryOnly.xcscheme was the first attempt and it does not work.
 # Leaving it in the project invites the next person to wire it up again.

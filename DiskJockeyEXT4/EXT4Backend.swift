@@ -375,6 +375,10 @@ final class EXT4Backend: FileSystemBackend {
         return Int32(fs_ext4_last_errno())
     }
 
+    func lastErrorMessage() -> String {
+        return fs_ext4_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
+    }
+
     /// Run journal replay if the volume's on-disk journal is dirty. Idempotent
     /// — safe to call on a clean volume. Returns true on success (or
     /// already-clean), false on failure.

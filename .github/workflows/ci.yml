@@ -206,15 +206,16 @@ jobs:
           # 51 + 65 = 116 with the mount personalities covered, then
           # 51 + 78 = 129 with the operation lock, then 51 + 109 = 160 with
           # AppLog, then 51 + 132 = 183 with the I/O counters, then
-          # 51 + 153 = 204 with the two plist stores. The floor moves up
+          # 51 + 153 = 204 with the two plist stores, then 51 + 178 = 229
+          # once the EXT4 volume logic became reachable. The floor moves up
           # with the suite; it never moves down.
           log="$RUNNER_TEMP/library-output.log"
           xct=$(grep -aoE 'Executed [0-9]+ tests' "$log" | grep -oE '[0-9]+' | sort -n | tail -1)
           swt=$(grep -aoE 'Test run with [0-9]+ tests' "$log" | grep -oE '[0-9]+' | sort -n | tail -1)
           total=$(( ${xct:-0} + ${swt:-0} ))
-          echo "library cases executed: $total = ${xct:-0} XCTest + ${swt:-0} swift-testing (floor 190)"
-          if [ "$total" -lt 190 ]; then
-              echo "::error::only $total library cases executed, floor is 190 — 204 ran on 2026-09-10, and a run that executes less than that has stopped early rather than passed (diskjockey#139)"
+          echo "library cases executed: $total = ${xct:-0} XCTest + ${swt:-0} swift-testing (floor 215)"
+          if [ "$total" -lt 215 ]; then
+              echo "::error::only $total library cases executed, floor is 215 — 229 ran on 2026-09-10, and a run that executes less than that has stopped early rather than passed (diskjockey#139)"
               exit 1
           fi
           exit "$rc"

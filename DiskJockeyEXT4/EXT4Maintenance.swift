@@ -136,7 +136,7 @@ extension EXT4FileSystem: FSManageableResourceMaintenanceOperations {
                     // (called on every Rust progress callback) so a
                     // long quiet phase doesn't accidentally trip
                     // `stuckDeadline`.
-                    Self.watchdog.heartbeat()
+                    EXT4Watchdog.shared.heartbeat()
                     // Throttle. Phase change always emits (so the user
                     // sees the pipeline advance) and the first emit
                     // bypasses the time gate (so the progress bar

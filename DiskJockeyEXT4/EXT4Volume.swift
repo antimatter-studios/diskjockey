@@ -185,8 +185,12 @@ final class EXT4Volume: FSVolume,
     ///
     /// `parentInode` is `nil` only for the root directory — its parent
     /// is `FSItemIDParentOfRoot` (1), set inside the attribute builder.
-    private func item(forID fileID: UInt64, path: String,
-                      parentInode: UInt32?) -> EXT4Item {
+    /// `internal`, not `private`, so DiskJockeyEXT4CoreTests can drive the
+    /// real cache. The three failure modes above were previously covered by
+    /// a hand-written mirror of this method in the app-hosted suite, which
+    /// could pass while this one was wrong.
+    func item(forID fileID: UInt64, path: String,
+              parentInode: UInt32?) -> EXT4Item {
         items.getOrCreate(
             id: fileID,
             validate: { $0.path == path && $0.parentInode == parentInode },
@@ -282,9 +286,9 @@ final class EXT4Volume: FSVolume,
         // running in a detached Task, schedule a hard exit so the
         // appex doesn't become a CPU-burning zombie that wedges
         // storagekitd for every other StorageKit consumer on the Mac.
-        // No-op when nothing is in flight; see EXT4FileSystem for the
+        // No-op when nothing is in flight; see EXT4Watchdog for the
         // counter + deadline logic.
-        EXT4FileSystem.scheduleWatchdogIfNeeded()
+        EXT4Watchdog.scheduleExpiryIfNeeded()
     }
 
     // MARK: - File attributes (async)
@@ -547,7 +551,7 @@ final class EXT4Volume: FSVolume,
                                   length: writeLen)
         }
         if written < 0 {
-            let msg = fs_ext4_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
+            let msg = backend.lastErrorMessage()
             log.error("write: backend.pwrite rc=\(written) path=\"\(ext4Item.path)\" offset=\(writeOffset) length=\(writeLen) errno=\(backend.lastErrno()) — \(msg)", scope: AppLogScope.io)
             throw Self.posixError(from: backend)
         }
@@ -843,8 +847,9 @@ final class EXT4Volume: FSVolume,
     /// `FSVolumeConnector.getStandardItemAttributesForItem` reject the
     /// reply with errno 2 (ENOENT), which surfaces to userspace as
     /// "file vanished after save". See
-    /// `DiskJockeyTests/EXT4AttributeMaskTests.swift` for the regression
-    /// fixture and the FSKit bit layout.
+    /// `DiskJockeyEXT4CoreTests/EXT4VolumeAttributesTests.swift`, which
+    /// exercises this method itself; `DiskJockeyTests/EXT4AttributeMaskTests`
+    /// predates that and tests a hand-kept copy of this body.
     ///
     /// `parentInode` is `nil` only for the root directory — its parent
     /// is the FSKit-defined `FSItemIDParentOfRoot` (1).

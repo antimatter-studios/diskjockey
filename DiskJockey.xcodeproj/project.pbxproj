@@ -48,6 +48,8 @@
 		EEB09075D1BC8F5CE8260819 /* FSKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 124211CC79A8C8CFAF453134 /* FSKit.framework */; };
 		F3B991C06CBEFBF2B3B657B4 /* FSKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EA52B7280D02F6F8D737A4DF /* FSKit.framework */; };
 		F6FF4AC950047E0FD59AE139 /* EXT4Volume.swift in Sources */ = {isa = PBXBuildFile; fileRef = F01E35D6B49C797E269EAC45 /* EXT4Volume.swift */; };
+		D0E1C0CCAAAA00000000000B /* EXT4Log.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E1C0CCAAAA00000000000A /* EXT4Log.swift */; };
+		D0E1C0CCAAAA00000000000D /* EXT4Watchdog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E1C0CCAAAA00000000000C /* EXT4Watchdog.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -575,6 +577,8 @@
 		425C54678D107E1DAA3C3C5D /* ErofsVolume.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ErofsVolume.swift; sourceTree = "<group>"; };
 		429A2D79E6781D9640B98F5E /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
 		45CFCF77C56D3305934A9BE2 /* EXT4FileSystem.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EXT4FileSystem.swift; sourceTree = "<group>"; };
+		D0E1C0CCAAAA00000000000A /* EXT4Log.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EXT4Log.swift; sourceTree = "<group>"; };
+		D0E1C0CCAAAA00000000000C /* EXT4Watchdog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EXT4Watchdog.swift; sourceTree = "<group>"; };
 		501F02432E058BAF009EBB59 /* DiskJockeyFileProvider.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = DiskJockeyFileProvider.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		501F02452E058BAF009EBB59 /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
 		501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = DiskJockeyLibrary.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -1438,6 +1442,8 @@
 				A36068023A9CD2AD5B72E9E6 /* DiskJockeyEXT4.entitlements */,
 				5B97F7050B209EAC37A411F7 /* DiskJockeyEXT4-Bridging-Header.h */,
 				FDE7234E054C739FC42CCB24 /* RepairXPCService.swift */,
+				D0E1C0CCAAAA00000000000A /* EXT4Log.swift */,
+				D0E1C0CCAAAA00000000000C /* EXT4Watchdog.swift */,
 			);
 			path = DiskJockeyEXT4;
 			sourceTree = SOURCE_ROOT;
@@ -2114,6 +2120,8 @@
 				D9CECEF266A909EB810942A6 /* EXT4Backend.swift in Sources */,
 				4DAE78E7034E84C6B08A0B2B /* FileSystemBackend.swift in Sources */,
 				72A0723E43EC6118C3156685 /* RepairXPCService.swift in Sources */,
+				D0E1C0CCAAAA00000000000B /* EXT4Log.swift in Sources */,
+				D0E1C0CCAAAA00000000000D /* EXT4Watchdog.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

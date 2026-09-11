@@ -135,7 +135,7 @@ final class RepairXPCService: NSObject {
                 // watchdog clock so a repair that's still making
                 // forward progress can't trip the stuck-deadline
                 // even though the log emission below is throttled.
-                EXT4FileSystem.watchdog.heartbeat()
+                EXT4Watchdog.shared.heartbeat()
                 // Throttle. Only two carve-outs that bypass the time
                 // gate: a phase CHANGE (so the user sees the
                 // pipeline advance) and the FIRST emit (so the
