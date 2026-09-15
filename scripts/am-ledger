@@ -54,9 +54,13 @@
 # before it.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=constellation-repositories.sh
+. "$SCRIPT_DIR/constellation-repositories.sh"
+
 # WHICH LEDGER. A "project" here is a PIPELINE SCOPE, not a repository:
 # one project has one ledger and spans as many repositories as it likes.
-# `diskjockey` is the controlling project for the twelve-repository
+# `diskjockey` is the controlling project for the product
 # constellation; a different body of work gets its own project with its
 # own repository list, and the two never see each other's rows.
 #
@@ -114,51 +118,7 @@ REPO_LIST="$STATE_DIR/repos.tsv"
 # A project created by `start` writes its own list here. The built-in
 # fallback is the constellation, so the original project keeps working
 # without a file it never had.
-DEFAULT_REPOS=(
-    "rust-fs-core:antimatter-studios/rust-fs-core"
-    "rust-fs-xfs:antimatter-studios/rust-fs-xfs"
-    "rust-fs-ext4:christhomas/rust-fs-ext4"
-    "rust-fs-btrfs:antimatter-studios/rust-fs-btrfs"
-    "rust-fs-erofs:antimatter-studios/rust-fs-erofs"
-    "rust-fs-squashfs:antimatter-studios/rust-fs-squashfs"
-    "rust-fs-ntfs:christhomas/rust-fs-ntfs"
-    "rust-img-qcow2:antimatter-studios/rust-img-qcow2"
-    "rust-img-vhd:antimatter-studios/rust-img-vhd"
-    "rust-img-vhdx:antimatter-studios/rust-img-vhdx"
-    "rust-img-vmdk:antimatter-studios/rust-img-vmdk"
-    "rust-partitions:antimatter-studios/rust-partitions"
-    # Not a driver, and tracked anyway. The dependency-pin guard that every
-    # repo above carries a copy of has its fix location HERE, not in the
-    # constellation: the upstream copy never had the sibling-version check
-    # at all, while ALL TWELVE consumers have it — measured 2026-09-10,
-    # `grep -c 'the lock must record the sibling version'` is 12/12 in
-    # the consumers and 0 upstream, across three generations of the file.
-    #
-    # THE MECHANISM IS NOT DELETION, and this comment said it was for a
-    # week. `install.sh` writes <repo>/.git/hooks and never
-    # <repo>/.githooks/ — it only reads the latter. So a sync leaves the
-    # tracked file, its section 5 and a clean `git status` exactly as
-    # they were, and changes only which copy `git commit` executes. A
-    # fixer confirming the risk by looking at the tree gets a false
-    # all-clear either way, which is agent-skills#44.
-    #
-    # The asymmetry is also one file wide, not the hook set: 14 of 15
-    # files sync upstream->consumer safely today and 8 need no sync at
-    # all. Read as a general caution it inflates the diff-them-all job
-    # that agent-skills#34 and #35 both gate on. #34 is the parent of
-    # eight defects, not five — five in its body plus the addendum's
-    # ext4#111/#115/#116 — and an untracked repository is one no stage
-    # ever dispatches, which is how it sat unowned.
-    "agent-skills:antimatter-studios/agent-skills"
-    # And the controller project itself. It was left out because it
-    # orchestrates the twelve rather than being one of them — but issues
-    # get filed against it like anywhere else (the reaper, the ledger,
-    # the merge gate, the bundle lockfiles), and an untracked repository
-    # is one no stage dispatches. diskjockey#90 sat selected-for-
-    # development with a marker on GitHub and no way for a fixer to find
-    # it, which is the same hole agent-skills was in one line above.
-    "diskjockey:antimatter-studios/diskjockey"
-)
+DEFAULT_REPOS=("${CONSTELLATION_REPOSITORIES[@]}")
 
 REPOS=()
 load_repos() {
