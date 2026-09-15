@@ -396,6 +396,7 @@ jobs:
             -scheme DiskJockey \
             -destination 'platform=macOS,arch=arm64' \
             -skip-testing DiskJockeyUITests \
+            -parallel-testing-enabled NO \
             ONLY_ACTIVE_ARCH=YES \
             ARCHS=arm64 \
             CODE_SIGNING_REQUIRED=NO \

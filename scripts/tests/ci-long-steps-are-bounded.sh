@@ -167,6 +167,17 @@ case "$test_run" in
         fails=$((fails + 1)) ;;
     *)  echo "ok    the app-hosted target is still in the run" ;;
 esac
+# Xcode otherwise launches test runners and schedules suites in parallel. The
+# failing CI signature is specifically a runner timing out while PREPARING,
+# while unrelated timer tests also starve under that same load. Keep all
+# suites, but make their host lifecycle deterministic on the shared runner.
+case "$test_run" in
+    *"-parallel-testing-enabled NO"*)
+        echo "ok    app-hosted tests run serially, so test runners do not contend while preparing" ;;
+    *)
+        echo "FAIL  xcodebuild still parallelizes app-hosted tests: concurrent test runners can time out while preparing (diskjockey#139)" >&2
+        fails=$((fails + 1)) ;;
+esac
 # ASSERT THE COMPARISON, NOT THE COMMENT. The first version of this check
 # matched the string "floor is 240" — which survives replacing the whole
 # `if` with `if false`, so an arm that disarmed the floor passed it. The
