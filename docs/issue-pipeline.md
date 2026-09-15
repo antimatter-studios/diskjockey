@@ -1,11 +1,100 @@
 # The issue pipeline
 
-Working a large issue backlog across the twelve repositories of the
-constellation with several agents at once.
+Working a large issue backlog across every repository configured for a
+constellation project, serially or with explicitly authorised stage agents.
 
-Everything here has been used. Where a rule looks arbitrary it is
-usually the residue of something that went wrong, stated as the rule
-rather than the story.
+Rules here are either exercised in a run or name the tracked mechanism still
+needed to enforce them. Where a rule looks arbitrary it is usually the residue
+of something that went wrong, stated as the rule rather than the story.
+
+## Invocation and completion contract
+
+“Run the issue pipeline” means execute this document, not merely read the
+trackers and suggest work:
+
+1. establish and print the exact repository scope;
+2. refresh the ledger from GitHub and prove every repository was fetched;
+3. triage every open issue;
+4. reproduce each accepted defect with a permanent failing regression test;
+5. make the smallest fix, verify it, open and monitor its pull request;
+6. merge changes that pass the project’s stated merge policy, or return
+   failures to `fix`; and
+7. continue until no row is in a non-terminal stage and GitHub has no open
+   actionable issue in scope.
+
+Zero is not achieved by hiding work. A valid duplicate, obsolete report, or
+non-actionable request is closed with a specific rejection marker and reason.
+An accepted issue reaches zero only through a merged fix (or a documented
+human decision to cancel it). Keep separate counts for open GitHub issues and
+ledger stages: “all rows claimed” and “nothing actionable remains” are not the
+same result.
+
+This phrase authorises the normal repository-local work needed by the flow:
+comments, branches, tests, commits, pushes, and pull requests. It does not
+override repository protection, approve untrusted contributor code, grant
+secrets, or make an unsafe/destructive operation permissible. If the merge
+policy or available authority still requires a person, stop at that exact
+boundary with the tested PR ready.
+
+## Scope is data, never a remembered count
+
+The old introduction said “twelve repositories”. That became false while all
+the tools carrying the same remembered list could still agree with one
+another. A drift check between two copies cannot discover an omission shared
+by both copies. `diskjockey#170` tracks moving the inventories to one canonical
+manifest; until that lands, the explicit reconciliation below is mandatory.
+
+The scope of a run is the repository list stored by the selected
+`AM_LEDGER_PROJECT`. Initialise it explicitly with `am-ledger start`; thereafter
+`repos.tsv` in that project’s state is the authority. Print `am-ledger
+projects`, then `am-ledger refresh`, and require one successful fetch/result
+row per configured repository before interpreting a zero. Never infer scope
+from which sibling directories happen to be cloned, from an old prose count,
+or from one organisation’s repository list.
+
+Before the first claim, compare three sets and stop on any difference:
+
+- repositories configured in the ledger project;
+- repositories the product/build metadata says are part of this
+  constellation; and
+- repositories the overview/inventory command actually fetched.
+
+Print the short name and clone URL for the reconciled set in the run’s opening
+report. A new modular repository is not in the pipeline until this preflight
+can see it. Local sibling checkouts are then verified by resolved path and
+`git remote get-url origin`; a directory with the right name and the wrong
+remote is a failed preflight, not a clone.
+
+### DiskJockey product-scope bootstrap
+
+As reconciled from the checked-out siblings and their canonical GitHub
+repositories on 2026-09-15, the product project contains DiskJockey plus these
+fifteen modules. Use this only to create/reconcile the project’s stored list;
+after that, the stored project scope and the preflight above control the run.
+
+| directory | canonical repository / clone URL |
+|---|---|
+| `diskjockey` | `https://github.com/antimatter-studios/diskjockey.git` |
+| `rust-fs-core` | `https://github.com/antimatter-studios/rust-fs-core.git` |
+| `rust-fs-xfs` | `https://github.com/antimatter-studios/rust-fs-xfs.git` |
+| `rust-fs-ext4` | `https://github.com/christhomas/rust-fs-ext4.git` |
+| `rust-fs-btrfs` | `https://github.com/antimatter-studios/rust-fs-btrfs.git` |
+| `rust-fs-erofs` | `https://github.com/antimatter-studios/rust-fs-erofs.git` |
+| `rust-fs-squashfs` | `https://github.com/antimatter-studios/rust-fs-squashfs.git` |
+| `rust-fs-ntfs` | `https://github.com/christhomas/rust-fs-ntfs.git` |
+| `rust-img-qcow2` | `https://github.com/antimatter-studios/rust-img-qcow2.git` |
+| `rust-img-vhd` | `https://github.com/antimatter-studios/rust-img-vhd.git` |
+| `rust-img-vhdx` | `https://github.com/antimatter-studios/rust-img-vhdx.git` |
+| `rust-img-vmdk` | `https://github.com/antimatter-studios/rust-img-vmdk.git` |
+| `rust-partitions` | `https://github.com/antimatter-studios/rust-partitions.git` |
+| `rust-lzo1x` | `https://github.com/antimatter-studios/rust-lzo1x.git` |
+| `rust-blk-probe` | `https://github.com/antimatter-studios/rust-blk-probe.git` |
+| `go-networkfs` | `https://github.com/christhomas/go-networkfs.git` |
+
+`agent-skills` is pipeline infrastructure, not a DiskJockey product module.
+Track it in a separate ledger project (or an explicitly named infrastructure
+scope) so “product issue count is zero” cannot be held open by unrelated
+automation work, while defects in the pipeline itself remain visible.
 
 ## The shape
 
@@ -17,14 +106,71 @@ rather than the story.
            am-ledger  (one row per issue: where it is, who holds it)
 ```
 
+## Unattended operation
+
+The pipeline must be safe to leave alone and deterministic to resume. No fact
+needed for resumption may live only in a conversation, an agent’s memory, or an
+uncommitted shared checkout.
+
+After every state-changing action, persist enough evidence to answer “what is
+the next safe action?” without asking the previous worker:
+
+- the ledger row records stage, owner, and heartbeat;
+- the issue’s newest stage marker records the last completed stage and points
+  at the branch or PR;
+- the branch is pushed before handoff;
+- verification names the exact tested commit SHA; and
+- a PR monitor records the workflow run **and attempt**, its head SHA, and the
+  resulting transition.
+
+On startup or after interruption, do not begin with a new claim. First:
+
+1. refresh GitHub state;
+2. reconcile terminal rows that still have owners;
+3. inspect stale claims and orphaned worktrees;
+4. resolve every claimed row’s newest issue marker, branch/PR head, and checks;
+5. resume the first incomplete idempotent step; then
+6. claim new work until the queue is empty.
+
+Creating a comment, PR, or merge is not idempotent merely because retrying the
+command is easy. Search for the expected issue marker, head branch, or PR
+before creating another one, and assert the match belongs to the same issue
+and SHA. An empty search is accepted only after the query itself succeeded and
+its scope was established.
+
+Every accepted issue accumulates a proof bundle on GitHub:
+
+- filing/base ref and SHA;
+- one focused command that executed the new regression and went red, including
+  the named failure (a compile error or zero selected tests is labelled as
+  such, never called behavioural evidence);
+- the same focused command green after the fix;
+- the full suite and lint/build commands with exit status and test counts;
+- the independent oracle result required by the risk class below;
+- pushed head SHA; and
+- CI/review results for that same head SHA.
+
+The agent loop reports only transitions, failures, and material discoveries;
+silence does not suspend it. Long CI and VM work belongs to `pr-monitor` or a
+bounded wait that continues polling. Escalate only when new authority is
+needed, an external service remains unavailable after the documented retries,
+the issue is genuinely ambiguous in a way that changes the product, or the
+repository’s merge policy requires a person. Everything else returns to the
+appropriate stage automatically.
+
 | stage | does | marker it writes on the issue |
 |---|---|---|
 | `audit` | reads code, files issues that do not exist yet | — |
-| `triage` | decides whether an issue is real and worth doing | `This issue is selected for development` / `This issue is rejected because of the following reasons` |
+| `triage` | decides whether an issue is real and worth doing; closes rejected rows after recording why | `This issue is selected for development` / `This issue is rejected because of the following reasons` |
 | `fix` | reproduces, fixes, pushes a branch | `This issue is ready for testing` |
 | `verify` | runs the spectrum, opens the PR | `This issue is ready for PR` / `Verification found defects in the branch` / `Verification is blocked` |
 | `pr-monitor` | watches the build, merges or returns it | `The PR failed` |
 | `review` | classifies the review bot's findings on merged PRs | files issues |
+
+Every fix PR uses closing keywords for every issue explicitly assigned to its
+job, and `pr-monitor` verifies those issues closed after merge before marking
+their rows `merged`. A merged PR beside an open issue is not a completed row;
+repair the linkage or close it with a comment naming the merge commit.
 
 **A stage may only use its own markers.** Every agent reads the newest
 marker as the truth, so a borrowed sentence rewrites a decision that was
@@ -133,6 +279,14 @@ repository that has one. A test needing a VM takes both.
 
 ## Dispatch
 
+Stages are roles, not a requirement to spawn workers. If parallel agents were
+not explicitly authorised, one agent runs the same state machine serially and
+still writes every marker and ledger transition. It must verify from the
+pushed SHA in a clean issue worktree, not treat “I just wrote it” as
+verification. If parallelism would materially shorten the run, propose the
+number of stage workers, their independent queues, and the expected cost, then
+wait for authorisation once; never grow the worker tree opportunistically.
+
 **Assignment belongs to the issue, not the repository.** Partitioning
 repositories between fixers left three assigned to nobody and 52 of 187
 accepted issues unowned rather than slow — invisible from the stage
@@ -157,7 +311,12 @@ handoff.
 
 ## Worktrees
 
-One per issue. Two agents in one checkout is a real collision.
+One per issue. Two agents in one checkout is a real collision, and sequentially
+switching a long-lived clone between issues strands the exact tree a later
+review or rebase needs to reproduce. Triage may explicitly bind inseparable
+issues to one job, branch, and PR; record one lead row and list every companion
+row before work starts. That is one worktree per **job**, not permission to
+accumulate unrelated fixes.
 
     git worktree add <scratch>/<repo>-<issue> -b fix/<issue>-<slug> origin/main
     scripts/am-worktree-own <scratch>/<repo>-<issue> <agent>
@@ -194,8 +353,82 @@ inside, and an agent committed the heartbeat into its fix branch.
 
 ## Verification
 
+### Red, green, regression
+
+Every behavioural bug is test-first:
+
+1. check out the filed base SHA in the issue worktree and run the narrow
+   existing baseline;
+2. add one focused regression that expresses the externally wrong behaviour;
+3. run the exact test by its full name and prove at least one test executed;
+4. capture red with the named assertion and wrong value;
+5. make the smallest production change;
+6. run the identical command green; and
+7. keep that test permanently, then run the repository’s full required suite.
+
+Never fix first and add a test that has only ever been green. Never count a
+command that selected zero tests, skipped for a missing fixture/feature, failed
+to compile before reaching the assertion, or failed because the harness was
+absent as behavioural red evidence. Those outcomes can establish a structural
+or compile-time guard, but must be labelled accurately and paired with a
+control that observes the actual defect.
+
+Documentation-only changes do not invent meaningless runtime tests. Build
+documentation and test any commands/configuration it promises. Workflow,
+build, and shell bugs get parsed configuration or shell integration tests that
+run in CI; “the YAML contains this substring” is insufficient when the
+question is whether the step gates and executes.
+
 **The negative control is the whole value.** Revert only the source,
 keep the test, confirm the test fails.
+
+A captured test-first red run against the filed base is the cleanest negative
+control and satisfies this rule. For a branch received after implementation,
+or for a multi-arm guard whose initial absence fails too early to exercise its
+parts, mutate/revert each production mechanism separately while keeping the
+test. Each arm must reach a `test result:` line and fail for its intended
+assertion. Restore from a clean temporary worktree or with
+`git restore --source=HEAD --staged --worktree -- <exact-path>`, after proving
+the path contains only the verifier’s deliberate mutation; do not use a
+repository-wide reset to clean up an experiment.
+
+### Filesystem corruption risk classes
+
+The crate reading back bytes it wrote is never an independent validation: the
+writer and reader can share the same wrong interpretation and agree silently.
+Classify every issue before verification and record the class in its proof
+bundle:
+
+| class | change | minimum independent evidence |
+|---|---|---|
+| A | pure calculation, API validation, or in-memory state that cannot reach disk | focused red/green plus full suite |
+| B | parsing or read-path interpretation of disk bytes | fixtures generated by a real external implementation, malformed/adversarial cases, full suite |
+| C | any metadata/data write, allocation/free, journal/replay, repair, resize, or formatter path | work only on disposable copies; reopen after mutation; real Linux `e2fsck -fn`/format-specific checker; verify file contents and metadata with independent tools; full suite |
+
+For class C, a real Linux environment is a release gate, not an optional extra
+test. Boot the oracle VM, perform the operation on a disposable image, unmount
+or close it cleanly, run the independent checker in no-repair mode, and compare
+content/metadata expected before and after. A generated fixture proves the
+external formatter can create the input; it does **not** by itself validate a
+driver-mutated output. If the changed branch cannot persist bytes by design,
+say why class C is unreachable and use the narrowest lower class rather than
+claiming an `e2fsck` run tested a path it could not reach.
+
+### Host architecture is part of the matrix
+
+Local QEMU oracle tooling detects the host CPU and boots the matching guest by
+default (`x86_64` on Intel/AMD, `aarch64` on Apple Silicon/ARM Linux), with an
+explicit override for diagnosis. Cache keys and downloaded VM assets include
+the architecture. Emulating x86 on ARM is a fallback experiment, not the
+default development path.
+
+CI runs the complete relevant gate natively on both standard Linux x86_64 and
+ARM64 runners: compilation, strict clippy/lints, regression tests, fixture
+generation, and the real Linux oracle. A cross-target `cargo check` is useful
+extra coverage but cannot replace a native runner: it does not execute code,
+run target-specific lints, boot the guest, or exercise filesystem I/O. macOS
+ARM CI may build the Apple application, but do not assume nested
+virtualisation is available there; keep the Linux oracle on Linux runners.
 
 **An empty result is not an answer.** Four separate false conclusions in
 one sitting, all the same shape — a query that *failed* returned nothing,
@@ -222,9 +455,13 @@ thing doing the finding. It is worth expecting rather than regretting.
 the reverted content — and the file is never put back. Every test after
 that runs against a half-reverted tree and passes, which reads exactly
 like "the tests do not pin the fix". Three measurements were lost to
-this in one sitting. Use `git reset --hard HEAD` to undo a per-arm
-revert, and check `git status` is clean before believing the next
-result.
+this in one sitting. Using `git reset --hard HEAD` to undo a per-arm
+revert was the old remedy, but it is repository-wide and can destroy work that
+arrived from another process. Prefer a disposable verification worktree. If
+the experiment is already in the issue worktree, first assert the exact paths
+and diff are only the verifier's mutation, then use
+`git restore --source=HEAD --staged --worktree -- <exact-path>`. Check both
+`git status --short` and the restored hunk before believing the next result.
 
 **Revert each arm separately, not the whole file.** A whole-file revert
 asks "does anything here matter?", to which the answer is nearly always
@@ -784,8 +1021,10 @@ working alone is the context window, so **batch with checkpoints**
 rather than fanning out: twenty-odd items, post them, carry forward the
 cross-repo surveys rather than the file contents.
 
-**One agent per stage. No sub-agents without asking**, with the shape
-stated first: how many items, how independent, roughly what it costs.
+**At most one agent per stage. No sub-agents without asking**, with the shape
+stated first: how many items, how independent, roughly what it costs. A single
+agent may execute every stage serially; the persisted handoff and clean-SHA
+verification rules still apply.
 Five stages became twenty-two live agents because agents spawned helpers
 mid-task and nobody put a number in front of anybody.
 
@@ -989,10 +1228,26 @@ been approved and completed hours later under the same id.
 
 ## Starting a run
 
-1. `scripts/am-ledger refresh`
-2. Launch one agent per stage, briefed in twenty lines pointing here.
-3. Watch with `am-ledger stats` and `am-ledger stale`.
-4. Scan for orphaned worktrees periodically.
+1. Read this file completely and read each in-scope repository's `AGENTS.md`
+   before acting there; repository-specific requirements win when stricter.
+2. Select `AM_LEDGER_PROJECT` inline on every ledger command. If it does not
+   exist, initialise it with the explicit reconciled short-name/clone-URL set.
+3. Print the scope, verify sibling paths/remotes, and run the scope preflight.
+4. `AM_LEDGER_PROJECT=... scripts/am-ledger refresh`; assert one successful
+   repository result per configured repository and print stage counts.
+5. Reconcile terminal owners, stale claims, orphaned worktrees, open PRs, and
+   newest issue markers before claiming anything new.
+6. Run serially by default. If stage agents were explicitly authorised,
+   launch at most one per stage with a short brief pointing here.
+7. Each worker repeatedly claims one row atomically, completes or hands it
+   back with persisted evidence, then claims the next. Monitor CI/VM work with
+   bounded waits; do not stop merely because nothing changed in one poll.
+8. Re-run refresh/stats and the GitHub inventory after every merge wave. Stop
+   only when every row is `merged` or `rejected`, every claim is released, no
+   worktree contains unpushed work, and the independently fetched open
+   actionable issue count is zero.
 
-Completion is every row at `merged` or `rejected`. `failed` and
-`blocked` are in flight, not finished.
+`failed` and `blocked` are in flight, not finished. A fetch failure, missing
+repository row, pending check, unreviewed external contribution, or issue with
+no newest stage marker is also non-terminal even if a summary happens to print
+zero elsewhere.
