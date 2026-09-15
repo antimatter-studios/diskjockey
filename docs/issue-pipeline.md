@@ -41,8 +41,10 @@ boundary with the tested PR ready.
 The old introduction said “twelve repositories”. That became false while all
 the tools carrying the same remembered list could still agree with one
 another. A drift check between two copies cannot discover an omission shared
-by both copies. `diskjockey#170` tracks moving the inventories to one canonical
-manifest; until that lands, the explicit reconciliation below is mandatory.
+by both copies. `diskjockey#170` moved the built-in product scope to the
+side-effect-free `scripts/constellation-repositories.sh`, which `am-ledger`,
+`am-overview`, and `am-worktree-reap` all source. The explicit reconciliation
+below still catches product metadata changing without that manifest changing.
 
 The scope of a run is the repository list stored by the selected
 `AM_LEDGER_PROJECT`. Initialise it explicitly with `am-ledger start`; thereafter

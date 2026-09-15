@@ -2,9 +2,9 @@
 #
 # am-overview — one table of every open issue across the constellation.
 #
-# The projects are the array at the top of this file. Each entry is
-# `<name>:<owner>/<repo>`; the name is what the tables print and the slug
-# is what `gh` is asked about.
+# The projects come from constellation-repositories.sh. Each entry is
+# `<name>:<owner>/<repo>`; the name is what the tables print and the slug is
+# what `gh` is asked about.
 #
 #   scripts/am-overview                 summary table, then one row per issue
 #   scripts/am-overview --summary       counts only
@@ -19,40 +19,21 @@
 # omission; see docs/issue-pipeline.md on a check that cannot answer
 # returning the permissive one.
 #
-# THE ARRAY IS CHECKED AGAINST THE LEDGER'S. scripts/am-ledger already
-# carries the same list, and a second copy that drifts is diskjockey#128
-# exactly — the reaper's list omits agent-skills while the ledger has it,
-# so a whole repository is invisible to one tool and not the other. This
-# script parses am-ledger's DEFAULT_REPOS and refuses to print anything
-# if the two disagree, naming the difference in both directions.
-#
 # Environment, for tests and for pointing at a different constellation:
-#   AM_OVERVIEW_LEDGER_BIN   the am-ledger to compare against
 #   AM_OVERVIEW_FETCH        command called with a slug instead of gh
 #   AM_OVERVIEW_STALE_DAYS   what counts as stale in the summary (30)
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# One source shared with am-ledger and am-worktree-reap. Agreement between two
+# duplicated arrays missed three product repositories because both copies were
+# incomplete in the same way (diskjockey#170).
+# shellcheck source=constellation-repositories.sh
+. "$HERE/constellation-repositories.sh"
+
 # ---------------------------------------------------------------- projects
-# Same shape as am-ledger's DEFAULT_REPOS, deliberately: one list to read,
-# one list to diff. Add a project here AND there, or this refuses to run.
-PROJECTS=(
-    "rust-fs-core:antimatter-studios/rust-fs-core"
-    "rust-fs-xfs:antimatter-studios/rust-fs-xfs"
-    "rust-fs-ext4:christhomas/rust-fs-ext4"
-    "rust-fs-btrfs:antimatter-studios/rust-fs-btrfs"
-    "rust-fs-erofs:antimatter-studios/rust-fs-erofs"
-    "rust-fs-squashfs:antimatter-studios/rust-fs-squashfs"
-    "rust-fs-ntfs:christhomas/rust-fs-ntfs"
-    "rust-img-qcow2:antimatter-studios/rust-img-qcow2"
-    "rust-img-vhd:antimatter-studios/rust-img-vhd"
-    "rust-img-vhdx:antimatter-studios/rust-img-vhdx"
-    "rust-img-vmdk:antimatter-studios/rust-img-vmdk"
-    "rust-partitions:antimatter-studios/rust-partitions"
-    "agent-skills:antimatter-studios/agent-skills"
-    "diskjockey:antimatter-studios/diskjockey"
-)
+PROJECTS=("${CONSTELLATION_REPOSITORIES[@]}")
 
 # The one jq program this tool depends on, hoisted so a test can run it
 # against a fixture rather than asserting it exists in the source. `--print-jq`
@@ -63,7 +44,6 @@ ISSUE_JQ='.[] | select(.pull_request == null)
        (.title | if . == "" then "(no title)" else . end)]
     | join("\u001f")'
 
-LEDGER_BIN="${AM_OVERVIEW_LEDGER_BIN:-$HERE/am-ledger}"
 STALE_DAYS="${AM_OVERVIEW_STALE_DAYS:-30}"
 MODE=full
 WANT=()
@@ -79,43 +59,6 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
-
-# --------------------------------------------------------------- drift check
-# Parse the ledger's list rather than sourcing it: am-ledger runs work at
-# load time, and sourcing it would import its `set -euo pipefail` into this
-# shell — the trap that silently truncated a test file after check 7 on
-# 2026-09-10.
-ledger_names() {
-    [ -r "$LEDGER_BIN" ] || return 1
-    sed -n '/^DEFAULT_REPOS=(/,/^)/p' "$LEDGER_BIN" \
-        | sed -n 's/^[[:space:]]*"\([^:"]*\):\([^"]*\)".*/\1:\2/p'
-}
-
-check_drift() {
-    local theirs mine
-    theirs="$(ledger_names || true)"
-    # An unparseable ledger must not read as agreement. Twelve is the
-    # count below which this cannot be the real list.
-    if [ "$(printf '%s\n' "$theirs" | grep -c ':' || true)" -lt 12 ]; then
-        echo "am-overview: could not read DEFAULT_REPOS from $LEDGER_BIN" >&2
-        echo "am-overview: refusing to run rather than assume the lists agree" >&2
-        return 1
-    fi
-    mine="$(printf '%s\n' "${PROJECTS[@]}")"
-    local only_here only_there
-    only_here="$(comm -23 <(printf '%s\n' "$mine" | sort) <(printf '%s\n' "$theirs" | sort))"
-    only_there="$(comm -13 <(printf '%s\n' "$mine" | sort) <(printf '%s\n' "$theirs" | sort))"
-    if [ -n "$only_here$only_there" ]; then
-        echo "am-overview: this file and $LEDGER_BIN disagree about the projects." >&2
-        [ -n "$only_here" ]  && { echo "  only in am-overview:" >&2; printf '    %s\n' $only_here >&2; }
-        [ -n "$only_there" ] && { echo "  only in am-ledger:"   >&2; printf '    %s\n' $only_there >&2; }
-        echo "am-overview: fix one of them; a drifted second copy is diskjockey#128." >&2
-        return 1
-    fi
-    return 0
-}
-
-check_drift || exit 3
 
 # -------------------------------------------------------------------- fetch
 # `repos/<slug>/issues` RETURNS PULL REQUESTS TOO. Every PR is an issue in
