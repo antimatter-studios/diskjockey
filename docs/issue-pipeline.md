@@ -353,6 +353,43 @@ that was done and stranded. Scan for both. What gets resurrected is the
 `am-worktree-own` keeps its state outside the tree. It was briefly
 inside, and an agent committed the heartbeat into its fix branch.
 
+### Test scratch storage is an execution policy
+
+Filesystem suites can copy and rewrite gigabytes of images. Their scratch
+location is therefore selected deliberately before a test command starts; it
+is not whatever fixed path happened to work on the machine where the test was
+written.
+
+Use this precedence for every repository with write-heavy tests:
+
+1. an explicit repository-specific exact directory wins and remains
+   caller-managed;
+2. an explicit managed base gets a unique per-run child owned by the runner;
+3. GitHub-hosted jobs use `RUNNER_TEMP` when it is available;
+4. Raspberry Pi runs use `<issue-worktree>/tmp`, so the writes follow the
+   checkout onto its storage rather than the system SD card;
+5. macOS and other hosts use their environment-provided `TMPDIR`; and
+6. with no supplied root, defer to the operating system's temporary-directory
+   mechanism instead of embedding `/tmp` in project code.
+
+The runner exports its selected child as `TMPDIR` before starting the test,
+installs an exit/signal trap, and removes only the child it created. It never
+recursively removes a caller-supplied exact directory. On Raspberry Pi, print
+the resolved scratch path before the first high-churn run and verify it is
+beneath the intended worktree; a path on the system temporary filesystem is a
+failed preflight. After the command, assert that the owned child is gone and
+report any remainder rather than silently accumulating disk images.
+
+This is a constellation contract, not permission to maintain divergent copies
+of one script. The issue-pipeline launcher establishes `TMPDIR` for commands it
+orchestrates. Each repository must still honour `TMPDIR`, remove hardcoded
+writable temporary paths, and keep a regression guard. Repositories whose
+standalone test suite needs selection and cleanup may carry the same small
+wrapper pattern, adapted and tested in that repository. GitHub workflows use
+`RUNNER_TEMP` directly. Audit a repository before copying the wrapper: a
+read-only unit suite does not need machinery intended for multi-gigabyte image
+fixtures.
+
 ## Verification
 
 ### Red, green, regression
