@@ -447,9 +447,9 @@ jobs:
                       --path "$RUNNER_TEMP/Test.xcresult" --format json 2>/dev/null || true)
           executed=$(printf '%s' "$summary" | jq '(.passedTests//0)+(.failedTests//0)+(.expectedFailures//0)' 2>/dev/null || true)
           verdict=$(printf '%s' "$summary" | jq -r '.result // "no result bundle"' 2>/dev/null || true)
-          echo "executed cases: ${executed:-0} (floor 240), bundle verdict: ${verdict:-unknown}"
-          if [ "${executed:-0}" -lt 240 ]; then
-              echo "::error::only ${executed:-0} test cases executed, floor is 240 — 250 ran on 2026-09-10, and a run that stops early reports no failures, so this is the truncation defect (diskjockey#139) rather than a pass"
+          echo "executed cases: ${executed:-0} (floor 160), bundle verdict: ${verdict:-unknown}"
+          if [ "${executed:-0}" -lt 160 ]; then
+              echo "::error::only ${executed:-0} app-hosted test cases executed, floor is 160 — 160 ran in the first isolated-bundle measurement (run 34962911163), and a run that stops early reports no failures, so this is the truncation defect (diskjockey#139) rather than a pass"
               exit 1
           fi
           # THE BUNDLE'S OWN VERDICT, as a cross-check on the exit status.

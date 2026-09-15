@@ -200,10 +200,10 @@ if [ -n "$floor" ]; then
            fails=$((fails + 1)) ;;
     esac
 fi
-if [ -n "$floor" ] && [ "$floor" -ge 200 ] 2>/dev/null; then
-    echo "ok    and it is at or above 200, so a library-only truncation cannot clear it"
+if [ -n "$floor" ] && [ "$floor" -ge 160 ] 2>/dev/null; then
+    echo "ok    and it covers all 160 measured app-hosted cases"
 else
-    echo "FAIL  the floor is ${floor:-unset}: the library half alone reports over a hundred cases, so a floor beneath that passes the truncation it exists to catch" >&2
+    echo "FAIL  the floor is ${floor:-unset}: run 34962911163 measured 160 app-hosted cases, so a lower floor can lose coverage silently" >&2
     fails=$((fails + 1))
 fi
 
