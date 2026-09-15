@@ -167,6 +167,18 @@ case "$test_run" in
         fails=$((fails + 1)) ;;
     *)  echo "ok    the app-hosted target is still in the run" ;;
 esac
+# The retained result bundle from run 34949058950 proves both targets finish
+# every test and then spend minutes waiting for separate app-hosted harnesses
+# to shut down. DiskJockeyLibraryTests is already covered by the strict,
+# host-free `swift test` job above, so the Xcode gate must launch only the
+# app-specific bundle instead of paying for a second redundant host lifecycle.
+case "$test_run" in
+    *"-only-testing:DiskJockeyTests"*)
+        echo "ok    Xcode launches only the app-specific test bundle" ;;
+    *)
+        echo "FAIL  Xcode still launches the redundant app-hosted library bundle whose harness teardown timed out in run 34949058950" >&2
+        fails=$((fails + 1)) ;;
+esac
 # ASSERT THE COMPARISON, NOT THE COMMENT. The first version of this check
 # matched the string "floor is 240" — which survives replacing the whole
 # `if` with `if false`, so an arm that disarmed the floor passed it. The

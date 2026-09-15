@@ -371,6 +371,16 @@ jobs:
           # coverage is the floor below: a truncated run reports zero
           # failures, so only a count can see it.
           #
+          # The retained result bundle from run 34949058950 then established
+          # a different failure after both bundles had passed every test:
+          # DiskJockeyTests needed 202.936 seconds to confirm harness shutdown;
+          # DiskJockeyLibraryTests waited 241.222 seconds before bundle finish,
+          # then never confirmed shutdown before the 25-minute ceiling. The
+          # separate `swift test` job already executes the complete library
+          # suite without an app host, so Xcode launches only the app-specific
+          # target here. This keeps the 160 app cases and removes the redundant
+          # second app/harness lifecycle that actually timed out.
+          #
           # UNSIGNED, AND THE AD-HOC ALTERNATIVE WAS MEASURED WORSE.
           #
           # This branch first set CODE_SIGN_IDENTITY="-" with
@@ -395,6 +405,7 @@ jobs:
             -project DiskJockey.xcodeproj \
             -scheme DiskJockey \
             -destination 'platform=macOS,arch=arm64' \
+            -only-testing:DiskJockeyTests \
             -skip-testing DiskJockeyUITests \
             ONLY_ACTIVE_ARCH=YES \
             ARCHS=arm64 \
