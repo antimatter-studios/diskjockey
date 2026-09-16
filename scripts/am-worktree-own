@@ -27,32 +27,66 @@
 # mine", so its age measures the agent.
 set -euo pipefail
 
-STATE_DIR="${AM_WORKTREE_STATE:-$HOME/.local/state/am-worktrees}"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=am-worktree-lib.sh
+. "$HERE/am-worktree-lib.sh"
+STATE_DIR="$(am_wt_state_dir)"
 
-# One file per worktree, named by a hash of its absolute path so the name
-# is stable, filesystem-safe and collision-free.
-key_for() {
-    printf '%s' "$1" | shasum -a 256 | cut -c1-32
+# One file per worktree, named by a hash of its PHYSICAL absolute path
+# (am_wt_canonical), so `<wt>`, `<wt>/` and a symlinked route to it are
+# one claim — the same key the reaper derives from git's own path.
+key_file() {
+    local k
+    k="$(am_wt_key "$1")" || { echo "am-worktree-own: could not hash '$1' (is shasum installed?)" >&2; exit 1; }
+    printf '%s/%s' "$STATE_DIR" "$k"
 }
 
 case "${1:-}" in
     --who)
         path="${2:?usage: am-worktree-own --who <path>}"
-        f="$STATE_DIR/$(key_for "$path")"
-        [ -f "$f" ] || { echo "unowned"; exit 0; }
-        name=$(cut -f1 < "$f"); when=$(cut -f2 < "$f")
-        printf '%s\theartbeat %sm ago\n' "$name" "$(( ( $(date +%s) - ${when:-0} ) / 60 ))"
+        # A path that does not resolve is refused rather than hashed as
+        # typed: "unowned" about a misspelling is the answer that lets a
+        # tree be removed.
+        real="$(am_wt_canonical "$path")" \
+            || { echo "am-worktree-own: cannot resolve '$path' to a directory" >&2; exit 1; }
+        rc=0; am_wt_find_owner "$real" || rc=$?
+        case "$rc" in
+            0) printf '%s\theartbeat %sm ago\n' "$AM_WT_NAME" "$(( ( $(date +%s) - AM_WT_WHEN ) / 60 ))" ;;
+            1) echo "unowned" ;;
+            *) echo "am-worktree-own: the ownership record for '$real' is unreadable" >&2; exit 1 ;;
+        esac
         exit 0 ;;
     --forget)
         path="${2:?usage: am-worktree-own --forget <path>}"
-        # An explicit single path, never a pattern.
-        rm -f "$STATE_DIR/$(key_for "$path")"
+        # An explicit single path, never a pattern. The directory may
+        # already be gone, so resolve its parent when it cannot itself be
+        # resolved; and drop the claim under the spelling given too, which
+        # is where a claim made before canonical keys would sit.
+        trimmed="${path%"${path##*[!/]}"}"
+        real="$(am_wt_canonical "$path")" \
+            || { parent="$(am_wt_canonical "$(dirname "$trimmed")")" && real="$parent/$(basename "$trimmed")"; } \
+            || real="$trimmed"
+        rm -f "$(key_file "$real")" "$(key_file "$path")" "$(key_file "$trimmed")"
         exit 0 ;;
 esac
 
 path="${1:?usage: am-worktree-own <path> <agent-name>}"
 name="${2:?usage: am-worktree-own <path> <agent-name>}"
 [ -d "$path" ] || { echo "am-worktree-own: no such directory: $path" >&2; exit 1; }
+real="$(am_wt_canonical "$path")" || { echo "am-worktree-own: cannot resolve '$path'" >&2; exit 1; }
+case "$name" in
+    *$'\t'*|*$'\n'*) echo "am-worktree-own: agent name may not contain a tab or newline" >&2; exit 1 ;;
+esac
 
 mkdir -p "$STATE_DIR"
-printf '%s\t%s\t%s\n' "$name" "$(date +%s)" "$path" > "$STATE_DIR/$(key_for "$path")"
+dest="$(key_file "$real")"
+# PUBLISH ATOMICALLY. `printf > file` truncates first and writes second,
+# and a reader landing between the two saw an empty record (#127). A
+# temp file in the same directory renamed over the old one means a reader
+# sees the whole old record or the whole new one, never neither. The
+# leading dot keeps the temp file out of the reaper's `*` scan.
+tmp="$(mktemp "$STATE_DIR/.claim.XXXXXX")"
+trap 'rm -f "$tmp"' EXIT
+printf '%s\t%s\t%s\n' "$name" "$(date +%s)" "$real" > "$tmp"
+mv -f "$tmp" "$dest"
+trap - EXIT

@@ -33,6 +33,8 @@ ROOT="${AM_REAP_ROOT:-/Volumes/sdcard256gb/projects}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=constellation-repositories.sh
 . "$HERE/constellation-repositories.sh"
+# shellcheck source=am-worktree-lib.sh
+. "$HERE/am-worktree-lib.sh"
 
 # THE REPOSITORIES THIS TOOL MAY TOUCH, NAMED.
 #
@@ -81,16 +83,38 @@ TALLY="$(mktemp -d)"
 trap 'rm -rf "$TALLY"' EXIT
 : > "$TALLY/reap"; : > "$TALLY/keep"
 bump() { echo x >> "$TALLY/$1"; }
-count() { grep -c . < "$TALLY/$1" 2>/dev/null || echo 0; }
+# `grep -c` prints 0 AND exits 1 on no match, so `|| echo 0` printed the
+# count twice ("kept: 0" then a stray "0") whenever it was zero.
+count() { local n; n=$(grep -c . < "$TALLY/$1" 2>/dev/null) || true; echo "${n:-0}"; }
 
 # Is anything actually using this directory right now? A process with its
 # working directory inside it is the clearest possible "somebody is here",
 # and it is the check that survives an agent that has gone quiet but not
 # died.
+#
+#   0  a process has its cwd AT OR BELOW the directory
+#   1  the process list was read and nothing is in there
+#   2  no process list could be read -- which is not the same as idle
+#
+# `lsof -- <dir>` matched only a cwd EQUAL to the root, so an agent that
+# had cd'd into `src/` was invisible; and a host without lsof got the
+# answer an idle tree gets (#131). `+D` is not the fix: it walks the tree,
+# and it exits 1 while printing the match, so testing its status still
+# says "idle". So every cwd is enumerated and prefix-matched here, and
+# the exit status is never the signal. An empty enumeration counts as no
+# answer: the reaper itself has a cwd, so a list that works is never empty.
+# `$dir` must be the physical path, because that is the form lsof prints.
 in_use() {
-    local dir="$1"
-    command -v lsof >/dev/null 2>&1 || return 1
-    lsof -a -d cwd -- "$dir" >/dev/null 2>&1
+    local dir="$1" cwds c
+    command -v lsof >/dev/null 2>&1 || return 2
+    cwds="$(lsof -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')" || true
+    [ -n "$cwds" ] || return 2
+    while IFS= read -r c; do
+        case "$c" in
+            "$dir"|"$dir"/*) return 0 ;;
+        esac
+    done <<< "$cwds"
+    return 1
 }
 
 # Recently touched? Cheap proxy for work in progress that has not written
@@ -116,27 +140,47 @@ recently_touched() {
 # It was briefly stored inside, and an agent committed it into a fix
 # branch -- a tool meant to be invisible to git ended up in somebody's
 # pull request. Anything inside the tree can be force-added.
-AM_WT_STATE="${AM_WORKTREE_STATE:-$HOME/.local/state/am-worktrees}"
-owner_file() { printf '%s/%s' "$AM_WT_STATE" "$(printf '%s' "$1" | shasum -a 256 | cut -c1-32)"; }
-owner_name() { local f; f="$(owner_file "$1")"; [ -f "$f" ] && cut -f1 < "$f" || true; }
-owner_age_mins() {
-    local f when; f="$(owner_file "$1")"
-    when=$(cut -f2 < "$f" 2>/dev/null || echo 0)
-    echo $(( ( $(date +%s) - ${when:-0} ) / 60 ))
-}
+#
+# The key and the single read live in am-worktree-lib.sh, shared with
+# am-worktree-own, so the writer and this reader cannot derive the record's
+# location, or parse it, two different ways (#126, #127).
 
 keep() { printf '  KEEP    %-58s %s\n' "$1" "$2"; bump keep; }
 
 consider() {
-    local repo="$1" main="$2" path="$3" branch="$4"
+    local repo="$1" main="$2" path="$3" branch="$4" locked="${5:-}"
 
     # The directory is gone but git still has the entry. This is the one
     # case where `prune` is the whole remedy: there is nothing on disk to
     # preserve, and the entry still holds the branch if it had one.
+    #
+    # COUNT WHAT PRUNE DID, NOT WHAT WAS ASKED OF IT. `prune` skips a
+    # locked entry, and this used to print PRUNE and count a reap either
+    # way (#144). A locked entry is kept and said so; after a real prune
+    # the entry is looked for again, and only its absence counts.
     if [ ! -d "$path" ]; then
+        if [ -n "$locked" ]; then
+            keep "$path" "directory is gone but the entry is locked — prune leaves it"
+            return
+        fi
+        if [ "$DO_REMOVE" = 1 ]; then
+            git -C "$main" worktree prune
+            if git -C "$main" worktree list --porcelain 2>/dev/null | grep -qxF "worktree $path"; then
+                keep "$path" "directory is gone but git kept the entry — not pruned"
+                return
+            fi
+        fi
         printf '  PRUNE   %-58s directory is gone; entry still holds its branch\n' "$path"
-        [ "$DO_REMOVE" = 1 ] && git -C "$main" worktree prune
         bump reap
+        return
+    fi
+
+    # Every check below that compares paths needs ONE spelling of this
+    # one: the physical path, which is what lsof prints and what the
+    # ownership key is derived from. Unresolvable means unprovable.
+    local real
+    if ! real="$(am_wt_canonical "$path")"; then
+        keep "$path" "cannot resolve its physical path — cannot prove it is idle"
         return
     fi
 
@@ -182,19 +226,27 @@ consider() {
             # apiece, which is too slow for the several dozen this scans.
             # So the wording states what was actually measured and the
             # decision stays conservative.
-            keep "$path" "$unpushed commit(s) ahead of a tracking ref that may be stale — not proven pushed"
+            keep "$path" "$unpushed commit(s) on '$branch' ahead of a tracking ref that may be stale — not proven pushed"
             return
         fi
     fi
 
-    if in_use "$path"; then
-        keep "$path" "a process is working in it right now"
+    local busy=0
+    in_use "$real" || busy=$?
+    case "$busy" in
+        0) keep "$path" "a process is working in it right now"; return ;;
+        2) keep "$path" "no process list (lsof missing or listed nothing) — cannot prove nothing is working in it"; return ;;
+    esac
+
+    local found=0
+    am_wt_find_owner "$real" || found=$?
+    if [ "$found" = 2 ]; then
+        keep "$path" "its ownership record is unreadable — cannot prove the owner has gone"
         return
     fi
-
-    local owner; owner="$(owner_name "$path")"
-    if [ -n "$owner" ]; then
-        local age; age="$(owner_age_mins "$path")"
+    if [ "$found" = 0 ]; then
+        local owner="$AM_WT_NAME" age
+        age=$(( ( $(date +%s) - AM_WT_WHEN ) / 60 ))
         if [ "$age" -lt "$GRACE_MINS" ]; then
             keep "$path" "owned by $owner, heartbeat ${age}m ago"
             return
@@ -223,13 +275,17 @@ for repo in "${REPOS[@]}"; do
     main="$ROOT/$repo"
     [ -n "$ONLY_REPO" ] && [ "$repo" != "$ONLY_REPO" ] && continue
     [ -e "$main/.git" ] || continue
+    # THE WHOLE REST OF THE LINE, NOT `$2`. `--porcelain` does not quote
+    # the path, so `$2` cut `.../has a space` down to `.../has`, which does
+    # not exist: the real worktree was reported PRUNE and never examined
+    # (#144). A ref cannot contain a space, so `branch` may stay `$2`.
     git -C "$main" worktree list --porcelain 2>/dev/null | awk '
-        /^worktree /{p=$2} /^branch /{b=$2} /^detached/{b="detached"}
-        /^$/{ if (p != "") { print p "\t" (b == "" ? "detached" : b); p=""; b="" } }
-        END  { if (p != "") print p "\t" (b == "" ? "detached" : b) }
-    ' | tail -n +2 | while IFS=$'\t' read -r path branch; do
+        /^worktree /{p=substr($0, 10)} /^branch /{b=$2} /^detached/{b="detached"} /^locked/{l="locked"}
+        /^$/{ if (p != "") { print p "\t" (b == "" ? "detached" : b) "\t" l; p=""; b=""; l="" } }
+        END  { if (p != "") print p "\t" (b == "" ? "detached" : b) "\t" l }
+    ' | tail -n +2 | while IFS=$'\t' read -r path branch locked; do
         [ -n "$path" ] || continue
-        consider "$repo" "$main" "$path" "${branch##refs/heads/}"
+        consider "$repo" "$main" "$path" "${branch##refs/heads/}" "$locked"
     done
 done
 
