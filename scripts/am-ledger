@@ -744,10 +744,29 @@ do_projects() {
 }
 
 # ISO-8601 to epoch seconds, on either BSD or GNU date.
+# `updated` as seconds since the epoch, or a non-zero return if it is not
+# the `YYYY-MM-DDTHH:MM:SSZ` this file writes.
+#
+# ARITHMETIC, NOT `date` (#132). BSD `date -j -f` read these digits in the
+# LOCAL zone and ignored the literal Z, so every age was off by the
+# operator's UTC offset: two hours too old in CEST, which listed live
+# claims as stalled, and seven hours too young in PDT, which hid real
+# stalls. The GNU fallback `date -d` does not exist on macOS. A UTC
+# timestamp needs no zone database, so none is consulted.
 to_epoch() {
-    date -j -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null \
-        || date -d "$1" +%s 2>/dev/null \
-        || echo 0
+    local t="$1" y mo d h mi s
+    [[ "$t" =~ ^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})Z$ ]] || return 1
+    y=$((10#${BASH_REMATCH[1]})); mo=$((10#${BASH_REMATCH[2]})); d=$((10#${BASH_REMATCH[3]}))
+    h=$((10#${BASH_REMATCH[4]})); mi=$((10#${BASH_REMATCH[5]})); s=$((10#${BASH_REMATCH[6]}))
+    [ "$mo" -ge 1 ] && [ "$mo" -le 12 ] && [ "$d" -ge 1 ] && [ "$d" -le 31 ] \
+        && [ "$h" -le 23 ] && [ "$mi" -le 59 ] && [ "$s" -le 59 ] || return 1
+    # Days from 1970-01-01 to the civil date (Howard Hinnant's algorithm).
+    if [ "$mo" -le 2 ]; then y=$((y - 1)); fi
+    local era=$(( y / 400 )) yoe doy doe
+    yoe=$(( y - era * 400 ))
+    doy=$(( (153 * (mo > 2 ? mo - 3 : mo + 9) + 2) / 5 + d - 1 ))
+    doe=$(( yoe * 365 + yoe / 4 - yoe / 100 + doy ))
+    echo $(( (era * 146097 + doe - 719468) * 86400 + h * 3600 + mi * 60 + s ))
 }
 
 # Rows that have sat in one stage too long.
@@ -784,8 +803,16 @@ do_stale() {
         # "what has been sitting untouched", such as a `pending` row no
         # triage stage ever picked up.
         if [ "$all" = 0 ] && [ "$owner" = "-" ]; then continue; fi
-        local ts; ts=$(to_epoch "$updated")
-        [ "$ts" -gt 0 ] || continue
+        local ts
+        if ! ts=$(to_epoch "$updated"); then
+            # A ROW THAT CANNOT BE DATED IS REPORTED, NOT SKIPPED. This was
+            # `[ "$ts" -gt 0 ] || continue`, so a malformed timestamp hid a
+            # claimed row from the one command meant to find it (#132).
+            printf '%-18s #%-5s %-9s %-20s %4s  %s  (updated=%s cannot be read)\n' \
+                "$repo" "$num" "$stage" "$owner" "?" "${title:0:44}" "$updated"
+            found=$((found + 1))
+            continue
+        fi
         [ "$ts" -lt "$cutoff" ] || continue
         age=$(( (now_s - ts) / 3600 ))
         printf '%-18s #%-5s %-9s %-20s %3sh  %s\n' \
