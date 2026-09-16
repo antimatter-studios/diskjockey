@@ -19,9 +19,33 @@ set -euo pipefail
 F="${AM_COST_FILE:-$HOME/.local/state/am-constellation/cost.tsv}"
 mkdir -p "$(dirname "$F")"
 
+# THE PIPELINE'S STAGES, which are not am-ledger's STAGES. Those are row
+# states (fixing, testing, pr, ...); these are the roles that spend tokens
+# (docs/issue-pipeline.md). The two lists share no word, but three pairs
+# are CONFUSABLE -- fix/fixing, pr-monitor/pr, verify/testing -- so reusing
+# the ledger's list would refuse `fix` and accept `fixing`, and read as the
+# caller's typo. Do not unify them.
+COST_STAGES="audit triage fix verify pr-monitor review"
+
+# WHY EVERY FIELD IS CHECKED (#142). This wrote whatever it was given, and
+# every wrong row made the cost read LOWER: a non-numeric token count was
+# averaged in as 0 while its run was counted, a swapped <stage> <tokens>
+# invented a stage, and a newline in the note forged a whole extra row.
+refuse() { echo "am-cost: refused, nothing recorded: $1" >&2; exit 2; }
+is_count() { [[ "$1" =~ ^[0-9]+$ ]]; }
+is_cost_stage() { local s; for s in $COST_STAGES; do [ "$s" = "$1" ] && return 0; done; return 1; }
+
 case "${1:-report}" in
   add)
     [ $# -ge 5 ] || { echo "usage: am-cost add <repo> <issue> <stage> <tokens> [tools] [note]" >&2; exit 2; }
+    for field in "$2" "${7:-}"; do
+        case "$field" in *$'\t'*|*$'\n'*|*$'\r'*) refuse "a tab or newline in <repo> or [note] would forge a row" ;; esac
+    done
+    [ -n "$2" ] || refuse "<repo> is empty"
+    is_count "$3" || refuse "<issue> '$3' is not a number"
+    is_cost_stage "$4" || refuse "<stage> '$4' is not one of: $COST_STAGES"
+    is_count "$5" || refuse "<tokens> '$5' is not a number"
+    is_count "${6:-0}" || refuse "[tools] '${6}' is not a number"
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
       "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$2" "$3" "$4" "$5" "${6:-0}" "${7:-}" >> "$F"
     echo "recorded: $2#$3 $4 ${5} tokens"
@@ -29,7 +53,11 @@ case "${1:-report}" in
   raw) [ -f "$F" ] && cat "$F" || echo "no data" ;;
   report)
     [ -f "$F" ] || { echo "no data yet"; exit 0; }
-    awk -F'\t' '
+    # A FILE ANYTHING CAN APPEND TO: rows `add` would have refused are
+    # counted and named rather than coerced to zero and averaged in.
+    awk -F'\t' -v stages="$COST_STAGES" '
+      BEGIN { split(stages, a, " "); for (i in a) ok[a[i]] = 1 }
+      NF != 7 || $3 !~ /^[0-9]+$/ || !($4 in ok) || $5 !~ /^[0-9]+$/ || $6 !~ /^[0-9]+$/ { bad++; next }
       { tok[$4]+=$5; n[$4]++; total+=$5; issues[$2"#"$3]=1 }
       END {
         printf "  %-14s %10s %6s %10s\n", "stage", "tokens", "runs", "per run"
@@ -37,6 +65,7 @@ case "${1:-report}" in
         ni=0; for (i in issues) ni++
         printf "  %-14s %10d %6d %10d\n", "TOTAL", total, ni, (ni ? total/ni : 0)
         printf "\n  %d distinct issues\n", ni
+        if (bad) printf "  %d row%s unreadable, not counted (see: am-cost raw)\n", bad, (bad == 1 ? "" : "s")
       }' "$F"
     ;;
   *) echo "am-cost: unknown command '$1'" >&2; exit 2 ;;
