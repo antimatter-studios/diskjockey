@@ -380,33 +380,43 @@ struct PersistenceTests {
         }
     }
 
-    /// AND ONE SECRET IS ON DISK ANYWAY — recorded here rather than asserted
-    /// away, because it is a live finding and not a test bug (diskjockey#160).
+    /// AN OAUTH ACCESS TOKEN IS NOT PERSISTED EITHER (diskjockey#160).
     ///
-    /// `GDriveMountConfig.cachedAccessToken` and OneDrive's equivalent are
+    /// `GDriveMountConfig.cachedAccessToken` and OneDrive's equivalent were
     /// ordinary Codable fields, so `OAuthRefreshSupervisor` writing a freshly
-    /// refreshed OAuth *access token* into the config puts that token in
-    /// cleartext into the per-domain plist in the app-group container. The
-    /// refresh token, which is the long-lived half, correctly goes to the
-    /// keychain — so the split is half-applied rather than absent.
+    /// refreshed access token into the config put a live bearer token in
+    /// cleartext into the per-domain plist, while the refresh token correctly
+    /// went to the keychain. Neither driver needs it on disk: go-networkfs
+    /// `gdrive` treats `access_token` as optional and refreshes on first use,
+    /// and `onedrive` never reads it.
     ///
-    /// `withKnownIssue` keeps the suite green while the decision is open AND
-    /// makes the test fail the day it is fixed, which is when this comment
-    /// needs deleting. A plain `#expect(persisted)` would pin the behaviour as
-    /// desired; a deleted test would lose the finding.
-    @Test func anOAuthAccessTokenReachesTheDiskInCleartext() throws {
+    /// Asserted against the VALUE in both encoders, and paired with the
+    /// decode half: a plist written by an older build that still carries a
+    /// token must not hand it back either.
+    @Test func anOAuthAccessTokenIsNeverPersisted() throws {
         let token = "USER-ACCESS-TOKEN-4b7e"
         let configs: [StoredMountConfig] = [
             .gdrive(GDriveMountConfig(clientID: "c", clientSecret: "s", cachedAccessToken: token)),
             .onedrive(OneDriveMountConfig(clientID: "c", cachedAccessToken: token)),
         ]
         for stored in configs {
-            let onDisk = String(decoding: try PropertyListEncoder().encode(stored), as: UTF8.self)
-            withKnownIssue("diskjockey#160: cachedAccessToken is persisted in the domain plist") {
-                #expect(!onDisk.contains(token),
-                        "\(stored.scheme) writes a live access token to disk")
-            }
+            let plist = String(decoding: try PropertyListEncoder().encode(stored), as: UTF8.self)
+            #expect(!plist.contains(token),
+                    "\(stored.scheme) writes a live access token into its plist")
+            let json = String(decoding: try JSONEncoder().encode(stored), as: UTF8.self)
+            #expect(!json.contains(token),
+                    "\(stored.scheme) writes a live access token into its JSON form")
         }
+
+        let legacy = Data(#"{"clientID":"c","clientSecret":"s","cachedAccessToken":"USER-ACCESS-TOKEN-4b7e","accountLabel":"me@example.com"}"#.utf8)
+        let gdrive = try JSONDecoder().decode(GDriveMountConfig.self, from: legacy)
+        #expect(gdrive.cachedAccessToken == "", "a token left on disk by an older build is read back")
+        #expect(gdrive.clientID == "c" && gdrive.clientSecret == "s" && gdrive.accountLabel == "me@example.com",
+                "dropping the token must keep every other field")
+        let onedrive = try JSONDecoder().decode(OneDriveMountConfig.self, from: legacy)
+        #expect(onedrive.cachedAccessToken == "", "a token left on disk by an older build is read back")
+        #expect(onedrive.clientID == "c" && onedrive.accountLabel == "me@example.com",
+                "dropping the token must keep every other field")
     }
 
     /// The OAuth configs decode missing fields to "" rather than throwing,
