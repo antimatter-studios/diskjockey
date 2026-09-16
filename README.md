@@ -397,12 +397,6 @@ docker compose up
 # SMB    → localhost:4450
 ```
 
-### Vendor pin discipline
+### Sibling pins
 
-After bumping any submodule, regenerate the human-readable pin manifest:
-
-```bash
-make pins
-```
-
-`VENDOR_PINS.txt` is committed alongside the submodule bump. `make pins-check` fails if it's stale — wire into CI when CI exists for this repo.
+The ref each sibling project is built at is plain text in [`SIBLING_PINS.txt`](SIBLING_PINS.txt), which replaced the submodule-era `VENDOR_PINS.txt` and explains how `scripts/sibling-build.sh` uses it. Bump a pin by editing that file. There is no `make pins` target any more.

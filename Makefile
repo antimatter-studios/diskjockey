@@ -145,19 +145,3 @@ installable:
 
 installable-install:
 	@scripts/build-installable.sh --install
-
-# ---------------------------------------------------------------------------
-# Vendor-pin manifest
-# ---------------------------------------------------------------------------
-#
-# Git submodule pins are stored as opaque 160000 "gitlink" entries in the
-# superproject tree — invisible in any plain-text file. `make pins`
-# materialises those pins into VENDOR_PINS.txt, which is committed so the
-# tag + SHA for every vendored submodule is visible from GitHub's file
-# view and from a plain `cat` without needing any git commands.
-#
-# Regenerate + stage alongside every submodule bump. `make pins-check`
-# fails if the on-disk file is stale — wire it into CI if/when we have
-# CI for this repo.
-
-VENDOR_PINS_FILE := VENDOR_PINS.txt
