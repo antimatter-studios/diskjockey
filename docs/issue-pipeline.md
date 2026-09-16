@@ -380,6 +380,21 @@ beneath the intended worktree; a path on the system temporary filesystem is a
 failed preflight. After the command, assert that the owned child is gone and
 report any remainder rather than silently accumulating disk images.
 
+**Inside that directory, a fixture's name is unique per process and per
+call, and its cleanup precedes the first thing that can panic.** A fixed
+name collides with a concurrent run of the same suite; cleanup after an
+assertion leaks whenever the assertion fires. Measured instances:
+`rust-img-vhd#57` writes a fixed name relative to the current directory,
+so two `cargo test` runs in one checkout share one file;
+`rust-fs-core#62` moved its `remove_file` ahead of most assertions but
+not ahead of two earlier panic sites; `rust-img-vhdx#68` tracks three
+tests that never remove a 64 MiB fixture. The pattern to copy is already
+in `rust-fs-core`'s `tests/size_stability_contract.rs`: `temp_dir()`
+joined with `fs_core_sizecontract_<pid>_<counter>.img`. The same shape
+one layer up — one fixed lock path two processes can reach — is tracked
+separately as the `vm-slot.sh` family (`christhomas/rust-fs-ext4#138`,
+`rust-fs-btrfs#112`, `rust-fs-xfs#138`).
+
 This is a constellation contract, not permission to maintain divergent copies
 of one script. The issue-pipeline launcher establishes `TMPDIR` for commands it
 orchestrates. Each repository must still honour `TMPDIR`, remove hardcoded
@@ -468,6 +483,20 @@ extra coverage but cannot replace a native runner: it does not execute code,
 run target-specific lints, boot the guest, or exercise filesystem I/O. macOS
 ARM CI may build the Apple application, but do not assume nested
 virtualisation is available there; keep the Linux oracle on Linux runners.
+
+**A cross-compile proves the axis it changed, and a target triple names
+several.** `rust-fs-core#33` was certified with `cargo check --locked
+--all-targets --target aarch64-unknown-linux-gnu` `EXIT=0` for a hardcoded
+`BLKGETSIZE64 = 0x8008_1272`. That request encodes `sizeof(size_t)`: it is
+`0x8004_1272` on 32-bit Linux, where the constant fails every block-device
+open. The check and every runner were 64-bit, so nothing could see it;
+the review bot did. State which of OS, architecture, pointer width,
+endianness and ABI a check actually varied, and name the rest as
+unverified. **When a value depends on a platform nobody can run, make its
+derivation a pure function and pin it to the platform headers' values** —
+as shipped in `rust-fs-core#91`: `blkgetsize64_for(pointer_width)` in
+`src/file_device.rs`, gated `cfg(any(target_os = "linux", test))` so the
+`KNOWN` table test runs on every host, not only on Linux.
 
 **An empty result is not an answer.** Four separate false conclusions in
 one sitting, all the same shape — a query that *failed* returned nothing,
@@ -633,6 +662,30 @@ exists for.
 one tree. When two PRs touch the same file, merging one invalidates the
 other's *evidence* as well as its mergeability.
 
+**Coupling includes the files a test reads, not only the files a PR
+edits.** `rust-fs-core#89` did not touch `README.md` but its
+`layout_block()` parses it; `#82` edited `README.md` and added a
+`## Git hooks` section with a fenced block. A changed-file comparison
+finds no overlap and would have merged `#89` on pre-`#82` evidence. That
+instance happened to give an arm its first witness; the other direction
+is the next rule. Before merging the second of two PRs, compare the
+merged PR's changed files against the path literals the pending PR's
+tests open, and list any path assembled at runtime as unresolved rather
+than as no overlap.
+
+**A merge can disarm a committed test it never touched.** Nothing is
+pending, nothing goes red, and no diff names the test. `rust-fs-core#83`:
+`tests/size_stability_contract.rs` perturbed its `FileDevice` by writing
+past the end, and `#70` (merged as `4e19fc9`) made that write an error,
+so the file no longer grows. Re-measured 2026-09-16 with the arm's own
+mutation, `size_bytes` returning the file's live `metadata().len()`, and
+`cargo test --test size_stability_contract`: at `f1e4aa9` `EXIT=101`,
+`the_devices_that_own_their_size_report_a_stable_one ... FAILED`; at
+`4e19fc9` `EXIT=0`, `3 passed`. **When a change removes a behaviour, grep
+the tests for the removed operation** and ask which ones used it to
+create their conditions rather than to assert it — only the second kind
+fails.
+
 **A fail-fast run reports a truncated world, and the number it gives
 looks like a measurement.** The benign-failure set of one repository was
 recorded as **four** tests from a fail-fast run, which stops at the first
@@ -764,6 +817,22 @@ correctly while the code did not implement it in the one case that
 mattered — worse than an unguarded path, because it reassures every
 reader who checks.
 
+**A guard over a structured file parses it.** A line scan cannot see a
+quoted key, a flow mapping or a block scalar, so it passes the input it
+exists to reject. `rust-fs-btrfs` learnt this in `2940e88` (YAML parser
+for `ci.yml`), and 25 minutes later `74f4c3b` added
+`tests/chore_manifest.rs` scanning `chores.yml` with
+`l.starts_with(key)` — defeated by `"timeout":` and by
+`net: { timeout: 45m }` (`rust-fs-btrfs#126`), and copied into
+`rust-fs-xfs` the same day (`rust-fs-xfs#150`). The pipeline carried the
+defect; nothing compared the new guard with the lesson already in the
+repository. Before adding a guard, look for an existing guard over the
+same format there and match its technique or say why not (`saphyr` is
+the YAML dev-dependency in use). A parser guard's witness includes
+**legal input the scan rejected now passing**, not only the defeat forms
+going red. `rust-fs-btrfs#123` is the exception worth reading first: its
+line scan carries a deliberate exemption a parser would silently drop.
+
 **The authoritative copy is authoritative per defect, not per file.**
 Measured 2026-09-10 across five copies of one guard. Four were a single
 generation and a whole-file replace was correct — licensed by a check
@@ -817,6 +886,20 @@ environment variable selecting a different path, a fixture whose
 checksum covered fewer bytes than the reader reads, a test device
 sharing the wrapping defect it was testing for. Before believing a
 negative, prove the setup did what it claimed.
+
+**A test whose premise is that something is absent is verified only
+where it is absent for the right reason.** `rust-fs-btrfs#115` and
+`rust-fs-xfs#141` were certified on macOS with the four shell scripts run
+the way `ci.yml` runs them, then failed `test-ubuntu-latest` on the
+certified shas. `tests/scripts/vm-deadline-semantics.sh` expressed "no
+`systemctl`" by writing no stub and restricting `PATH` to
+`$stubs:/usr/bin:/bin`; macOS has no `systemctl`, Ubuntu has
+`/usr/bin/systemctl`. With a `systemctl` placed on the sandbox `PATH`, the
+macOS run reproduced CI: `EXIT=1`, 26 ok, 1 FAIL. For each arm that needs
+a tool, file or variable to be missing, name the platform it is missing
+on and whether the gate runs there. If not, simulate the gate's presence
+locally or report the arm as unverified — and keep a control that the
+remedy still fails with the original defect reintroduced.
 
 **App-hosted Swift tests cannot run here at all, and their failure looks
 exactly like a defect.** These sessions run under a launchctl
@@ -975,6 +1058,97 @@ moves; the remedy loses one of its two spellings.
 
 This applies to any stage that reads a suite log to reach a conclusion,
 not only to verification.
+
+## Merging
+
+`pr-monitor` merges on fields, not on prose or a summary. The review bot
+here is Greptile, and its check is named `Greptile Review`.
+
+**The review check must exist, succeed, and belong to the head sha.**
+Absent is not passing: `rust-img-vmdk#74` merged with no `Greptile Review`
+entry at all, on a repository where its neighbours all had one. Read the
+check-run on the resolved head, not the review object:
+
+    gh api repos/$SLUG/commits/$HEAD/check-runs -q '.check_runs[]|select(.name=="Greptile Review")|[.head_sha,.status,.conclusion]|@tsv'
+
+A review's `commit_id` is advisory in both directions. After a
+force-push on `rust-fs-xfs#142` the old review still read as a pass for
+code the bot never saw; on `rust-fs-btrfs#117` the review kept the
+pre-push `commit_id` while a fresh check-run on the new head succeeded.
+
+**The bot does not review a draft.** It ran on `ready_for_review`, not on
+pushes while draft: `rust-fs-xfs#142`'s new head and `rust-fs-core#66` had
+no activity after 15 and 25 minutes with CI green. Mark the PR ready,
+then wait; a check still missing after that is a diagnosis, not a longer
+poll.
+
+**`neutral` is neither a pass nor a fault.** On `rust-img-vhdx#82`
+`Greptile Review` at `e08a37a` concluded `neutral`, "Review was
+cancelled", because a push had moved the head. List accepted conclusions
+explicitly, and resolve the head before reading any — the green-tick rule
+under outside contributors applies to a red or grey tick too.
+
+**A passing review can carry a blocking finding.** Read the inline
+comments, not the rollup. `rust-fs-squashfs#70` passed with a P2 naming a
+real defeat path; `rust-fs-core#82` merged on a post-rebase "0 comments
+added" summary with six findings standing, one a P0.
+
+**Closing references are estimated before the merge and checked after
+it.** The body is intention, and `closingIssuesReferences` misses keywords
+in commit messages that squash-merge promotes: on `rust-fs-btrfs#133` the
+query returned `#130` only, and `#129` also closed via `dd657e7`. Use the
+query to catch a PR that would close more than it fixes; the issues'
+state after merge is the truth, as the stage table above requires.
+
+    gh api graphql -f query='{repository(owner:"O",name:"R"){pullRequest(number:N){closingIssuesReferences(first:10){nodes{number}}}}}'
+
+## Review
+
+`review` reads another program's claims about a tree. None of them is
+evidence until checked against source.
+
+**No API field says whether a finding still applies.** GitHub re-anchors
+comments, so `commit_id == head` proves only that the line still exists.
+On 2026-09-09, 17 findings arrived already fixed in the merged source,
+several inside the same PR after the comment — among them
+`christhomas/rust-fs-ntfs#247`, `christhomas/rust-fs-ext4#148`,
+`rust-fs-xfs#145`/`#154`, and `rust-fs-core#91`/`#94`.
+
+**A finding wrong about the base may be right about the change.**
+Greptile's two-site race on `christhomas/rust-fs-ntfs#247` was rejected
+against a `main` with one site; `#253` then added the second. A finding
+anchored to a line the PR adds cannot describe the pre-merge tree —
+check the diff, not only the base.
+
+**A dismissal carries the sha it was measured at.** Relayed without it,
+it is an assertion nobody can re-check, and a later merge can make it
+wrong while it still looks handled.
+
+**Quote a blocking verdict into an issue when you see it.** Greptile
+rewrites its summary in place: `created_at` stays at the first review and
+only the body's "Last reviewed commit" says which sha it covers. On
+`rust-img-qcow2#67` "should not merge" became "safe to merge" with the
+condition unmet, and an issue comment is the only surviving record. This
+is the one review rule whose omission destroys evidence.
+
+**Silence on one copy is coverage variance.** See "N reviews of N
+identical copies" above; check the siblings by hand.
+
+**File a copied artefact's defect upstream**, with a row per consumer to
+track whether the fix arrived. Where there is no upstream, syncing to any
+one copy can delete a real check: `tests/ci_profile.rs`,
+`antimatter-studios/agent-skills#39`.
+
+**Lead an issue with the consequence, not the bot's severity label.**
+Greptile is advisory here; the label does not oblige anyone to act.
+
+**Code search answers 0 when it means "not indexed".** Re-measured
+2026-09-16: `filename:vm-deadline-semantics.sh
+repo:antimatter-studios/rust-fs-btrfs` returns `total_count` 0 for a file
+`rust-fs-btrfs#129` is about, and `christhomas/rust-fs-ntfs#254` built a
+severity argument on the same kind of zero. List the tree and grep it:
+
+    gh api "repos/$SLUG/git/trees/$REF?recursive=1" -q '.tree[].path'
 
 ## Reporting
 
@@ -1250,7 +1424,8 @@ each affected function name appears exactly once.
 else.** A conflict boundary can bisect a function, leaving one
 trailing brace two tests want: the set comparison passes and the file
 does not compile — and the near-miss version *does* compile, with one
-test's body inside another. Pair it with `cargo test --no-run`.
+test's body inside another. Pair it with `cargo test --no-run` and the
+full suite.
 
 **5. Resolve conflicts semantically.** Where main has added a guard
 since the branch was cut, the right answer is often a change neither
