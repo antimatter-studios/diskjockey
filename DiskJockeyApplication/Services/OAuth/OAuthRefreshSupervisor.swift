@@ -30,9 +30,11 @@
 //   3. Run `OAuthCoordinator.authorizeXxx()`. The user sees a browser
 //      pop up with the familiar consent screen — same flow as initial
 //      sign-in.
-//   4. Persist the new refresh_token to the shared keychain, and the
-//      fresh access_token into the mount config plist (so the next
-//      `Mount` skips the validate-then-refresh dance).
+//   4. Persist the new refresh_token to the shared keychain. The fresh
+//      access_token is set on the in-memory config only: the configs do
+//      not encode it, because a live bearer token does not belong in the
+//      app-group plist (diskjockey#160), so the driver refreshes on first
+//      use after the domain cycles.
 //   5. Cycle the FileProvider domain (`unmountDomain` →
 //      `mountDomain`) so the extension respawns with the new
 //      credentials cached at init.
