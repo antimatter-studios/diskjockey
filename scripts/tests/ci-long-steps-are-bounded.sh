@@ -47,7 +47,10 @@ command -v ruby >/dev/null 2>&1 || {
 # same pass — but nobody has timed them, and a guard that demands eight
 # numbers nobody has measured is a guard that gets an `# allow` comment
 # rather than a fix. release.yml wants its own row.
-WORKFLOW="$REPO/.github/workflows/ci.yml"
+# CI_WORKFLOW_UNDER_TEST points every check at another file, so the
+# selector can be driven by synthetic workflows (ci-long-steps-selector.sh).
+# Unset, which is how CI runs this, it is the repository's own ci.yml.
+WORKFLOW="${CI_WORKFLOW_UNDER_TEST:-$REPO/.github/workflows/ci.yml}"
 
 report="$(ruby -ryaml -e '
   doc = YAML.safe_load(File.read(ARGV[0]), aliases: true) || {}
@@ -56,8 +59,22 @@ report="$(ruby -ryaml -e '
       # THE RULE IS OVER THE COMMAND, and there are two commands now: the
       # library gate runs `swift test`, which is a suite run with no
       # xcodebuild in it at all and would otherwise be invisible here.
-      next unless step["run"].to_s.include?("xcodebuild test") ||
-                  step["run"].to_s.include?("swift test")
+      #
+      # AND IT IS READ AS COMMANDS, NOT AS A SUBSTRING (#147). This was
+      # `include?("xcodebuild test")`, so `xcodebuild -scheme X test` or an
+      # invocation split by a continuation was skipped silently while its
+      # correctly-spelled neighbour printed ok. Fold continuations, drop
+      # comment lines, split on the shell separators, then ask the words:
+      # `xcodebuild` with a `test` action word, or `swift` followed by `test`.
+      text = step["run"].to_s.gsub(/\\\r?\n/, " ")
+      commands = text.lines.reject { |l| l.lstrip.start_with?("#") }
+                     .join("\n").split(/\n|;|&&|\|\||\|/)
+      suite = commands.any? do |c|
+        w = c.split
+        w.include?("xcodebuild") && w.include?("test") ||
+          w.each_cons(2).any? { |a, b| a == "swift" && b == "test" }
+      end
+      next unless suite
       label = step["name"] || "(unnamed)"
       puts [job_name, label, step["timeout-minutes"]].join("\t")
     end
@@ -93,7 +110,7 @@ bound="$(ruby -ryaml -e '
   doc = YAML.safe_load(File.read(ARGV[0]), aliases: true)
   step = (doc["jobs"]["test"]["steps"] || []).find { |s| s["name"] == "Test" }
   print step ? step["timeout-minutes"].inspect : "no-such-step"
-' "$REPO/.github/workflows/ci.yml" 2>/dev/null)"
+' "$WORKFLOW" 2>/dev/null)"
 case "$bound" in
     "no-such-step"|"nil"|"") fail "ci.yml's test job has no bounded step named 'Test': got ${bound:-<empty>}" ;;
     *) ok "ci.yml's 'Test' step is the one that was unbounded, and it reads $bound" ;;
@@ -105,7 +122,7 @@ esac
 job_level="$(ruby -ryaml -e '
   doc = YAML.safe_load(File.read(ARGV[0]), aliases: true)
   print doc["jobs"]["test"]["timeout-minutes"].inspect
-' "$REPO/.github/workflows/ci.yml" 2>/dev/null)"
+' "$WORKFLOW" 2>/dev/null)"
 # THIS CHECK USED TO ASSERT THE OPPOSITE, and the reversal is deliberate.
 #
 # It read: the bound belongs on the step, not on the job, because the job also
@@ -126,7 +143,13 @@ if [ "$job_level" = "nil" ]; then
     fail "ci.yml's test job has no job-level timeout-minutes: a hang in any step \
 other than the bounded one runs to GitHub's 360-minute default, which is what \
 happened on 2026-09-10 in Set up Go"
-elif [ "$job_level" -lt 30 ] 2>/dev/null; then
+elif ! [[ "$job_level" =~ ^[0-9]+$ ]]; then
+    # NOT A NUMBER IS NOT A CEILING. No `test` job, no `jobs` key or an
+    # unreadable file makes ruby raise, `job_level` comes back empty, and
+    # the `-lt` below errors into a false, so this used to fall through to
+    # `ok … ceiling (m)` for a value that does not exist (#147).
+    fail "ci.yml's test job ceiling could not be read as minutes: got [${job_level}]"
+elif [ "$job_level" -lt 30 ]; then
     fail "ci.yml's test job ceiling is ${job_level}m, under the 30m floor: the \
 slowest good job measured is 19m08s and a tight ceiling turns a slow runner into \
 a red build"
