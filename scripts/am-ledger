@@ -700,7 +700,9 @@ do_start() {
         for arg in "$@"; do
             case "$arg" in
                 */*) pairs+=("${arg##*/}"$'\t'"$arg") ;;
-                *) echo "am-ledger: '$arg' is not owner/name" >&2; return 1 ;;
+                *) echo "am-ledger: '$arg' is not owner/name" >&2
+                   rmdir "$dir" 2>/dev/null || true
+                   return 1 ;;
             esac
         done
     fi
@@ -708,6 +710,25 @@ do_start() {
     if [ ${#pairs[@]} -eq 0 ]; then
         echo "am-ledger: no repositories given" >&2
         echo "usage: am-ledger start <project> <owner/name>... | --org <org>" >&2
+        rmdir "$dir" 2>/dev/null || true
+        return 1
+    fi
+
+    # ONE NAME, ONE REPOSITORY (#130). Every later command addresses a
+    # repository by its short name and takes the first match, so two
+    # owners' same-named repositories -- `christhomas/rust-fs-ext4` beside
+    # `antimatter-studios/rust-fs-ext4`, which the pending org move makes
+    # likely -- would share one row space without a word. Refuse rather
+    # than auto-qualify: renaming an identifier every row and brief already
+    # uses is a decision, not a side effect.
+    local dupes
+    dupes="$(printf '%s\n' "${pairs[@]}" | awk -F'\t' '
+        { slugs[$1] = ($1 in slugs) ? slugs[$1] " " $2 : $2; n[$1]++ }
+        END { for (k in n) if (n[k] > 1) printf "  %s: %s\n", k, slugs[k] }')"
+    if [ -n "$dupes" ]; then
+        echo "am-ledger: two repositories would share a short name in project '$project':" >&2
+        printf '%s\n' "$dupes" >&2
+        echo "am-ledger: a project addresses repositories by that name; list only one of each" >&2
         rmdir "$dir" 2>/dev/null || true
         return 1
     fi
