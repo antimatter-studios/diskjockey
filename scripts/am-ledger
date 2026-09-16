@@ -467,9 +467,12 @@ do_next() {
     # evidence they have already paid for. Both happened on 2026-09-09.
     #
     # A repository is busy if any row in it is claimed by somebody who is
-    # not the caller, at any stage where work is actually in flight. Rows
-    # the caller holds do not make it busy: continuing in a repository you
-    # are already in is the good case, not the collision.
+    # not the caller, at a stage that holds a checkout: fixing, testing or
+    # pr. Rows the caller holds do not make it busy: continuing in a
+    # repository you are already in is the good case, not the collision.
+    # A claimed PENDING row is triage reading an issue, and counting it
+    # hid every fixer's work in that repository behind an empty answer
+    # (#157; scripts/tests/am-ledger-next.sh).
     #
     # Naming a repository explicitly still overrides all of this, because
     # a defect that spans repositories wants the opposite arrangement —
@@ -505,7 +508,7 @@ do_next() {
     else
         row=$(awk -F'\t' -v s="$want" -v me="$owner" '
             $4 != "-" && $4 != me &&
-            ($3=="fixing" || $3=="testing" || $3=="pr" || $3=="pending") { busy[$1] = 1 }
+            ($3=="fixing" || $3=="testing" || $3=="pr") { busy[$1] = 1 }
             $3 == s && $4 == "-" { cand[++n] = $0; crepo[n] = $1 }
             END { for (i = 1; i <= n; i++) if (!(crepo[i] in busy)) { print cand[i]; exit } }
         ' "$LEDGER")
