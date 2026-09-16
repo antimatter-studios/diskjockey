@@ -16,7 +16,10 @@
 #   #144  `awk $2` truncates a path at its first space, so a present
 #         worktree is reported PRUNE, and a prune that removed nothing is
 #         still counted;
-#   #86   the "ahead of a tracking ref" keep-reason lost the branch name.
+#   #86   the "ahead of a tracking ref" keep-reason lost the branch name;
+#   #84   uncommitted work and a never-pushed branch are kept, the summary
+#         counts survive the loop's subshell, and only manifest
+#         repositories are enumerated.
 #
 # EVERYTHING RUNS IN A SCRATCH ROOT. The repositories live under a
 # temporary AM_REAP_ROOT, named after a constellation repository (the
@@ -365,6 +368,64 @@ git -C "$wt" commit -q --allow-empty -m "not pushed"
 out="$(run_reap)"
 has "$out" "ahead of a tracking ref" "#86 an unpushed commit keeps the worktree"
 has "$out" "on 'fix-86'" "#86 ...and the reason names the branch"
+
+echo "am-worktree-reap: #84 what it must never remove, and what it counts"
+
+# Each of these is otherwise removable: aged, unowned, and no process in
+# it, so the one condition under test is all that keeps it.
+new_case 84dirty
+wt="$root/wts/rust-img-vhd-84dirty"
+add_wt "$wt" fix-84dirty
+printf 'work in progress\n' > "$wt/src/untracked.rs"
+age "$wt"
+out="$(run_reap --remove)"
+has "$out" "KEEP    $wt" "#84 a worktree with uncommitted changes is kept under --remove"
+has "$out" "uncommitted change(s)" "#84 ...and the reason says why"
+if [ -f "$wt/src/untracked.rs" ]; then ok "#84 ...and the uncommitted file is still there"; else bad "#84 --remove deleted a worktree holding uncommitted work"; fi
+
+new_case 84local
+wt="$root/wts/rust-img-vhd-84local"
+mkdir -p "$root/wts"
+git -C "$main" worktree add -q --no-track -b fix-84local "$wt" origin/main 2>/dev/null
+git -C "$wt" commit -q --allow-empty -m "only here"
+age "$wt"
+out="$(run_reap --remove)"
+has "$out" "has no upstream" "#84 a branch that was never pushed is kept: nothing proves its commits exist elsewhere"
+if [ -d "$wt" ]; then ok "#84 ...and its worktree is still there"; else bad "#84 --remove deleted a worktree whose branch was never pushed"; fi
+
+# THE COUNTERS SURVIVE THE PIPELINE. The worktree loop runs on the right
+# of a `|`, in a subshell, and counters kept in variables there read 0 in
+# the summary however many were reaped or kept. One of each, so a summary
+# stuck at zero, or one that swapped the two, fails.
+new_case 84count
+reaped="$root/wts/rust-img-vhd-84reaped"
+kept="$root/wts/rust-img-vhd-84kept"
+add_wt "$reaped" fix-84reaped
+add_wt "$kept" fix-84kept
+printf 'dirty\n' > "$kept/src/dirty.rs"
+age "$reaped"
+age "$kept"
+out="$(run_reap --remove)"
+has "$out" "REAP    $reaped" "#84 control: the clean, pushed, idle worktree is reaped"
+has_line "$out" "  removed/pruned: 1   kept: 1" "#84 the summary counts what the loop decided, across its subshell"
+if [ -d "$reaped" ]; then bad "#84 the reaped worktree is still on disk"; else ok "#84 ...and the reaped worktree is gone"; fi
+
+# ENUMERATED, NOT GLOBBED. A git repository under the root that is not in
+# the constellation manifest -- the mail service, the tap -- is not this
+# tool's business, whatever its worktrees look like. Run without --repo so
+# the enumeration itself is what is tested.
+new_case 84scope
+foreign="$root/homebrew-tap"
+git clone -q "$case_dir/remote.git" "$foreign" 2>/dev/null
+fwt="$root/wts/homebrew-tap-stale"
+mkdir -p "$root/wts"
+git -C "$foreign" worktree add -q -b stale "$fwt" origin/main 2>/dev/null
+git -C "$fwt" push -q -u origin stale 2>/dev/null
+age "$fwt"
+out="$(case "$root" in "$sandbox"/*) ;; *) exit 99 ;; esac
+    AM_REAP_ROOT="$root" AM_WORKTREE_STATE="$state" PATH="$BASE_PATH" bash "$REAPER" --remove 2>&1)"
+hasnt "$out" "$fwt" "#84 a worktree of a repository outside the manifest is never examined"
+if [ -d "$fwt" ]; then ok "#84 ...and is left on disk"; else bad "#84 --remove deleted a worktree of a repository outside the manifest"; fi
 
 echo
 if [ "$fails" -ne 0 ]; then
