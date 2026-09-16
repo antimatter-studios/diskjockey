@@ -70,7 +70,19 @@ command -v chore >/dev/null 2>&1 || die "chore is not installed, and it owns the
 SRC="$(cd "$SRC" && pwd)"
 
 BRANCH="$( cd "$SRC" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "" )"
-DIRTY="$( cd "$SRC" && git status --porcelain 2>/dev/null | head -20 )"
+# THE STATUS IS READ, NOT ASSUMED (#145). This was
+# `git status --porcelain 2>/dev/null | head -20`, so a status git could not
+# produce -- a corrupt index, a permissions problem -- left DIRTY empty, and
+# an empty DIRTY both skips the dirty-main refusal below and enters "on main,
+# clean". Capture the output and the exit status, refuse on failure, and
+# truncate for display separately. Not `set -o pipefail`: this is /bin/sh,
+# and `| head -20` would make a very dirty tree exit 141.
+if STATUS="$( cd "$SRC" && git status --porcelain 2>&1 )"; then
+    DIRTY="$( printf '%s\n' "$STATUS" | sed -n '1,20p' )"
+    [ -n "$STATUS" ] || DIRTY=""
+else
+    die "$NAME: could not read git status in $SRC, so whether it is clean is unknown: $STATUS"
+fi
 MERGING=""
 if [ -f "$SRC/.git/MERGE_HEAD" ] || [ -d "$SRC/.git/rebase-merge" ] || [ -d "$SRC/.git/rebase-apply" ]; then
     MERGING="yes"
@@ -84,7 +96,7 @@ if [ "$BRANCH" = "main" ] && { [ -n "$DIRTY" ] || [ -n "$MERGING" ]; }; then
     if [ -n "$DIRTY" ]; then
         echo "" >&2
         echo "$DIRTY" | sed 's/^/    /' >&2
-        n="$( cd "$SRC" && git status --porcelain | wc -l | tr -d " " )"
+        n="$( printf '%s\n' "$STATUS" | wc -l | tr -d " " )"
         [ "$n" -gt 20 ] && echo "    ... and $(( n - 20 )) more" >&2
     fi
     echo "" >&2
@@ -171,8 +183,16 @@ cleanup() {
         printf "  remove it by hand; the next build will not reuse it.\n" >&2
         [ "$status" -eq 0 ] && status=1
     fi
-    if ( cd "$SRC" && git worktree list --porcelain 2>/dev/null | grep -qF "worktree $WT" ); then
-        printf "%bWARNING: worktree registration survived in %s%b\n" "$YELLOW" "$SRC" "$NC" >&2
+    # A FAILED LISTING IS NOT AN EMPTY ONE (#145): `2>/dev/null | grep -q`
+    # read a listing git could not produce as "no registration survived".
+    if listing="$( cd "$SRC" && git worktree list --porcelain 2>&1 )"; then
+        if printf '%s\n' "$listing" | grep -qxF "worktree $WT"; then
+            printf "%bWARNING: worktree registration survived in %s%b\n" "$YELLOW" "$SRC" "$NC" >&2
+            [ "$status" -eq 0 ] && status=1
+        fi
+    else
+        printf "%bWARNING: could not list worktrees in %s, so whether %s is still registered is unknown: %s%b\n" \
+            "$YELLOW" "$SRC" "$WT" "$listing" "$NC" >&2
         [ "$status" -eq 0 ] && status=1
     fi
     exit "$status"
