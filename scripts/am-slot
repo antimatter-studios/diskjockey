@@ -43,7 +43,7 @@ if [ "${1:-}" = "--status" ]; then
         [ -e "$f" ] || continue
         holder=$(cat "$f" 2>/dev/null || echo "?")
         pid=${holder##*|}
-        if kill -0 "$pid" 2>/dev/null; then
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
             echo "  held by ${holder%%|*} (pid $pid)"
             held=$((held + 1))
         else
@@ -209,11 +209,42 @@ release_slot() {
 }
 trap release_slot EXIT INT TERM
 
+# How many slots a LIVE process holds right now: the same test `--status`
+# applies, counted rather than printed. The waiter's message used to print
+# $LIMIT here, a number that does not depend on the pool (#149).
+live_holders() {
+    local f pid n=0
+    for f in "$DIR"/*.slot; do
+        [ -e "$f" ] || continue
+        pid=$(cut -d'|' -f2 < "$f" 2>/dev/null || echo "")
+        [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && n=$((n + 1))
+    done
+    echo "$n"
+}
+
+# A CALLER THE RESERVATION EXCLUDES FOR GOOD IS NOT QUEUED. With a
+# reservation that does not name it and only one slot, `take_slot` returns
+# before looking at any slot, on every iteration, forever. Telling it
+# "queued, not stuck" kept it waiting the full AM_SLOT_WAIT (1800s by
+# default) for a slot it could never take. Refuse now, and say why.
+if reservation_exists && ! name_is_reserved && [ "$LIMIT" -lt 2 ]; then
+    echo "[am-slot] '$NAME' can never take a '$POOL' slot: the only slot is reserved ($RESERVED_FILE) and '$NAME' is not on the list" >&2
+    exit 1
+fi
+
 waited=0
 announced=0
 until take_slot; do
     if [ "$announced" = 0 ]; then
-        echo "[am-slot] waiting for a '$POOL' slot ($LIMIT in use) — queued, not stuck" >&2
+        # MEASURED, not configured: the count is taken when the line is
+        # printed, and says so, because the line prints once and a wait can
+        # run for AM_SLOT_WAIT seconds after it.
+        held=$(live_holders)
+        why=""
+        if reservation_exists && ! name_is_reserved && slot_is_free 1; then
+            why="; slot 1 is reserved and free, usable once it stays free for ${RESERVE_GRACE}s"
+        fi
+        echo "[am-slot] waiting for a '$POOL' slot ($held of $LIMIT held at $(date +%H:%M:%S)$why) — queued, not stuck" >&2
         announced=1
     fi
     if [ "$waited" -ge "$WAIT_SECS" ]; then
