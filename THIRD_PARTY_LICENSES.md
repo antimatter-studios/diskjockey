@@ -32,7 +32,7 @@ that bundle's `Cargo.toml` pins.
 | Component | License | Source |
 |---|---|---|
 | `go-networkfs` | MIT | github.com/christhomas/go-networkfs |
-| `diskprobe` | MIT | first-party, `vendor/rust-disk-probe` |
+| `diskprobe` | MIT | first-party, github.com/antimatter-studios/rust-blk-probe |
 | `tabler-icons` | MIT | github.com/tabler/tabler-icons |
 
 ## Transitive Rust dependencies
@@ -49,41 +49,51 @@ to UEFI targets, so it is never built here.
 
 ## Transitive Go dependencies (go-networkfs)
 
-The Go drivers in `go-networkfs` pull a 117-module transitive closure
-across MIT / BSD / ISC / Apache-2.0 / MPL-2.0. Two MPL-2.0 entries
-warrant explicit acknowledgment per their notice requirements, and they
-are the only copyleft-licensed components anywhere in this project:
+Measured at the `go-networkfs` version this repository pins
+(`SIBLING_PINS.txt`: `v0.1.4`) by listing the modules every driver and
+library package links, `cmd/`, `examples/` and test servers excluded:
+
+    go list -deps -f '{{if .Module}}{{if not .Module.Main}}{{.Module.Path}}@{{.Module.Version}}{{end}}{{end}}' <packages>
+
+**42 modules: 18 BSD, 11 Apache-2.0, 8 MIT, 1 ISC, and 1 MPL-2.0.**
+Three carry no top-level `LICENSE` file, and their licences were read
+from where they are stated: `kr/pretty` (`License`, MIT), `kr/text`
+(`License`, MIT), `mattn/go-localereader` (README, MIT). The `go.sum`
+is longer than this because it records modules the build considered
+but does not link, so re-measure with the command above rather than
+counting `go.sum`.
 
 ### MPL-2.0 — Mozilla Public License 2.0
 
-Component: `github.com/hashicorp/errwrap`
+Component: `github.com/hashicorp/go-uuid` v1.0.3
 License: MPL-2.0
-Source: github.com/hashicorp/errwrap
+Source: github.com/hashicorp/go-uuid
 Notice: This component is licensed under the Mozilla Public License,
 v. 2.0. The MPL is a *file-scope* weak copyleft license — only
 modifications to MPL-licensed files themselves trigger source-disclosure
 obligations. Static linking of unmodified MPL files into a closed-source
 binary is explicitly permitted.
 
-Component: `github.com/hashicorp/go-multierror`
-License: MPL-2.0
-Source: github.com/hashicorp/go-multierror
-Notice: Same MPL-2.0 terms as above. Both MPL components enter through
-the **FTP** driver and nothing else:
+It is the only copyleft-licensed component anywhere in this project, and
+it enters through the **SMB** driver and nothing else (`go mod why -m`):
 
-    go-networkfs/ftp -> github.com/jlaffaye/ftp
-                     -> hashicorp/go-multierror -> hashicorp/errwrap
+    go-networkfs/smb -> antimatter-studios/go-smb2-hirochachacha/v2
+                     -> jcmturner/gokrb5/v8 -> hashicorp/go-uuid
 
-`github.com/jlaffaye/ftp` is the sole importer; verified with
-`go list -deps`. (An earlier revision of this file attributed them to
-the SMB driver, which does not import either.)
+**This reversed at `v0.1.4`.** Earlier revisions of this file named
+`hashicorp/errwrap` and `hashicorp/go-multierror`, entering through the
+FTP driver's `jlaffaye/ftp`. The FTP driver now uses
+`antimatter-studios/goftp` (MIT) and links neither, and SMB moved to the
+`go-smb2` fork above, which brings Kerberos and with it `go-uuid`.
+Attribution here follows the pin, so re-measure when `SIBLING_PINS.txt`
+moves.
 
 The full text of the Mozilla Public License 2.0 is available at:
 <https://www.mozilla.org/en-US/MPL/2.0/>
 
-DiskJockey ships these components unmodified. To obtain the source for
-either, fetch the upstream repository at the version pinned in
-`vendor/go-networkfs/go.sum`.
+DiskJockey ships this component unmodified. Its source is the upstream
+repository at the version above, which is the version recorded in
+`go.sum` at the `go-networkfs` tag pinned in `SIBLING_PINS.txt`.
 
 ## Per-driver SDK licenses (network filesystem clients)
 
@@ -91,13 +101,13 @@ The `go-networkfs` drivers wrap protocol SDKs with these licenses:
 
 | Driver | SDK / library | License |
 |---|---|---|
-| FTP | `jlaffaye/ftp` | ISC |
+| FTP | `antimatter-studios/goftp` | MIT |
 | SFTP | `pkg/sftp` + `golang.org/x/crypto` | BSD-2-Clause + BSD-3-Clause |
-| SMB | `hirochachacha/go-smb2` | BSD-2-Clause (transitive MPL noted above) |
+| SMB | `antimatter-studios/go-smb2-hirochachacha/v2` (fork of `hirochachacha/go-smb2`) | BSD-2-Clause (transitive MPL-2.0 `go-uuid` via `gokrb5`, noted above) |
 | Dropbox | `dropbox/dropbox-sdk-go-unofficial` | MIT |
 | WebDAV | `studio-b12/gowebdav` | BSD-3-Clause |
-| Google Drive | `google.golang.org/api` (raw REST) | BSD-3-Clause |
-| Amazon S3 | `aws/aws-sdk-go-v2` | Apache-2.0 |
+| Google Drive | none: Go standard library over REST | BSD-3-Clause (Go) |
+| Amazon S3 | `minio/minio-go/v7` | Apache-2.0 |
 | OneDrive | Microsoft Graph (raw REST) | BSD-3-Clause client |
 
 ## Spec sources cited in code
