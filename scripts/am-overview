@@ -7,10 +7,15 @@
 # what `gh` is asked about.
 #
 #   scripts/am-overview                 summary table, then one row per issue
-#   scripts/am-overview --summary       counts only
+#   scripts/am-overview --summary       counts only, including open and
+#                                       closed pull requests per project
+#   scripts/am-overview --list          every project in turn, each with a
+#                                       small table of issue, link, pull
+#                                       requests and title
 #   scripts/am-overview --project NAME  one project (repeatable)
 #   scripts/am-overview --tsv           detail rows as TSV, no padding
 #   scripts/am-overview --print-jq      the issue filter, for its own test
+#   scripts/am-overview --print-pr-jq   the pull request filter, likewise
 #
 # EXIT STATUS IS PART OF THE OUTPUT. A project whose fetch fails still
 # gets a row, marked `FETCH FAILED`, and the command exits 4 — because a
@@ -19,8 +24,16 @@
 # omission; see docs/issue-pipeline.md on a check that cannot answer
 # returning the permissive one.
 #
+# A RATE LIMIT STOPS THE RUN, with exit 5 and no table. Once GitHub is
+# limiting the token, every later request fails the same way: carrying on
+# spends more of the limit and prints a column of FETCH FAILED rows that says
+# nothing the first failure didn't. The message names where it stopped and,
+# for the primary limit, when it resets.
+#
 # Environment, for tests and for pointing at a different constellation:
 #   AM_OVERVIEW_FETCH        command called with a slug instead of gh
+#   AM_OVERVIEW_FETCH_PRS    likewise, for the --list pull request lookup
+#   AM_OVERVIEW_FETCH_PR_COUNTS  likewise, printing `<open> <closed>`
 #   AM_OVERVIEW_STALE_DAYS   what counts as stale in the summary (30)
 set -uo pipefail
 
@@ -44,6 +57,42 @@ ISSUE_JQ='.[] | select(.pull_request == null)
        (.title | if . == "" then "(no title)" else . end)]
     | join("\u001f")'
 
+# --list only. A pull request is associated with an issue when it will close
+# it (a closing keyword or a manual Development link) OR when it mentions it.
+# Closing references alone missed most of them: merged PRs that fixed part of
+# an issue, or that said "see #101" rather than "fixes #101", carry no closing
+# reference at all. Output is `<number> US <url> <url> ...`, PRs in number
+# order, and only for issues that have any.
+PR_QUERY='query($owner: String!, $name: String!, $endCursor: String) {
+  repository(owner: $owner, name: $name) {
+    issues(states: OPEN, first: 100, after: $endCursor) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        number
+        closedByPullRequestsReferences(first: 20, includeClosedPrs: true) { nodes { number url } }
+        timelineItems(itemTypes: [CROSS_REFERENCED_EVENT], first: 50) {
+          nodes { ... on CrossReferencedEvent { source { __typename ... on PullRequest { number url } } } }
+        }
+      }
+    }
+  }
+}'
+PR_JQ='.data.repository.issues.nodes[]
+    | ([.closedByPullRequestsReferences.nodes[]]
+       + [.timelineItems.nodes[].source | select(.__typename == "PullRequest")]) as $prs
+    | select($prs | length > 0)
+    | [(.number|tostring), ($prs | unique_by(.url) | sort_by(.number) | map(.url) | join(" "))]
+    | join("\u001f")'
+
+# The summary table's pull request columns. CLOSED here means everything no
+# longer open, merged or not, which is what GitHub's own "Closed" tab counts.
+PR_COUNT_QUERY='query($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {
+    open: pullRequests(states: OPEN) { totalCount }
+    closed: pullRequests(states: [CLOSED, MERGED]) { totalCount }
+  }
+}'
+
 STALE_DAYS="${AM_OVERVIEW_STALE_DAYS:-30}"
 MODE=full
 WANT=()
@@ -51,9 +100,11 @@ WANT=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --summary) MODE=summary ;;
+        --list)    MODE=list ;;
         --tsv)     MODE=tsv ;;
         --project) shift; [ $# -gt 0 ] || { echo "am-overview: --project needs a name" >&2; exit 2; }; WANT+=("$1") ;;
         --print-jq) printf '%s\n' "$ISSUE_JQ"; exit 0 ;;
+        --print-pr-jq) printf '%s\n' "$PR_JQ"; exit 0 ;;
         -h|--help) sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *)         echo "am-overview: unknown argument '$1'" >&2; exit 2 ;;
     esac
@@ -81,6 +132,26 @@ fetch_repo() {
     gh api "repos/$slug/issues" -X GET -f state=open -f per_page=100 --paginate --jq "$ISSUE_JQ"
 }
 
+fetch_prs() {
+    local slug="$1"
+    if [ -n "${AM_OVERVIEW_FETCH_PRS:-}" ]; then
+        "$AM_OVERVIEW_FETCH_PRS" "$slug"
+        return $?
+    fi
+    gh api graphql --paginate -F owner="${slug%%/*}" -F name="${slug#*/}" \
+        -f query="$PR_QUERY" --jq "$PR_JQ"
+}
+
+fetch_pr_counts() {
+    local slug="$1"
+    if [ -n "${AM_OVERVIEW_FETCH_PR_COUNTS:-}" ]; then
+        "$AM_OVERVIEW_FETCH_PR_COUNTS" "$slug"
+        return $?
+    fi
+    gh api graphql -F owner="${slug%%/*}" -F name="${slug#*/}" -f query="$PR_COUNT_QUERY" \
+        --jq '.data.repository | "\(.open.totalCount) \(.closed.totalCount)"'
+}
+
 # Epoch of an ISO-8601 Z timestamp. `date -j -f` parses in LOCAL time and
 # ignores the trailing Z, which inflated every age in am-ledger by the
 # operator's UTC offset (diskjockey#132) — hence -u here, and the GNU
@@ -99,17 +170,71 @@ wanted() {
 }
 
 NOW="$(date -u +%s)"
-rows="$(mktemp)"; summary="$(mktemp)"; failed="$(mktemp)"
-trap 'rm -f "$rows" "$summary" "$failed"' EXIT
+rows="$(mktemp)"; summary="$(mktemp)"; failed="$(mktemp)"; prs="$(mktemp)"; errs="$(mktemp)"
+trap 'rm -f "$rows" "$summary" "$failed" "$prs" "$errs"' EXIT
+
+# Called after every fetch, whose stderr went to $errs. Passes that stderr
+# on, and stops the run when it is a rate limit: the primary limit
+# ("API rate limit exceeded"), the secondary one ("secondary rate limit"),
+# and GraphQL's RATE_LIMITED all say "rate limit" in some case.
+stop_if_rate_limited() { # stop_if_rate_limited <what was being read>
+    cat "$errs" >&2
+    grep -qiE 'rate[ _]limit' "$errs" || return 0
+    {
+        echo
+        echo "am-overview: GitHub is rate limiting this token; stopped at $1 rather than"
+        echo "am-overview: repeating a request that can only fail. Nothing was printed, because"
+        echo "am-overview: a table built from the projects read so far would look complete."
+        # `rate_limit` is not itself counted against the limit. Skipped under a
+        # fetch stub, which has no token to ask about.
+        if [ -z "${AM_OVERVIEW_FETCH:-}${AM_OVERVIEW_FETCH_PRS:-}${AM_OVERVIEW_FETCH_PR_COUNTS:-}" ]; then
+            reset="$(gh api rate_limit --jq '[.resources.core, .resources.graphql]
+                | map(select(.remaining == 0) | .reset) | max // empty' 2>/dev/null)"
+            if [ -n "$reset" ]; then
+                when="$(date -u -r "$reset" +%H:%M:%SZ 2>/dev/null || date -u -d "@$reset" +%H:%M:%SZ 2>/dev/null)"
+                echo "am-overview: the limit resets at $when."
+            else
+                echo "am-overview: no primary limit is exhausted, so this is a secondary limit; wait a few minutes."
+            fi
+        fi
+    } >&2
+    exit 5
+}
 
 for entry in "${PROJECTS[@]}"; do
     name="${entry%%:*}"; slug="${entry#*:}"
     wanted "$name" || continue
-    out="$(fetch_repo "$slug")"; rc=$?
+    out="$(fetch_repo "$slug" 2>"$errs")"; rc=$?
+    stop_if_rate_limited "$name"
     if [ "$rc" -ne 0 ]; then
         printf '%s\n' "$name" >> "$failed"
-        printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\n' "$name" "FETCH FAILED" "-" "-" "-" >> "$summary"
+        printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\n' "$name" "FETCH FAILED" "-" "-" "$slug" >> "$summary"
         continue
+    fi
+    if [ "$MODE" = list ]; then
+        # A failed lookup is not "no pull requests": the project is listed as
+        # failed and the exit status says the table is incomplete.
+        pr_out="$(fetch_prs "$slug" 2>"$errs")"; pr_rc=$?
+        stop_if_rate_limited "$name (pull requests)"
+        if [ "$pr_rc" -eq 0 ]; then
+            [ -z "$pr_out" ] || printf '%s\n' "$pr_out" | sed "s/^/${name}$(printf '\037')/" >> "$prs"
+        else
+            printf '%s (pull requests)\n' "$name" >> "$failed"
+            printf '%s\x1f%s\n' "$name" "PR FETCH FAILED" >> "$prs"
+        fi
+    fi
+    pr_open=-; pr_closed=-
+    if [ "$MODE" = summary ] || [ "$MODE" = full ]; then
+        # Two numbers or nothing: anything else is a failed lookup, shown as
+        # `?` and counted in the exit status rather than printed as zero.
+        pr_counts="$(fetch_pr_counts "$slug" 2>"$errs")"; pr_rc=$?
+        stop_if_rate_limited "$name (pull request counts)"
+        if [ "$pr_rc" -eq 0 ] && [[ "$pr_counts" =~ ^([0-9]+)\ ([0-9]+)$ ]]; then
+            pr_open="${BASH_REMATCH[1]}"; pr_closed="${BASH_REMATCH[2]}"
+        else
+            printf '%s (pull request counts)\n' "$name" >> "$failed"
+            pr_open='?'; pr_closed='?'
+        fi
     fi
     count=0; oldest=0; stale=0
     while IFS=$'\x1f' read -r num created labels title; do
@@ -122,14 +247,15 @@ for entry in "${PROJECTS[@]}"; do
         [ "$days" -ge "$STALE_DAYS" ] && stale=$((stale + 1))
         printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\n' "$name" "$num" "${days}d" "${labels:--}" "$title" >> "$rows"
     done <<< "$out"
-    printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\n' "$name" "$count" "${oldest}d" "$stale" "-" >> "$summary"
+    printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\n' "$name" "$count" "${oldest}d" "$stale" "$slug" "$pr_open" "$pr_closed" >> "$summary"
 done
 
 total="$(wc -l < "$rows" | tr -d ' ')"
 nfailed="$(wc -l < "$failed" | tr -d ' ')"
 
 # An empty table and a broken query look identical, so say which this is.
-if [ "$total" -eq 0 ] && [ "$nfailed" -eq 0 ]; then
+# --list is exempt: it names every project anyway, and says per project.
+if [ "$MODE" != list ] && [ "$total" -eq 0 ] && [ "$nfailed" -eq 0 ]; then
     if [ ${#WANT[@]} -gt 0 ]; then
         echo "am-overview: no open issues in the named project(s)"
     else
@@ -141,16 +267,81 @@ fi
 if [ "$MODE" = tsv ]; then
     # The internal separator is US; TSV is what a caller asked for.
     tr '\037' '\t' < "$rows"
+elif [ "$MODE" = list ]; then
+    # Driven by the summary, not the rows, so a project with nothing open
+    # still gets its heading — every project is named, none is skipped.
+    # Columns are sized per project. An issue with several pull requests
+    # takes one line per PR, so the title stays in a readable column instead
+    # of being pushed right by a run of URLs.
+    first=1
+    while IFS=$'\x1f' read -r name count _ _ slug _; do
+        [ "$first" -eq 1 ] || echo
+        first=0
+        if [ "$count" = "FETCH FAILED" ]; then
+            printf '%s — FETCH FAILED\n' "$name"
+            continue
+        fi
+        printf '%s — %s open\n' "$name" "$count"
+        if [ "$count" -eq 0 ]; then
+            echo "  (no open issues)"
+            continue
+        fi
+        awk -F$'\x1f' -v n="$name" '$1 == n' "$rows" | sort -t$'\x1f' -k2,2n \
+            | awk -F$'\x1f' -v n="$name" -v slug="$slug" -v prfile="$prs" '
+                # Fills u[] with the PR cells for issue k; returns how many.
+                function prs_of(k) {
+                    if (failed) { u[1] = "FETCH FAILED"; return 1 }
+                    return split(k in pr ? pr[k] : "-", u, " ")
+                }
+                BEGIN {
+                    while ((getline line < prfile) > 0) {
+                        split(line, f, "\037")
+                        if (f[1] != n) continue
+                        if (f[2] == "PR FETCH FAILED") failed = 1
+                        else pr[f[2]] = f[3]
+                    }
+                    wi = length("ISSUE"); wl = length("LINK"); wp = length("PULL REQUESTS")
+                }
+                {
+                    num[NR] = $2; title[NR] = $5
+                    link[NR] = "https://github.com/" slug "/issues/" $2
+                    if (length("#" $2) > wi) wi = length("#" $2)
+                    if (length(link[NR]) > wl) wl = length(link[NR])
+                    np = prs_of($2)
+                    for (i = 1; i <= np; i++) if (length(u[i]) > wp) wp = length(u[i])
+                }
+                END {
+                    printf "  %-" wi "s  %-" wl "s  %-" wp "s  %s\n", "ISSUE", "LINK", "PULL REQUESTS", "TITLE"
+                    for (r = 1; r <= NR; r++) {
+                        np = prs_of(num[r])
+                        printf "  %-" wi "s  %-" wl "s  %-" wp "s  %s\n", "#" num[r], link[r], u[1], title[r]
+                        for (i = 2; i <= np; i++)
+                            printf "  %-" wi "s  %-" wl "s  %s\n", "", "", u[i]
+                    }
+                }'
+    done < "$summary"
+    echo
+    printf 'TOTAL — %s open across %s project(s)\n' "$total" "$(wc -l < "$summary" | tr -d ' ')"
 else
-    printf '%-18s %6s %7s %6s\n' PROJECT OPEN OLDEST "≥${STALE_DAYS}d"
-    while IFS=$'\x1f' read -r name count oldest stale _; do
+    # %8s, not %6s: printf pads by bytes and ≥ is three of them.
+    printf '%-18s %6s %7s %8s %8s %9s\n' PROJECT OPEN OLDEST "≥${STALE_DAYS}d" "PRS OPEN" "PRS CLOSED"
+    pr_open_total=0; pr_closed_total=0; pr_unknown=0
+    while IFS=$'\x1f' read -r name count oldest stale _ pr_open pr_closed; do
         if [ "$count" = "FETCH FAILED" ]; then
             printf '%-18s %6s\n' "$name" "FETCH FAILED"
+            continue
+        fi
+        printf '%-18s %6s %7s %6s %8s %9s\n' "$name" "$count" "$oldest" "$stale" "$pr_open" "$pr_closed"
+        if [ "$pr_open" = '?' ]; then
+            pr_unknown=1
         else
-            printf '%-18s %6s %7s %6s\n' "$name" "$count" "$oldest" "$stale"
+            pr_open_total=$((pr_open_total + pr_open)); pr_closed_total=$((pr_closed_total + pr_closed))
         fi
     done < "$summary"
-    printf '%-18s %6s\n' TOTAL "$total"
+    # A total over a project whose counts are unknown would be a lower bound
+    # dressed as a number, so it is marked the same way the row is.
+    [ "$pr_unknown" -eq 0 ] || { pr_open_total="${pr_open_total}+?"; pr_closed_total="${pr_closed_total}+?"; }
+    printf '%-18s %6s %7s %6s %8s %9s\n' TOTAL "$total" "" "" "$pr_open_total" "$pr_closed_total"
 
     if [ "$MODE" = full ] && [ "$total" -gt 0 ]; then
         echo
