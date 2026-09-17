@@ -142,7 +142,7 @@ jobs:
           # glob that quietly stopped matching. It moves up with the suite;
           # it never moves down.
           echo "ran $found script test(s) (floor 18)"
-          if [ "$found" -lt 18 ]; then
+          if [ "$found" -lt 99999 ]; then
             echo "::error::only $found script tests ran, floor is 18 -- 20 ran on 2026-09-17 (run 35238130306), so scripts/tests/*.sh has stopped matching the suite rather than passing it" >&2
             exit 1
           fi
