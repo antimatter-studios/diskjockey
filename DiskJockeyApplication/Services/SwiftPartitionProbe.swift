@@ -6,7 +6,7 @@ import Foundation
 /// via drag-and-drop or the Open panel.
 ///
 /// Handles raw .img / .dd files (MBR and GPT). Container formats (QCOW2,
-/// VHD, VHDX, VMDK) are not decompressed here — fall back to diskprobe
+/// VHD, VHDX, VMDK) are not decompressed here — fall back to blk-probe
 /// for those.
 ///
 /// Note: the magic-byte / superblock constants below are the authoritative
@@ -78,7 +78,7 @@ enum SwiftPartitionProbe {
     // MARK: - Top-level entry point
 
     /// Probe `url`. Returns nil if the file can't be read or is clearly a
-    /// container format that needs diskprobe.
+    /// container format that needs blk-probe.
     static func probe(at url: URL) -> DiskProbeResult? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
@@ -89,7 +89,7 @@ enum SwiftPartitionProbe {
 
         let fileSize = Self.fileSize(url: url)
 
-        // Skip known container formats — diskprobe handles those.
+        // Skip known container formats — blk-probe handles those.
         if isContainerFormat(sector0: sector0, handle: handle, fileSize: fileSize) { return nil }
 
         // GPT: signature "EFI PART" at LBA 1 bytes 0-8.

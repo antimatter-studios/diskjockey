@@ -1045,7 +1045,7 @@ and a reader trying it inside a script concludes the passage is false.
 The agent shell is zsh with `pipefail` off, so at a prompt the example
 is exactly right; the CI Test step (`ci.yml:125`) and 13 of the 21
 entries in `scripts/` — 13 of the 16 that are shell, all five `am-*`
-tools among them, the exceptions being `build-disk-probe.sh`,
+tools among them, the exceptions being `build-blk-probe.sh`,
 `build-gonetworkfs.sh` and `sibling-build.sh` — set it. **The
 prescription above needs one word of qualifier**: in zsh, use
 `$pipestatus[1]`, or drop the pipe. `${PIPESTATUS[0]}` is a bashism and

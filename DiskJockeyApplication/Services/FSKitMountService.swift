@@ -13,7 +13,7 @@ import DiskJockeyLibrary
 /// The bundled DiskJockeyEXT4 FSKit extension must be registered with
 /// pluginkit (which happens automatically once the host app has launched
 /// at least once with the embedded .appex in place).
-/// JSON shape emitted by the staged `diskprobe` CLI binary. Mirrors the
+/// JSON shape emitted by the staged `blk-probe` CLI binary. Mirrors the
 /// schema the binary documents in its own usage block. Codable keys map
 /// to snake_case JSON via a custom CodingKeys table.
 struct DiskProbeResult: Decodable {
@@ -258,7 +258,7 @@ final class FSKitMountService {
 
     /// Extract the trailing slice number from a /dev/diskNsM path, or
     /// nil if the path doesn't match. Used to map hdiutil's slice list
-    /// back to diskprobe's partition indices (s1 -> index 0, s2 -> 1, …).
+    /// back to blk-probe's partition indices (s1 -> index 0, s2 -> 1, …).
     static func sliceNumber(of devEntry: String) -> Int? {
         guard let range = devEntry.range(of: #"s(\d+)$"#, options: .regularExpression) else {
             return nil
@@ -318,11 +318,11 @@ final class FSKitMountService {
         return url.path
     }
 
-    /// Run the staged diskprobe binary against `path` and return its
+    /// Run the staged blk-probe binary against `path` and return its
     /// JSON-decoded result. Throws if the binary is missing or fails.
     static func runDiskProbe(at path: String) throws -> DiskProbeResult {
-        guard let probe = locateDiskProbeBinary() else {
-            throw FSKitError.processFailed(exitCode: -1, stderr: "diskprobe binary not found in app bundle or lib/diskprobe/")
+        guard let probe = locateBlkProbeBinary() else {
+            throw FSKitError.processFailed(exitCode: -1, stderr: "blk-probe binary not found in app bundle or lib/blk-probe/")
         }
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: probe)
@@ -338,20 +338,20 @@ final class FSKitMountService {
         return try JSONDecoder().decode(DiskProbeResult.self, from: result.stdout)
     }
 
-    /// Find the diskprobe binary. Checks (in order):
+    /// Find the blk-probe binary. Checks (in order):
     ///   1. App bundle Resources (the shipped path)
-    ///   2. `lib/diskprobe/diskprobe` relative to the project root, by
+    ///   2. `lib/blk-probe/blk-probe` relative to the project root, by
     ///      walking up from this source file. Lets dev builds work
     ///      without an Xcode "Copy Files" build phase.
-    private static func locateDiskProbeBinary() -> String? {
-        if let url = Bundle.main.url(forResource: "diskprobe", withExtension: nil),
+    private static func locateBlkProbeBinary() -> String? {
+        if let url = Bundle.main.url(forResource: "blk-probe", withExtension: nil),
            FileManager.default.isExecutableFile(atPath: url.path) {
             return url.path
         }
-        // Walk up from #filePath looking for "lib/diskprobe/diskprobe".
+        // Walk up from #filePath looking for "lib/blk-probe/blk-probe".
         var dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         for _ in 0..<8 {
-            let candidate = dir.appendingPathComponent("lib/diskprobe/diskprobe").path
+            let candidate = dir.appendingPathComponent("lib/blk-probe/blk-probe").path
             if FileManager.default.isExecutableFile(atPath: candidate) {
                 return candidate
             }
@@ -543,18 +543,18 @@ enum FSKitAttachController {
     /// Single entry point for "user pointed us at a disk image, mount
     /// it." Used by both the sidebar "Add Disk Image" button and the
     /// drag-and-drop handler. First probes the partition table via the
-    /// staged diskprobe binary — if there's an MBR/GPT with supported
+    /// staged blk-probe binary — if there's an MBR/GPT with supported
     /// partitions, mounts each one separately at /Volumes/<name>-pN.
     /// Falls back to whole-device mount when probe fails or finds no
     /// partition table.
     static func attachUserPickedImage(at url: URL, logRepository: LogRepository? = nil) {
-        // Try diskprobe first — it handles containers (qcow2/vhd/vhdx/vmdk)
+        // Try blk-probe first — it handles containers (qcow2/vhd/vhdx/vmdk)
         // and raw images with MBR/GPT tables or a single filesystem.
         let probe: DiskProbeResult?
         do {
             probe = try FSKitMountService.runDiskProbe(at: url.path)
         } catch {
-            logRepository?.logFSKit("diskprobe failed for \(url.lastPathComponent): \(error)", category: "warn")
+            logRepository?.logFSKit("blk-probe failed for \(url.lastPathComponent): \(error)", category: "warn")
             probe = nil
         }
 
@@ -564,7 +564,7 @@ enum FSKitAttachController {
             return
         }
 
-        // Single-FS path. Prefer diskprobe's whole-device sniff (sees through
+        // Single-FS path. Prefer blk-probe's whole-device sniff (sees through
         // container formats) then fall back to direct magic-byte detection.
         let detected = detectFSType(at: url)
         let resolvedFsType: String? = {
