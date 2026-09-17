@@ -35,6 +35,17 @@ tasks:
     cmds:
       - scripts/am-overview --tsv
 
+  pr:list:
+    desc: Every pull request across the constellation (add -- --state open, --tsv, ...)
+    # No `sources`, for the same reason as overview:list: the answer is on GitHub.
+    cmds:
+      - scripts/am-prs {{.CLI_ARGS}}
+
+  pr:external:
+    desc: Pull requests opened by external contributors (add -- --state open, --tsv, ...)
+    cmds:
+      - scripts/am-prs --external {{.CLI_ARGS}}
+
   check:scripts:
     desc: Run every scripts/tests/*.sh guard
     # The same loop the `Shell scripts` CI job runs, so a guard that passes

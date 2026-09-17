@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+#
+# am-prs — every pull request across the constellation, one table.
+#
+# The projects come from constellation-repositories.sh, like am-overview.
+#
+#   scripts/am-prs                    every pull request, every state
+#   scripts/am-prs --external         only those opened by external contributors
+#   scripts/am-prs --state STATE      open, closed, merged or all (default all)
+#   scripts/am-prs --project NAME     one project (repeatable)
+#   scripts/am-prs --tsv              the same rows as TSV, with a header
+#   scripts/am-prs --print-jq         the row filter, for its own test
+#
+# WHO IS EXTERNAL. GitHub records how the author relates to the repository
+# when the PR was opened (authorAssociation). OWNER, MEMBER and COLLABORATOR
+# are the project's own people; CONTRIBUTOR, FIRST_TIME_CONTRIBUTOR,
+# FIRST_TIMER and NONE are not. A bot account is never external — it is
+# tooling somebody here installed — and a deleted account (`ghost`) is, since
+# nothing says otherwise.
+#
+# EXIT STATUS IS PART OF THE OUTPUT, as in am-overview: a project whose fetch
+# fails gets a FETCH FAILED row and the command exits 4, because a missing
+# project reads as "no pull requests".
+#
+# Environment, for tests:
+#   AM_PRS_FETCH   command called with a slug instead of gh; prints rows in
+#                  the --print-jq format
+set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=constellation-repositories.sh
+. "$HERE/constellation-repositories.sh"
+PROJECTS=("${CONSTELLATION_REPOSITORIES[@]}")
+
+PR_QUERY='query($owner: String!, $name: String!, $endCursor: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(first: 100, after: $endCursor, orderBy: {field: CREATED_AT, direction: ASC}) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        number state authorAssociation createdAt title url
+        author { __typename login }
+      }
+    }
+  }
+}'
+
+# number US state US association US author-type US login US created US url US title
+# A deleted account has a null author; it is reported as the `ghost` user,
+# which is what GitHub itself shows.
+PR_JQ='.data.repository.pullRequests.nodes[]
+    | [(.number|tostring), .state, .authorAssociation,
+       (.author.__typename // "User"), (.author.login // "ghost"),
+       (.createdAt[0:10]), .url,
+       (.title | if . == "" then "(no title)" else . end)]
+    | join("")'
+
+STATE=ALL
+EXTERNAL=0
+TSV=0
+WANT=()
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --external) EXTERNAL=1 ;;
+        --tsv)      TSV=1 ;;
+        --state)
+            shift
+            case "${1:-}" in
+                open|closed|merged|all) STATE="$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')" ;;
+                *) echo "am-prs: --state needs open, closed, merged or all" >&2; exit 2 ;;
+            esac ;;
+        --project)  shift; [ $# -gt 0 ] || { echo "am-prs: --project needs a name" >&2; exit 2; }; WANT+=("$1") ;;
+        --print-jq) printf '%s\n' "$PR_JQ"; exit 0 ;;
+        -h|--help)  sed -n '2,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *)          echo "am-prs: unknown argument '$1'" >&2; exit 2 ;;
+    esac
+    shift
+done
+
+fetch_repo() {
+    local slug="$1"
+    if [ -n "${AM_PRS_FETCH:-}" ]; then
+        "$AM_PRS_FETCH" "$slug"
+        return $?
+    fi
+    gh api graphql --paginate -F owner="${slug%%/*}" -F name="${slug#*/}" \
+        -f query="$PR_QUERY" --jq "$PR_JQ"
+}
+
+wanted() {
+    [ ${#WANT[@]} -eq 0 ] && return 0
+    local w
+    for w in "${WANT[@]}"; do [ "$w" = "$1" ] && return 0; done
+    return 1
+}
+
+rows="$(mktemp)"; failed="$(mktemp)"
+trap 'rm -f "$rows" "$failed"' EXIT
+
+nprojects=0
+for entry in "${PROJECTS[@]}"; do
+    name="${entry%%:*}"; slug="${entry#*:}"
+    wanted "$name" || continue
+    nprojects=$((nprojects + 1))
+    if ! out="$(fetch_repo "$slug")"; then
+        printf '%s\n' "$name" >> "$failed"
+        continue
+    fi
+    [ -n "$out" ] || continue
+    # State and origin are filtered here rather than in the query, so the
+    # classification is plain text a test can drive through AM_PRS_FETCH.
+    printf '%s\n' "$out" | awk -F'\037' -v OFS='\037' -v name="$name" \
+        -v state="$STATE" -v external="$EXTERNAL" '
+        NF < 8 { next }
+        state != "ALL" && $2 != state { next }
+        {
+            origin = ($4 == "Bot" || $3 == "OWNER" || $3 == "MEMBER" || $3 == "COLLABORATOR") \
+                ? "internal" : "external"
+            if (external && origin != "external") next
+            print name, $1, $2, $5, $3, $6, $7, $8
+        }' >> "$rows"
+done
+
+total="$(wc -l < "$rows" | tr -d ' ')"
+nfailed="$(wc -l < "$failed" | tr -d ' ')"
+what="pull requests"
+[ "$EXTERNAL" -eq 1 ] && what="external pull requests"
+[ "$STATE" = ALL ] || what="$(printf '%s' "$STATE" | tr '[:upper:]' '[:lower:]') $what"
+
+if [ "$TSV" -eq 1 ]; then
+    printf 'project\tpr\tstate\tauthor\tassociation\tcreated\turl\ttitle\n'
+    tr '\037' '\t' < "$rows"
+elif [ "$total" -eq 0 ]; then
+    # An empty table and a broken query look identical, so say which this is.
+    [ "$nfailed" -gt 0 ] || echo "am-prs: no $what in any of the $nprojects project(s)"
+else
+    # Columns sized to the data; the title is last so its length moves nothing.
+    awk -F'\037' '
+        { for (i = 1; i <= 8; i++) { c[NR, i] = $i; if (length($i) > w[i]) w[i] = length($i) } }
+        END {
+            split("PROJECT PR STATE AUTHOR ASSOCIATION CREATED LINK TITLE", h, " ")
+            for (i = 1; i <= 7; i++) if (length(h[i]) > w[i]) w[i] = length(h[i])
+            w[2]++  # the # prefix
+            fmt = "%-" w[1] "s  %" w[2] "s  %-" w[3] "s  %-" w[4] "s  %-" w[5] "s  %-" w[6] "s  %-" w[7] "s  %s\n"
+            printf fmt, h[1], h[2], h[3], h[4], h[5], h[6], h[7], h[8]
+            for (r = 1; r <= NR; r++)
+                printf fmt, c[r,1], "#" c[r,2], c[r,3], c[r,4], c[r,5], c[r,6], c[r,7], c[r,8]
+        }' "$rows"
+    echo
+    printf 'TOTAL — %s %s across %s project(s)\n' "$total" "$what" \
+        "$(cut -d$'\037' -f1 "$rows" | sort -u | wc -l | tr -d ' ')"
+fi
+
+if [ "$nfailed" -gt 0 ]; then
+    echo >&2
+    echo "am-prs: $nfailed project(s) could not be read:" >&2
+    sed 's/^/    FETCH FAILED  /' "$failed" >&2
+    echo "am-prs: the list above is incomplete BY THAT MUCH." >&2
+    exit 4
+fi
+exit 0
