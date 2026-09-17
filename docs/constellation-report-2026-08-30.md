@@ -1273,7 +1273,8 @@ captured in `.vm-share`. The one QEMU process running on the machine belongs to
 `projects/inpace` and was left untouched.
 
 **Another agent's uncommitted work in `rust-fs-ntfs`** — a modified
-`vendor/fs-test-harness` submodule pointer, two untracked files under
+submodule pointer for the Windows test harness (then vendored; now the
+`fs-windows-test-harness` repository), two untracked files under
 `docs/testing/`, and `stash@{0}` — was left exactly as found, and the commit
 there stages only the two files this work touched.
 
