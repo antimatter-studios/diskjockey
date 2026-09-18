@@ -3,7 +3,7 @@
 # check-bundle-core-pin.sh — refuse a committed bundle lockfile that resolves
 # am-fs-core below the minimum this project has actually verified.
 #
-# WHY THIS EXISTS RATHER THAN RELYING ON .githooks/pre-commit.d/rust-deps-pinned.sh.
+# WHY THIS EXISTS RATHER THAN RELYING ON the guards' pre-commit rust-deps-pinned.
 # That hook's `cargo metadata --locked` check (part 4) asks "is this lockfile
 # still valid against these manifests" -- it passes as long as the LOCKED
 # am-fs-core version still satisfies whatever the LOCKED am-fs-btrfs (etc.)
