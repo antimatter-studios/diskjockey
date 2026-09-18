@@ -32,7 +32,7 @@ that bundle's `Cargo.toml` pins.
 | Component | License | Source |
 |---|---|---|
 | `go-networkfs` | MIT | github.com/christhomas/go-networkfs |
-| `diskprobe` | MIT | first-party, github.com/antimatter-studios/rust-blk-probe |
+| `blk-probe` | MIT | first-party, github.com/antimatter-studios/rust-blk-probe |
 | `tabler-icons` | MIT | github.com/tabler/tabler-icons |
 
 ## Transitive Rust dependencies

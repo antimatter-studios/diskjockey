@@ -26,7 +26,7 @@ import Foundation
 /// ```
 ///
 /// `hdiutil info -plist` lists every attached image on the machine and
-/// passes 64 KiB easily. `diskprobe` emits a JSON description of a whole
+/// passes 64 KiB easily. `blk-probe` emits a JSON description of a whole
 /// disk. Both were called this way.
 ///
 /// Reading first fixes one pipe. Reading two pipes one after the other
