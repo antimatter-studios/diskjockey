@@ -9,13 +9,13 @@
 #   - an unlabelled issue shifted every later field left, because TAB is
 #     IFS whitespace and `read` collapses a run of them, so titles
 #     appeared in the labels column and the title column was empty;
-#   - a second copy of the project list can drift from am-ledger's, which
-#     is diskjockey#128 in another file;
+#   - duplicated project lists can drift or share the same omission, so all
+#     consumers now source one product manifest (diskjockey#170);
 #   - a timestamp parsed with `date -j -f` and no -u is read as local
 #     time, which is diskjockey#132.
 #
 # Nothing here touches the network: AM_OVERVIEW_FETCH replaces the gh
-# call and AM_OVERVIEW_LEDGER_BIN points at a fixture list.
+# call.
 #
 #   bash scripts/tests/am-overview.sh
 set -uo pipefail
@@ -41,18 +41,6 @@ contains() { # contains <what> <needle> <haystack>
     esac
 }
 
-# A ledger fixture whose list is, by construction, the one the tool carries:
-# generated from the tool itself, so "they agree" is not asserted by hand.
-mk_ledger() { # mk_ledger <path> [omit-name] [extra-entry]
-    local out="$1" omit="${2:-}" extra="${3:-}"
-    { echo 'DEFAULT_REPOS=('
-      sed -n '/^PROJECTS=(/,/^)/p' "$BIN" | sed -n 's/^[[:space:]]*"\(.*\)".*/    "\1"/p' \
-        | { [ -n "$omit" ] && grep -v "\"$omit:" || cat; }
-      [ -n "$extra" ] && echo "    \"$extra\""
-      echo ')'
-    } > "$out"
-}
-
 # A fetch stub. Each line of $sandbox/<slug-with-slashes-as-dashes>.rows is
 # emitted verbatim; a file named .fail makes the fetch exit non-zero.
 cat > "$sandbox/fetch" <<'STUB'
@@ -76,14 +64,12 @@ now_minus() { # seconds -> ISO-8601 Z
     fi
 }
 
-# ---------------------------------------------------------------- 1. agrees
-mk_ledger "$sandbox/ledger-ok"
-export AM_OVERVIEW_LEDGER_BIN="$sandbox/ledger-ok"
-row 12 "$(now_minus 3600)" - "one hour old"       > "$sandbox/antimatter-studios-agent-skills.rows"
-row 13 "$(now_minus 432000)" bug "five days old" >> "$sandbox/antimatter-studios-agent-skills.rows"
-out="$("$BIN" --project agent-skills 2>&1)"; rc=$?
-check "a matching list runs" 0 "$rc"
-contains "the count is the row count" "agent-skills            2" "$out"
+# ------------------------------------------------------------------ 1. runs
+row 12 "$(now_minus 3600)" - "one hour old"       > "$sandbox/antimatter-studios-diskjockey.rows"
+row 13 "$(now_minus 432000)" bug "five days old" >> "$sandbox/antimatter-studios-diskjockey.rows"
+out="$("$BIN" --project diskjockey 2>&1)"; rc=$?
+check "the canonical product list runs" 0 "$rc"
+contains "the count is the row count" "diskjockey              2" "$out"
 
 # ------------------------------------------------- 2. an hour is not a day
 # The whole point of parsing the timestamp as UTC: with `date -j -f` and no
@@ -100,50 +86,30 @@ contains "five days old is 5d" "   5d" "$out"
 # boundary, with TZ pinned to a positive-offset zone: correct is 4d, and a
 # local-time parse reports 5d. Under TZ=UTC there is no difference at all,
 # which is exactly why diskjockey#132 was invisible in CI.
-row 14 "$(now_minus $(( 5 * 86400 - 3600 )))" - "just under five days" > "$sandbox/antimatter-studios-agent-skills.rows"
-out2="$(TZ=Europe/Berlin "$BIN" --project agent-skills --tsv)"
+row 14 "$(now_minus $(( 5 * 86400 - 3600 )))" - "just under five days" > "$sandbox/antimatter-studios-diskjockey.rows"
+out2="$(TZ=Europe/Berlin "$BIN" --project diskjockey --tsv)"
 check "an age just under a boundary stays below it" "4d" "$(printf '%s\n' "$out2" | awk -F'\t' '$2==14 {print $3}')"
-row 12 "$(now_minus 3600)" - "one hour old"       > "$sandbox/antimatter-studios-agent-skills.rows"
-row 13 "$(now_minus 432000)" bug "five days old" >> "$sandbox/antimatter-studios-agent-skills.rows"
+row 12 "$(now_minus 3600)" - "one hour old"       > "$sandbox/antimatter-studios-diskjockey.rows"
+row 13 "$(now_minus 432000)" bug "five days old" >> "$sandbox/antimatter-studios-diskjockey.rows"
 
 # ------------------------------------------ 3. an empty field shifts nothing
 contains "the title is in the title column" "one hour old" "$out"
-tsv="$("$BIN" --project agent-skills --tsv)"
+tsv="$("$BIN" --project diskjockey --tsv)"
 check "the labels column holds the label" "bug" "$(printf '%s\n' "$tsv" | awk -F'\t' '$2==13 {print $4}')"
 check "the title column holds the title" "five days old" "$(printf '%s\n' "$tsv" | awk -F'\t' '$2==13 {print $5}')"
 
-# ------------------------------------------------------------ 4. drift, ours
-mk_ledger "$sandbox/ledger-missing" agent-skills
-AM_OVERVIEW_LEDGER_BIN="$sandbox/ledger-missing" out="$("$BIN" --summary 2>&1)"; rc=$?
-check "a list the ledger lacks refuses" 3 "$rc"
-contains "and names the direction" "only in am-overview" "$out"
-contains "and names the project" "agent-skills" "$out"
-
-# ---------------------------------------------------------- 5. drift, theirs
-mk_ledger "$sandbox/ledger-extra" "" "rust-fs-zfs:antimatter-studios/rust-fs-zfs"
-AM_OVERVIEW_LEDGER_BIN="$sandbox/ledger-extra" out="$("$BIN" --summary 2>&1)"; rc=$?
-check "a project only the ledger has refuses" 3 "$rc"
-contains "and names that direction too" "only in am-ledger" "$out"
-
-# -------------------------------------------------- 6. unreadable is not ok
-: > "$sandbox/ledger-empty"
-AM_OVERVIEW_LEDGER_BIN="$sandbox/ledger-empty" out="$("$BIN" --summary 2>&1)"; rc=$?
-check "an unparseable ledger refuses" 3 "$rc"
-contains "rather than assuming agreement" "refusing to run" "$out"
-
-# ------------------------------------------------------- 7. a failed fetch
-export AM_OVERVIEW_LEDGER_BIN="$sandbox/ledger-ok"
+# ------------------------------------------------------- 4. a failed fetch
 : > "$sandbox/antimatter-studios-rust-partitions.fail"
-out="$("$BIN" --project agent-skills --project rust-partitions 2>&1)"; rc=$?
+out="$("$BIN" --project diskjockey --project rust-partitions 2>&1)"; rc=$?
 check "a failed fetch exits 4" 4 "$rc"
 contains "the row says so" "FETCH FAILED" "$out"
 contains "and the shortfall is stated" "incomplete BY THAT MUCH" "$out"
-contains "while the readable project still counts" "agent-skills            2" "$out"
+contains "while the readable project still counts" "diskjockey              2" "$out"
 rm -f "$sandbox/antimatter-studios-rust-partitions.fail"
 
-# --------------------------------------------------------- 8. nothing found
-rm -f "$sandbox/antimatter-studios-agent-skills.rows"
-out="$("$BIN" --project agent-skills 2>&1)"; rc=$?
+# --------------------------------------------------------- 5. nothing found
+rm -f "$sandbox/antimatter-studios-diskjockey.rows"
+out="$("$BIN" --project diskjockey 2>&1)"; rc=$?
 check "no issues exits 0" 0 "$rc"
 contains "and says so in words" "no open issues" "$out"
 case "$out" in
@@ -151,7 +117,7 @@ case "$out" in
     *) echo "ok — an empty result is not an empty table" ;;
 esac
 
-# ------------------------------------------------- 9. the filter drops PRs
+# ------------------------------------------------- 6. the filter drops PRs
 # The endpoint returns pull requests as issues; without the filter every
 # count is wrong in the direction that looks busy.
 if command -v jq >/dev/null 2>&1; then

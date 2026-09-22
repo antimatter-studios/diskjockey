@@ -23,7 +23,12 @@ private final class LockBox<Value>: @unchecked Sendable {
     func set(_ v: Value) { lock.lock(); defer { lock.unlock() }; value = v }
 }
 
-@Suite("DetachedOperationWatchdog")
+// SERIALISED, because every test here asserts on a timer.
+// Run in parallel they starve each other, and the suite failed CI
+// twice on 2026-09-11 in BOTH directions: a monitor firing when it
+// should not have, then monitors not firing when they should
+// (`(fired.get() -> false) == true`, `reportedDeadline -> 0.0`).
+@Suite("DetachedOperationWatchdog", .serialized)
 struct DetachedOperationWatchdogTests {
 
     // ----- Counter arithmetic -----
@@ -55,13 +60,13 @@ struct DetachedOperationWatchdogTests {
 
     @Test func scheduleReturnsFalseAndNoFireWhenCounterIsZero() async throws {
         let fired = LockBox(false)
-        let w = DetachedOperationWatchdog(label: "test", defaultDeadline: 0.05) { _, _ in
+        let w = DetachedOperationWatchdog(label: "test", defaultDeadline: 0.4) { _, _ in
             fired.set(true)
         }
         let scheduled = w.scheduleExpiryIfNeeded()
         #expect(scheduled == false)
         // Wait long enough that, if it HAD scheduled, it would have fired.
-        try await Task.sleep(nanoseconds: 150_000_000)  // 0.15s
+        try await Task.sleep(nanoseconds: 1_200_000_000)  // 1.2s
         #expect(fired.get() == false)
     }
 
@@ -69,7 +74,7 @@ struct DetachedOperationWatchdogTests {
         let fired = LockBox(false)
         let reportedPending = LockBox(0)
         let reportedDeadline = LockBox(0.0)
-        let w = DetachedOperationWatchdog(label: "test", defaultDeadline: 0.05) { pending, deadline in
+        let w = DetachedOperationWatchdog(label: "test", defaultDeadline: 0.4) { pending, deadline in
             reportedPending.set(pending)
             reportedDeadline.set(deadline)
             fired.set(true)
@@ -78,15 +83,15 @@ struct DetachedOperationWatchdogTests {
         let scheduled = w.scheduleExpiryIfNeeded()
         #expect(scheduled == true)
         // Wait past the deadline.
-        try await Task.sleep(nanoseconds: 200_000_000)  // 0.2s
+        try await Task.sleep(nanoseconds: 1_600_000_000)  // 1.6s
         #expect(fired.get() == true)
         #expect(reportedPending.get() == 1)
-        #expect(reportedDeadline.get() == 0.05)
+        #expect(reportedDeadline.get() == 0.4)
     }
 
     @Test func scheduleDoesNotFireWhenCounterDropsToZeroBeforeDeadline() async throws {
         let fired = LockBox(false)
-        let w = DetachedOperationWatchdog(label: "test", defaultDeadline: 0.15) { _, _ in
+        let w = DetachedOperationWatchdog(label: "test", defaultDeadline: 1.2) { _, _ in
             fired.set(true)
         }
         w.enter()
@@ -94,7 +99,7 @@ struct DetachedOperationWatchdogTests {
         #expect(scheduled == true)
         // Op completes before deadline.
         w.leave()
-        try await Task.sleep(nanoseconds: 250_000_000)  // 0.25s, past the 0.15s deadline
+        try await Task.sleep(nanoseconds: 2_000_000_000)  // 2.0s, past the 1.2s deadline
         #expect(fired.get() == false)
     }
 
@@ -108,11 +113,11 @@ struct DetachedOperationWatchdogTests {
         w.enter()
         // Override the (long) default with a short one so we don't sit
         // around for 100s.
-        let scheduled = w.scheduleExpiryIfNeeded(deadline: 0.05)
+        let scheduled = w.scheduleExpiryIfNeeded(deadline: 0.4)
         #expect(scheduled == true)
-        try await Task.sleep(nanoseconds: 200_000_000)
+        try await Task.sleep(nanoseconds: 1_600_000_000)
         #expect(fired.get() == true)
-        #expect(reportedDeadline.get() == 0.05)
+        #expect(reportedDeadline.get() == 0.4)
     }
 
     @Test func multipleConcurrentSchedulesEachReChecksCounter() async throws {
@@ -120,14 +125,14 @@ struct DetachedOperationWatchdogTests {
         // Neither expiry should fire because both re-check the counter
         // at fire time.
         let fireCount = LockBox(0)
-        let w = DetachedOperationWatchdog(label: "test", defaultDeadline: 0.1) { _, _ in
+        let w = DetachedOperationWatchdog(label: "test", defaultDeadline: 0.8) { _, _ in
             fireCount.set(fireCount.get() + 1)
         }
         w.enter()
         w.scheduleExpiryIfNeeded()
         w.scheduleExpiryIfNeeded()  // second arm — still 1 pending
         w.leave()  // counter -> 0 before any expiry fires
-        try await Task.sleep(nanoseconds: 250_000_000)
+        try await Task.sleep(nanoseconds: 2_000_000_000)
         #expect(fireCount.get() == 0)
     }
 
@@ -142,7 +147,7 @@ struct DetachedOperationWatchdogTests {
         w.enter()
         // No heartbeats. With Fix D off, this should NOT fire even
         // though we sit silent indefinitely (within the test window).
-        try await Task.sleep(nanoseconds: 300_000_000)
+        try await Task.sleep(nanoseconds: 2_400_000_000)
         #expect(fired.get() == false)
     }
 
@@ -152,8 +157,8 @@ struct DetachedOperationWatchdogTests {
         let w = DetachedOperationWatchdog(
             label: "test",
             defaultDeadline: 100,
-            stuckDeadline: 0.1,
-            stuckCheckInterval: 0.03
+            stuckDeadline: 0.8,
+            stuckCheckInterval: 0.24
         ) { _, deadline in
             reportedDeadline.set(deadline)
             fired.set(true)
@@ -161,9 +166,9 @@ struct DetachedOperationWatchdogTests {
         w.enter()
         // No heartbeat() calls. After ~0.1s the stuck-progress monitor
         // should observe `now - lastHeartbeat > stuckDeadline` and fire.
-        try await Task.sleep(nanoseconds: 300_000_000)
+        try await Task.sleep(nanoseconds: 2_400_000_000)
         #expect(fired.get() == true)
-        #expect(reportedDeadline.get() == 0.1)
+        #expect(reportedDeadline.get() == 0.8)
     }
 
     @Test func stuckMonitorFiresOnceNotOncePerTick() async throws {
@@ -176,8 +181,8 @@ struct DetachedOperationWatchdogTests {
         let w = DetachedOperationWatchdog(
             label: "test",
             defaultDeadline: 100,
-            stuckDeadline: 0.05,
-            stuckCheckInterval: 0.02
+            stuckDeadline: 0.4,
+            stuckCheckInterval: 0.16
         ) { _, _ in
             fireCount.set(fireCount.get() + 1)
         }
@@ -185,7 +190,7 @@ struct DetachedOperationWatchdogTests {
         // 250 ms with 20 ms check interval = ~12 potential ticks past
         // the 50 ms deadline. Without one-shot cancellation we'd see
         // double-digit fires. With it, exactly 1.
-        try await Task.sleep(nanoseconds: 250_000_000)
+        try await Task.sleep(nanoseconds: 2_000_000_000)
         #expect(fireCount.get() == 1)
     }
 
@@ -194,16 +199,16 @@ struct DetachedOperationWatchdogTests {
         let w = DetachedOperationWatchdog(
             label: "test",
             defaultDeadline: 100,
-            stuckDeadline: 0.3,
-            stuckCheckInterval: 0.05
+            stuckDeadline: 2.4,
+            stuckCheckInterval: 0.4
         ) { _, _ in
             fireCount.set(fireCount.get() + 1)
         }
         w.enter()
         // TWO RATIOS, AND BOTH MATTER.
         //
-        // Beat every 30ms against a 300ms deadline, thirty times — so the
-        // run lasts ~900ms in total. The gap between beats is 10x the
+        // Beat every 240ms against a 2.4s deadline, thirty times — so the
+        // run lasts ~7.2s in total. The gap between beats is 10x the
         // deadline, which is what makes the assertion survive a loaded
         // machine; the total run is 3x the deadline, which is what gives it
         // teeth, because a build where `heartbeat()` stopped resetting the
@@ -218,7 +223,7 @@ struct DetachedOperationWatchdogTests {
         // failing the same way once before.
         for _ in 0..<30 {
             w.heartbeat()
-            try await Task.sleep(nanoseconds: 30_000_000)
+            try await Task.sleep(nanoseconds: 240_000_000)
         }
         #expect(fireCount.get() == 0)
     }
@@ -228,8 +233,8 @@ struct DetachedOperationWatchdogTests {
         let w = DetachedOperationWatchdog(
             label: "test",
             defaultDeadline: 100,
-            stuckDeadline: 0.05,
-            stuckCheckInterval: 0.02
+            stuckDeadline: 0.4,
+            stuckCheckInterval: 0.16
         ) { _, _ in
             fired.set(true)
         }
@@ -239,7 +244,7 @@ struct DetachedOperationWatchdogTests {
         // cancelled it would still tick and find pending==0, so
         // wouldn't fire — but more importantly: no timer should be
         // around to consume resources after `leave`.
-        try await Task.sleep(nanoseconds: 200_000_000)
+        try await Task.sleep(nanoseconds: 1_600_000_000)
         #expect(fired.get() == false)
     }
 }
