@@ -42,8 +42,11 @@ if [ "${1:-}" = "--status" ]; then
     for f in "$dir"/*.slot; do
         [ -e "$f" ] || continue
         holder=$(cat "$f" 2>/dev/null || echo "?")
-        pid=${holder##*|}
-        if kill -0 "$pid" 2>/dev/null; then
+        pid=$(printf '%s' "$holder" | cut -d'|' -f2)
+        grp=$(printf '%s' "$holder" | cut -d'|' -f4)
+        # Held while the wrapper OR its command's process group lives (#125).
+        if { [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; } \
+            || { [ -n "$grp" ] && kill -0 -- "-$grp" 2>/dev/null; }; then
             echo "  held by ${holder%%|*} (pid $pid)"
             held=$((held + 1))
         else
@@ -155,11 +158,66 @@ RESERVE_GRACE="${AM_SLOT_RESERVE_GRACE:-45}"
 # Set by the wait loop: how long slot 1 has been observed free.
 SLOT1_FREE_SINCE=""
 
-slot_is_free() {
-    local f="$DIR/$1.slot" pid
-    [ -e "$f" ] || return 0
+# A SLOT RECORD is one line, `name|pid|token|pgid`. `pid` is the wrapper,
+# `token` is unique to this acquisition, and `pgid` is the process group
+# the command runs in, written once the command has started (#125). Older
+# records carry only `name|pid`; every reader below accepts both.
+
+# Is the holder recorded in this slot file provably gone? Only when its
+# wrapper pid is non-empty and dead AND its command's process group, if one
+# was recorded, has no member left. A file with no readable pid is not
+# provably dead, so it is left alone, as it always was.
+#
+# THE GROUP, NOT THE WRAPPER ALONE (#125). The record used to hold only the
+# wrapper shell's pid, so a SIGKILLed wrapper read as a dead holder while
+# its build carried on, and the limit admitted another. `cargo` forks
+# `rustc` and test binaries, so no single child pid would do either: the
+# group is what holds the resource.
+holder_dead() {
+    local f="$1" pid grp
     pid=$(cut -d'|' -f2 < "$f" 2>/dev/null || echo "")
-    [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null && return 0
+    grp=$(cut -d'|' -f4 < "$f" 2>/dev/null || echo "")
+    [ -n "$pid" ] || return 1
+    kill -0 "$pid" 2>/dev/null && return 1
+    [ -n "$grp" ] && kill -0 -- "-$grp" 2>/dev/null && return 1
+    return 0
+}
+
+# Remove slot file $1 only if it still holds exactly the record $2.
+#
+# A REMOVAL IS BOUND TO THE RECORD THAT WAS MEASURED (#124), which is the
+# pattern `am-ledger`'s lock_remove_generation settled on. Both removals
+# here were `rm -f` on a path: the reclaim deleted whatever sat at the path
+# after deciding the holder it READ was dead, so a live holder that took
+# the slot in between lost it and two callers ran on one index; and
+# release deleted the path it created even after another caller had
+# reclaimed and recreated it.
+#
+# So: re-read the record as late as possible, refuse if it changed, take
+# the file away with an atomic rename into a name only this process uses,
+# and check what was taken. If the rename caught a different record (the
+# residual two-statement window), put it back with `ln`, which refuses to
+# overwrite a slot someone has since created.
+remove_slot_record() {
+    local f="$1" want="$2" staged
+    [ -n "$want" ] || return 1
+    [ "$(head -n 1 "$f" 2>/dev/null || true)" = "$want" ] || return 1
+    staged="$f.gone.$$"
+    rm -f "$staged"
+    mv "$f" "$staged" 2>/dev/null || return 1
+    if [ "$(head -n 1 "$staged" 2>/dev/null || true)" = "$want" ]; then
+        rm -f "$staged"
+        return 0
+    fi
+    ln "$staged" "$f" 2>/dev/null || true
+    rm -f "$staged"
+    return 1
+}
+
+slot_is_free() {
+    local f="$DIR/$1.slot"
+    [ -e "$f" ] || return 0
+    holder_dead "$f" && return 0
     return 1
 }
 
@@ -187,33 +245,79 @@ take_slot() {
         # therefore exactly what will happen while it is still being
         # rolled out -- leaves its file behind.
         if [ -e "$f" ]; then
-            local pid
-            pid=$(cut -d'|' -f2 < "$f" 2>/dev/null || echo "")
-            if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
-                rm -f "$f"
+            local seen
+            seen=$(head -n 1 "$f" 2>/dev/null || true)
+            if [ -n "$seen" ] && holder_dead "$f"; then
+                remove_slot_record "$f" "$seen" || true
             fi
         fi
         # `noclobber` makes this atomic: two processes racing for the
         # same index, one wins.
-        if (set -o noclobber; printf '%s|%s\n' "$NAME" "$$" > "$f") 2>/dev/null; then
+        if (set -o noclobber; printf '%s\n' "$NAME|$$|$SLOT_TOKEN" > "$f") 2>/dev/null; then
             MY_SLOT="$f"
+            MY_RECORD="$NAME|$$|$SLOT_TOKEN"
             return 0
         fi
     done
     return 1
 }
 
+SLOT_TOKEN="$(date +%s)-$$-$RANDOM$RANDOM"
+MY_RECORD=""
+CHILD_PGID=""
+
 release_slot() {
-    [ -n "$MY_SLOT" ] && rm -f "$MY_SLOT"
+    if [ -n "$MY_SLOT" ]; then
+        remove_slot_record "$MY_SLOT" "$MY_RECORD" || true
+    fi
     MY_SLOT=""
 }
-trap release_slot EXIT INT TERM
+# A signal stops the work this slot accounts for before releasing it, so a
+# released slot never has a build still running behind it (#125).
+on_signal() {
+    [ -n "$CHILD_PGID" ] && kill -TERM -- "-$CHILD_PGID" 2>/dev/null
+    release_slot
+    exit 143
+}
+trap release_slot EXIT
+trap on_signal INT TERM
+
+# How many slots a LIVE process holds right now: the same test `--status`
+# applies, counted rather than printed. The waiter's message used to print
+# $LIMIT here, a number that does not depend on the pool (#149).
+live_holders() {
+    local f pid n=0
+    for f in "$DIR"/*.slot; do
+        [ -e "$f" ] || continue
+        pid=$(cut -d'|' -f2 < "$f" 2>/dev/null || echo "")
+        [ -n "$pid" ] && ! holder_dead "$f" && n=$((n + 1))
+    done
+    echo "$n"
+}
+
+# A CALLER THE RESERVATION EXCLUDES FOR GOOD IS NOT QUEUED. With a
+# reservation that does not name it and only one slot, `take_slot` returns
+# before looking at any slot, on every iteration, forever. Telling it
+# "queued, not stuck" kept it waiting the full AM_SLOT_WAIT (1800s by
+# default) for a slot it could never take. Refuse now, and say why.
+if reservation_exists && ! name_is_reserved && [ "$LIMIT" -lt 2 ]; then
+    echo "[am-slot] '$NAME' can never take a '$POOL' slot: the only slot is reserved ($RESERVED_FILE) and '$NAME' is not on the list" >&2
+    exit 1
+fi
 
 waited=0
 announced=0
 until take_slot; do
     if [ "$announced" = 0 ]; then
-        echo "[am-slot] waiting for a '$POOL' slot ($LIMIT in use) — queued, not stuck" >&2
+        # MEASURED, not configured: the count is taken when the line is
+        # printed, and says so, because the line prints once and a wait can
+        # run for AM_SLOT_WAIT seconds after it.
+        held=$(live_holders)
+        why=""
+        if reservation_exists && ! name_is_reserved && slot_is_free 1; then
+            why="; slot 1 is reserved and free, usable once it stays free for ${RESERVE_GRACE}s"
+        fi
+        echo "[am-slot] waiting for a '$POOL' slot ($held of $LIMIT held at $(date +%H:%M:%S)$why) — queued, not stuck" >&2
         announced=1
     fi
     if [ "$waited" -ge "$WAIT_SECS" ]; then
@@ -230,8 +334,23 @@ done
 # The command's exit status is this script's, so callers cannot tell the
 # difference between running under the slot and running directly. A
 # wrapper that swallowed a failure would be worse than no wrapper.
+#
+# IN ITS OWN PROCESS GROUP, RECORDED (#125). With job control on, the
+# backgrounded command leads a new group whose id is its pid; that id is
+# added to this slot's record so liveness follows the work rather than
+# this shell. `wait` returns the command's status, so the contract above
+# holds. A command started this way does not read this script's stdin
+# from a terminal; nothing run under a slot here reads stdin.
 set +e
-"$@"
+set -m
+"$@" &
+CHILD_PGID=$!
+set +m
+record="$NAME|$$|$SLOT_TOKEN|$CHILD_PGID"
+if [ "$(head -n 1 "$MY_SLOT" 2>/dev/null || true)" = "$MY_RECORD" ]; then
+    printf '%s\n' "$record" > "$MY_SLOT.new.$$" && mv "$MY_SLOT.new.$$" "$MY_SLOT" && MY_RECORD="$record"
+fi
+wait "$CHILD_PGID"
 rc=$?
 set -e
 exit "$rc"

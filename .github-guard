@@ -1,0 +1,47 @@
+# .github-guard — declarations github-guard reads (see the github-guard skill:
+# https://github.com/antimatter-studios/agent-skills/blob/main/.claude/skills/github-guard/README.md).
+# git-config format: check with `git config -f .github-guard --list`, and
+# double-quote any value containing # or ;.
+
+# Required status checks for main. A declaration beats discovery exactly.
+#
+# Discovery requires checks BY JOB NAME, which is a guess at the PR gate and
+# drifts silently: a renamed job, an added workflow, or any future check
+# reporting under the github-actions app changes what is required without
+# anyone deciding to. This repository is the one that found what that costs —
+# #197's audit went looking for coverage that reports a pass without executing
+# what it claims to, and in five sibling repositories the answer was a
+# settings-page list that had quietly stopped matching the jobs. A list nobody
+# reviews is not a decision; it is a residue. Writing it down here puts it in
+# front of a reviewer every time it changes.
+#
+# The three names below are the whole PR gate and nothing else. `ci.yml` is
+# the only workflow that runs on `pull_request` (`release.yml` is tag- and
+# dispatch-driven, so its checks can never report on a PR and must never be
+# required — a required check that never reports is a permanent block, not a
+# gate). Verified against this repository: the check-suite of the latest
+# pull_request run returns exactly these three under app slug
+# `github-actions`, and main's HEAD returns the same three.
+#
+# What each one is for, since "why is this required" is the question a future
+# edit needs answered:
+#
+#   Build & Test   — the app-hosted suite on macos-26, including the extension
+#                    targets. Carries the executed-case floor of 160
+#                    (ci.yml, `xcresulttool ... passedTests`), so it refuses a
+#                    run that stopped early instead of reporting no failures.
+#   Library tests  — DiskJockeyLibrary, host-free, seconds rather than
+#                    minutes. Carries the floor of 215 (XCTest's "Executed N
+#                    tests" plus swift-testing's "Test run with N tests").
+#   Shell scripts  — scripts/ steers the pipeline, and had no gate at all
+#                    until it got one. Refuses a script that exits 0 without
+#                    printing its own "all checks passed", and refuses a glob
+#                    that matched fewer files than the suite has.
+#
+# Names must match the check-run names GitHub reports. These are job `name:`
+# values with no matrix, so they are literal — unlike the sibling repositories'
+# "test / <os>" job-matrix spelling, which is the shape that catches people out.
+[checks]
+	required = Build & Test
+	required = Library tests
+	required = Shell scripts

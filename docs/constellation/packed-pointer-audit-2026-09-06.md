@@ -43,7 +43,7 @@ the difference matters more than the verdict.
 |---|---|---|
 | `am-fs-ext4` | block numbers are linear across the whole filesystem; a 64-bit field is split `_lo`/`_hi` across two struct fields, joined in exactly one place | `src/bgd.rs:88-97` |
 | `am-fs-erofs` | `blkaddr` counts blocks from the start of the image | `src/chunked.rs:100-122` |
-| `am-img-vhd`, `am-img-vhdx`, `am-img-vmdk` | BAT and grain-directory entries are plain sector or grain counts | — |
+| `am-img-vhd`, `am-img-vmdk` | BAT and grain-directory entries are plain sector or grain counts | — |
 
 `am-fs-ext4`'s inode-to-group arithmetic deserves a specific mention
 because it is the nearest thing in the family to XFS's packing: an inode
@@ -60,6 +60,7 @@ the right side of it by construction.
 | `am-fs-squashfs` | metadata reference: block offset in the high 48 bits, offset within the decompressed block in the low 16 | `MetadataRef::from_packed`, `src/metablock.rs:88` |
 | `am-img-qcow2` | L1/L2 entries carry COPIED (bit 63) and COMPRESSED (bit 62) above the host offset | `OFFSET_MASK`, `src/reader.rs:37`, applied at every lookup — `:1085`, `:1238`, `:1253` |
 | `am-fs-ntfs` | file reference: record number in the low 48 bits, sequence number in the high 16 | masked on read at `src/read.rs:638`; encoded at `src/record_build.rs:17` |
+| `am-img-vhdx` | BAT entry: payload state in the low 3 bits, bits 3–19 reserved, file offset in whole MiB above bit 20 | `BatEntry::from_u64`, `src/bat.rs:98-105`, the only decode (`src/reader.rs:582`, `:912` both call it), pinned for reserved bits by `bat_entry_ignores_reserved_bits_between_state_and_offset` (`src/bat.rs:197`); encoded open-coded at `src/reader.rs:886` |
 
 Squashfs is the interesting row, because it was in the same position
 XFS was in and is not any more: its own doc comment records that the

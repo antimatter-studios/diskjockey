@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+#
+# am-tokens — what a session, an agent or a task actually cost.
+#
+#   scripts/am-tokens                    every session for this project, newest first
+#   scripts/am-tokens --all              every project under ~/.claude/projects
+#   scripts/am-tokens --session <id>     one session, with its tool-call profile
+#   scripts/am-tokens --tools            what the tool RESULTS cost, by tool, across sessions
+#   scripts/am-tokens --since <days>     only sessions touched in the last N days
+#   scripts/am-tokens --tsv              machine-readable, no padding
+#
+# WHY THIS EXISTS. Every change meant to make a run cheaper — quieter tasks,
+# smaller agent scopes, fewer CI-log reads — is a guess until it is measured.
+# The transcripts already carry per-message usage, so the measurement costs
+# nothing but reading them.
+#
+# WHAT DOMINATES, AND IT IS NOT WHAT YOU EXPECT. Measured over this project on
+# 2026-09-18: 4,656M cache-read tokens against 9.5M output and 38.6M
+# cache-write. Cache reads are the conversation being re-read on every step, so
+# cost grows with the SQUARE of a session's length: a 200-step agent pays for
+# its early output ~200 times. The largest single tool result was 74 KB. So the
+# lever is how long a session runs and how much it accumulates, not any one
+# noisy command — though a quiet command is a smaller thing to accumulate.
+#
+# Reads ~/.claude/projects/<slug>/<session>.jsonl (or $CLAUDE_PROJECTS_DIR).
+set -uo pipefail
+
+ROOT="${CLAUDE_PROJECTS_DIR:-$HOME/.claude/projects}"
+[ -d "$ROOT" ] || { echo "am-tokens: no transcripts at $ROOT" >&2; exit 2; }
+
+MODE=sessions; WANT_SESSION=""; SCOPE=project; SINCE=0; TSV=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --all)     SCOPE=all ;;
+        --session) shift; [ $# -gt 0 ] || { echo "am-tokens: --session needs an id" >&2; exit 2; }
+                   WANT_SESSION="$1"; MODE=session ;;
+        --tools)   MODE=tools ;;
+        --since)   shift; SINCE="${1:-0}" ;;
+        --tsv)     TSV=1 ;;
+        -h|--help) sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *)         echo "am-tokens: unknown argument '$1'" >&2; exit 2 ;;
+    esac
+    shift
+done
+
+# The project slug is the cwd with every non-alphanumeric turned into a dash,
+# which is how Claude Code names the directory.
+slug() { printf '%s' "$PWD" | sed 's/[^a-zA-Z0-9]/-/g'; }
+
+if [ "$SCOPE" = all ]; then DIRS="$ROOT"/*; else DIRS="$ROOT/$(slug)"; fi
+
+python3 - "$MODE" "$WANT_SESSION" "$SINCE" "$TSV" $DIRS <<'PY'
+import json, os, sys, glob, time
+from collections import Counter, defaultdict
+
+mode, want, since, tsv = sys.argv[1], sys.argv[2], float(sys.argv[3]), sys.argv[4] == "1"
+dirs = [d for d in sys.argv[5:] if os.path.isdir(d)]
+if not dirs:
+    print("am-tokens: no transcript directory for this project "
+          "(run it from the repository you worked in, or pass --all)", file=sys.stderr)
+    raise SystemExit(2)
+
+cutoff = time.time() - since * 86400 if since else 0
+
+def files():
+    for d in dirs:
+        for f in glob.glob(os.path.join(d, "*.jsonl")):
+            if cutoff and os.path.getmtime(f) < cutoff:
+                continue
+            yield f
+
+def totals(f):
+    """Sum a transcript.
+
+    A tool RESULT names no tool — it carries the id of the call it answers, in
+    a later message than the call itself. So the id is mapped to the name as
+    the file is read, and a result that arrives before its call (a repaired or
+    truncated transcript) is counted under `?` rather than dropped.
+    """
+    t = Counter(); tools = Counter(); res_bytes = Counter(); steps = 0
+    name_of = {}
+    for line in open(f, errors="ignore"):
+        try:
+            d = json.loads(line)
+        except Exception:
+            continue
+        msg = d.get("message") or {}
+        usage = msg.get("usage")
+        if usage:
+            steps += 1
+            t["cache_read"] += usage.get("cache_read_input_tokens", 0)
+            t["cache_write"] += usage.get("cache_creation_input_tokens", 0)
+            t["input"] += usage.get("input_tokens", 0)
+            t["output"] += usage.get("output_tokens", 0)
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        for b in content:
+            if not isinstance(b, dict):
+                continue
+            if b.get("type") == "tool_use":
+                name = b.get("name") or "?"
+                tools[name] += 1
+                if b.get("id"):
+                    name_of[b["id"]] = name
+            elif b.get("type") == "tool_result":
+                c = b.get("content")
+                payload = c if isinstance(c, str) else json.dumps(c)
+                res_bytes[name_of.get(b.get("tool_use_id"), "?")] += len(payload)
+    return t, tools, res_bytes, steps
+
+def human(n):
+    for unit, div in (("M", 1e6), ("k", 1e3)):
+        if n >= div:
+            return f"{n/div:.1f}{unit}"
+    return str(int(n))
+
+if mode == "tools":
+    tools = Counter(); res = Counter()
+    for f in files():
+        _, tl, rb, _ = totals(f)
+        tools.update(tl); res.update(rb)
+    rows = sorted(res.items(), key=lambda kv: -kv[1])
+    if tsv:
+        print("tool\tcalls\tresult_bytes")
+        for k, v in rows:
+            print(f"{k}\t{tools[k]}\t{v}")
+    else:
+        print(f"{'TOOL':<28} {'CALLS':>7} {'RESULT BYTES':>13} {'≈TOKENS':>9}")
+        for k, v in rows:
+            print(f"{k:<28} {tools[k]:>7} {human(v):>13} {human(v/4):>9}")
+    raise SystemExit(0)
+
+rows = []
+for f in files():
+    sid = os.path.basename(f)[:-6]
+    if want and not sid.startswith(want):
+        continue
+    t, tl, rb, steps = totals(f)
+    rows.append((os.path.getmtime(f), sid, t, tl, rb, steps))
+rows.sort(reverse=True)
+
+if mode == "session":
+    if not rows:
+        print("am-tokens: no session matched", file=sys.stderr)
+        raise SystemExit(1)
+    _, sid, t, tl, rb, steps = rows[0]
+    print(f"session {sid}   {steps} steps")
+    for k in ("cache_read", "cache_write", "input", "output"):
+        print(f"  {k:<12} {human(t[k]):>8}")
+    print(f"  {'billable':<12} {human(t['cache_write'] + t['input'] + t['output']):>8}"
+          "   (cache reads are charged at a fraction; see the API's pricing)")
+    print("\n  tool calls, and what their results cost:")
+    for k, v in sorted(rb.items(), key=lambda kv: -kv[1])[:12]:
+        print(f"    {k:<26} {tl[k]:>5} calls   {human(v):>8}B  ≈{human(v/4):>7} tokens")
+    raise SystemExit(0)
+
+if tsv:
+    print("session\tsteps\tcache_read\tcache_write\tinput\toutput")
+    for _, sid, t, _, _, steps in rows:
+        print(f"{sid}\t{steps}\t{t['cache_read']}\t{t['cache_write']}\t{t['input']}\t{t['output']}")
+else:
+    print(f"{'SESSION':<38} {'STEPS':>6} {'CACHE RD':>9} {'CACHE WR':>9} {'OUT':>8}")
+    tot = Counter()
+    for _, sid, t, _, _, steps in rows:
+        print(f"{sid:<38} {steps:>6} {human(t['cache_read']):>9} {human(t['cache_write']):>9} {human(t['output']):>8}")
+        tot.update(t); tot["steps"] += steps
+    print(f"{'TOTAL':<38} {tot['steps']:>6} {human(tot['cache_read']):>9} "
+          f"{human(tot['cache_write']):>9} {human(tot['output']):>8}")
+PY

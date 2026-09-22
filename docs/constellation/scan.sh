@@ -23,6 +23,22 @@ REPOS="rust-fs-ext4 rust-fs-ntfs rust-fs-xfs rust-fs-btrfs rust-fs-erofs rust-fs
 
 say() { echo "$@" >> "$OUT"; }
 
+# A SIBLING THAT IS NOT HERE IS NOT A ZERO (#104). Every count below reads
+# `$r/src` with its errors discarded, so a crate that is not checked out
+# printed the same `0` as one with genuinely nothing to count, and the
+# evidence document could not tell the two apart. Refuse a partial
+# constellation rather than report it.
+missing=""
+for r in $REPOS; do
+  [ -d "$r/src" ] || missing="$missing $r"
+done
+if [ -n "$missing" ]; then
+  echo "scan.sh: not checked out beside this repository:$missing" >&2
+  echo "scan.sh: a missing crate would read as a count of 0, so nothing was written" >&2
+  rm -f "$OUT"
+  exit 1
+fi
+
 say "=== 1. SIZE ==="
 printf '%-18s %8s %8s\n' repo src tests >> "$OUT"
 for r in $REPOS; do
@@ -34,8 +50,10 @@ done
 say ""
 say "=== 2. ENDIAN HELPERS (per-crate fn definitions) ==="
 for r in $REPOS; do
-  n=$(grep -rhcE "^\s*(pub(\(crate\))? )?(const )?fn (read_)?(le|be)_?(u)?(8|16|32|64)" "$r/src" 2>/dev/null | paste -sd+ - | bc 2>/dev/null)
-  say "$r: ${n:-0}"
+  # SUMMED BY awk, NOT bc: `bc` is absent on many machines (this project's
+  # Raspberry Pi included), and `bc 2>/dev/null` plus `${n:-0}` printed 0.
+  n=$(grep -rhcE "^\s*(pub(\(crate\))? )?(const )?fn (read_)?(le|be)_?(u)?(8|16|32|64)" "$r/src" | awk '{ s += $1 } END { print s + 0 }')
+  say "$r: $n"
   grep -rnE "^\s*(pub(\(crate\))? )?(const )?fn (read_)?(le|be)_?(u)?(8|16|32|64)" "$r/src" 2>/dev/null | sed "s|^|    |" >> "$OUT"
 done
 

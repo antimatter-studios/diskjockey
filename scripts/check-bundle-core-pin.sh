@@ -64,15 +64,23 @@ version_ge() {
     return 0 # equal
 }
 
-# Read the version pinned for `am-fs-core` in one Cargo.lock. Empty if the
-# package is not present at all -- a bundle that stopped depending on it
-# entirely is not this script's problem to diagnose further, and a
-# non-empty-required check downstream will refuse to treat that as a pass.
-locked_version() {
+# Every version resolved for `am-fs-core` in one Cargo.lock, one per line.
+# Empty if the package is not present at all -- a bundle that stopped
+# depending on it entirely is not this script's problem to diagnose further,
+# and a non-empty-required check downstream will refuse to treat that as a pass.
+#
+# ALL OF THEM, NOT THE FIRST (#129). This printed the first match and
+# exited, so a second `[[package]]` block -- one crate on 0.2, another on
+# 0.3 -- was never compared or reported. A lockfile holds one block per
+# resolved version, and two resolutions link two copies of the core's Rust
+# runtime into one staticlib: the duplicate `_rust_eh_personality` this
+# per-bundle layout exists to prevent.
+locked_versions() {
     local lockfile="$1"
     awk '
+        /^\[\[package\]\]/ { hit = 0 }
         $0 == "name = \"am-fs-core\"" { hit = 1; next }
-        hit && /^version = / { gsub(/^version = "|"$/, "", $0); print; exit }
+        hit && /^version = / { v = $0; gsub(/^version = "|"$/, "", v); print v; hit = 0 }
     ' "$lockfile"
 }
 
@@ -113,12 +121,22 @@ for bundle in "$root"/rust-bundles/dj-*-bundle; do
     [ -f "$lockfile" ] || continue
     found_any=1
     name=$(basename "$bundle")
-    v=$(locked_version "$lockfile")
-    if [ -z "$v" ]; then
+    versions=$(locked_versions "$lockfile")
+    if [ -z "$versions" ]; then
         echo "[deps] $name: am-fs-core not found in Cargo.lock -- cannot verify the pin" >&2
         fail=1
         continue
     fi
+    # ONE CORE PER BUNDLE, checked before the floor: two resolutions that
+    # both clear it are still two runtimes, so looping the floor check over
+    # each would pass exactly the lockfile this refuses.
+    if [ "$(printf '%s\n' "$versions" | wc -l | tr -d ' ')" -gt 1 ]; then
+        echo "[deps] $name: Cargo.lock resolves am-fs-core more than once: $(printf '%s\n' "$versions" | tr '\n' ' ')" >&2
+        echo "       One core per bundle. Align the sibling crates' am-fs-core requirements, then cargo update -p am-fs-core." >&2
+        fail=1
+        continue
+    fi
+    v="$versions"
     if ! version_ge "$v" "$MINIMUM_AM_FS_CORE"; then
         echo "[deps] $name: am-fs-core $v is below the required floor $MINIMUM_AM_FS_CORE" >&2
         echo "       Fix: (cd $bundle && cargo update -p am-fs-core) && git add $lockfile" >&2

@@ -86,9 +86,9 @@ Honest list of known gaps as of 2026-05-09:
 
 Test surface across the project:
 
-- **`vendor/rust-fs-ext4`** — ~444 Rust test cases across the integration suite (`tests/*.rs`), including write-path crash-safety, sequence-advance, orphan recovery, ext3 RW, journal replay, and CI validation that round-trips formatted images through the Linux-side reference validator on every push.
-- **`vendor/rust-fs-ntfs`** — ~395 Rust test cases, plus a data-driven matrix runner (`tests/matrix.rs` + `test-matrix.json`) that emits one trial per scenario and shells out to the platform's canonical validator on Windows runners. Mac-side mount + write smoke is the contract that gates the matrix.
-- **`vendor/go-networkfs`** — per-driver Go test suites and a Docker Compose stack (`test-server/`) with FTP / SFTP / WebDAV / SMB endpoints for end-to-end driver tests.
+- **[`rust-fs-ext4`](https://github.com/christhomas/rust-fs-ext4)** (sibling repository) — ~444 Rust test cases across the integration suite (`tests/*.rs`), including write-path crash-safety, sequence-advance, orphan recovery, ext3 RW, journal replay, and CI validation that round-trips formatted images through the Linux-side reference validator on every push.
+- **[`rust-fs-ntfs`](https://github.com/christhomas/rust-fs-ntfs)** (sibling repository) — ~395 Rust test cases, plus a data-driven matrix runner (`tests/matrix.rs` + `test-matrix.json`) that emits one trial per scenario and shells out to the platform's canonical validator on Windows runners. Mac-side mount + write smoke is the contract that gates the matrix.
+- **[`go-networkfs`](https://github.com/christhomas/go-networkfs)** (sibling repository) — per-driver Go test suites and a Docker Compose stack (`test-server/`) with FTP / SFTP / WebDAV / SMB endpoints for end-to-end driver tests.
 - **DiskJockey host app** — Swift model + extension unit tests under `DiskJockey*Tests/` (mount config, log routing, FSKit shim translation).
 
 The two Rust libraries together publish a stable C ABI (`fs_ext4_*`, `fs_ntfs_*`) and the FSKit extensions are thin Swift shims over those entry points; the test investment is concentrated in the libraries where the format complexity lives.
@@ -303,21 +303,13 @@ Block-device filesystems don't benefit from a server-in-the-middle: all bytes co
 │   └── Protobuf/                 # .proto sources + generated Swift
 ├── docs/                         # End-user + developer docs
 ├── scripts/                      # Build helpers
-├── lib/                          # Pre-built vendored artefacts
-│   ├── fs_ext4/                  # fs_ext4.xcframework
-│   ├── fs_ntfs/                  # fs_ntfs.xcframework
+├── lib/                          # Build outputs (not committed)
+│   ├── bundle_<fs>/              # one Rust staticlib + headers per filesystem
 │   └── go-networkfs/             # libnetworkfs.a + per-driver static libs
-└── vendor/                       # git submodules — source of truth for lib/
-    ├── rust-fs-core/             # shared block-device traits / adapters
-    ├── rust-fs-ext4/             # ext2/3/4 driver
-    ├── rust-fs-ntfs/             # NTFS driver
-    ├── rust-img-qcow2/           # QCOW2 reader
-    ├── rust-img-vhd/             # VHD reader
-    ├── rust-img-vhdx/            # VHDX reader
-    ├── rust-img-vmdk/            # VMDK reader
-    ├── rust-partitions/          # MBR / GPT partition probe
-    ├── go-networkfs/             # Go network drivers (FTP/SFTP/SMB/WebDAV/cloud)
-    └── tabler-icons/             # icon source for sync-tabler-icons.rb
+└── rust-bundles/                 # dj-<fs>-bundle crates, resolved from crates.io
+
+# Beside this repository, not inside it:
+../go-networkfs/                  # Go network drivers, pinned in SIBLING_PINS.txt
 ```
 
 ---
@@ -328,13 +320,13 @@ MIT — see [`LICENSE`](LICENSE). Copyright (c) 2025 Christopher Thomas.
 
 For a full audit of every dependency licence and the verdict that the MIT licence is not at risk of being forced into a stricter copyleft licence, see [`docs/intellectual-property-review.md`](docs/intellectual-property-review.md).
 
-Vendored submodules — all permissively licensed, see [`docs/intellectual-property-review.md`](docs/intellectual-property-review.md) for the per-crate verdict:
+Sibling projects and published crates — all permissively licensed, see [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) and [`docs/intellectual-property-review.md`](docs/intellectual-property-review.md) for the per-crate verdict:
 
 - `rust-fs-core`, `rust-fs-ext4`, `rust-fs-ntfs` (filesystem drivers)
 - `rust-img-qcow2`, `rust-img-vhd`, `rust-img-vhdx`, `rust-img-vmdk` (disk-image readers)
 - `rust-partitions` (MBR / GPT probe)
 - `go-networkfs` (Go network FS drivers — MIT)
-- `tabler-icons` (MIT — Paweł Kuna)
+- `tabler-icons` (MIT — Paweł Kuna; icons fetched by `scripts/sync-tabler-icons.rb`, not vendored)
 
 ---
 
@@ -348,15 +340,20 @@ Vendored submodules — all permissively licensed, see [`docs/intellectual-prope
 - **Rust toolchain** (current stable; the Rust crates pin via `rust-toolchain.toml`)
 - **`protoc`** with `protoc-gen-go` and `protoc-gen-swift`
 - **Apple Developer account** (for code signing — required to run the File Provider and FSKit extensions)
-- Optional: **Docker** for the network-driver test stack under `vendor/go-networkfs/test-server/`
+- Optional: **Docker** for the network-driver test stack under `../go-networkfs/test-server/`
 
 ### One-time setup
 
 ```bash
 git clone https://github.com/antimatter-studios/diskjockey.git
+# go-networkfs is a sibling checkout, not a submodule: clone it beside this
+# repository at the ref SIBLING_PINS.txt names (this is what CI does).
+ref=$(awk '$1=="go-networkfs"{print $2}' diskjockey/SIBLING_PINS.txt)
+git clone --branch "$ref" https://github.com/christhomas/go-networkfs.git go-networkfs
 cd diskjockey
-git submodule update --init --recursive
 ```
+
+The filesystem and disk-image drivers are not checked out at all for a normal build: each `rust-bundles/dj-<fs>-bundle` depends on the published crates.io versions. See [`SIBLING_PINS.txt`](SIBLING_PINS.txt) for how sibling builds are pinned.
 
 ### Build the vendored libraries
 
@@ -366,9 +363,8 @@ make vendor-all
 
 This runs:
 
-1. `vendor-fs-ext4` — builds the Rust ext4 library into an XCFramework at `lib/fs_ext4/`.
-2. `vendor-fs-ntfs` — same for NTFS, into `lib/fs_ntfs/`.
-3. `vendor-gonetworkfs` — builds per-driver Go static libs (`libftp.a`, `libsftp.a`, …) plus the combined `libnetworkfs.a` dispatcher into `lib/go-networkfs/`.
+1. `vendor-bundles` — `scripts/build-bundles.sh` builds one Rust static library per filesystem from `rust-bundles/dj-<fs>-bundle` into `lib/bundle_<fs>/`.
+2. `vendor-gonetworkfs` — builds per-driver Go static libs (`libftp.a`, `libsftp.a`, …) plus the combined `libnetworkfs.a` dispatcher into `lib/go-networkfs/`.
 
 Then regenerate protobuf bindings (one-shot, regenerate after `.proto` changes):
 
@@ -389,7 +385,7 @@ A Run Script phase invokes `bash -lc "which go"` and rebuilds the network librar
 ### Test stack for network drivers
 
 ```bash
-cd vendor/go-networkfs/test-server
+cd ../go-networkfs/test-server
 docker compose up
 # SFTP   → localhost:2223
 # FTP    → localhost:2121
@@ -397,12 +393,6 @@ docker compose up
 # SMB    → localhost:4450
 ```
 
-### Vendor pin discipline
+### Sibling pins
 
-After bumping any submodule, regenerate the human-readable pin manifest:
-
-```bash
-make pins
-```
-
-`VENDOR_PINS.txt` is committed alongside the submodule bump. `make pins-check` fails if it's stale — wire into CI when CI exists for this repo.
+The ref each sibling project is built at is plain text in [`SIBLING_PINS.txt`](SIBLING_PINS.txt), which replaced the submodule-era `VENDOR_PINS.txt` and explains how `scripts/sibling-build.sh` uses it. Bump a pin by editing that file. There is no `make pins` target any more.

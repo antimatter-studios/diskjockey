@@ -212,14 +212,14 @@ final class AgentImpl: NSObject, DJAgentProtocol {
 
     func probeImage(atPath path: String,
                     reply: @escaping (String?, String?) -> Void) {
-        guard let diskprobeURL = Self.locateDiskprobe() else {
-            reply(nil, "diskprobe binary not found in bundle Resources or project lib/")
+        guard let probeURL = Self.locateBlkProbe() else {
+            reply(nil, "blk-probe binary not found in bundle Resources or project lib/")
             return
         }
         let proc = Process()
-        proc.executableURL = diskprobeURL
+        proc.executableURL = probeURL
         proc.arguments = [path]
-        // diskprobe emits a JSON description of a whole disk, which is
+        // blk-probe emits a JSON description of a whole disk, which is
         // past the ~64 KiB a pipe holds for anything with many
         // partitions. Waiting before reading is the deadlock.
         let result: ProcessRunner.Output
@@ -230,28 +230,28 @@ final class AgentImpl: NSObject, DJAgentProtocol {
             return
         }
         guard result.status == 0 else {
-            reply(nil, "diskprobe exited \(result.status): \(result.stderrText)")
+            reply(nil, "blk-probe exited \(result.status): \(result.stderrText)")
             return
         }
         reply(result.stdoutText, nil)
     }
 
-    private static func locateDiskprobe() -> URL? {
-        // 1. Bundle Resources — production path once diskprobe is added as a resource.
+    private static func locateBlkProbe() -> URL? {
+        // 1. Bundle Resources — production path once blk-probe is added as a resource.
         let agentURL = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
         let bundleCandidate = agentURL
             .deletingLastPathComponent() // DiskJockeyAgent → LaunchAgents/
             .deletingLastPathComponent() // LaunchAgents/   → Library/
             .deletingLastPathComponent() // Library/        → Contents/
-            .appendingPathComponent("Resources/diskprobe")
+            .appendingPathComponent("Resources/blk-probe")
         if FileManager.default.isExecutableFile(atPath: bundleCandidate.path) {
             return bundleCandidate
         }
 #if DEBUG
-        // Dev fallback: walk up from this source file to find lib/diskprobe/diskprobe.
+        // Dev fallback: walk up from this source file to find lib/blk-probe/blk-probe.
         var dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         for _ in 0..<8 {
-            let candidate = dir.appendingPathComponent("lib/diskprobe/diskprobe")
+            let candidate = dir.appendingPathComponent("lib/blk-probe/blk-probe")
             if FileManager.default.isExecutableFile(atPath: candidate.path) {
                 return candidate
             }

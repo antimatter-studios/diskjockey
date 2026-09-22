@@ -401,6 +401,95 @@ fi
 LOCK_STALE_SECS="${AM_LEDGER_STALE_SECS:-60}"
 LOCK_RECORDLESS_GRACE_SECS="${AM_LEDGER_RECORDLESS_GRACE:-5}"
 
+# 13. A RECORDED LOCK RESETS THE RECORDLESS GRACE (diskjockey#153).
+#
+#     Check 12 starts its recordless phase with the counter at zero, so
+#     `recordless_seen=0` in the branch that sees a RECORD could be
+#     deleted with every check green. It matters only for
+#     recordless -> recorded -> recordless: without the reset the second
+#     recordless lock inherits the first one's ticks and is broken early.
+#
+#     Driven entirely by the stubbed `lock_field`, keyed on its own call
+#     count (kept in a FILE, for the subshell reason check 12 gives):
+#       calls  1-6   no record  (6 recordless ticks, under the 10 of grace)
+#       calls  7-12  a fresh record (3 iterations; each reads fields 3 and 2)
+#       calls 13-    no record again
+#     The observable is how many ticks the SECOND recordless phase got.
+rm -rf "$LOCK"; mkdir -p "$LOCK"
+LOCK_STALE_SECS=600
+LOCK_RECORDLESS_GRACE_SECS=2          # 10 ticks
+calls="$sandbox/p13-calls"; p3="$sandbox/p13-phase3"; broke="$sandbox/p13-broke"
+rm -f "$calls" "$p3" "$broke"
+lock_field() {
+    local c
+    echo x >> "$calls"; c=$(wc -l < "$calls" | tr -d ' ')
+    if [ "$c" -le 6 ]; then return 1; fi
+    if [ "$c" -le 12 ]; then
+        case "$1" in 2) now_epoch ;; 3) echo "generation-FRESH" ;; *) echo "$$" ;; esac
+        return 0
+    fi
+    [ -f "$p3" ] || echo "$c" > "$p3"
+    return 1
+}
+lock_remove_generation() { return 1; }
+lock_remove_recordless() {
+    [ -f "$broke" ] || wc -l < "$calls" | tr -d ' ' > "$broke"
+    return 1
+}
+( with_lock true ) >/dev/null 2>&1 &
+bg=$!
+sleep 8
+kill "$bg" 2>/dev/null; wait "$bg" 2>/dev/null
+unset -f lock_field lock_remove_generation lock_remove_recordless
+AM_LEDGER_SOURCED=1 . "$REPO/scripts/am-ledger"
+set +e
+if [ -f "$p3" ] && [ -f "$broke" ]; then
+    gap=$(( $(cat "$broke") - $(cat "$p3") ))
+    if [ "$gap" -ge 10 ]; then
+        ok "a recordless lock after a recorded one gets its full grace again ($gap ticks)"
+    else
+        bad "the second recordless lock was broken $gap ticks in; a record between them must reset its grace of 10"
+    fi
+else
+    bad "the harness did not reach the third phase (phase3=$([ -f "$p3" ] && cat "$p3")) (broke=$([ -f "$broke" ] && cat "$broke"))"
+fi
+
+# 14. A BREAK RESETS THE RECORDLESS GRACE TOO.
+#
+#     `recordless_seen=0` after `lock_remove_recordless` is the other
+#     unwitnessed reset. Without it the counter stays past the grace, so a
+#     lock that is STILL recordless after a break (the removal lost a race,
+#     or another old-version holder took the path at once) is broken on
+#     every following tick instead of after a fresh grace. The observable
+#     is the distance between the first two breaks.
+rm -rf "$LOCK"; mkdir -p "$LOCK"
+LOCK_RECORDLESS_GRACE_SECS=2          # 10 ticks
+calls="$sandbox/p14-calls"; fires="$sandbox/p14-fires"
+rm -f "$calls" "$fires"
+lock_field() { echo x >> "$calls"; return 1; }
+lock_remove_generation() { return 1; }
+lock_remove_recordless() { wc -l < "$calls" | tr -d ' ' >> "$fires"; return 1; }
+( with_lock true ) >/dev/null 2>&1 &
+bg=$!
+sleep 7
+kill "$bg" 2>/dev/null; wait "$bg" 2>/dev/null
+unset -f lock_field lock_remove_generation lock_remove_recordless
+AM_LEDGER_SOURCED=1 . "$REPO/scripts/am-ledger"
+set +e
+if [ -f "$fires" ] && [ "$(wc -l < "$fires" | tr -d ' ')" -ge 2 ]; then
+    first=$(sed -n 1p "$fires"); second=$(sed -n 2p "$fires")
+    interval=$(( second - first ))
+    if [ "$interval" -ge 10 ]; then
+        ok "after a break, a lock still recording no holder gets a fresh grace ($interval ticks)"
+    else
+        bad "the second break came $interval ticks after the first; a break must reset the grace of 10"
+    fi
+else
+    bad "the harness saw fewer than two breaks ($([ -f "$fires" ] && tr '\n' ' ' < "$fires"))"
+fi
+LOCK_STALE_SECS="${AM_LEDGER_STALE_SECS:-60}"
+LOCK_RECORDLESS_GRACE_SECS="${AM_LEDGER_RECORDLESS_GRACE:-5}"
+
 echo
 if [ "$fails" = 0 ]; then
     echo "am-ledger-lock: all checks passed"
