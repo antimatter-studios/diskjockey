@@ -124,10 +124,28 @@ jobs:
             rm -f "$out"
             found=$((found + 1))
           done
-          # A glob that matches nothing makes this step pass having run
-          # nothing, which reads exactly like a clean bill of health.
-          [ "$found" -gt 0 ] || { echo "scripts/tests/ matched no test files" >&2; exit 1; }
-          echo "ran $found script test(s)"
+          # A FLOOR, NOT A ZERO CHECK. A glob that matches nothing makes
+          # this step pass having run nothing, which reads exactly like a
+          # clean bill of health -- but so does a glob that matches four
+          # files out of twenty. `> 0` only catches the empty case, and the
+          # empty case is the one nobody reaches: what actually happens is a
+          # rename, a moved directory, or a file that stops ending in `.sh`,
+          # and then this job goes green having checked a fraction of what
+          # it names. Same shape as the executed-case floors on the two
+          # Xcode jobs below -- `Library tests` and `Build & Test` -- and
+          # the same answer: count, and refuse a number that means the run
+          # stopped short.
+          #
+          # Measured 2026-09-17 on run 35238130306 (`main`): 20 script
+          # tests ran. Floor 18, which leaves room to retire a couple
+          # deliberately without a workflow edit and no room at all for a
+          # glob that quietly stopped matching. It moves up with the suite;
+          # it never moves down.
+          echo "ran $found script test(s) (floor 18)"
+          if [ "$found" -lt 18 ]; then
+            echo "::error::only $found script tests ran, floor is 18 -- 20 ran on 2026-09-17 (run 35238130306), so scripts/tests/*.sh has stopped matching the suite rather than passing it" >&2
+            exit 1
+          fi
 
   # THE FAST GATE, AND THE ONE THAT DOES NOT DEPEND ON AN APP LAUNCH.
   #
