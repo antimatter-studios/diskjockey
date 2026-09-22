@@ -30,6 +30,9 @@
 set -euo pipefail
 
 ROOT="${AM_REAP_ROOT:-/Volumes/sdcard256gb/projects}"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=constellation-repositories.sh
+. "$HERE/constellation-repositories.sh"
 
 # THE REPOSITORIES THIS TOOL MAY TOUCH, NAMED.
 #
@@ -39,14 +42,13 @@ ROOT="${AM_REAP_ROOT:-/Volumes/sdcard256gb/projects}"
 # wrong with the logic; the SCOPE was wrong, and a scope error in a tool
 # that deletes is the whole ballgame.
 #
-# So the set is enumerated. A repository that is not on this list is not
-# this tool's business, however much it looks like one.
-REPOS=(
-    rust-fs-core rust-fs-xfs rust-fs-ext4 rust-fs-btrfs
-    rust-fs-erofs rust-fs-squashfs rust-fs-ntfs
-    rust-img-qcow2 rust-img-vhd rust-img-vhdx rust-img-vmdk
-    rust-partitions diskjockey
-)
+# So the set is enumerated once in the canonical product manifest. A
+# repository absent there is not this tool's business, however much it looks
+# like one.
+REPOS=()
+for entry in "${CONSTELLATION_REPOSITORIES[@]}"; do
+    REPOS+=("${entry%%:*}")
+done
 # An agent that is reading or reasoning touches nothing on disk, so the
 # window has to be long enough to cover thinking rather than only
 # building. An hour is comfortably longer than any single build here and
