@@ -698,8 +698,8 @@ which exist in both crates today. `mkfs.xfs` is a new subsystem.
 Someone can borrow a Linux box to *create* an XFS filesystem; they
 installed this to read one that will not mount.
 
-`rust-ntfs` is **not** a formatter: it is the driver
-`fs-test-harness.toml` invokes to exercise write paths inside the
+`rust-ntfs` is **not** a formatter: it is the driver the
+`fs-windows-test-harness` config invokes to exercise write paths inside the
 Windows VM, with eleven subcommands. Renaming it would churn the harness
 config, the VM protocol docs and the test matrix for no user-facing
 gain. Add a separate thin `mkfs_ntfs` calling the same

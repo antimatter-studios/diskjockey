@@ -15,6 +15,12 @@ STUB
 chmod +x "$sandbox/fetch"
 
 export AM_OVERVIEW_FETCH="$sandbox/fetch"
+cat > "$sandbox/pr-counts" <<'STUB'
+#!/usr/bin/env bash
+echo "0 0"
+STUB
+chmod +x "$sandbox/pr-counts"
+export AM_OVERVIEW_FETCH_PR_COUNTS="$sandbox/pr-counts"
 export AM_SCOPE_CALLS="$sandbox/calls"
 
 output="$($REPO/scripts/am-overview --summary 2>&1)"

@@ -14,8 +14,13 @@ chore_min_version: 0.6.0
 # A task that grows a pipeline of its own is a task nobody can test.
 
 tasks:
-  overview:
-    desc: Every open issue across the constellation, as a table
+  overview:summary:
+    desc: Counts only — one row per project, no issue detail
+    cmds:
+      - scripts/am-overview --summary
+
+  overview:list:
+    desc: Every project in turn, each with its issue numbers and titles
     # NO `sources`, DELIBERATELY. Freshness here is not a property of any
     # file in this repository — the answer lives on GitHub and changes when
     # somebody files an issue. A `sources` list would let chore report this
@@ -23,17 +28,23 @@ tasks:
     # exact shape of defect the pipeline spends its time filing: a check
     # whose output does not depend on what it is meant to detect.
     cmds:
-      - scripts/am-overview
-
-  overview:summary:
-    desc: Counts only — one row per project, no issue detail
-    cmds:
-      - scripts/am-overview --summary
+      - scripts/am-overview --list
 
   overview:tsv:
     desc: The detail rows as TSV, for piping somewhere else
     cmds:
       - scripts/am-overview --tsv
+
+  pr:list:
+    desc: Every pull request across the constellation (add -- --state open, --tsv, ...)
+    # No `sources`, for the same reason as overview:list: the answer is on GitHub.
+    cmds:
+      - scripts/am-prs {{.CLI_ARGS}}
+
+  pr:external:
+    desc: Pull requests opened by external contributors (add -- --state open, --tsv, ...)
+    cmds:
+      - scripts/am-prs --external {{.CLI_ARGS}}
 
   check:scripts:
     desc: Run every scripts/tests/*.sh guard
