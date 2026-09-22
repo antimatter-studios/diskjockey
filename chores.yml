@@ -65,3 +65,12 @@ tasks:
             bash "$t"
         done
         echo "check:scripts: ${#tests[@]} test file(s) passed"
+
+  check:agents-core:
+    desc: AGENTS.md still carries the shared agent-core block, unmodified
+    # A task naming a script and nothing else. The same script runs inside the
+    # Shell scripts job through scripts/tests/agents-core-check.sh, which also
+    # proves it FAILS on a modified block, a missing marker and an absent file
+    # -- a gate that cannot fail is indistinguishable from no gate.
+    cmds:
+      - scripts/agents-core-check.sh
