@@ -77,7 +77,7 @@ struct ContentView: View {
                 // SwiftPartitionProbe reads directly through the URL (no subprocess,
                 // works inside the sandbox). Falls back to agent probe for container
                 // formats (QCOW2/VHD/VHDX/VMDK) — agent is unsandboxed so it can
-                // open the file even though the child-process diskprobe cannot.
+                // open the file even though the child-process blk-probe cannot.
                 var probe = SwiftPartitionProbe.probe(at: url)
                 if probe == nil {
                     probe = try? await DJAgentClient.shared.probeImage(atPath: url.path)
