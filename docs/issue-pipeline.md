@@ -71,7 +71,8 @@ remote is a failed preflight, not a clone.
 
 As reconciled from the checked-out siblings and their canonical GitHub
 repositories on 2026-09-15, the product project contains DiskJockey plus these
-fifteen modules. Use this only to create/reconcile the project’s stored list;
+fifteen modules, and (since 2026-09-26) the two test harnesses the drivers'
+oracles run in. Use this only to create/reconcile the project’s stored list;
 after that, the stored project scope and the preflight above control the run.
 
 | directory | canonical repository / clone URL |
@@ -92,6 +93,8 @@ after that, the stored project scope and the preflight above control the run.
 | `rust-lzo1x` | `https://github.com/antimatter-studios/rust-lzo1x.git` |
 | `rust-blk-probe` | `https://github.com/antimatter-studios/rust-blk-probe.git` |
 | `go-networkfs` | `https://github.com/christhomas/go-networkfs.git` |
+| `fs-windows-test-harness` | `https://github.com/antimatter-studios/fs-windows-test-harness.git` |
+| `fs-linux-test-harness` | `https://github.com/antimatter-studios/fs-linux-test-harness.git` |
 
 `agent-skills` is pipeline infrastructure, not a DiskJockey product module.
 Track it in a separate ledger project (or an explicitly named infrastructure

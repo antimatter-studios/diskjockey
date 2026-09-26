@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Canonical DiskJockey product scope. This file has no side effects and is
 # sourced by every inventory/worktree tool that needs the repository set.
+# The two test harnesses are product scope: they host the oracles the drivers
+# are validated against, so their defects block driver work.
 # Pipeline infrastructure such as agent-skills belongs to a separate project.
 CONSTELLATION_REPOSITORIES=(
     "diskjockey:antimatter-studios/diskjockey"
@@ -19,4 +21,6 @@ CONSTELLATION_REPOSITORIES=(
     "rust-lzo1x:antimatter-studios/rust-lzo1x"
     "rust-blk-probe:antimatter-studios/rust-blk-probe"
     "go-networkfs:christhomas/go-networkfs"
+    "fs-windows-test-harness:antimatter-studios/fs-windows-test-harness"
+    "fs-linux-test-harness:antimatter-studios/fs-linux-test-harness"
 )
