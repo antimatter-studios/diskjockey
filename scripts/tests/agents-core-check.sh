@@ -31,17 +31,22 @@ expect() {
 
 expect "the committed AGENTS.md passes" zero
 
+# Rewrite AGENTS.md through awk. Not `sed -i`: its in-place flag differs between
+# GNU and BSD, and on macOS `sed -i'' -e` takes `-e` as a backup suffix,
+# leaves AGENTS.md-e behind and never applies the GNU-only `0,/re/` address.
+edit() { awk "$1" AGENTS.md > "$BAK.edit" && mv "$BAK.edit" AGENTS.md; }
+
 # One character inside the block is enough: the digest covers content, so a
 # trailing space is as much a change as a rewritten paragraph.
-sed -i'' -e '0,/^## Claiming work$/s//## Claiming work /' AGENTS.md
+edit '!done && /^## Claiming work$/ { print $0 " "; done = 1; next } 1'
 expect "a modified block is refused" nonzero
 restore
 
-sed -i'' -e '/BEGIN SHARED BLOCK/d' AGENTS.md
+edit '!/BEGIN SHARED BLOCK/'
 expect "a missing BEGIN marker is refused" nonzero
 restore
 
-sed -i'' -e '/END SHARED BLOCK/d' AGENTS.md
+edit '!/END SHARED BLOCK/'
 expect "a missing END marker is refused" nonzero
 restore
 
