@@ -494,3 +494,17 @@ jobs:
           path: ${{ runner.temp }}/Test.xcresult
           retention-days: 7
           if-no-files-found: warn
+
+  # An aggregate result is stable when a leg is renamed or split. Keep the
+  # three legs required too: this job's verdict is a claim about their work.
+  ci-ok:
+    name: ci-ok
+    if: always()
+    needs: [scripts, library-tests, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check every needed result
+        env:
+          NEEDED_RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: bash scripts/check-ci-results.sh "$NEEDED_RESULTS"
