@@ -1,0 +1,10 @@
+# Keeps the GitHub Actions in .github/workflows current. Every `uses:` there
+# is pinned to a full commit SHA with its version in a trailing comment, so a
+# moved or hijacked tag cannot change what runs; Dependabot opens a pull
+# request to move each pin when a new release is tagged.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

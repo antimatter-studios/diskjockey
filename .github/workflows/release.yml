@@ -55,7 +55,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # The siblings are checkouts beside this repository now, not
       # submodules. Cloned at the ref SIBLING_PINS.txt names, so CI builds
@@ -89,18 +89,18 @@ jobs:
           xcodebuild -version
 
       - name: Set up Rust (aarch64)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           targets: aarch64-apple-darwin
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version: stable
 
       - name: Restore vendor library cache
         id: vendor-cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: lib/
           # v2 salt busts caches saved by earlier failed runs that populated
@@ -112,7 +112,7 @@ jobs:
 
       - name: Restore Cargo cache
         if: steps.vendor-cache.outputs.cache-hit != 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cargo/registry/index
