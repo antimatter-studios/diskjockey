@@ -41,6 +41,9 @@
 # Names must match the check-run names GitHub reports. These are job `name:`
 # values with no matrix, so they are literal — unlike the sibling repositories'
 # "test / <os>" job-matrix spelling, which is the shape that catches people out.
+# Every pull-request job must be listed here. To leave one intentionally
+# advisory, add `advisory = <job name>` beside the required entries; the
+# shell-scripts gate checks both lists against the workflow on every PR.
 [checks]
 	required = Build & Test
 	required = Library tests
