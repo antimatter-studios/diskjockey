@@ -19,6 +19,13 @@ import Testing
 
 @MainActor
 struct TestHostStartsNothingTests {
+    /// Xcode's real launcher sets what TestHost reads. The library suite
+    /// pins the decision over fixed environments; only this process can
+    /// show the decision matches what the launcher actually does.
+    @Test func xcodesLauncherIsRecognised() {
+        #expect(DiskJockeyApplication.isTestHost, "TestHost.isHostingTests() does not recognise the environment xcodebuild launched this host with")
+    }
+
     @Test func theHostHasNoAppDelegate() {
         #expect(NSApp.delegate == nil, "the test host built its AppDelegate, so AppContainer's disk pollers are competing with XCTest for the main thread (diskjockey#101)")
     }
