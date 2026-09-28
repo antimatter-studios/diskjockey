@@ -10,7 +10,8 @@ SQUASHFS_OUT := lib/fs_squashfs
 
 EROFS_OUT := lib/fs_erofs
 
-# go-networkfs — network filesystem drivers vendored via git submodule.
+# go-networkfs is a sibling checkout at NETWORKFS_SRC, pinned in
+# SIBLING_PINS.txt.
 # Builds per-driver static libs (libftp.a, …) and a combined libnetworkfs.a
 # dispatcher, all consumed by the FileProvider extension via cgo.
 NETWORKFS_SRC ?= ../go-networkfs
@@ -41,22 +42,9 @@ clean: vendor-bundles-clean vendor-gonetworkfs-clean
 	@echo "\nCleaning up...\n"
 	rm -f ./${DISKJOCKEY_LIB}/Protobuf/${FILEPROVIDER_PROTOCOL}.pb.swift
 
-# fs-ext4 is built from vendored source via git submodule at vendor/rust-fs-ext4/.
-# The build is handled by scripts/build-fs-ext4.sh which is called both by
-# the Makefile (for manual/CI builds) and by Xcode build phases.
-# Output: lib/fs_ext4/fs_ext4.xcframework (universal binary + headers)
-# Xcode's DiskJockeyEXT4 target links the XCFramework via its bridging header.
+# ext4 is resolved as a published crate by rust-bundles/dj-ext4-bundle.
+# For a local sibling override, use make dev-link FS=ext4 below.
 
-# Build fs-ext4 using the shared build script (used by both Makefile and Xcode)
-# Force rebuild even if sources haven't changed
-# Build fs-ntfs using the shared build script
-# Build fs-squashfs (read-only) using the shared build script
-# Build fs-erofs (read-only) using the shared build script
-# Disk-image container readers (am-img-qcow2/vhd/vhdx/vmdk). Each crate
-# builds to its own universal static lib at lib/img_<name>/. Consumers
-# (DiskJockeyEXT4, DiskJockeyNTFS) link each .a individually — they are
-# NOT bundled into libfs_ext4.a or libfs_ntfs.a. See
-# `feedback_no_cross_domain_bundling` in the project memory for why.
 # Per-extension aggregator staticlibs: one lib per FSKit extension combining
 # its driver + the img container readers (crates.io), so each extension links
 # a single Rust staticlib with std embedded once. See scripts/build-bundles.sh.
@@ -68,7 +56,7 @@ vendor-bundles-clean:
 
 # go-networkfs builds each driver from NETWORKFS_DRIVERS plus a combined libnetworkfs.a
 # dispatcher. Xcode build phases may override DRIVERS via env var to trim the
-# set if needed; by default we build everything the submodule provides.
+# set if needed; by default we build every driver in NETWORKFS_DRIVERS.
 vendor-gonetworkfs:
 	@echo "\nBuilding go-networkfs drivers ($(NETWORKFS_DRIVERS))...\n"
 	@SRCROOT=. \
@@ -94,7 +82,7 @@ vendor-gonetworkfs-add:
 	fi
 	@DRIVERS="$(NETWORKFS_DRIVERS) $(DRIVER)" $(MAKE) vendor-gonetworkfs
 
-# Build all vendored dependencies
+# Build the driver bundles and network archives.
 vendor-all: vendor-bundles vendor-gonetworkfs
 
 clean-all: clean vendor-gonetworkfs-clean
@@ -105,14 +93,14 @@ install-agent:
 	@scripts/install-agent-dev.sh
 
 # ---------------------------------------------------------------------------
-# Local co-development of vendored drivers
+# Local co-development of published drivers
 # ---------------------------------------------------------------------------
 # Distribution builds resolve every driver bundle from crates.io (the
-# published, proven versions). To hack on a vendored crate's source and test
+# published, proven versions). To hack on a driver crate's source and test
 # it in the app WITHOUT publishing a new version each time, switch a bundle to
 # local-dev mode — it overrides the driver + the shared am-fs-core to the
-# local vendor/ submodule — then restore the crates.io-clean state before you
-# commit or build for distribution. See scripts/dev-link.sh for the rationale.
+# sibling checkout beside this repository — then restore the crates.io-clean
+# state before you commit or build for distribution. See scripts/dev-link.sh.
 #   make dev-link   FS=ext4               # ext4 | ntfs | erofs | squashfs | xfs | btrfs
 #   make dev-link   FS=ext4 EXTRA=am-img-qcow2   # also co-develop a reader
 #   make dev-unlink FS=ext4
