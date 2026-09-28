@@ -902,13 +902,14 @@ final class NTFSVolume: FSVolume,
             throw fs_errorForPOSIXError(EBADF)
         }
 
-        var buf = [CChar](repeating: 0, count: 4096)
-        let rc = fs_ntfs_readlink(fs, ntfsItem.path, &buf, buf.count)
-        guard rc == 0 else {
-            throw fs_errorForPOSIXError(EIO)
+        // Success is the target's length, not zero (see SymlinkTarget).
+        let target = try SymlinkTarget.read(
+            lastErrno: { Int32(fs_ntfs_last_errno()) },
+            error: { fs_errorForPOSIXError($0) }
+        ) { buf, size in
+            fs_ntfs_readlink(fs, ntfsItem.path, buf, size)
         }
-
-        return FSFileName(string: String(cString: buf))
+        return FSFileName(string: target)
     }
 
     // MARK: - Mutating ops

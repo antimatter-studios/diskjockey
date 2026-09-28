@@ -192,7 +192,9 @@ final class SquashfsVolume: FSVolume,
                 continue
             }
             let entryName = withUnsafePointer(to: de.pointee.name) { ptr in
-                ptr.withMemoryRebound(to: CChar.self, capacity: 256) { String(cString: $0) }
+                ptr.withMemoryRebound(
+                    to: CChar.self, capacity: MemoryLayout.size(ofValue: de.pointee.name)
+                ) { String(cString: $0) }
             }
             let fsName = FSFileName(string: entryName)
             let childPath = Self.joinPath(dirItem.path, entryName)
@@ -231,11 +233,13 @@ final class SquashfsVolume: FSVolume,
         guard let fs = bridgeFS, let sItem = item as? SquashfsItem else {
             throw POSIXError(.EBADF)
         }
-        var buf = [CChar](repeating: 0, count: 4096)
-        guard fs_squashfs_readlink(fs, sItem.path, &buf, buf.count) == 0 else {
-            throw POSIXError(.EIO)
+        // Success is the target's length, not zero (see SymlinkTarget).
+        let target = try SymlinkTarget.read(
+            lastErrno: { Int32(fs_squashfs_last_errno()) }
+        ) { buf, size in
+            fs_squashfs_readlink(fs, sItem.path, buf, size)
         }
-        return FSFileName(string: String(cString: buf))
+        return FSFileName(string: target)
     }
 
     // MARK: - Mutating ops (all rejected — read-only)
