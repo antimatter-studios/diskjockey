@@ -13,9 +13,9 @@ diskjockey-backend/test-mount/smb-server/
 diskjockey-backend/test-mount/webdav-server/
 diskjockey-backend/test-mount/mount*/
 
-# Compiled artifacts from vendored sources — regenerated via `make vendor-*`.
-# Source submodules under vendor/ ARE tracked; only the root /lib/ is ignored
-# (anchored, so a lib/ inside a vendored crate is not swallowed with it).
+# Build scripts stage libraries, headers, and helper binaries in root lib/.
+# Some inputs are sibling checkouts pinned in SIBLING_PINS.txt. The leading
+# slash leaves nested lib/ directories outside this generated-output rule.
 /lib/
 .wip/
 
