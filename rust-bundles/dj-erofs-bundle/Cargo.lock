@@ -16,15 +16,15 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "am-fs-core"
-version = "0.2.10"
+version = "0.2.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df95dc5d599cb2980663dd567b8b7abf68f6866676763b7989880b08d1e8f0a4"
+checksum = "da6291fceae2064cfcd753174bd64d89584b4927ba62b918c14da6f8614089d8"
 
 [[package]]
 name = "am-fs-erofs"
-version = "0.1.5"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4eb318a6fb80dd5e38fa93d2a1e7483c593597d73e1abf559aaadbf1dc70929d"
+checksum = "4de834ff85a143ce9922a5a0bbdf03dc45d9c1e0fec9baefe324d1b938658c4f"
 dependencies = [
  "am-fs-core",
  "crc32c",
@@ -32,6 +32,7 @@ dependencies = [
  "lru",
  "lz4_flex",
  "lzma-rs",
+ "ruzstd",
 ]
 
 [[package]]

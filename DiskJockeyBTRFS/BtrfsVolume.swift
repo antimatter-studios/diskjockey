@@ -227,11 +227,13 @@ final class BtrfsVolume: FSVolume,
         guard let fs = bridgeFS, let eItem = item as? BtrfsItem else {
             throw POSIXError(.EBADF)
         }
-        var buf = [CChar](repeating: 0, count: 4096)
-        guard fs_btrfs_readlink(fs, eItem.path, &buf, buf.count) == 0 else {
-            throw POSIXError(.EIO)
+        // Success is the target's length, not zero (see SymlinkTarget).
+        let target = try SymlinkTarget.read(
+            lastErrno: { Int32(fs_btrfs_last_errno()) }
+        ) { buf, size in
+            fs_btrfs_readlink(fs, eItem.path, buf, size)
         }
-        return FSFileName(string: String(cString: buf))
+        return FSFileName(string: target)
     }
 
     // MARK: - Mutating ops (all rejected — read-only)

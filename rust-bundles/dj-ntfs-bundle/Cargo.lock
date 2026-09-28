@@ -10,15 +10,15 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "am-fs-core"
-version = "0.2.10"
+version = "0.2.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df95dc5d599cb2980663dd567b8b7abf68f6866676763b7989880b08d1e8f0a4"
+checksum = "da6291fceae2064cfcd753174bd64d89584b4927ba62b918c14da6f8614089d8"
 
 [[package]]
 name = "am-fs-ntfs"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "576372be482bf2ee8a085e5a136cfa53b6eb6873f2f02e848f8c9c5f2d9ffacb"
+checksum = "058e308de6c1f6696eaff7d6af59e214273431ac77fd518370830245a6fd4a5b"
 dependencies = [
  "am-fs-core",
  "log",
