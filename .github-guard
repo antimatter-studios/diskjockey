@@ -45,3 +45,7 @@
 	required = Build & Test
 	required = Library tests
 	required = Shell scripts
+
+# Scratch output must stay local even if it is force-added past .gitignore.
+[paths]
+	private = tmp
