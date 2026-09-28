@@ -1,9 +1,9 @@
 /*
  * EXT4Backend.swift — FileSystemBackend wrapping the fs_ext4 C ABI.
  *
- * Translates protocol calls to fs_ext4_* functions exposed by libfs_ext4.a.
- * The fs_ext4 library is built from vendored source at vendor/rust-fs-ext4/
- * (git submodule) and output to vendor/fs_ext4/ via `make vendor-fs-ext4`.
+ * Translates protocol calls to fs_ext4_* functions in
+ * lib/bundle_ext4/libdj_ext4_bundle.a, built from published crates by
+ * scripts/build-bundles.sh.
  *
  * MIT License — see LICENSE
  */
