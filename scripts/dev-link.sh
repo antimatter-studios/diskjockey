@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 #
 # dev-link.sh — put a driver bundle into LOCAL-DEV mode so you can hack on a
-# vendored crate's source and test it in the app WITHOUT publishing a new
+# driver crate's source and test it in the app WITHOUT publishing a new
 # crates.io version each time.
 #
 # Distribution builds resolve every driver from crates.io (the published,
 # proven versions). For local co-development that round-trip is too slow, so
 # this appends a `[patch.crates-io]` block to the bundle's Cargo.toml that
-# redirects the driver — and the shared `am-fs-core` — to the sibling
-# submodules. Edit the submodule source, rebuild, see the change immediately.
+# redirects the driver — and the shared `am-fs-core` — to sibling
+# checkouts. Edit the sibling source, rebuild, see the change immediately.
 #
 # IMPORTANT: a dev-linked bundle is NOT distribution-clean. Do not commit it.
 # Run scripts/dev-unlink.sh <fs> (or `make dev-unlink FS=<fs>`) to restore.
 #
 # Usage:
 #   scripts/dev-link.sh <ext4|ntfs|erofs|squashfs> [extra-crate ...]
-#     extra-crate: also redirect another crate to its local submodule, e.g.
+#     extra-crate: also redirect another crate to its sibling checkout, e.g.
 #                  `am-img-qcow2` to co-develop the qcow2 reader. (See the
 #                  ntfs caveat in the memory: ntfs + a local img reader can
 #                  reintroduce a core-path split.)
@@ -33,16 +33,11 @@ bundle="$root/rust-bundles/dj-${fs}-bundle"
 toml="$bundle/Cargo.toml"
 [ -f "$toml" ] || { echo "no bundle Cargo.toml at $toml" >&2; exit 1; }
 
-# The shared am-fs-core must resolve to the SAME path the driver uses, or
-# cargo sees two sources and refuses. ntfs vendors its own rust-fs-core
-# (nested); ext4/erofs/squashfs use the shared parent copy.
-if [ "$fs" = "ntfs" ]; then
-    core_path="../../../rust-fs-core"
-else
-    core_path="../../../rust-fs-core"
-fi
+# The shared am-fs-core must resolve to the SAME sibling path the driver uses,
+# or cargo sees two sources and refuses.
+core_path="../../../rust-fs-core"
 
-# crate -> submodule dir name
+# crate -> sibling checkout directory name
 crate_to_dir() {
     case "$1" in
         am-img-*)  echo "rust-img-${1#am-img-}" ;;
@@ -70,7 +65,7 @@ crate_to_dir() {
 } >> "$toml"
 
 echo "dev-link: dj-${fs}-bundle now resolves the driver + am-fs-core${*:+ + $*} from the sibling checkouts beside this repository."
-echo "  edit the submodule source, then rebuild the bundle/app to test."
+echo "  edit the sibling checkout, then rebuild the bundle/app to test."
 echo "  restore distribution-clean state with:  make dev-unlink FS=${fs}"
 if ( cd "$bundle" && cargo build --release --target aarch64-apple-darwin >/dev/null 2>&1 ); then
     echo "  verified: bundle builds with the local override."
