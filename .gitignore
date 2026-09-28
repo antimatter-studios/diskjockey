@@ -18,6 +18,7 @@ diskjockey-backend/test-mount/mount*/
 # slash leaves nested lib/ directories outside this generated-output rule.
 /lib/
 .wip/
+/tmp/
 
 # Claude Code session-local data: memory db, settings.local.json,
 # scheduled tasks, worktrees, workgroup coordination state.
