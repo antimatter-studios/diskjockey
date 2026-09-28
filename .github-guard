@@ -45,6 +45,9 @@
 	required = Build & Test
 	required = Library tests
 	required = Shell scripts
+	# ci-ok must first report success on main before github-protect-main can
+	# safely add it to the required list. Keep the three legs required too.
+	advisory = ci-ok
 
 # Scratch output must stay local even if it is force-added past .gitignore.
 [paths]
