@@ -20,7 +20,8 @@
 #
 # EXIT STATUS IS PART OF THE OUTPUT, as in am-overview: a project whose fetch
 # fails gets a FETCH FAILED row and the command exits 4, because a missing
-# project reads as "no pull requests".
+# project reads as "no pull requests". A token-wide rate limit stops the run
+# with exit 5 before any partial table is printed.
 #
 # Environment, for tests:
 #   AM_PRS_FETCH   command called with a slug instead of gh; prints rows in
@@ -30,6 +31,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=constellation-repositories.sh
 . "$HERE/constellation-repositories.sh"
+# shellcheck source=github-rate-limit.sh
+. "$HERE/github-rate-limit.sh"
 PROJECTS=("${CONSTELLATION_REPOSITORIES[@]}")
 
 PR_QUERY='query($owner: String!, $name: String!, $endCursor: String) {
@@ -94,15 +97,17 @@ wanted() {
     return 1
 }
 
-rows="$(mktemp)"; failed="$(mktemp)"
-trap 'rm -f "$rows" "$failed"' EXIT
+rows="$(mktemp)"; failed="$(mktemp)"; errs="$(mktemp)"
+trap 'rm -f "$rows" "$failed" "$errs"' EXIT
 
 nprojects=0
 for entry in "${PROJECTS[@]}"; do
     name="${entry%%:*}"; slug="${entry#*:}"
     wanted "$name" || continue
     nprojects=$((nprojects + 1))
-    if ! out="$(fetch_repo "$slug")"; then
+    out="$(fetch_repo "$slug" 2>"$errs")"; rc=$?
+    github_stop_if_rate_limited am-prs "$name" "$errs" "${AM_PRS_FETCH:-}"
+    if [ "$rc" -ne 0 ]; then
         printf '%s\n' "$name" >> "$failed"
         continue
     fi
