@@ -7,8 +7,20 @@ import Combine
 
 @main
 class DiskJockeyApplication {
+    /// True when Xcode launched this process to host DiskJockeyTests.
+    static var isTestHost: Bool { TestHost.isHostingTests() }
+
     static func main() {
         let app = NSApplication.shared
+        // A TEST HOST STARTS NONE OF THE APP (diskjockey#101). The delegate
+        // builds AppContainer, whose disk pollers run `diskutil` on the main
+        // thread every three seconds; XCTest needs that thread to start the
+        // tests, and on a slow runner it never got it. The run loop is all
+        // the injected bundle needs. See TestHost.swift.
+        if isTestHost {
+            app.run()
+            return
+        }
         let delegate = AppDelegate()
         app.delegate = delegate
         app.setActivationPolicy(.regular)
