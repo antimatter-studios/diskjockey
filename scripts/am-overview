@@ -44,6 +44,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # incomplete in the same way (diskjockey#170).
 # shellcheck source=constellation-repositories.sh
 . "$HERE/constellation-repositories.sh"
+# shellcheck source=github-rate-limit.sh
+. "$HERE/github-rate-limit.sh"
 
 # ---------------------------------------------------------------- projects
 PROJECTS=("${CONSTELLATION_REPOSITORIES[@]}")
@@ -173,39 +175,12 @@ NOW="$(date -u +%s)"
 rows="$(mktemp)"; summary="$(mktemp)"; failed="$(mktemp)"; prs="$(mktemp)"; errs="$(mktemp)"
 trap 'rm -f "$rows" "$summary" "$failed" "$prs" "$errs"' EXIT
 
-# Called after every fetch, whose stderr went to $errs. Passes that stderr
-# on, and stops the run when it is a rate limit: the primary limit
-# ("API rate limit exceeded"), the secondary one ("secondary rate limit"),
-# and GraphQL's RATE_LIMITED all say "rate limit" in some case.
-stop_if_rate_limited() { # stop_if_rate_limited <what was being read>
-    cat "$errs" >&2
-    grep -qiE 'rate[ _]limit' "$errs" || return 0
-    {
-        echo
-        echo "am-overview: GitHub is rate limiting this token; stopped at $1 rather than"
-        echo "am-overview: repeating a request that can only fail. Nothing was printed, because"
-        echo "am-overview: a table built from the projects read so far would look complete."
-        # `rate_limit` is not itself counted against the limit. Skipped under a
-        # fetch stub, which has no token to ask about.
-        if [ -z "${AM_OVERVIEW_FETCH:-}${AM_OVERVIEW_FETCH_PRS:-}${AM_OVERVIEW_FETCH_PR_COUNTS:-}" ]; then
-            reset="$(gh api rate_limit --jq '[.resources.core, .resources.graphql]
-                | map(select(.remaining == 0) | .reset) | max // empty' 2>/dev/null)"
-            if [ -n "$reset" ]; then
-                when="$(date -u -r "$reset" +%H:%M:%SZ 2>/dev/null || date -u -d "@$reset" +%H:%M:%SZ 2>/dev/null)"
-                echo "am-overview: the limit resets at $when."
-            else
-                echo "am-overview: no primary limit is exhausted, so this is a secondary limit; wait a few minutes."
-            fi
-        fi
-    } >&2
-    exit 5
-}
-
 for entry in "${PROJECTS[@]}"; do
     name="${entry%%:*}"; slug="${entry#*:}"
     wanted "$name" || continue
     out="$(fetch_repo "$slug" 2>"$errs")"; rc=$?
-    stop_if_rate_limited "$name"
+    github_stop_if_rate_limited am-overview "$name" "$errs" \
+        "${AM_OVERVIEW_FETCH:-}${AM_OVERVIEW_FETCH_PRS:-}${AM_OVERVIEW_FETCH_PR_COUNTS:-}"
     if [ "$rc" -ne 0 ]; then
         printf '%s\n' "$name" >> "$failed"
         printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\n' "$name" "FETCH FAILED" "-" "-" "$slug" >> "$summary"
@@ -215,7 +190,8 @@ for entry in "${PROJECTS[@]}"; do
         # A failed lookup is not "no pull requests": the project is listed as
         # failed and the exit status says the table is incomplete.
         pr_out="$(fetch_prs "$slug" 2>"$errs")"; pr_rc=$?
-        stop_if_rate_limited "$name (pull requests)"
+        github_stop_if_rate_limited am-overview "$name (pull requests)" "$errs" \
+            "${AM_OVERVIEW_FETCH:-}${AM_OVERVIEW_FETCH_PRS:-}${AM_OVERVIEW_FETCH_PR_COUNTS:-}"
         if [ "$pr_rc" -eq 0 ]; then
             [ -z "$pr_out" ] || printf '%s\n' "$pr_out" | sed "s/^/${name}$(printf '\037')/" >> "$prs"
         else
@@ -228,7 +204,8 @@ for entry in "${PROJECTS[@]}"; do
         # Two numbers or nothing: anything else is a failed lookup, shown as
         # `?` and counted in the exit status rather than printed as zero.
         pr_counts="$(fetch_pr_counts "$slug" 2>"$errs")"; pr_rc=$?
-        stop_if_rate_limited "$name (pull request counts)"
+        github_stop_if_rate_limited am-overview "$name (pull request counts)" "$errs" \
+            "${AM_OVERVIEW_FETCH:-}${AM_OVERVIEW_FETCH_PRS:-}${AM_OVERVIEW_FETCH_PR_COUNTS:-}"
         if [ "$pr_rc" -eq 0 ] && [[ "$pr_counts" =~ ^([0-9]+)\ ([0-9]+)$ ]]; then
             pr_open="${BASH_REMATCH[1]}"; pr_closed="${BASH_REMATCH[2]}"
         else
