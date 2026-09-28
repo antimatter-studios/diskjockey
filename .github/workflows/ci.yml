@@ -69,7 +69,7 @@ jobs:
     # and an unbounded ubuntu job is cheap enough to be forgotten for hours.
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Semantics the Xcode job cannot reach
         run: |
           set -euo pipefail
@@ -172,7 +172,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # Same auto-select as the `test` job: the image's default Xcode is not
       # necessarily the newest installed, and Package.swift needs a Swift 6
@@ -261,7 +261,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # First, and needs nothing but the checkout -- no network, no
       # toolchain. A stale transitive pin can sit for a long time
@@ -307,12 +307,12 @@ jobs:
           xcodebuild -version
 
       - name: Set up Rust (aarch64)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           targets: aarch64-apple-darwin
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version: stable
 
@@ -322,7 +322,7 @@ jobs:
       # sibling pins. VENDOR_PINS.txt is gone with the submodules.
       - name: Restore library cache
         id: vendor-cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: lib/
           key: lib-${{ runner.os }}-${{ hashFiles('SIBLING_PINS.txt', 'rust-bundles/**/Cargo.toml', 'rust-bundles/**/Cargo.lock') }}
@@ -331,7 +331,7 @@ jobs:
       # so the next miss still benefits from incremental compilation.
       - name: Restore Cargo cache
         if: steps.vendor-cache.outputs.cache-hit != 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cargo/registry/index
@@ -488,7 +488,7 @@ jobs:
       # run. Keep it, and the next stall names its own cause.
       - name: Keep the result bundle when the suite fails
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: xcresult-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/Test.xcresult
