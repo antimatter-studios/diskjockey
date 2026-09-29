@@ -33,6 +33,19 @@ private typealias SquashfsName = (
     CChar
 )
 
+/// `char name[FS_NTFS_DIRENT_NAME_BYTES]` from fs_ntfs.h — 1024 bytes.
+/// Built as 64 rows of 16 so it stays readable; the layout is the same
+/// 1024 contiguous `CChar`s, and the first test below pins that.
+private typealias Row16 = (
+    CChar, CChar, CChar, CChar, CChar, CChar, CChar, CChar, CChar, CChar, CChar, CChar, CChar, CChar, CChar, CChar
+)
+private typealias NtfsName = (
+    Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16,
+    Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16,
+    Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16,
+    Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16, Row16
+)
+
 /// A 4-byte `char name[4]`, for the edges.
 private typealias Name4 = (CChar, CChar, CChar, CChar)
 
@@ -86,5 +99,30 @@ struct DirentNameTests {
         let name = field(raw, as: SquashfsName.self)
         #expect(DirentName.bytes(of: name, length: raw.count) == raw)
         #expect(DirentName.bytes(of: name) == raw)
+    }
+
+    // NTFS (diskjockey#244): the array is 1024 bytes, and a 255-unit name
+    // of CJK characters is 765 bytes of UTF-8 — far past the 256 the
+    // volume once promised.
+
+    @Test func theNtfsArrayIs1024Bytes() {
+        #expect(MemoryLayout<NtfsName>.size == 1024)
+    }
+
+    @Test func anNtfsNameLongerThan256BytesIsReadWhole() {
+        let longest = String(repeating: "\u{65E5}", count: 255) // 日, 3 bytes each
+        let utf8 = Array(longest.utf8)
+        #expect(utf8.count == 765)
+        let name = field(utf8 + [0], as: NtfsName.self)
+        let read = DirentName.bytes(of: name, length: utf8.count)
+        #expect(read == utf8)
+        #expect(read.map { String(decoding: $0, as: UTF8.self) } == longest)
+        #expect(DirentName.bytes(of: name) == utf8)
+    }
+
+    @Test func anNtfsNameLengthPastTheArrayIsRefused() {
+        let name = field(Array("a".utf8), as: NtfsName.self)
+        #expect(DirentName.bytes(of: name, length: 1024)?.count == 1024)
+        #expect(DirentName.bytes(of: name, length: 1025) == nil)
     }
 }

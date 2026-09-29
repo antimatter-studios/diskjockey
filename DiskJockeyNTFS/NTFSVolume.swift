@@ -846,11 +846,15 @@ final class NTFSVolume: FSVolume,
                 continue
             }
 
-            let entryName = withUnsafePointer(to: de.pointee.name) { ptr in
-                ptr.withMemoryRebound(to: CChar.self, capacity: 256) { cstr in
-                    String(cString: cstr)
-                }
+            // By `name_len`, sized from the imported array: the header's
+            // array is FS_NTFS_DIRENT_NAME_BYTES (1024), and a 255-unit
+            // NTFS name is up to 765 bytes of UTF-8 (diskjockey#244).
+            guard let nameBytes = DirentName.bytes(
+                of: de.pointee.name, length: Int(de.pointee.name_len)
+            ) else {
+                throw fs_errorForPOSIXError(EIO)
             }
+            let entryName = String(decoding: nameBytes, as: UTF8.self)
 
             let fsName = FSFileName(string: entryName)
             let childPath = dirItem.path == "/" ? "/\(entryName)" : "\(dirItem.path)/\(entryName)"
