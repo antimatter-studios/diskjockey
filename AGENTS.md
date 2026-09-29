@@ -285,8 +285,8 @@ less than a measured amount of work:
 | job | floor | counted from |
 |---|---|---|
 | `Build & Test` | 160 executed cases | `xcresulttool get test-results summary` on the retained `.xcresult` — **not** the console text, which double-counted once and undercounted once |
-| `Library tests` | 273 executed cases | XCTest's `Executed N tests` plus swift-testing's `Test run with N tests`, both frameworks being in that target |
-| `Shell scripts` | 26 test files | the glob's own match count |
+| `Library tests` | 276 executed cases | XCTest's `Executed N tests` plus swift-testing's `Test run with N tests`, both frameworks being in that target |
+| `Shell scripts` | 27 test files | the glob's own match count |
 
 Every floor is written down beside the measurement and the run that produced
 it. **A floor moves up with its suite; it never moves down.** Raising one is a
