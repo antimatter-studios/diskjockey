@@ -315,7 +315,7 @@ Nothing needs to replace it. The identification step already exists as a
 domain-named tool:
 
 ```
-diskprobe /dev/disk4          → ext4
+blk.probe /dev/disk4          → ext4
 ls.ext4   /dev/disk4 /etc
 ```
 
@@ -642,7 +642,7 @@ separate packages:
 
 | | signing | pipeline |
 |---|---|---|
-| `mkfs.*`, `fsck.*`, `diskprobe` | none — nothing validates them | plain cross-compile + tarball |
+| `mkfs.*`, `fsck.*`, `blk.probe` | none — nothing validates them | plain cross-compile + tarball |
 | `diskjockey` | Developer ID required | signed build, cert in CI |
 
 The filesystem tools stay trivially portable; only the control CLI
@@ -658,7 +658,7 @@ inherits Apple's machinery.
 | rust-fs-erofs | `mkfs_erofs` | rename to `mkfs.erofs` |
 | rust-fs-ntfs | `rust-ntfs` (**test-harness driver**) | `mkfs.ntfs` added |
 | rust-fs-squashfs | `lssquashfs` | fold into the verb scheme |
-| rust-blk-probe | `diskprobe` | already correctly named |
+| rust-blk-probe | `blk.probe` | dotted like the rest (owner decision, #235); cargo target `blk_probe`, renamed when staged |
 | rust-img-qcow2 | `qcow2_tool` | rename — `_tool` says nothing |
 | rust-img-vhd | `vhd_tool` | rename |
 | rust-fs-xfs | — | **mkfs deferred — see below**; read verbs first |
@@ -716,6 +716,7 @@ DiskJockey, and macOS offers nothing for it.
 
 - House style for tools with no dispatcher convention — `lssquashfs`,
   `qcow2_tool`, `vhd_tool`. The tap leans short and lowercase
-  (`chore`, `ddt`, `dotman`, `tacli`); `diskprobe` already fits.
+  (`chore`, `ddt`, `dotman`, `tacli`). The probe is `blk.probe`, dotted
+  like the filesystem tools (owner decision, #235).
 - Whether the image formats (qcow2, vhd, vhdx, vmdk) join the same verb
   scheme — `info.qcow2`, `ls.qcow2` — or stay separate tools.
