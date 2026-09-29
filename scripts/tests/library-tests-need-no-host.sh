@@ -155,13 +155,17 @@ case "$want_swift" in
 esac
 
 # ------------------------------------------------------------------ the job
-run="$(ruby -ryaml -e '
+# A step's text is its `run:` plus the scripts it invokes (#211): the command
+# lives in scripts/test-library.sh, which chore runs too. See
+# scripts/ci-step-text.rb.
+STEP_TEXT="$REPO/scripts/ci-step-text.rb"
+run="$(ruby -ryaml -r"$STEP_TEXT" -e '
   d = YAML.safe_load(File.read(ARGV[0]), aliases: true)
   job = (d["jobs"] || {})["library-tests"]
   abort unless job
-  s = (job["steps"] || []).find { |x| x["run"].to_s.include?("swift test") }
-  print s ? s["run"] : ""
-' "$WORKFLOW" 2>/dev/null)"
+  texts = (job["steps"] || []).map { |x| CiStepText.expanded(x, ARGV[1]) }
+  print texts.find { |t| t.include?("swift test") } || ""
+' "$WORKFLOW" "$REPO" 2>/dev/null)"
 
 if [ -n "$run" ]; then
     ok "the library-tests job runs \`swift test\`"
@@ -172,11 +176,11 @@ fi
 # THE POINT OF THE WHOLE FILE. Reaching for xcodebuild in this job puts the
 # RunningBoard launch back, and the job goes red for a reason that has nothing
 # to do with the library.
-whole_job="$(ruby -ryaml -e '
+whole_job="$(ruby -ryaml -r"$STEP_TEXT" -e '
   d = YAML.safe_load(File.read(ARGV[0]), aliases: true)
   job = (d["jobs"] || {})["library-tests"] || {}
-  print (job["steps"] || []).map { |s| s["run"].to_s }.join("\n")
-' "$WORKFLOW" 2>/dev/null)"
+  print (job["steps"] || []).map { |s| CiStepText.expanded(s, ARGV[1]) }.join("\n")
+' "$WORKFLOW" "$REPO" 2>/dev/null)"
 case "$whole_job" in
     *"xcodebuild test"*)
         fail "the library-tests job runs \`xcodebuild test\` again: that launches a test runner through RunningBoard, which is what error 5 refused on 2026-09-10 even for the host-free bundle" ;;
@@ -200,11 +204,11 @@ else
     fail "the library-tests job has no timeout-minutes: a hang outside a bounded step runs to GitHub's 360-minute default at 10x macOS billing"
 fi
 
-step_bound="$(ruby -ryaml -e '
+step_bound="$(ruby -ryaml -r"$STEP_TEXT" -e '
   d = YAML.load_file(ARGV[0])
-  s = (((d["jobs"]||{})["library-tests"]||{})["steps"]||[]).find { |x| x["run"].to_s.include?("swift test") }
+  s = (((d["jobs"]||{})["library-tests"]||{})["steps"]||[]).find { |x| CiStepText.expanded(x, ARGV[1]).include?("swift test") }
   print s ? s["timeout-minutes"].to_i : 0
-' "$WORKFLOW" 2>/dev/null)"
+' "$WORKFLOW" "$REPO" 2>/dev/null)"
 if [ "${step_bound:-0}" -gt 0 ] 2>/dev/null; then
     ok "and the step that runs the suite is bounded at ${step_bound} minutes"
 else

@@ -52,7 +52,13 @@ command -v ruby >/dev/null 2>&1 || {
 # Unset, which is how CI runs this, it is the repository's own ci.yml.
 WORKFLOW="${CI_WORKFLOW_UNDER_TEST:-$REPO/.github/workflows/ci.yml}"
 
-report="$(ruby -ryaml -e '
+# A step's text is its `run:` plus the repository scripts it invokes (#211):
+# the suites live in scripts/test-*.sh, which chore runs too, so a step that
+# says `bash scripts/test-app.sh` runs `xcodebuild test` as surely as one that
+# spells it out. See scripts/ci-step-text.rb.
+STEP_TEXT="$REPO/scripts/ci-step-text.rb"
+
+report="$(ruby -ryaml -r"$STEP_TEXT" -e '
   doc = YAML.safe_load(File.read(ARGV[0]), aliases: true) || {}
   (doc["jobs"] || {}).each do |job_name, job|
     (job["steps"] || []).each do |step|
@@ -66,7 +72,7 @@ report="$(ruby -ryaml -e '
       # correctly-spelled neighbour printed ok. Fold continuations, drop
       # comment lines, split on the shell separators, then ask the words:
       # `xcodebuild` with a `test` action word, or `swift` followed by `test`.
-      text = step["run"].to_s.gsub(/\\\r?\n/, " ")
+      text = CiStepText.expanded(step, ARGV[1]).gsub(/\\\r?\n/, " ")
       commands = text.lines.reject { |l| l.lstrip.start_with?("#") }
                      .join("\n").split(/\n|;|&&|\|\||\|/)
       suite = commands.any? do |c|
@@ -79,7 +85,7 @@ report="$(ruby -ryaml -e '
       puts [job_name, label, step["timeout-minutes"]].join("\t")
     end
   end
-' "$WORKFLOW" 2>/dev/null)"
+' "$WORKFLOW" "$REPO" 2>/dev/null)"
 
 if [ -z "$report" ]; then
     # NOT SILENCE. A workflow this reader failed to parse looks exactly
@@ -177,7 +183,7 @@ done
 # executed 244-250 cases across 24 suites, so it works here and only
 # intermittently fails to prepare. What must not come back is the truncated
 # pass — a run that dies early reports ZERO failures, so only a count sees it.
-test_run="$(ruby -ryaml -e 'd=YAML.load_file(ARGV[0]); s=d["jobs"]["test"]["steps"].find{|x| x["name"]=="Test"}; print s["run"]' "$WORKFLOW" 2>/dev/null)"
+test_run="$(ruby -ryaml -r"$STEP_TEXT" -e 'd=YAML.load_file(ARGV[0]); s=d["jobs"]["test"]["steps"].find{|x| x["name"]=="Test"}; print CiStepText.expanded(s, ARGV[1])' "$WORKFLOW" "$REPO" 2>/dev/null)"
 # THE COMMENTS ARE NOT THE COMMAND, and conflating them made this file fail on
 # its own explanation: the signing check below rejects CODE_SIGN_IDENTITY="-",
 # and the comment in ci.yml that records WHY quotes that string. Every
@@ -251,8 +257,8 @@ case "$test_run" in
        fails=$((fails + 1)) ;;
 esac
 case "$test_run" in
-    *"grep -c"*'test-output.log'*)
-        echo "FAIL  the case count greps test-output.log again: that is the measurement that reported 273 and then 222 for the same 250 cases" >&2
+    *"grep -c"*'test-output.log'*|*"grep -c"*'app.log'*)
+        echo "FAIL  the case count greps the xcodebuild log again: that is the measurement that reported 273 and then 222 for the same 250 cases" >&2
         fails=$((fails + 1)) ;;
     *) echo "ok    and not by grepping the log" ;;
 esac

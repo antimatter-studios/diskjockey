@@ -177,12 +177,16 @@ Two clauses above are written for a Rust driver crate, and reading them
 literally here gets the wrong answer. Both still bind; what changes is where.
 
 - **"Output is budgeted"** names `scripts/tier.sh`. **There is no `tier.sh` in
-  this repository** and nothing here calls one. The same intent is served by
-  three other things, and they are the ones to keep honest: the `::group::`
-  framing around each shell test in `ci.yml`, `xcbeautify` on the `xcodebuild`
-  stream, and the executed-case floors below. If a suite here starts printing
-  a transcript, fix it in this repository rather than reaching for the
-  harness's wrapper — see the rule about shared tools below.
+  this repository** and nothing here calls one or borrows the family's. The
+  same contract is met by this repository's own `scripts/quiet-run.sh`, which
+  the three tier scripts — `scripts/test-scripts.sh`, `test-library.sh`,
+  `test-app.sh` — run their suites through: the whole raw run to
+  `tmp/logs/<tier>.log`, a verdict line on a pass, the exit status and log
+  path with no tail on a failure, exit 65 for a pass over its measured budget.
+  The budgets are the table at the top of `chores.yml`; the executed-case
+  floors below sit beside them. If a suite here starts printing a transcript,
+  fix it in this repository rather than reaching for the harness's wrapper —
+  see the rule about shared tools below.
 - **"Never mention a consuming application"** is a rule for the libraries.
   **This repository is the consuming application**, so it is the one place in
   the family that names them all — `SIBLING_PINS.txt`, `rust-bundles/`, and
@@ -219,7 +223,10 @@ chore overview:list      # every project in turn, with issue numbers and titles
 chore overview:tsv       # the detail rows as TSV
 chore pr:list            # every pull request across the constellation
 chore pr:external        # only those opened by external contributors
-chore check:scripts      # every scripts/tests/*.sh guard
+chore check:scripts      # the scripts tier: every scripts/tests/*.sh guard
+chore test:library       # the library tier: swift test, host-free
+chore test:app           # the app tier: xcodebuild, DiskJockeyTests only
+chore test               # all three, cheapest first
 chore check:agents-core  # AGENTS.md still carries the shared block, unmodified
 ```
 
@@ -234,20 +241,21 @@ GitHub and moves when somebody files an issue, so a fingerprint would let
 
 ## Running tests
 
-Three suites, three different reasons, and CI runs all three:
+Three suites, three different reasons, and CI runs all three — through the
+same three scripts `chore` does, so a developer and CI run the same command:
 
 ```sh
-swift test                              # DiskJockeyLibraryTests, host-free
+chore test:library                      # scripts/test-library.sh: swift test, host-free
 bash scripts/tests/<name>.sh            # one shell guard
-chore check:scripts                     # all of them, the way CI does
+chore check:scripts                     # scripts/test-scripts.sh: all of them
+chore test:app                          # scripts/test-app.sh: needs Xcode, macOS 15.4+,
+                                        #   make vendor-all and a GUI session
+chore test                              # all three
 ```
 
-and the app-hosted target, which needs Xcode and a macOS 15.4+ host:
-
-```sh
-xcodebuild test -project DiskJockey.xcodeproj -scheme DiskJockey \
-  -destination 'platform=macOS,arch=arm64' -only-testing:DiskJockeyTests
-```
+Each is quiet: a pass prints a verdict naming `tmp/logs/<tier>.log` and the
+executed count against its floor; `chore test:app -- --verbose` streams the
+run (through `xcbeautify` when installed) and is held to the same budget.
 
 - **`swift test` (job `Library tests`, `macos-26`).** `Package.swift` exists
   for exactly one reason and its header says so: `xcodebuild test` cannot run a
@@ -277,8 +285,8 @@ less than a measured amount of work:
 | job | floor | counted from |
 |---|---|---|
 | `Build & Test` | 160 executed cases | `xcresulttool get test-results summary` on the retained `.xcresult` — **not** the console text, which double-counted once and undercounted once |
-| `Library tests` | 228 executed cases | XCTest's `Executed N tests` plus swift-testing's `Test run with N tests`, both frameworks being in that target |
-| `Shell scripts` | 24 test files | the glob's own match count |
+| `Library tests` | 273 executed cases | XCTest's `Executed N tests` plus swift-testing's `Test run with N tests`, both frameworks being in that target |
+| `Shell scripts` | 26 test files | the glob's own match count |
 
 Every floor is written down beside the measurement and the run that produced
 it. **A floor moves up with its suite; it never moves down.** Raising one is a
@@ -287,7 +295,8 @@ is the defect it exists to catch.
 
 ### The contract every shell test signs
 
-`ci.yml` requires each `scripts/tests/*.sh` to end by printing
+`scripts/test-scripts.sh`, which CI and `chore check:scripts` both run,
+requires each `scripts/tests/*.sh` to end by printing
 
 ```
 <basename>: all checks passed
