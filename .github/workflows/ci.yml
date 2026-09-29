@@ -228,15 +228,16 @@ jobs:
           # 51 + 153 = 204 with the two plist stores, then 51 + 178 = 229
           # once the EXT4 volume logic became reachable, then 51 + 191 = 242
           # with the shared readlink contract (2026-09-28), then 51 + 200 = 251
-          # with the diskutil pass taken off the main actor (2026-09-29). The
-          # floor moves up with the suite; it never moves down.
+          # with the diskutil pass taken off the main actor, then 51 + 207 =
+          # 258 with dirent names read by their declared length (both
+          # 2026-09-29). The floor moves up with the suite; it never moves down.
           log="$RUNNER_TEMP/library-output.log"
           xct=$(grep -aoE 'Executed [0-9]+ tests' "$log" | grep -oE '[0-9]+' | sort -n | tail -1)
           swt=$(grep -aoE 'Test run with [0-9]+ tests' "$log" | grep -oE '[0-9]+' | sort -n | tail -1)
           total=$(( ${xct:-0} + ${swt:-0} ))
-          echo "library cases executed: $total = ${xct:-0} XCTest + ${swt:-0} swift-testing (floor 251)"
-          if [ "$total" -lt 251 ]; then
-              echo "::error::only $total library cases executed, floor is 251 — 251 ran on 2026-09-29, and a run that executes less than that has stopped early rather than passed (diskjockey#139)"
+          echo "library cases executed: $total = ${xct:-0} XCTest + ${swt:-0} swift-testing (floor 258)"
+          if [ "$total" -lt 258 ]; then
+              echo "::error::only $total library cases executed, floor is 258 — 258 ran on 2026-09-29, and a run that executes less than that has stopped early rather than passed (diskjockey#139)"
               exit 1
           fi
           exit "$rc"
