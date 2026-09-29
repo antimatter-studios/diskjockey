@@ -1,6 +1,27 @@
 version: "3"
 chore_min_version: 0.6.0
 
+# THE TEST TIERS AND THEIR OUTPUT BUDGETS (#211).
+#
+# Three tiers, one script each, and CI's three jobs run the same scripts:
+# `Shell scripts` runs test-scripts.sh, `Library tests` test-library.sh,
+# `Build & Test` test-app.sh. Each runs its suite through scripts/quiet-run.sh
+# (this repository's own wrapper, not the family's): the whole raw run goes to
+# tmp/logs/<tier>.log, a pass prints a verdict naming that log plus the
+# executed count against its floor, a failure prints the verdict, the exit
+# status and the log path with no tail, and a pass whose LOG outgrew its
+# budget exits 65. `-- --verbose` streams the run and is held to the same
+# budget. CI uploads tmp/logs/ on every run, green or red.
+#
+# The budget caps the log, not what was shown. A tier that legitimately grows
+# raises its row here AND in its script, with the measurement that justifies
+# it; scripts/tests/test-tiers.sh fails when the two disagree.
+#
+#   tier      lines    bytes   measured                                   floor
+#   scripts     900    60000   PROVISIONAL                                24 files
+#   library    1200    90000   PROVISIONAL                                251 cases
+#   app       20000  3000000   PROVISIONAL                                160 cases
+
 # WHAT THIS FILE IS FOR, AND WHAT IT IS NOT.
 #
 # diskjockey is the controller: it orchestrates the twelve library
@@ -47,24 +68,35 @@ tasks:
       - scripts/am-prs --external {{.CLI_ARGS}}
 
   check:scripts:
-    desc: Run every scripts/tests/*.sh guard
-    # The same loop the `Shell scripts` CI job runs, so a guard that passes
-    # here passes there. It refuses an empty glob rather than reporting
-    # success for a set whose size nothing asserted.
+    desc: The scripts tier — every scripts/tests/*.sh guard, quietly (-- --verbose to stream)
+    # The same script the `Shell scripts` CI job runs, so a guard that passes
+    # here passes there. It refuses a failing script, one that stops before
+    # its `<name>: all checks passed` line, and a glob under its floor.
     cmds:
-      - |
-        set -euo pipefail
-        shopt -s nullglob
-        tests=(scripts/tests/*.sh)
-        if [ ${#tests[@]} -eq 0 ]; then
-            echo "check:scripts: no tests found under scripts/tests/" >&2
-            exit 1
-        fi
-        for t in "${tests[@]}"; do
-            echo "== $t"
-            bash "$t"
-        done
-        echo "check:scripts: ${#tests[@]} test file(s) passed"
+      - scripts/test-scripts.sh {{.CLI_ARGS}}
+
+  test:library:
+    desc: The library tier — DiskJockeyLibraryTests through swift test, host-free, quietly
+    # The same script the `Library tests` CI job runs, floor included.
+    cmds:
+      - scripts/test-library.sh {{.CLI_ARGS}}
+
+  test:app:
+    desc: The app tier — DiskJockeyTests through xcodebuild, quietly (needs make vendor-all and a GUI session)
+    # The same script the `Build & Test` CI job runs, floor and bundle verdict
+    # included. -- --verbose streams through xcbeautify when it is installed.
+    cmds:
+      - scripts/test-app.sh {{.CLI_ARGS}}
+
+  test:
+    desc: All three tiers, cheapest first — scripts, library, app
+    # NO `sources`, and no fingerprint to skip on: a test run that reports
+    # "up to date" without running is the absence every floor here exists to
+    # refuse.
+    cmds:
+      - scripts/test-scripts.sh {{.CLI_ARGS}}
+      - scripts/test-library.sh {{.CLI_ARGS}}
+      - scripts/test-app.sh {{.CLI_ARGS}}
 
   check:agents-core:
     desc: AGENTS.md still carries the shared agent-core block, unmodified
