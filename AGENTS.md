@@ -200,7 +200,10 @@ tell is a release: if a shared tool needs a new version cut whose only purpose
 is to unblock this project, the code is in the wrong repository.
 
 The pinned `chore` version is in `SIBLING_PINS.txt` and `chores.yml` declares
-`chore_min_version`. A change here that forces either of those to move is the
+`chore_min_version`. The pin is what *this* repository's workflows install,
+read from that one line; it is not a version for the family, whose members each
+declare their own floor. `scripts/check-chore-pin.sh` refuses a workflow that
+installs chore any other way and a pin below this repository's floor. A change here that forces either of those to move is the
 signal, not a detail of the change.
 
 ## The tasks
@@ -275,7 +278,7 @@ less than a measured amount of work:
 |---|---|---|
 | `Build & Test` | 160 executed cases | `xcresulttool get test-results summary` on the retained `.xcresult` — **not** the console text, which double-counted once and undercounted once |
 | `Library tests` | 228 executed cases | XCTest's `Executed N tests` plus swift-testing's `Test run with N tests`, both frameworks being in that target |
-| `Shell scripts` | 18 test files | the glob's own match count |
+| `Shell scripts` | 24 test files | the glob's own match count |
 
 Every floor is written down beside the measurement and the run that produced
 it. **A floor moves up with its suite; it never moves down.** Raising one is a
