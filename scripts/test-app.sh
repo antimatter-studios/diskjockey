@@ -47,7 +47,7 @@ render=()
 command -v xcbeautify >/dev/null 2>&1 && render=(--render xcbeautify)
 
 rc=0
-scripts/quiet-run.sh ${render[@]+"${render[@]}"} "$@" app 20000 3000000 -- \
+scripts/quiet-run.sh ${render[@]+"${render[@]}"} "$@" app 5200 950000 -- \
     xcodebuild test \
         -project DiskJockey.xcodeproj \
         -scheme DiskJockey \

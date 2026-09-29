@@ -17,10 +17,20 @@ chore_min_version: 0.6.0
 # raises its row here AND in its script, with the measurement that justifies
 # it; scripts/tests/test-tiers.sh fails when the two disagree.
 #
-#   tier      lines    bytes   measured                                   floor
-#   scripts     900    60000   PROVISIONAL                                24 files
-#   library    1200    90000   PROVISIONAL                                251 cases
-#   app       20000  3000000   PROVISIONAL                                160 cases
+# Measured from CI, which is always cold — no DerivedData, no .build — and
+# prints the most: a warm local run is quieter (library: 632 lines against
+# CI's 994). Run 36614133886, 2026-09-29, the first with these tiers. Headroom
+# is about a quarter over the measurement, and each row says what it is:
+#
+#   tier      lines    bytes   measured (lines / bytes)     headroom   floor
+#   scripts     650    34000   496 / 25,616 (27 files)      31% / 33%  24 files
+#   library    1200    95000   994 / 77,478                 21% / 23%  251 cases
+#   app        5200   950000   4,119 / 750,848 (raw)        26% / 27%  160 cases
+#
+# The scripts tier grows by about 18 lines per new guard, so its row moves
+# with the suite. The app tier's log is the RAW xcodebuild stream, which is
+# why it is five times the others; the job itself printed 520 lines, against
+# 1,343 before these tiers.
 
 # WHAT THIS FILE IS FOR, AND WHAT IT IS NOT.
 #

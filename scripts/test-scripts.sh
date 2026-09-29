@@ -67,7 +67,7 @@ if [ "${1:-}" = "--run-all" ]; then
 fi
 
 rc=0
-scripts/quiet-run.sh "$@" scripts 900 60000 -- bash scripts/test-scripts.sh --run-all || rc=$?
+scripts/quiet-run.sh "$@" scripts 650 34000 -- bash scripts/test-scripts.sh --run-all || rc=$?
 log="${QUIET_LOG_DIR:-$ROOT/tmp/logs}/scripts.log"
 grep -E '^ran [0-9]+ script test' "$log" 2>/dev/null | tail -1
 grep -E '^TIER-FAIL' "$log" 2>/dev/null | sed 's/^TIER-FAIL //' | head -40
