@@ -19,7 +19,6 @@
 
 import Foundation
 import Combine
-import DiskJockeyLibrary
 
 /// One block device the system has attached. Not necessarily mountable —
 /// could be unformatted, partitioned but waiting on slices, or already
@@ -90,11 +89,24 @@ public final class RawDisksModel: ObservableObject {
     /// computed properties below.
     @Published public private(set) var disks: [RawDisk] = []
 
+    /// Runs `diskutil` with the given arguments and returns its stdout,
+    /// or nil on any failure. Injected so a test can stand in for a slow
+    /// disk without owning one.
+    public typealias DiskutilRunner = @Sendable (_ args: [String]) -> Data?
+
     private var timer: Timer?
     private let pollInterval: TimeInterval
+    private let runDiskutil: DiskutilRunner
+    /// The enumeration pass in flight, if any. Only touched on the main
+    /// actor, so checking and setting it cannot race.
+    private var pass: Task<Void, Never>?
 
-    public init(pollInterval: TimeInterval = 3.0) {
+    public init(
+        pollInterval: TimeInterval = 3.0,
+        runDiskutil: @escaping DiskutilRunner = RawDisksModel.systemDiskutil
+    ) {
         self.pollInterval = pollInterval
+        self.runDiskutil = runDiskutil
     }
 
     public func start() {
@@ -110,10 +122,28 @@ public final class RawDisksModel: ObservableObject {
         timer = nil
     }
 
+    /// Start one enumeration pass, unless one is already running.
+    ///
+    /// The pass runs `diskutil` once per disk, and a slow or spun-down
+    /// disk makes each call take seconds. So the pass runs off the main
+    /// actor and only its result comes back to it; running it here froze
+    /// the UI for as long as `diskutil` took, and a pass that outlasted
+    /// the poll interval kept the main queue from ever draining
+    /// (diskjockey#230). A refresh that arrives mid-pass is dropped
+    /// rather than queued: the pass in flight is already producing the
+    /// answer it would ask for, and queueing is what lets passes pile up.
     public func refresh() {
-        let fresh = Self.enumerate()
-        guard fresh != disks else { return }
-        disks = fresh
+        guard pass == nil else { return }
+        let run = runDiskutil
+        pass = Task { [weak self] in
+            let fresh = await Task.detached(priority: .utility) {
+                Self.enumerate(run: run)
+            }.value
+            guard let self else { return }
+            self.pass = nil
+            guard fresh != self.disks else { return }
+            self.disks = fresh
+        }
     }
 
     // MARK: - Computed views for the UI
@@ -189,8 +219,8 @@ public final class RawDisksModel: ObservableObject {
     /// Removable/Ejectable/Internal flags). The cost is one fork per disk
     /// per poll — fine for typical machines (5–10 disks) and the same
     /// subprocess approach already used by AttachedDisksModel.
-    private static func enumerate() -> [RawDisk] {
-        guard let listPlist = runDiskutil(args: ["list", "-plist"]) else {
+    nonisolated static func enumerate(run runDiskutil: DiskutilRunner) -> [RawDisk] {
+        guard let listPlist = runDiskutil(["list", "-plist"]) else {
             return []
         }
 
@@ -207,7 +237,7 @@ public final class RawDisksModel: ObservableObject {
             guard let bsd = whole["DeviceIdentifier"] as? String else { continue }
             let size = (whole["Size"] as? NSNumber)?.uint64Value ?? 0
             let content = whole["Content"] as? String ?? ""
-            let info = fetchInfo(bsd: bsd) ?? [:]
+            let info = fetchInfo(bsd: bsd, run: runDiskutil) ?? [:]
             result.append(RawDisk(
                 bsdName: bsd,
                 parentBsdName: nil,
@@ -225,7 +255,7 @@ public final class RawDisksModel: ObservableObject {
                 guard let pBsd = partition["DeviceIdentifier"] as? String else { continue }
                 let pSize = (partition["Size"] as? NSNumber)?.uint64Value ?? 0
                 let pContent = partition["Content"] as? String ?? ""
-                let pInfo = fetchInfo(bsd: pBsd) ?? [:]
+                let pInfo = fetchInfo(bsd: pBsd, run: runDiskutil) ?? [:]
                 result.append(RawDisk(
                     bsdName: pBsd,
                     parentBsdName: bsd,
@@ -245,8 +275,10 @@ public final class RawDisksModel: ObservableObject {
         return result
     }
 
-    private static func fetchInfo(bsd: String) -> [String: Any]? {
-        guard let data = runDiskutil(args: ["info", "-plist", bsd]) else {
+    nonisolated private static func fetchInfo(
+        bsd: String, run runDiskutil: DiskutilRunner
+    ) -> [String: Any]? {
+        guard let data = runDiskutil(["info", "-plist", bsd]) else {
             return nil
         }
         return try? PropertyListSerialization.propertyList(
@@ -257,7 +289,7 @@ public final class RawDisksModel: ObservableObject {
     /// Spawn diskutil and capture stdout. Returns nil on any failure
     /// (binary missing, non-zero exit, no output) — callers fall back
     /// to "no disks discovered" rather than throwing.
-    private static func runDiskutil(args: [String]) -> Data? {
+    nonisolated public static func systemDiskutil(_ args: [String]) -> Data? {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
         proc.arguments = args
@@ -270,7 +302,7 @@ public final class RawDisksModel: ObservableObject {
         return result.stdout
     }
 
-    private static func nonEmpty(_ s: String?) -> String? {
+    nonisolated private static func nonEmpty(_ s: String?) -> String? {
         guard let s = s, !s.isEmpty else { return nil }
         return s
     }

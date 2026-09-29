@@ -8,6 +8,7 @@
 // with unknown filesystems, etc.
 //
 
+import DiskJockeyLibrary
 import SwiftUI
 
 struct RawDiskDetailView: View {
