@@ -191,11 +191,15 @@ final class SquashfsVolume: FSVolume,
                 entryCookie += 1
                 continue
             }
-            let entryName = withUnsafePointer(to: de.pointee.name) { ptr in
-                ptr.withMemoryRebound(
-                    to: CChar.self, capacity: MemoryLayout.size(ofValue: de.pointee.name)
-                ) { String(cString: $0) }
+            // By `name_len`, not by scanning for the NUL: a SquashFS name
+            // can be 256 bytes, the whole of what the array holds before
+            // its terminator (diskjockey#207).
+            guard let nameBytes = DirentName.bytes(
+                of: de.pointee.name, length: Int(de.pointee.name_len)
+            ) else {
+                throw POSIXError(.EIO)
             }
+            let entryName = String(decoding: nameBytes, as: UTF8.self)
             let fsName = FSFileName(string: entryName)
             let childPath = Self.joinPath(dirItem.path, entryName)
             let fileType = Self.fsItemType(fromRaw: UInt32(de.pointee.file_type))
