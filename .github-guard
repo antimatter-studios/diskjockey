@@ -15,13 +15,13 @@
 # reviews is not a decision; it is a residue. Writing it down here puts it in
 # front of a reviewer every time it changes.
 #
-# The three names below are the whole PR gate and nothing else. `ci.yml` is
+# The four names below are the whole PR gate and nothing else. `ci.yml` is
 # the only workflow that runs on `pull_request` (`release.yml` is tag- and
 # dispatch-driven, so its checks can never report on a PR and must never be
 # required — a required check that never reports is a permanent block, not a
-# gate). Verified against this repository: the check-suite of the latest
-# pull_request run returns exactly these three under app slug
-# `github-actions`, and main's HEAD returns the same three.
+# gate). Verified against this repository: the check-suite of main's HEAD
+# returns exactly these four under app slug `github-actions`, each concluded
+# success, ci-ok included.
 #
 # What each one is for, since "why is this required" is the question a future
 # edit needs answered:
@@ -37,6 +37,12 @@
 #                    until it got one. Refuses a script that exits 0 without
 #                    printing its own "all checks passed", and refuses a glob
 #                    that matched fewer files than the suite has.
+#   ci-ok          — the aggregate: `needs:` all three, runs `if: always()`,
+#                    and fails on failure, cancelled and skipped alike. It is
+#                    what stays true when a leg is renamed, split or made
+#                    conditional. The legs stay required beside it because
+#                    an aggregate is a claim ABOUT other jobs; each leg must
+#                    still report success under its own name (#205).
 #
 # Names must match the check-run names GitHub reports. These are job `name:`
 # values with no matrix, so they are literal — unlike the sibling repositories'
@@ -48,9 +54,9 @@
 	required = Build & Test
 	required = Library tests
 	required = Shell scripts
-	# ci-ok must first report success on main before github-protect-main can
-	# safely add it to the required list. Keep the three legs required too.
-	advisory = ci-ok
+	# ci-ok was advisory until it had concluded success on main; that is the
+	# order github-protect-main needs before it will keep a declared name.
+	required = ci-ok
 
 # Scratch output must stay local even if it is force-added past .gitignore.
 [paths]

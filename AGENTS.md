@@ -351,10 +351,13 @@ eight releases, missing a silent-wrong-bytes fix (diskjockey#90).
 
 ## What gates a merge
 
-Three required contexts on `main`, and they are **declared** in `.github-guard`
-rather than discovered: `Build & Test`, `Library tests`, `Shell scripts`.
-Discovery requires checks by job name, which drifts silently as jobs are
-renamed or added; a list nobody reviews is a residue, not a decision.
+Four required contexts on `main`, and they are **declared** in `.github-guard`
+rather than discovered: `Build & Test`, `Library tests`, `Shell scripts`, and
+`ci-ok`, the always-run aggregate that `needs:` the other three and fails on a
+failed, cancelled or skipped leg. Discovery requires checks by job name, which
+drifts silently as jobs are renamed or added; a list nobody reviews is a
+residue, not a decision. The legs stay required beside the aggregate, so each
+must still report success under its own name whatever `ci-ok` believes.
 
 `ci.yml` is the only workflow that runs on `pull_request`. `release.yml` is tag-
 and dispatch-driven, so its checks can never report on a PR and **must never be

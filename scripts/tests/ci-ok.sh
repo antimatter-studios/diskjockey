@@ -40,10 +40,20 @@ else
     fail 'ci-ok workflow wiring is missing or incomplete'
 fi
 
-if [ "$(git config -f "$repo/.github-guard" --get-all checks.advisory)" = ci-ok ]; then
-    ok 'ci-ok is advisory until it has succeeded on main'
+# ci-ok succeeded on main before it was declared (#205), so it is required
+# now. The three legs stay required beside it: an aggregate is a claim about
+# other jobs, and each leg must still report success under its own name.
+required="$(git config -f "$repo/.github-guard" --get-all checks.required | sort | tr '\n' '|')"
+if [ "$required" = 'Build & Test|Library tests|Shell scripts|ci-ok|' ]; then
+    ok 'ci-ok is required beside the three legs'
 else
-    fail 'ci-ok must start advisory before main has produced it'
+    fail "required checks are not the three legs plus ci-ok: $required"
+fi
+
+if git config -f "$repo/.github-guard" --get-all checks.advisory | grep -qx ci-ok; then
+    fail 'ci-ok is still declared advisory as well as required'
+else
+    ok 'ci-ok is no longer advisory'
 fi
 
 echo
