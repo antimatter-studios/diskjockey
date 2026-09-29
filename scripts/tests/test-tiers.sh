@@ -99,8 +99,8 @@ else fail "chore test does not run all three tiers in order"; fi
 # A scratch tree with its own scripts/tests/. The floor is read from the
 # script, so the passing case builds exactly that many passing tests.
 floor="$(grep -oE '^FLOOR=[0-9]+' "$REPO/scripts/test-scripts.sh" 2>/dev/null | cut -d= -f2)"
-if [ -n "$floor" ] && [ "$floor" -ge 24 ]; then ok "the scripts tier's floor is $floor, not under the 24 measured on 2026-09-29"
-else fail "the scripts tier has no FLOOR= at or above 24 (got '${floor:-nothing}')"; floor=24; fi
+if [ -n "$floor" ] && [ "$floor" -ge 26 ]; then ok "the scripts tier's floor is $floor, not under the 26 set when 28 ran on 2026-09-29"
+else fail "the scripts tier has no FLOOR= at or above 26 (got '${floor:-nothing}')"; floor=26; fi
 
 # tree <case> <passing count>: a scratch tree with that many passing tests.
 tree() {

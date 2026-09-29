@@ -23,7 +23,7 @@ chore_min_version: 0.6.0
 # is about a quarter over the measurement, and each row says what it is:
 #
 #   tier      lines    bytes   measured (lines / bytes)     headroom   floor
-#   scripts     650    34000   496 / 25,616 (27 files)      31% / 33%  24 files
+#   scripts     650    34000   496 / 25,616 (27 files)      31% / 33%  26 files
 #   library    1200    95000   994 / 77,478                 21% / 23%  251 cases
 #   app        5200   950000   4,119 / 750,848 (raw)        26% / 27%  160 cases
 #
