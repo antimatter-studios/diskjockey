@@ -22,8 +22,9 @@
 # Measured 2026-09-10: 51 + 39 = 90, then 51 + 65 = 116, 51 + 78 = 129,
 # 51 + 109 = 160, 51 + 132 = 183, 51 + 153 = 204, 51 + 178 = 229, then
 # 51 + 191 = 242 with the shared readlink contract (2026-09-28), then
-# 51 + 200 = 251 with the diskutil pass taken off the main actor (2026-09-29).
-# The floor moves up with the suite; it never moves down.
+# 51 + 200 = 251 with the diskutil pass taken off the main actor, then
+# 51 + 207 = 258 with dirent names read by their declared length (both
+# 2026-09-29). The floor moves up with the suite; it never moves down.
 #
 #   scripts/test-library.sh [--verbose]
 set -uo pipefail
@@ -32,15 +33,15 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
 
 rc=0
-scripts/quiet-run.sh "$@" library 1200 95000 -- swift test || rc=$?
+scripts/quiet-run.sh "$@" library 1500 118000 -- swift test || rc=$?
 log="${QUIET_LOG_DIR:-$ROOT/tmp/logs}/library.log"
 
 xct=$(grep -aoE 'Executed [0-9]+ tests' "$log" 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
 swt=$(grep -aoE 'Test run with [0-9]+ tests' "$log" 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
 total=$(( ${xct:-0} + ${swt:-0} ))
-echo "library cases executed: $total = ${xct:-0} XCTest + ${swt:-0} swift-testing (floor 251)"
-if [ "$total" -lt 251 ]; then
-    echo "::error::only $total library cases executed, floor is 251 — 251 ran on 2026-09-29, and a run that executes less than that has stopped early rather than passed (diskjockey#139)"
+echo "library cases executed: $total = ${xct:-0} XCTest + ${swt:-0} swift-testing (floor 258)"
+if [ "$total" -lt 258 ]; then
+    echo "::error::only $total library cases executed, floor is 258 — 258 ran on 2026-09-29, and a run that executes less than that has stopped early rather than passed (diskjockey#139)"
     exit 1
 fi
 exit "$rc"
