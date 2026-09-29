@@ -13,7 +13,6 @@
 //
 
 import Foundation
-import DiskJockeyLibrary
 
 /// Result of decoding an fsck-family event. The `status` is what the
 /// disk's `fsckStatus` field should become; the optional counters

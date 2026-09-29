@@ -15,6 +15,7 @@
 //
 
 import SwiftUI
+import DiskJockeyLibrary
 
 /// Per-subject I/O activity panel. Subject-agnostic — pass an
 /// `IOStats` and the section renders identically for an attached disk

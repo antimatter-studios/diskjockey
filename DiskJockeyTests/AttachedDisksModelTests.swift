@@ -7,6 +7,7 @@
 
 import Testing
 @testable import DiskJockey
+import DiskJockeyLibrary
 
 struct AttachedDisksModelTests {
     private static let interesting: Set<String> = ["ext4", "ntfs", "fsntfs"]
