@@ -8,13 +8,12 @@
 
 import Foundation
 import Combine
-import DiskJockeyLibrary
 
 /// Live fsck status for a volume. Drives the detail-pane status row +
 /// progress bar. Updated in response to kind-tagged events emitted by
 /// our FSKit extensions (`volume.dirty`, `fsck.start`, `fsck.progress`,
 /// `fsck.done`, `fsck.failed`).
-public enum FsckStatus: Equatable, Hashable {
+public enum FsckStatus: Equatable, Hashable, Sendable {
     case unknown
     case clean
     case dirty
@@ -46,14 +45,14 @@ public enum FsckStatus: Equatable, Hashable {
 /// Disks that drop out of `/sbin/mount` AND aren't in one of the
 /// preserved-states above are removed from the sidebar entirely on
 /// the next refresh().
-public enum AttachedDiskStatus: Equatable, Hashable {
+public enum AttachedDiskStatus: Equatable, Hashable, Sendable {
     case mounting
     case live
     case repairing
     case repairFailed(String)
 }
 
-public struct AttachedDisk: Identifiable, Equatable, Hashable {
+public struct AttachedDisk: Identifiable, Equatable, Hashable, Sendable {
     /// Stable handle for the lifetime of this row, set once at creation
     /// and never changes. Priority at creation:
     ///   1. `stableIdentity` (UUID/serial from volume.info) — survives
@@ -180,7 +179,7 @@ public struct AttachedDisk: Identifiable, Equatable, Hashable {
 
 /// One log line scoped to a specific partition. Subset of AppLogLine —
 /// only the fields the detail-view log strip needs.
-public struct AttachedDiskLogLine: Identifiable, Equatable, Hashable {
+public struct AttachedDiskLogLine: Identifiable, Equatable, Hashable, Sendable {
     public let id = UUID()
     public let timestamp: Date
     public let level: String
@@ -267,8 +266,17 @@ public final class AttachedDisksModel: ObservableObject {
         "exfat",             // Apple's built-in exFAT
     ]
 
+    /// Reads the mount table and returns the rows whose fstype is in the
+    /// given set, each with its statvfs baseline. Injected so a test can
+    /// stand in for a slow `mount` or a slow volume without owning one.
+    public typealias MountTableReader = @Sendable (_ fsTypesOfInterest: Set<String>) -> [AttachedDisk]
+
     private var timer: Timer?
     private let pollInterval: TimeInterval
+    private let readMountTable: MountTableReader
+    /// The mount-table pass in flight, if any. Only touched on the main
+    /// actor, so checking and setting it cannot race.
+    private var pass: Task<Void, Never>?
     /// Events that arrived keyed on a BSD we hadn't yet seen in the
     /// mount table (classic race: extension emits volume.info the
     /// instant it mounts, our /sbin/mount poller picks up the mount
@@ -279,8 +287,12 @@ public final class AttachedDisksModel: ObservableObject {
     private var pendingLogs: [String: [AttachedDiskLogLine]] = [:]
     private static let logCap = 500
 
-    public init(pollInterval: TimeInterval = 3.0) {
+    public init(
+        pollInterval: TimeInterval = 3.0,
+        readMountTable: @escaping MountTableReader = { MountTableParser.enumerate(fsTypesOfInterest: $0) }
+    ) {
         self.pollInterval = pollInterval
+        self.readMountTable = readMountTable
     }
 
     public func start() {
@@ -296,8 +308,38 @@ public final class AttachedDisksModel: ObservableObject {
         timer = nil
     }
 
+    /// Start one mount-table pass, unless one is already running.
+    ///
+    /// The pass runs `/sbin/mount` and then asks every listed volume for
+    /// its size, and a slow mount table or one spun-down or hung volume
+    /// makes that take seconds. So the read runs off the main actor and
+    /// only its result comes back to be merged here; running it here froze
+    /// the UI for as long as the pass took, and a pass that outlasted the
+    /// poll interval kept the main queue from ever draining
+    /// (diskjockey#248, as #230 was for RawDisksModel). A refresh that
+    /// arrives mid-pass is dropped rather than queued: the pass in flight
+    /// is already producing the answer it would ask for, and queueing is
+    /// what lets passes pile up. The merge runs against `disks` as it is
+    /// when the read returns, so an extension event that arrived mid-pass
+    /// is folded in rather than overwritten.
     public func refresh() {
-        let fresh = MountTableParser.enumerate(fsTypesOfInterest: fsTypesOfInterest)
+        guard pass == nil else { return }
+        let read = readMountTable
+        let interest = fsTypesOfInterest
+        pass = Task { [weak self] in
+            let fresh = await Task.detached(priority: .utility) {
+                read(interest)
+            }.value
+            guard let self else { return }
+            self.pass = nil
+            self.merge(fresh)
+        }
+    }
+
+    /// Fold one mount-table pass into `disks`, carrying state forward from
+    /// the rows already there. Main actor only: `disks` and the pending
+    /// queues are the model's state, and extension events touch them too.
+    private func merge(_ fresh: [AttachedDisk]) {
         var merged: [AttachedDisk] = []
         var consumedIndices: Set<Int> = []  // indices into `disks` we've already merged
 

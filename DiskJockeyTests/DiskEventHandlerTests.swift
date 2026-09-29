@@ -8,6 +8,7 @@
 import Testing
 import Foundation
 @testable import DiskJockey
+import DiskJockeyLibrary
 
 struct DiskEventHandlerTests {
 
