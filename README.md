@@ -314,6 +314,26 @@ Block-device filesystems don't benefit from a server-in-the-middle: all bytes co
 
 ---
 
+## Verifying a release
+
+A release build is made only by `.github/workflows/release.yml`, dispatched
+by hand, and it publishes nothing to this repository: the installer package
+goes to the App Store and nowhere else. Before that upload the workflow signs
+a build-provenance attestation over the exported `.pkg`, which proves the
+package was built by that workflow from a commit here rather than on someone's
+machine. The attestation records only the package's digest. Whoever holds the
+package can check it:
+
+```sh
+gh attestation verify DiskJockey.pkg \
+  --repo antimatter-studios/diskjockey \
+  --signer-workflow antimatter-studios/diskjockey/.github/workflows/release.yml
+```
+
+Add `--source-ref refs/tags/vX.Y.Z` to require that it was built from a given
+tag, since a dispatch can run from any ref. `scripts/tests/release-is-attested.sh`
+fails CI if the workflow loses the step or its permissions.
+
 ## License
 
 MIT — see [`LICENSE`](LICENSE). Copyright (c) 2025 Christopher Thomas.
