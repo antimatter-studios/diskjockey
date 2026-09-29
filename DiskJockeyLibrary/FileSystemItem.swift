@@ -61,6 +61,12 @@ public final class FileSystemItem<Tag: FileSystemTag>: FSItem {
     /// item cache, but the backend itself is always path-driven.
     public let path: String
 
+    /// The same path as the bytes the driver uses. For an item made from
+    /// a `String` path the two agree; for one made from a `VolumePath`,
+    /// `path` is only a readable rendering and this is the path
+    /// (diskjockey#219).
+    public let volumePath: VolumePath
+
     /// Parent directory's identity. `nil` only for the root item,
     /// whose parent FSKit defines as the sentinel `FSItemIDParentOfRoot`
     /// (1). Stored at construction time so the FSKit attribute-fetch
@@ -71,6 +77,17 @@ public final class FileSystemItem<Tag: FileSystemTag>: FSItem {
     public init(id: Tag.ID, path: String, parentID: Tag.ID?) {
         self.id = id
         self.path = path
+        self.volumePath = VolumePath(path)
+        self.parentID = parentID
+        super.init()
+    }
+
+    /// An item whose path came from the driver as bytes, valid UTF-8 or
+    /// not.
+    public init(id: Tag.ID, volumePath: VolumePath, parentID: Tag.ID?) {
+        self.id = id
+        self.path = volumePath.description
+        self.volumePath = volumePath
         self.parentID = parentID
         super.init()
     }
@@ -149,6 +166,10 @@ public extension FileSystemItem where Tag == SquashfsTag {
 
     convenience init(inode: UInt32, path: String, parentInode: UInt32?) {
         self.init(id: inode, path: path, parentID: parentInode)
+    }
+
+    convenience init(inode: UInt32, volumePath: VolumePath, parentInode: UInt32?) {
+        self.init(id: inode, volumePath: volumePath, parentID: parentInode)
     }
 }
 

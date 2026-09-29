@@ -43,14 +43,14 @@ final class SquashfsVolume: FSVolume,
 
     // MARK: - Item cache
 
-    private func item(forInode inode: UInt32, path: String,
+    private func item(forInode inode: UInt32, path: VolumePath,
                       parentInode: UInt32?) -> SquashfsItem {
         // FileIDCache keys on UInt64; SquashFS inodes are 32-bit, so widen
         // for the cache id while keeping the item's own 32-bit identity.
         items.getOrCreate(
             id: UInt64(inode),
-            validate: { $0.path == path && $0.parentInode == parentInode },
-            create: { SquashfsItem(inode: inode, path: path, parentInode: parentInode) }
+            validate: { $0.volumePath == path && $0.parentInode == parentInode },
+            create: { SquashfsItem(inode: inode, volumePath: path, parentInode: parentInode) }
         )
     }
 
@@ -107,7 +107,7 @@ final class SquashfsVolume: FSVolume,
         // matches what enumeration/attributes report for "/".
         var attr = fs_squashfs_attr_t()
         let rootInode: UInt32 = (fs_squashfs_stat(fs, "/", &attr) == 0) ? attr.inode : 1
-        return item(forInode: rootInode, path: "/", parentInode: nil)
+        return item(forInode: rootInode, path: .root, parentInode: nil)
     }
 
     func deactivate(options: FSDeactivateOptions) async throws {
@@ -133,7 +133,7 @@ final class SquashfsVolume: FSVolume,
             throw POSIXError(.EBADF)
         }
         var attr = fs_squashfs_attr_t()
-        guard fs_squashfs_stat(fs, sItem.path, &attr) == 0 else {
+        guard sItem.volumePath.withCString({ fs_squashfs_stat(fs, $0, &attr) }) == 0 else {
             throw POSIXError(.ENOENT)
         }
         return Self.attributes(from: attr, parentInode: sItem.parentInode)
@@ -156,11 +156,14 @@ final class SquashfsVolume: FSVolume,
         guard let fs = bridgeFS, let dirItem = directory as? SquashfsItem else {
             throw POSIXError(.EBADF)
         }
-        guard let nameStr = name.string else { throw POSIXError(.EINVAL) }
-        let childPath = Self.joinPath(dirItem.path, nameStr)
+        // By the name's bytes, not its String: a SquashFS name need not
+        // be UTF-8, and the driver matches bytes (diskjockey#219).
+        guard let childPath = dirItem.volumePath.appending(name) else {
+            throw POSIXError(.ENOENT)
+        }
 
         var attr = fs_squashfs_attr_t()
-        guard fs_squashfs_stat(fs, childPath, &attr) == 0 else {
+        guard childPath.withCString({ fs_squashfs_stat(fs, $0, &attr) }) == 0 else {
             throw POSIXError(.ENOENT)
         }
         let found = item(forInode: attr.inode, path: childPath,
@@ -178,7 +181,7 @@ final class SquashfsVolume: FSVolume,
         guard let fs = bridgeFS, let dirItem = directory as? SquashfsItem else {
             throw POSIXError(.EBADF)
         }
-        guard let iter = fs_squashfs_dir_open(fs, dirItem.path) else {
+        guard let iter = dirItem.volumePath.withCString({ fs_squashfs_dir_open(fs, $0) }) else {
             throw POSIXError(.EIO)
         }
         defer { fs_squashfs_dir_close(iter) }
@@ -196,18 +199,19 @@ final class SquashfsVolume: FSVolume,
             // its terminator (diskjockey#207).
             guard let nameBytes = DirentName.bytes(
                 of: de.pointee.name, length: Int(de.pointee.name_len)
-            ) else {
+            ), let childPath = dirItem.volumePath.appending(nameBytes) else {
                 throw POSIXError(.EIO)
             }
-            let entryName = String(decoding: nameBytes, as: UTF8.self)
-            let fsName = FSFileName(string: entryName)
-            let childPath = Self.joinPath(dirItem.path, entryName)
+            // The bytes, not a String: decoding repairs invalid UTF-8 to
+            // U+FFFD, which shows the wrong name and hands the driver a
+            // path to a file that does not exist (diskjockey#219).
+            let fsName = DirentName.fileName(nameBytes)
             let fileType = Self.fsItemType(fromRaw: UInt32(de.pointee.file_type))
 
             var itemAttrs: FSItem.Attributes? = nil
             if attributes != nil {
                 var attr = fs_squashfs_attr_t()
-                if fs_squashfs_stat(fs, childPath, &attr) == 0 {
+                if childPath.withCString({ fs_squashfs_stat(fs, $0, &attr) }) == 0 {
                     itemAttrs = Self.attributes(from: attr, parentInode: dirItem.inode)
                 }
             }
@@ -238,12 +242,14 @@ final class SquashfsVolume: FSVolume,
             throw POSIXError(.EBADF)
         }
         // Success is the target's length, not zero (see SymlinkTarget).
-        let target = try SymlinkTarget.read(
-            lastErrno: { Int32(fs_squashfs_last_errno()) }
-        ) { buf, size in
-            fs_squashfs_readlink(fs, sItem.path, buf, size)
+        let target = try sItem.volumePath.withCString { path in
+            try SymlinkTarget.readBytes(
+                lastErrno: { Int32(fs_squashfs_last_errno()) }
+            ) { buf, size in
+                fs_squashfs_readlink(fs, path, buf, size)
+            }
         }
-        return FSFileName(string: target)
+        return FSFileName(data: Data(target))
     }
 
     // MARK: - Mutating ops (all rejected — read-only)
@@ -309,10 +315,12 @@ final class SquashfsVolume: FSVolume,
         guard let fs = bridgeFS, let sItem = item as? SquashfsItem else {
             throw POSIXError(.EBADF)
         }
-        return buffer.withUnsafeMutableBytes { rawBuf in
-            let n = fs_squashfs_read_file(
-                fs, sItem.path, rawBuf.baseAddress, UInt64(offset), UInt64(length))
-            return max(0, Int(n))
+        return sItem.volumePath.withCString { path in
+            buffer.withUnsafeMutableBytes { rawBuf in
+                let n = fs_squashfs_read_file(
+                    fs, path, rawBuf.baseAddress, UInt64(offset), UInt64(length))
+                return max(0, Int(n))
+            }
         }
     }
 
@@ -338,10 +346,6 @@ final class SquashfsVolume: FSVolume,
         case 7: return .symlink     // FS_SQUASHFS_FT_SYMLINK
         default: return .file
         }
-    }
-
-    static func joinPath(_ parent: String, _ child: String) -> String {
-        parent == "/" ? "/\(child)" : "\(parent)/\(child)"
     }
 
     /// Build an `FSItem.Attributes` from an fs_squashfs_attr_t. Populates
