@@ -33,8 +33,18 @@ public struct DirectMountRegistryStore {
         defaults.set(data, forKey: Self.defaultsKey)
     }
 
+    /// The persisted mounts. A blob that decodes is written straight back,
+    /// re-encoded: a blob from an older build can hold credentials the
+    /// current encoders omit (an OAuth access token, an S3 session token),
+    /// and nothing else rewrites it until the mount list changes. The
+    /// registry's copy of a config is never what a driver is handed, so
+    /// dropping them here loses nothing; the plist's copy of the session
+    /// token is moved to the keychain by `MountCredentials` instead.
     public func load() -> [DirectMount] {
-        guard let data = defaults.data(forKey: Self.defaultsKey) else { return [] }
-        return (try? JSONDecoder().decode([DirectMount].self, from: data)) ?? []
+        guard let data = defaults.data(forKey: Self.defaultsKey),
+              let mounts = try? JSONDecoder().decode([DirectMount].self, from: data)
+        else { return [] }
+        save(mounts)
+        return mounts
     }
 }

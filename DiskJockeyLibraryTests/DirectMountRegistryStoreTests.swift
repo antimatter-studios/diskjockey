@@ -126,3 +126,124 @@ struct DirectMountRegistryStoreTests {
                 "the per-domain plist carries the S3 session token")
     }
 }
+
+/// A keychain stand-in: the tests hold no keychain access group
+/// entitlement, and a real item would outlive the test anyway.
+private final class MemorySecrets: MountSecretStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [String: String] = [:]
+    var failSaves = false
+
+    func save(password: String, domainID: String) throws {
+        lock.lock(); defer { lock.unlock() }
+        if failSaves { throw MountKeychainError.osstatus(-34018, "save") }
+        items[domainID] = password
+    }
+    func load(domainID: String) throws -> String {
+        lock.lock(); defer { lock.unlock() }
+        guard let v = items[domainID] else { throw MountKeychainError.notFound }
+        return v
+    }
+    func delete(domainID: String) throws {
+        lock.lock(); defer { lock.unlock() }
+        items[domainID] = nil
+    }
+    var snapshot: [String: String] { lock.lock(); defer { lock.unlock() }; return items }
+}
+
+private func scratchConfigStore() -> (MountConfigStore, URL) {
+    let dir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("dj-credentials-\(UUID().uuidString)", isDirectory: true)
+    return (MountConfigStore(directory: dir), dir)
+}
+
+private func plistText(_ dir: URL, _ domainID: String) throws -> String {
+    String(decoding: try Data(contentsOf: dir.appendingPathComponent("\(domainID).plist")),
+           as: UTF8.self)
+}
+
+/// The session token's new home. Stripping it from the encoders is only
+/// half a fix: the S3 driver needs it to sign every request, so it must
+/// still reach `mountJSON` after a round trip through the plist.
+@Suite("MountCredentials")
+struct MountCredentialsTests {
+
+    @Test func aSessionTokenSurvivesTheRoundTripThroughTheKeychain() throws {
+        let (store, dir) = scratchConfigStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let secrets = MemorySecrets()
+        let credentials = MountCredentials(secrets: secrets)
+
+        try store.save(s3WithSessionToken, domainID: "D")
+        try credentials.saveFieldSecrets(of: s3WithSessionToken, domainID: "D")
+
+        #expect(!(try plistText(dir, "D")).contains(sessionToken))
+        let resolved = try credentials.resolvedConfig(domainID: "D", store: store)
+        #expect(resolved == s3WithSessionToken, "the keychain's token is not put back")
+        #expect(resolved.mountJSON(password: "sk").contains(sessionToken),
+                "the driver is no longer handed the session token")
+        #expect(secrets.snapshot.keys.sorted() == [MountCredentials.sessionTokenAccount(domainID: "D")],
+                "the token must not share the password's account")
+    }
+
+    @Test func anS3MountWithNoSessionTokenResolvesWithNone() throws {
+        let (store, dir) = scratchConfigStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let secrets = MemorySecrets()
+        let plain = StoredMountConfig.s3(S3MountConfig(endpoint: "e", bucket: "b", accessKeyID: "a"))
+        try store.save(plain, domainID: "D")
+        try MountCredentials(secrets: secrets).saveFieldSecrets(of: plain, domainID: "D")
+        #expect(try MountCredentials(secrets: secrets).resolvedConfig(domainID: "D", store: store) == plain)
+        #expect(secrets.snapshot.isEmpty, "an empty token was stored")
+    }
+
+    /// A plist written before this fix carries the token. Resolving it —
+    /// what the extension does at spawn, with or without the host app —
+    /// moves it into the keychain and rewrites the plist without it.
+    @Test func aPlistLeftByAnOlderBuildIsMigratedOnFirstRead() throws {
+        let (store, dir) = scratchConfigStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let legacy = #"{"s3":{"_0":{"endpoint":"s3.example.com","bucket":"b","region":"us-east-1","accessKeyID":"AKID","prefix":"","secure":true,"usePathStyle":false,"sessionToken":"STS-SESSION-TOKEN-6d21"}}}"#
+        let object = try JSONSerialization.jsonObject(with: Data(legacy.utf8))
+        try PropertyListSerialization.data(fromPropertyList: object, format: .binary, options: 0)
+            .write(to: dir.appendingPathComponent("D.plist"))
+        #expect((try plistText(dir, "D")).contains(sessionToken), "the fixture is not a legacy plist")
+
+        let secrets = MemorySecrets()
+        let resolved = try MountCredentials(secrets: secrets).resolvedConfig(domainID: "D", store: store)
+        #expect(resolved == s3WithSessionToken)
+        #expect(!(try plistText(dir, "D")).contains(sessionToken),
+                "the legacy plist still carries the session token after it was read")
+        #expect(secrets.snapshot[MountCredentials.sessionTokenAccount(domainID: "D")] == sessionToken,
+                "the token was erased from the plist without reaching the keychain")
+    }
+
+    /// If the keychain refuses the token, the plist keeps it: a mount that
+    /// still has a plaintext token beats one that can no longer sign.
+    @Test func aFailedKeychainSaveLeavesTheLegacyPlistAlone() throws {
+        let (store, dir) = scratchConfigStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let legacy = #"{"s3":{"_0":{"endpoint":"s3.example.com","bucket":"b","region":"us-east-1","accessKeyID":"AKID","prefix":"","secure":true,"usePathStyle":false,"sessionToken":"STS-SESSION-TOKEN-6d21"}}}"#
+        let object = try JSONSerialization.jsonObject(with: Data(legacy.utf8))
+        try PropertyListSerialization.data(fromPropertyList: object, format: .binary, options: 0)
+            .write(to: dir.appendingPathComponent("D.plist"))
+
+        let secrets = MemorySecrets()
+        secrets.failSaves = true
+        let resolved = try MountCredentials(secrets: secrets).resolvedConfig(domainID: "D", store: store)
+        #expect(resolved == s3WithSessionToken, "the mount lost its token")
+        #expect((try plistText(dir, "D")).contains(sessionToken),
+                "the plist was stripped although the keychain never took the token")
+    }
+
+    @Test func deletingAMountsFieldSecretsRemovesTheToken() throws {
+        let secrets = MemorySecrets()
+        let credentials = MountCredentials(secrets: secrets)
+        try credentials.saveFieldSecrets(of: s3WithSessionToken, domainID: "D")
+        try credentials.deleteFieldSecrets(domainID: "D")
+        #expect(secrets.snapshot.isEmpty)
+        try credentials.deleteFieldSecrets(domainID: "never-had-one")
+    }
+}

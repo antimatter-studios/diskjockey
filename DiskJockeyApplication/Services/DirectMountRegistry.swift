@@ -6,7 +6,8 @@
 // Create:
 //   1. Allocate a domain UUID.
 //   2. Persist StoredMountConfig plist to the app-group container.
-//   3. Stash the password in the shared keychain access-group.
+//   3. Stash the password, and any credential the config holds as a
+//      field (an S3 session token), in the shared keychain access-group.
 //   4. Register an NSFileProviderDomain.
 //   5. Query the user-visible URL & drop a ~/DiskJockey/<name> symlink.
 //   6. Append an entry to the local registry (UserDefaults).
@@ -110,6 +111,7 @@ public final class DirectMountRegistry: ObservableObject {
     private let keychain: MountKeychain
     private let symlinks: SymlinkManager
     private let registryStore: DirectMountRegistryStore
+    private let credentials: MountCredentials
 
     private static let logCap = 500
 
@@ -125,11 +127,18 @@ public final class DirectMountRegistry: ObservableObject {
         self.symlinks = symlinks
         // Shared UserDefaults under the app-group. Falls back to
         // `.standard` if the suite isn't available (tests / tooling).
+        // Loading also rewrites a blob from an older build without the
+        // credentials it held (diskjockey#172).
         self.registryStore = DirectMountRegistryStore()
+        self.credentials = MountCredentials(secrets: keychain)
         self.mounts = registryStore.load()
         AppLog.shared.info("registry init: loaded \(mounts.count) persisted mounts")
         for m in mounts {
             AppLog.shared.info("persisted: id=\(m.domainID) name=\(m.displayName) scheme=\(m.config.scheme.rawValue) at=\(m.config.displayLocation)")
+            // The per-domain plist's copy: resolving it moves a session
+            // token an older build left there into the keychain. The
+            // extension does the same on its own first read.
+            _ = try? credentials.resolvedConfig(domainID: m.domainID, store: configStore)
         }
     }
 
@@ -240,6 +249,19 @@ public final class DirectMountRegistry: ObservableObject {
             throw error
         }
 
+        // 1c. Credentials the config carries as fields (an S3 session
+        // token) — the plist written in 1a omits them, so the keychain is
+        // their only copy.
+        do {
+            try credentials.saveFieldSecrets(of: config, domainID: domainID)
+        } catch {
+            AppLog.shared.error("step 1c FAILED (field secret save): \("\(error)")")
+            try? keychain.delete(domainID: domainID)
+            try? policyStore.delete(domainID: domainID)
+            try? configStore.delete(domainID: domainID)
+            throw error
+        }
+
         // 2. Register domain with FileProvider. Pass just the user's
         // chosen name; Finder prepends the provider app name on its own,
         // so any "DiskJockey - " prefix here would render as
@@ -254,6 +276,7 @@ public final class DirectMountRegistry: ObservableObject {
             AppLog.shared.info("step 2: domain registered")
         } catch {
             AppLog.shared.error("step 2 FAILED (domain register): \("\(error)")")
+            try? credentials.deleteFieldSecrets(domainID: domainID)
             try? keychain.delete(domainID: domainID)
             try? policyStore.delete(domainID: domainID)
             try? configStore.delete(domainID: domainID)
@@ -435,6 +458,7 @@ public final class DirectMountRegistry: ObservableObject {
         // file: an orphan plist is harmless, so we log and move on
         // rather than aborting cleanup.
         try? keychain.delete(domainID: mount.domainID)
+        try? credentials.deleteFieldSecrets(domainID: mount.domainID)
         try? configStore.delete(domainID: mount.domainID)
         do {
             try policyStore.delete(domainID: mount.domainID)
