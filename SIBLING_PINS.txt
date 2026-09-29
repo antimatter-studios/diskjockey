@@ -17,6 +17,15 @@
 # The chore version CI installs. The build contract is expressed in each
 # project's chores.yml, so the tool that reads it is a pinned input like
 # any other.
+#
+# This pin is this repository's own: the exact release ci.yml and release.yml
+# download, and the only place either of them reads it from. It is
+# not a version for the family. Each sibling declares the oldest chore that
+# can read its contract as `chore_min_version` in its own chores.yml, and
+# installs what it installs; this line decides nothing for them (#79). It
+# must sit at or above this repository's chore_min_version, and at or above the
+# floor of the go-networkfs ref pinned below, the one sibling chore builds
+# here. scripts/check-chore-pin.sh holds the first two to that.
 chore               0.8.0
 
 # project           ref
