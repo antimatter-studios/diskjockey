@@ -52,17 +52,39 @@ public enum SymlinkTarget {
     /// Interprets one readlink call: its return value `rc`, the buffer it
     /// wrote into, and the driver's errno for the call.
     public static func outcome(rc: Int32, buffer: [CChar], errno: Int32) -> ReadlinkOutcome {
+        switch byteOutcome(rc: rc, buffer: buffer, errno: errno) {
+        case .success(let bytes): return .target(String(decoding: bytes, as: UTF8.self))
+        case .failure(let failure): return failure.outcome
+        }
+    }
+
+    /// Why a readlink call did not produce a target.
+    private enum Failure: Error {
+        case bufferTooSmall
+        case failed(errno: Int32)
+
+        var outcome: ReadlinkOutcome {
+            switch self {
+            case .bufferTooSmall: return .bufferTooSmall
+            case .failed(let errno): return .failed(errno: errno)
+            }
+        }
+    }
+
+    /// `outcome`, with the target kept as the bytes the driver wrote.
+    private static func byteOutcome(
+        rc: Int32, buffer: [CChar], errno: Int32
+    ) -> Result<[UInt8], Failure> {
         guard rc >= 0 else {
-            if errno == ERANGE { return .bufferTooSmall }
-            return .failed(errno: errno != 0 ? errno : EIO)
+            if errno == ERANGE { return .failure(.bufferTooSmall) }
+            return .failure(.failed(errno: errno != 0 ? errno : EIO))
         }
         // The length is the answer; the NUL is a courtesy. A length the
         // buffer could not have held (room for the NUL included) is a
         // driver fault, and reading past it would invent a target.
         let length = Int(rc)
-        guard length < buffer.count else { return .failed(errno: EIO) }
-        let bytes = buffer.prefix(length).map { UInt8(bitPattern: $0) }
-        return .target(String(decoding: bytes, as: UTF8.self))
+        guard length < buffer.count else { return .failure(.failed(errno: EIO)) }
+        return .success(buffer.prefix(length).map { UInt8(bitPattern: $0) })
     }
 
     /// Reads a link's target through one driver's readlink, growing the
@@ -79,16 +101,33 @@ public enum SymlinkTarget {
         error makeError: (Int32) -> Error = { POSIXError(POSIXErrorCode(rawValue: $0) ?? .EIO) },
         _ call: (UnsafeMutablePointer<CChar>, Int) -> Int32
     ) throws -> String {
+        String(decoding: try readBytes(initialCapacity: initialCapacity,
+                                       maximumCapacity: maximumCapacity,
+                                       lastErrno: lastErrno, error: makeError, call),
+               as: UTF8.self)
+    }
+
+    /// `read`, answering the target's bytes exactly as the driver wrote
+    /// them. A target is a path, and a path is bytes: decoding it would
+    /// repair invalid UTF-8 into a target that names another file
+    /// (diskjockey#219).
+    public static func readBytes(
+        initialCapacity: Int = initialCapacity,
+        maximumCapacity: Int = maximumCapacity,
+        lastErrno: () -> Int32,
+        error makeError: (Int32) -> Error = { POSIXError(POSIXErrorCode(rawValue: $0) ?? .EIO) },
+        _ call: (UnsafeMutablePointer<CChar>, Int) -> Int32
+    ) throws -> [UInt8] {
         var capacity = max(initialCapacity, 1)
         while capacity <= maximumCapacity {
             var buf = [CChar](repeating: 0, count: capacity)
             let rc = buf.withUnsafeMutableBufferPointer { call($0.baseAddress!, $0.count) }
-            switch outcome(rc: rc, buffer: buf, errno: rc < 0 ? lastErrno() : 0) {
-            case .target(let target):
+            switch byteOutcome(rc: rc, buffer: buf, errno: rc < 0 ? lastErrno() : 0) {
+            case .success(let target):
                 return target
-            case .bufferTooSmall:
+            case .failure(.bufferTooSmall):
                 capacity *= 2
-            case .failed(let errno):
+            case .failure(.failed(let errno)):
                 throw makeError(errno)
             }
         }
