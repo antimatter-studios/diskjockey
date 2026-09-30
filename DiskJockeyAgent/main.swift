@@ -8,6 +8,10 @@ import Foundation
 private let kTeamID = "43UMKXZ8P4"
 
 final class AgentDelegate: NSObject, NSXPCListenerDelegate {
+    /// One ledger for every connection: an image attached over one
+    /// connection is detached over another after the app relaunches.
+    private let ledger = AttachLedgerFile(url: AttachLedgerFile.defaultURL)
+
     func listener(_ listener: NSXPCListener,
                   shouldAcceptNewConnection conn: NSXPCConnection) -> Bool {
         // Only accept connections from our own app, signed by our team.
@@ -25,7 +29,7 @@ final class AgentDelegate: NSObject, NSXPCListenerDelegate {
             "anchor apple generic and identifier \"com.antimatterstudios.diskjockey\" "
             + "and certificate leaf[subject.OU] = \"\(kTeamID)\"")
         conn.exportedInterface = NSXPCInterface(with: DJAgentProtocol.self)
-        conn.exportedObject = AgentImpl()
+        conn.exportedObject = AgentImpl(ledger: ledger)
         conn.resume()
         return true
     }

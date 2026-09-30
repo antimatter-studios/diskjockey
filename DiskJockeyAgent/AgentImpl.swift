@@ -1,10 +1,24 @@
 import Foundation
 
 final class AgentImpl: NSObject, DJAgentProtocol {
-    func attachImage(atPath incoming: String,
+    /// What this agent attached, shared by every connection and kept on
+    /// disk across launchd's restarts. See AgentAuthority.swift.
+    private let ledger: AttachLedgerFile
+
+    init(ledger: AttachLedgerFile) {
+        self.ledger = ledger
+    }
+
+    /// Attach only an image the caller has shown it can read: `proof` is
+    /// that image, opened by the caller inside its own sandbox and sent
+    /// over XPC (diskjockey#94). What the attach produced is recorded, so
+    /// a later detach can be checked against it.
+    func attachImage(atPath incoming: String, proof: FileHandle,
                      reply: @escaping ([String]?, String?) -> Void) {
         let path: String
-        switch AgentAuthority.attachableImage(incoming, proof: -1) {
+        let checked = AgentAuthority.attachableImage(incoming, proof: proof.fileDescriptor)
+        try? proof.close()
+        switch checked {
         case .success(let resolved): path = resolved
         case .failure(let why):
             reply(nil, why)
@@ -12,6 +26,7 @@ final class AgentImpl: NSObject, DJAgentProtocol {
         }
         switch Self.hdiutilAttach(path: path) {
         case .success(let slices):
+            ledger.update { $0.recordAttach(imagePath: path, devices: slices) }
             reply(slices, nil)
             return
         case .failure(let err):
@@ -32,6 +47,7 @@ final class AgentImpl: NSObject, DJAgentProtocol {
         // Re-attach after detaching the stale image.
         switch Self.hdiutilAttach(path: path) {
         case .success(let slices):
+            ledger.update { $0.recordAttach(imagePath: path, devices: slices) }
             reply(slices, nil)
         case .failure(let err):
             reply(nil, "hdiutil attach (retry) \(err)")
@@ -62,18 +78,8 @@ final class AgentImpl: NSObject, DJAgentProtocol {
     /// Query `hdiutil info -plist` and return the dev-entry list for the
     /// given image path if it is already attached, or nil if not found.
     private static func alreadyAttachedDevices(forImagePath path: String) -> [String]? {
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
-        proc.arguments = ["info", "-plist"]
-        // `hdiutil info -plist` lists EVERY attached image on the
-        // machine. That passes the ~64 KiB a pipe holds on any
-        // developer's laptop, and waiting for the child before reading
-        // it is the deadlock: the child cannot exit until its output is
-        // read, and this side would not read until it exited.
-        guard let result = try? ProcessRunner.run(proc), result.status == 0 else { return nil }
-
-        guard let images = HdiutilPlist.images(fromInfo: result.stdout) else { return nil }
-        guard let image = images.first(where: { $0.isImage(at: path) }),
+        guard let images = attachedImages(),
+              let image = images.first(where: { $0.isImage(at: path) }),
               !image.devices.isEmpty else { return nil }
         return image.devices
     }
@@ -91,10 +97,40 @@ final class AgentImpl: NSObject, DJAgentProtocol {
         _ = try? ProcessRunner.runDiscardingOutput(proc)
     }
 
+    /// Every image `hdiutil info` reports attached right now, or nil if it
+    /// could not be asked.
+    private static func attachedImages() -> [AttachedImage]? {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
+        proc.arguments = ["info", "-plist"]
+        // `hdiutil info -plist` lists EVERY attached image on the
+        // machine. That passes the ~64 KiB a pipe holds on any
+        // developer's laptop, and waiting for the child before reading
+        // it is the deadlock: the child cannot exit until its output is
+        // read, and this side would not read until it exited.
+        guard let result = try? ProcessRunner.run(proc), result.status == 0 else { return nil }
+        return HdiutilPlist.images(fromInfo: result.stdout)
+    }
+
+    /// Detach only a device this agent attached, and only while hdiutil
+    /// still shows it attached from the image the ledger names — a BSD
+    /// number is reused once its image is ejected (diskjockey#94).
     func detachDevice(_ bsdName: String,
                       reply: @escaping (Bool, String?) -> Void) {
         guard AgentAuthority.isBSDDiskName(bsdName) else {
             reply(false, "refusing to detach \(bsdName): not a BSD disk name")
+            return
+        }
+        guard let current = Self.attachedImages() else {
+            reply(false, "refusing to detach \(bsdName): hdiutil info could not be read, so nothing shows this agent attached it")
+            return
+        }
+        let authorized = ledger.update { ledger -> Result<Void, String> in
+            ledger.prune(attached: current)
+            return ledger.authorizeDetach(bsdName, attached: current)
+        }
+        if case .failure(let why) = authorized {
+            reply(false, why)
             return
         }
         let proc = Process()
@@ -111,6 +147,7 @@ final class AgentImpl: NSObject, DJAgentProtocol {
             return
         }
         if status == 0 {
+            ledger.update { $0.forget(device: bsdName) }
             reply(true, nil)
         } else {
             reply(false, "hdiutil detach exited with status \(status)")

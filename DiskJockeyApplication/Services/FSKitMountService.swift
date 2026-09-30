@@ -249,7 +249,7 @@ final class FSKitMountService {
     }
 
     static func runHdiutilAttach(at path: String, imageURL: URL? = nil) async throws -> HdiutilAttachResult {
-        return try await DJAgentClient.shared.attachImage(atPath: path)
+        return try await DJAgentClient.shared.attachImage(atPath: path, imageURL: imageURL)
     }
 
     static func runHdiutilDetach(_ device: String) async throws {

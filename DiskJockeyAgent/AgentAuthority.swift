@@ -1,7 +1,30 @@
 //
-// AgentAuthority.swift — the checks the agent makes before it attaches or
-// detaches a disk image on its caller's behalf, and the hdiutil output they
-// read.
+// AgentAuthority.swift — what the agent checks before it attaches or
+// detaches a disk image on its caller's behalf (diskjockey#94).
+//
+// The agent is unsandboxed and the app is not, so every request is a
+// question of whether the app could have done the thing itself. The
+// connection's code-signing requirement (main.swift) proves the caller is
+// our app; it does not prove the app is entitled to the particular file or
+// device it names. Two checks close that:
+//
+//   * ATTACH carries proof of read access. The app opens the image and
+//     sends the open file over XPC with the request. Its sandbox either
+//     allowed that open or it did not, and the agent confirms the file it
+//     received is the image at the path by device and inode. A bug in the
+//     app that names a path its sandbox never granted has nothing to send.
+//
+//   * DETACH is refused for any device this agent did not attach. The
+//     agent records what each attach produced, and a detach must name a
+//     device hdiutil currently reports as attached FROM THE SAME IMAGE the
+//     record names. That second half matters because BSD numbers are
+//     reused: /dev/disk12 after its image is ejected may be a USB drive or
+//     somebody else's image, and a record of the number alone would hand
+//     it over.
+//
+// The record is persisted (`AttachLedgerFile`) because launchd restarts
+// this agent whenever it likes, and an image attached before a restart
+// still has to be detachable after one.
 //
 // Kept free of Process and XPC so `swift test` can reach it: Package.swift
 // builds this file alone as DiskJockeyAgentCore.
@@ -83,12 +106,14 @@ enum AgentAuthority {
         return URL(fileURLWithPath: path).resolvingSymlinksInPath().path
     }
 
-    /// Whether `path` is an image this agent will attach. `proof` is not
-    /// consulted yet.
+    /// Whether `path` is an image this agent will attach, given `proof`: a
+    /// file descriptor the caller opened and sent with the request.
     ///
-    /// Resolve symlinks first, then require a regular file that exists.
-    /// Resolving BEFORE checking is the order that matters; a symlink
-    /// checked and then followed is the classic race.
+    /// Symlinks are resolved first, then the path must be an existing
+    /// regular file, and `proof` must be open for reading on that same
+    /// file — same device, same inode. Resolving BEFORE checking is the
+    /// order that matters; a symlink checked and then followed is the
+    /// classic race.
     static func attachableImage(_ path: String, proof: Int32) -> Result<String, String> {
         let resolved = canonical(path)
         var isDirectory: ObjCBool = false
@@ -97,6 +122,22 @@ enum AgentAuthority {
         }
         guard !isDirectory.boolValue else {
             return .failure("not a disk image: \(path) is a directory")
+        }
+        var onDisk = stat()
+        guard stat(resolved, &onDisk) == 0 else {
+            return .failure("cannot stat \(path): \(String(cString: strerror(errno)))")
+        }
+        var sent = stat()
+        let flags = fcntl(proof, F_GETFL)
+        guard flags >= 0, fstat(proof, &sent) == 0 else {
+            return .failure("refusing to attach \(path): the request carried no open file to show the caller may read it")
+        }
+        guard (flags & O_ACCMODE) != O_WRONLY else {
+            return .failure("refusing to attach \(path): the caller's file is open for writing only, which shows nothing about reading it")
+        }
+        guard (sent.st_mode & S_IFMT) == S_IFREG,
+              sent.st_dev == onDisk.st_dev, sent.st_ino == onDisk.st_ino else {
+            return .failure("refusing to attach \(path): the file the caller opened is not that image, so nothing shows the caller may read it")
         }
         return .success(resolved)
     }
@@ -133,10 +174,21 @@ struct AttachLedger: Codable, Equatable, Sendable {
         }
     }
 
-    /// Whether `bsdName` may be detached. Only its shape is checked yet.
+    /// Whether `bsdName` may be detached, given what hdiutil reports
+    /// attached right now.
     func authorizeDetach(_ bsdName: String, attached current: [AttachedImage]) -> Result<Void, String> {
-        guard AgentAuthority.isBSDDiskName(bsdName) else {
+        guard let whole = AgentAuthority.wholeDisk(of: bsdName) else {
             return .failure("refusing to detach \(bsdName): not a BSD disk name")
+        }
+        guard let live = current.first(where: { $0.devices.contains(bsdName) }) else {
+            return .failure("refusing to detach \(bsdName): it is not an attached disk image")
+        }
+        let ours = images.contains { record in
+            (record.devices.contains(bsdName) || record.devices.contains(whole))
+                && live.isImage(at: record.imagePath)
+        }
+        guard ours else {
+            return .failure("refusing to detach \(bsdName): this agent did not attach it")
         }
         return .success(())
     }
