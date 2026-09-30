@@ -23,7 +23,8 @@
 # Measured 2026-09-17 on run 35238130306 (`main`): 20 ran, floor 18. Measured
 # 2026-09-29 with chore-pin.sh (#79): 26 ran, floor 24. Measured again when
 # quiet-run.sh and test-tiers.sh joined (#211): 28 ran, floor 26, and 29 when
-# dirent-names-by-length.sh joined (#244), floor 27 — the same
+# dirent-names-by-length.sh joined (#244), floor 27. 31 ran when
+# dev-registry.sh joined (#167, 2026-09-30), floor 29 — the same
 # room to retire a couple deliberately, and none for a glob that quietly
 # stopped matching. It moves up with the suite; it never moves down.
 #
@@ -35,7 +36,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
-FLOOR=27
+FLOOR=29
 
 # The raw loop, whose whole output is the tier's log. Failure lines carry a
 # TIER-FAIL prefix so the quiet verdict below can name them without a tail.
