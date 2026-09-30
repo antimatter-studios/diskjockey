@@ -16,9 +16,9 @@ checksum = "49893bd1e199021b81b02a4745e182d5db41d70b08de90a1cdd617b165ef3367"
 
 [[package]]
 name = "am-fs-ext4"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b82ffad293efce57a796f223a25f0b8cd8f80d65cb6d50b02f9ca154433d55e"
+checksum = "1d35708082db26305160b63940e8a52df75a88379184c895cdc9b1c019872393"
 dependencies = [
  "am-fs-core",
  "bitflags",

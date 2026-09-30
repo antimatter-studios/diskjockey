@@ -173,7 +173,7 @@ final class BtrfsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         // Btrfs calls it `label`, and allows up to 255 bytes rather than
         // the 16 an EROFS volume name gets.
         let volumeName = withUnsafePointer(to: volInfo.label) { ptr in
-            ptr.withMemoryRebound(to: CChar.self, capacity: 256) { String(cString: $0) }
+            ptr.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: volInfo.label)) { String(cString: $0) }
         }
         let resolvedName = volumeName.isEmpty ? "BTRFS" : volumeName
 
