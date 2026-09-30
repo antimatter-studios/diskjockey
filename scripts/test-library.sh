@@ -42,7 +42,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
 
 rc=0
-scripts/quiet-run.sh "$@" library 2150 168000 -- swift test || rc=$?
+scripts/quiet-run.sh "$@" library 2750 212000 -- swift test || rc=$?
 log="${QUIET_LOG_DIR:-$ROOT/tmp/logs}/library.log"
 
 xct=$(grep -aoE 'Executed [0-9]+ tests' "$log" 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
