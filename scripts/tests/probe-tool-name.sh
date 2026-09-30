@@ -73,7 +73,7 @@ EOF
 
     if HOME="$sandbox/home" PATH="$bin:$PATH" STUB_LOG="$sandbox/cargo.log" \
         SRCROOT="$root" PROBE_SRC="$src" bash "$BUILD" > "$sandbox/build.out" 2>&1; then
-        staged="$(cd "$root/lib" 2>/dev/null && find . -mindepth 1 | sort | tr '\n' ' ')"
+        staged="$(cd "$root/lib" 2>/dev/null && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')"
         if [ "$staged" = "./blk.probe ./blk.probe/blk.probe " ]; then
             ok "the build script stages lib/blk.probe/blk.probe and nothing else"
         else

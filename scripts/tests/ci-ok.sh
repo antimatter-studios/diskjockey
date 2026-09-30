@@ -43,7 +43,7 @@ fi
 # ci-ok succeeded on main before it was declared (#205), so it is required
 # now. The three legs stay required beside it: an aggregate is a claim about
 # other jobs, and each leg must still report success under its own name.
-required="$(git config -f "$repo/.github-guard" --get-all checks.required | sort | tr '\n' '|')"
+required="$(git config -f "$repo/.github-guard" --get-all checks.required | LC_ALL=C sort | tr '\n' '|')"
 if [ "$required" = 'Build & Test|Library tests|Shell scripts|ci-ok|' ]; then
     ok 'ci-ok is required beside the three legs'
 else
