@@ -110,3 +110,87 @@ struct VolumePathTests {
         #expect(path.description == "/caf\u{FFFD}.txt")
     }
 }
+
+/// What reaches a driver whose ABI decodes paths as UTF-8 — the pinned
+/// erofs, ext4, btrfs and xfs releases. Two of them answer an undecodable
+/// path as the root, so the only safe answer is not to send one.
+@Suite("a path handed to a driver")
+struct DriverPathEncodingTests {
+
+    private func refusal(_ body: () throws -> VolumePath) -> Int32? {
+        do { _ = try body(); return nil } catch let error as POSIXError {
+            return error.code.rawValue
+        } catch { return -1 }
+    }
+
+    @Test func aByteDriverGetsANameThatIsNotUTF8Unchanged() throws {
+        let path = try VolumePath.root.child(cafE9, for: .bytes)
+        #expect(received(path) == [slash] + cafE9)
+    }
+
+    @Test func aUTF8DriverIsNeverHandedANameThatIsNotUTF8() {
+        #expect(refusal { try VolumePath.root.child(cafE9, for: .utf8) } == EILSEQ)
+    }
+
+    @Test func aUTF8DriverGetsAUTF8NameUnchanged() throws {
+        let cafe = Array("caf\u{e9}.txt".utf8)
+        let path = try VolumePath.root.child(cafe, for: .utf8)
+        #expect(path.bytes == [slash] + cafe)
+    }
+
+    @Test func aChildOfANonUTF8DirectoryIsRefusedToo() throws {
+        let dir = try VolumePath.root.child(cafE9, for: .bytes)
+        #expect(refusal { try dir.child(Array("x".utf8), for: .utf8) } == EILSEQ)
+    }
+
+    @Test func aNameThatCannotBeOneComponentIsNotFound() {
+        #expect(refusal { try VolumePath.root.child([UInt8](), for: .bytes) } == ENOENT)
+        #expect(refusal { try VolumePath.root.child(Array("a/b".utf8), for: .bytes) } == ENOENT)
+        #expect(refusal { try VolumePath.root.child([0x61, 0x00], for: .bytes) } == ENOENT)
+    }
+
+    @Test func aNameFromFSKitIsTakenByItsBytes() throws {
+        let name = FSFileName(data: Data(cafEA))
+        #expect(try VolumePath.root.child(name, for: .bytes).bytes == [slash] + cafEA)
+        #expect(refusal { try VolumePath.root.child(name, for: .utf8) } == EILSEQ)
+    }
+
+    /// The forms Rust's str::from_utf8 refuses, each of which Swift's own
+    /// String(decoding:) would repair rather than reject.
+    @Test(arguments: [
+        [0xE9] as [UInt8],             // a lone Latin-1 byte
+        [0x80],                        // a stray continuation byte
+        [0xE2, 0x82],                  // a truncated three-byte sequence
+        [0xC0, 0xAF],                  // an overlong '/'
+        [0xED, 0xA0, 0x80],            // an encoded surrogate, U+D800
+        [0xF4, 0x90, 0x80, 0x80],      // past U+10FFFF
+        [0xFF],
+    ])
+    func malformedUTF8IsNotValid(_ name: [UInt8]) {
+        #expect(!VolumePath(bytes: [slash] + name).isValidUTF8)
+    }
+
+    @Test func wellFormedUTF8IsValid() {
+        #expect(VolumePath.root.isValidUTF8)
+        #expect(VolumePath("/caf\u{e9}/\u{1F4BE}").isValidUTF8)
+    }
+
+    @Test func theLastComponentIsTheNamesBytes() throws {
+        let path = try VolumePath.root.child(Array("d".utf8), for: .bytes).child(cafE9, for: .bytes)
+        #expect(path.lastComponent == cafE9)
+        #expect(VolumePath.root.lastComponent == [])
+    }
+
+    @Test func aPathSpelledAsALiteralIsItsUTF8() {
+        let path: VolumePath = "/etc/hosts"
+        #expect(path == VolumePath("/etc/hosts"))
+    }
+
+    /// FSKit's own contract for a name that is not UTF-8: `data` always
+    /// holds it, and it survives a round trip through FSFileName intact.
+    @Test func anFSFileNameRoundTripsBytesThatAreNotUTF8() {
+        for name in [cafE9, cafEA, [0xFF, 0xFE], Array("%E9".utf8)] {
+            #expect([UInt8](DirentName.fileName(name).data) == name)
+        }
+    }
+}

@@ -86,16 +86,16 @@ final class EXT4Volume: FSVolume,
     /// Justification: AppleDouble files only carry HFS-specific
     /// resource-fork / FinderInfo metadata that's irrelevant on
     /// ext4 volumes that round-trip back to Linux/Windows.
-    private static func isAppleDouble(name: String) -> Bool {
-        name.hasPrefix("._")
+    ///
+    /// Judged on the name's bytes, so a derivative of a name that is not
+    /// UTF-8 (`._caf\xE9`) is recognised too — FSKit requires a module to
+    /// accept exactly those (diskjockey#219).
+    static func isAppleDouble(name: [UInt8]) -> Bool {
+        name.starts(with: [UInt8(ascii: "."), UInt8(ascii: "_")])
     }
 
-    private static func basename(of path: String) -> String {
-        path.split(separator: "/").last.map(String.init) ?? ""
-    }
-
-    private static func isAppleDouble(path: String) -> Bool {
-        isAppleDouble(name: basename(of: path))
+    static func isAppleDouble(path: VolumePath) -> Bool {
+        isAppleDouble(name: path.lastComponent)
     }
 
     /// Synthesize `FSItem.Attributes` for a ghost AppleDouble item that
@@ -103,7 +103,7 @@ final class EXT4Volume: FSVolume,
     /// coverage as `attributes(from:parentInode:)` — flags, parentID,
     /// and birthTime must all be set or FSKit rejects the reply.
     private static func ghostAppleDoubleAttributes(
-        for path: String,
+        for path: VolumePath,
         parentInode: UInt32?
     ) -> FSItem.Attributes {
         let attrs = FSItem.Attributes()
@@ -189,12 +189,12 @@ final class EXT4Volume: FSVolume,
     /// real cache. The three failure modes above were previously covered by
     /// a hand-written mirror of this method in the app-hosted suite, which
     /// could pass while this one was wrong.
-    func item(forID fileID: UInt64, path: String,
+    func item(forID fileID: UInt64, path: VolumePath,
               parentInode: UInt32?) -> EXT4Item {
         items.getOrCreate(
             id: fileID,
-            validate: { $0.path == path && $0.parentInode == parentInode },
-            create: { EXT4Item(inode: UInt32(fileID), path: path,
+            validate: { $0.volumePath == path && $0.parentInode == parentInode },
+            create: { EXT4Item(inode: UInt32(fileID), volumePath: path,
                                parentInode: parentInode) }
         )
     }
@@ -269,7 +269,7 @@ final class EXT4Volume: FSVolume,
                 log.info("volume: journal replay completed (or volume was clean)", scope: AppLogScope.lifecycle)
             }
         }
-        return item(forID: 2, path: "/", parentInode: nil)
+        return item(forID: 2, path: .root, parentInode: nil)
     }
 
     func deactivate(options: FSDeactivateOptions) async throws {
@@ -301,12 +301,12 @@ final class EXT4Volume: FSVolume,
         }
 
         // Ghost AppleDouble — return synthetic attrs without hitting backend.
-        if Self.isAppleDouble(path: ext4Item.path) {
-            return Self.ghostAppleDoubleAttributes(for: ext4Item.path,
+        if Self.isAppleDouble(path: ext4Item.volumePath) {
+            return Self.ghostAppleDoubleAttributes(for: ext4Item.volumePath,
                                                    parentInode: ext4Item.parentInode)
         }
 
-        guard let attr = backend.stat(path: ext4Item.path) else {
+        guard let attr = backend.stat(path: ext4Item.volumePath) else {
             log.error("attributes: backend.stat returned nil for path=\"\(ext4Item.path)\" inode=\(ext4Item.inode) errno=\(backend.lastErrno()) — throwing ENOENT", scope: AppLogScope.io)
             throw POSIXError(.ENOENT)
         }
@@ -322,9 +322,9 @@ final class EXT4Volume: FSVolume,
 
         // Ghost AppleDouble — pretend every attribute was applied,
         // return synthetic state. Nothing hits the backend.
-        if Self.isAppleDouble(path: ext4Item.path) {
+        if Self.isAppleDouble(path: ext4Item.volumePath) {
             newAttributes.consumedAttributes = [.mode, .uid, .gid, .accessTime, .modifyTime, .size]
-            return Self.ghostAppleDoubleAttributes(for: ext4Item.path,
+            return Self.ghostAppleDoubleAttributes(for: ext4Item.volumePath,
                                                    parentInode: ext4Item.parentInode)
         }
 
@@ -334,7 +334,7 @@ final class EXT4Volume: FSVolume,
 
         if newAttributes.isValid(.mode) {
             let mode = UInt16(newAttributes.mode & 0o7777)
-            guard backend.chmod(path: ext4Item.path, mode: mode) else {
+            guard backend.chmod(path: ext4Item.volumePath, mode: mode) else {
                 throw Self.posixError(from: backend)
             }
             consumed.insert(.mode)
@@ -343,7 +343,7 @@ final class EXT4Volume: FSVolume,
         if newAttributes.isValid(.uid) || newAttributes.isValid(.gid) {
             let uid: UInt32? = newAttributes.isValid(.uid) ? UInt32(newAttributes.uid) : nil
             let gid: UInt32? = newAttributes.isValid(.gid) ? UInt32(newAttributes.gid) : nil
-            guard backend.chown(path: ext4Item.path, uid: uid, gid: gid) else {
+            guard backend.chown(path: ext4Item.volumePath, uid: uid, gid: gid) else {
                 throw Self.posixError(from: backend)
             }
             if uid != nil { consumed.insert(.uid) }
@@ -351,7 +351,7 @@ final class EXT4Volume: FSVolume,
         }
 
         if newAttributes.isValid(.size) {
-            guard backend.truncate(path: ext4Item.path, size: newAttributes.size) else {
+            guard backend.truncate(path: ext4Item.volumePath, size: newAttributes.size) else {
                 throw Self.posixError(from: backend)
             }
             consumed.insert(.size)
@@ -360,7 +360,7 @@ final class EXT4Volume: FSVolume,
         if newAttributes.isValid(.accessTime) || newAttributes.isValid(.modifyTime) {
             let atime: timespec? = newAttributes.isValid(.accessTime) ? newAttributes.accessTime : nil
             let mtime: timespec? = newAttributes.isValid(.modifyTime) ? newAttributes.modifyTime : nil
-            guard backend.utimens(path: ext4Item.path, atime: atime, mtime: mtime) else {
+            guard backend.utimens(path: ext4Item.volumePath, atime: atime, mtime: mtime) else {
                 throw Self.posixError(from: backend)
             }
             if atime != nil { consumed.insert(.accessTime) }
@@ -370,7 +370,7 @@ final class EXT4Volume: FSVolume,
         newAttributes.consumedAttributes = consumed
 
         // Re-stat to return the canonical post-modification attributes.
-        guard let attr = backend.stat(path: ext4Item.path) else {
+        guard let attr = backend.stat(path: ext4Item.volumePath) else {
             throw POSIXError(.ENOENT)
         }
         return Self.attributes(from: attr, parentInode: ext4Item.parentInode)
@@ -385,11 +385,10 @@ final class EXT4Volume: FSVolume,
             throw POSIXError(.EBADF)
         }
 
-        guard let nameStr = name.string else {
-            throw POSIXError(.EINVAL)
-        }
-
-        let childPath = dirItem.path == "/" ? "/\(nameStr)" : "\(dirItem.path)/\(nameStr)"
+        // By the name's bytes: `name.string` is nil for a name that is
+        // not UTF-8, and FSKit requires such a name to be looked up all
+        // the same (diskjockey#219).
+        let childPath = try dirItem.volumePath.child(name, for: backend.pathEncoding)
 
         guard let attr = backend.stat(path: childPath) else {
             throw POSIXError(.ENOENT)
@@ -415,7 +414,7 @@ final class EXT4Volume: FSVolume,
             log.info("enumerateDirectory path=\(dirItem.path) cookie=\(cookie.rawValue) attrsReq=\(attributes != nil)", scope: AppLogScope.enumerate)
         }
 
-        guard let entries = backend.readDirectory(path: dirItem.path) else {
+        guard let entries = backend.readDirectory(path: dirItem.volumePath) else {
             throw POSIXError(.EIO)
         }
 
@@ -427,7 +426,7 @@ final class EXT4Volume: FSVolume,
         // of the tree being walked is visible in the log.
         if verbose {
             for (i, e) in entries.enumerated() {
-                let childPath = Self.joinPath(dirItem.path, e.name)
+                let childPath = dirItem.volumePath.appending(e.name)?.description ?? "(unnameable)"
                 log.info("  entry[\(i)] path=\(childPath) fileID=\(e.fileID) fileType=\(String(describing: e.fileType))", scope: AppLogScope.enumerate)
             }
         }
@@ -442,9 +441,12 @@ final class EXT4Volume: FSVolume,
             if entryCookie <= startCookie { continue }
 
             // Skip "." and ".." — FSKit populates these itself.
-            if entry.name == "." || entry.name == ".." { continue }
+            if entry.name == Self.dot || entry.name == Self.dotDot { continue }
 
-            let fsName = FSFileName(string: entry.name)
+            // The name's bytes, never a repaired String: decoding turns
+            // invalid UTF-8 into U+FFFD, which shows the wrong name and
+            // merges distinct ones (diskjockey#219).
+            let fsName = DirentName.fileName(entry.name)
             let itemType = Self.fsItemType(from: entry.fileType)
 
             var itemAttrs: FSItem.Attributes? = nil
@@ -455,9 +457,11 @@ final class EXT4Volume: FSVolume,
                 // 2, which surfaces to userspace as "file vanished."
                 // See `attributes(from:parentInode:)` for the contract
                 // and `EXT4AttributeMaskTests.swift` for the regression.
-                let childPath = dirItem.path == "/" ? "/\(entry.name)" : "\(dirItem.path)/\(entry.name)"
+                // Nil when the backend's driver cannot be handed this
+                // name; the entry is listed with the fabricated attributes.
+                let childPath = try? dirItem.volumePath.child(entry.name, for: backend.pathEncoding)
                 let stat: BackendFileAttributes
-                if let s = backend.stat(path: childPath) {
+                if let childPath, let s = backend.stat(path: childPath) {
                     stat = s
                 } else {
                     // Stat failed (race, transient I/O error). Fabricate
@@ -522,7 +526,7 @@ final class EXT4Volume: FSVolume,
         }
 
         // Ghost AppleDouble — accept the bytes, write nowhere.
-        if Self.isAppleDouble(path: ext4Item.path) {
+        if Self.isAppleDouble(path: ext4Item.volumePath) {
             return data.count
         }
 
@@ -545,7 +549,7 @@ final class EXT4Volume: FSVolume,
 
         let written: Int64 = data.withUnsafeBytes { rawBuf -> Int64 in
             guard let base = rawBuf.baseAddress else { return -1 }
-            return backend.pwrite(path: ext4Item.path,
+            return backend.pwrite(path: ext4Item.volumePath,
                                   offset: writeOffset,
                                   data: base,
                                   length: writeLen)
@@ -579,7 +583,7 @@ final class EXT4Volume: FSVolume,
         }
 
         // Ghost AppleDouble — files are always empty, return 0 (EOF).
-        if Self.isAppleDouble(path: ext4Item.path) {
+        if Self.isAppleDouble(path: ext4Item.volumePath) {
             return 0
         }
 
@@ -589,7 +593,7 @@ final class EXT4Volume: FSVolume,
 
         let bytesRead: Int64 = buffer.withUnsafeMutableBytes { rawBuf in
             guard let base = rawBuf.baseAddress else { return -1 }
-            return backend.readFile(path: ext4Item.path,
+            return backend.readFile(path: ext4Item.volumePath,
                                     offset: UInt64(offset),
                                     length: UInt64(readLen),
                                     buffer: base)
@@ -610,11 +614,11 @@ final class EXT4Volume: FSVolume,
             throw POSIXError(.EBADF)
         }
 
-        guard let target = backend.readSymlink(path: ext4Item.path) else {
+        guard let target = backend.readSymlink(path: ext4Item.volumePath) else {
             throw POSIXError(.EIO)
         }
 
-        return FSFileName(string: target)
+        return FSFileName(data: Data(target))
     }
 
     // MARK: - Mutating ops (async)
@@ -626,23 +630,24 @@ final class EXT4Volume: FSVolume,
         guard let dirItem = directory as? EXT4Item else {
             throw POSIXError(.EBADF)
         }
-        guard let nameStr = name.string else {
-            throw POSIXError(.EINVAL)
-        }
-        let childPath = Self.joinPath(dirItem.path, nameStr)
-
         // AppleDouble (`._foo`) — silently swallow create. Returns a
         // ghost FSItem whose subsequent write/read/attr/remove ops are
         // handled inline below. We never touch the underlying ext4
-        // filesystem for these names.
-        if Self.isAppleDouble(name: nameStr) {
-            log.info("createItem: silently swallowing AppleDouble \(childPath)", scope: AppLogScope.enumerate)
+        // filesystem for these names, so the ghost's path need not be
+        // one the driver could be handed.
+        let nameBytes = [UInt8](name.data)
+        if Self.isAppleDouble(name: nameBytes) {
+            guard let ghostPath = dirItem.volumePath.appending(nameBytes) else {
+                throw POSIXError(.EINVAL)
+            }
+            log.info("createItem: silently swallowing AppleDouble \(ghostPath)", scope: AppLogScope.enumerate)
             let ghost = item(forID: UInt64(Self.appleDoubleGhostInode),
-                             path: childPath,
+                             path: ghostPath,
                              parentInode: dirItem.inode)
             attributes.consumedAttributes = [.mode, .uid, .gid, .accessTime, .modifyTime]
             return (ghost, name)
         }
+        let childPath = try dirItem.volumePath.child(nameBytes, for: backend.pathEncoding)
 
         // Default mode: 0o644 for files, 0o755 for directories.
         let defaultMode: UInt16 = (type == .directory) ? 0o755 : 0o644
@@ -710,10 +715,14 @@ final class EXT4Volume: FSVolume,
         guard let dirItem = directory as? EXT4Item else {
             throw POSIXError(.EBADF)
         }
-        guard let nameStr = name.string, let target = contents.string else {
+        // The target is stored as the bytes FSKit gave, like the name
+        // (diskjockey#219). It crosses the ABI as a C string, so an
+        // empty one or one holding a NUL cannot be stored.
+        let target = [UInt8](contents.data)
+        guard !target.isEmpty, !target.contains(0) else {
             throw POSIXError(.EINVAL)
         }
-        let childPath = Self.joinPath(dirItem.path, nameStr)
+        let childPath = try dirItem.volumePath.child(name, for: backend.pathEncoding)
         guard backend.symlink(target: target, linkpath: childPath) else {
             throw Self.posixError(from: backend)
         }
@@ -731,11 +740,8 @@ final class EXT4Volume: FSVolume,
               let ext4Item = item as? EXT4Item else {
             throw POSIXError(.EBADF)
         }
-        guard let nameStr = name.string else {
-            throw POSIXError(.EINVAL)
-        }
-        let dstPath = Self.joinPath(dirItem.path, nameStr)
-        guard backend.link(src: ext4Item.path, dst: dstPath) else {
+        let dstPath = try dirItem.volumePath.child(name, for: backend.pathEncoding)
+        guard backend.link(src: ext4Item.volumePath, dst: dstPath) else {
             throw Self.posixError(from: backend)
         }
         return name
@@ -747,15 +753,13 @@ final class EXT4Volume: FSVolume,
         guard let dirItem = directory as? EXT4Item else {
             throw POSIXError(.EBADF)
         }
-        guard let nameStr = name.string else {
-            throw POSIXError(.EINVAL)
-        }
-        let childPath = Self.joinPath(dirItem.path, nameStr)
-
         // Ghost AppleDouble — never existed on disk, succeed silently.
-        if Self.isAppleDouble(name: nameStr) {
+        // Judged before the path is built, so the ghost of a name the
+        // driver cannot be handed is still swallowed.
+        if Self.isAppleDouble(name: [UInt8](name.data)) {
             return
         }
+        let childPath = try dirItem.volumePath.child(name, for: backend.pathEncoding)
 
         // Stat to dispatch unlink vs rmdir. If stat fails the item is
         // already gone — surface the underlying errno.
@@ -781,12 +785,8 @@ final class EXT4Volume: FSVolume,
               let dstDir = destinationDirectory as? EXT4Item else {
             throw POSIXError(.EBADF)
         }
-        guard let srcNameStr = sourceName.string,
-              let dstNameStr = destinationName.string else {
-            throw POSIXError(.EINVAL)
-        }
-        let srcPath = Self.joinPath(srcDir.path, srcNameStr)
-        let dstPath = Self.joinPath(dstDir.path, dstNameStr)
+        let srcPath = try srcDir.volumePath.child(sourceName, for: backend.pathEncoding)
+        let dstPath = try dstDir.volumePath.child(destinationName, for: backend.pathEncoding)
 
         // backend.rename() atomically replaces an existing destination
         // (FS_EXT4_RENAME_REPLACE), enforcing POSIX semantics in the
@@ -900,9 +900,7 @@ final class EXT4Volume: FSVolume,
         return POSIXError(.EIO)
     }
 
-    /// Join a parent directory path to a child name, taking care to avoid
-    /// the double-slash "//foo" trap when the parent is the root.
-    static func joinPath(_ parent: String, _ child: String) -> String {
-        return parent == "/" ? "/\(child)" : "\(parent)/\(child)"
-    }
+    /// The two entries every directory lists and FSKit supplies itself.
+    static let dot: [UInt8] = [UInt8(ascii: ".")]
+    static let dotDot: [UInt8] = [UInt8(ascii: "."), UInt8(ascii: ".")]
 }

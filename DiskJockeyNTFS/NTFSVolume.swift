@@ -187,6 +187,12 @@ final class NTFSVolume: FSVolume,
         )
     }
 
+    /// How the driver reads a path. Permanently UTF-8, unlike the Linux
+    /// formats: an NTFS name is UTF-16 on disk, so every name it can hold
+    /// has a UTF-8 spelling, and am-fs-ntfs decodes paths as UTF-8
+    /// (diskjockey#219).
+    static let pathEncoding: DriverPathEncoding = .utf8
+
     // MARK: - Volume capabilities
 
     var supportedVolumeCapabilities: FSVolume.SupportedCapabilities {
@@ -801,20 +807,24 @@ final class NTFSVolume: FSVolume,
             throw fs_errorForPOSIXError(EBADF)
         }
 
-        guard let nameStr = name.string else {
-            throw fs_errorForPOSIXError(EINVAL)
+        // By the name's bytes: `name.string` is nil for a name that is not
+        // UTF-8. NTFS cannot hold one, so it is refused as EILSEQ rather
+        // than EINVAL, and without reaching the driver (diskjockey#219).
+        let childPath: VolumePath
+        do {
+            childPath = try dirItem.volumePath.child(name, for: Self.pathEncoding)
+        } catch let error as POSIXError {
+            throw fs_errorForPOSIXError(error.code.rawValue)
         }
 
-        let childPath = dirItem.path == "/" ? "/\(nameStr)" : "\(dirItem.path)/\(nameStr)"
-
         var attr = fs_ntfs_attr_t()
-        let rc = fs_ntfs_stat(fs, childPath, &attr)
+        let rc = childPath.withCString { fs_ntfs_stat(fs, $0, &attr) }
         guard rc == 0 else {
             throw fs_errorForPOSIXError(ENOENT)
         }
 
         let foundItem = item(forRecordNumber: attr.file_record_number,
-                             path: childPath,
+                             path: childPath.description,
                              parentRecordNumber: dirItem.fileRecordNumber)
         return (foundItem, name)
     }
@@ -854,10 +864,12 @@ final class NTFSVolume: FSVolume,
             ) else {
                 throw fs_errorForPOSIXError(EIO)
             }
-            let entryName = String(decoding: nameBytes, as: UTF8.self)
-
-            let fsName = FSFileName(string: entryName)
-            let childPath = dirItem.path == "/" ? "/\(entryName)" : "\(dirItem.path)/\(entryName)"
+            // The bytes, never a repaired String (diskjockey#219). The
+            // driver converts NTFS's UTF-16 names to UTF-8, so a name that
+            // does not decode is a driver fault: it is listed as it came,
+            // and not stat'ed through a path the driver would refuse.
+            let fsName = DirentName.fileName(nameBytes)
+            let childPath = try? dirItem.volumePath.child(nameBytes, for: Self.pathEncoding)
             let fileType = Self.fsItemType(fromRaw: de.pointee.file_type)
 
             var itemAttrs: FSItem.Attributes? = nil
@@ -869,7 +881,7 @@ final class NTFSVolume: FSVolume,
                 // the reply, which surfaces to userspace as "file
                 // vanished."
                 var attr = fs_ntfs_attr_t()
-                if fs_ntfs_stat(fs, childPath, &attr) == 0 {
+                if let childPath, childPath.withCString({ fs_ntfs_stat(fs, $0, &attr) }) == 0 {
                     itemAttrs = Self.attributes(
                         from: attr,
                         parentRecordNumber: dirItem.fileRecordNumber)
@@ -907,13 +919,14 @@ final class NTFSVolume: FSVolume,
         }
 
         // Success is the target's length, not zero (see SymlinkTarget).
-        let target = try SymlinkTarget.read(
+        // Handed to FSKit as the bytes the driver wrote (diskjockey#219).
+        let target = try SymlinkTarget.readBytes(
             lastErrno: { Int32(fs_ntfs_last_errno()) },
             error: { fs_errorForPOSIXError($0) }
         ) { buf, size in
             fs_ntfs_readlink(fs, ntfsItem.path, buf, size)
         }
-        return FSFileName(string: target)
+        return FSFileName(data: Data(target))
     }
 
     // MARK: - Mutating ops

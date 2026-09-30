@@ -10,6 +10,7 @@
 
 import Foundation
 import os
+import DiskJockeyLibrary
 
 private let backendLogger = Logger(subsystem: "com.antimatterstudios.diskjockey.ext4", category: "backend")
 
@@ -52,6 +53,14 @@ private struct UncheckedConstBuffer: @unchecked Sendable {
 }
 
 final class EXT4Backend: FileSystemBackend {
+
+    /// am-fs-ext4 0.5.1 decodes every path as UTF-8, and answers one that
+    /// does not decode as the ROOT, reporting success (rust-fs-ext4#418,
+    /// fixed on its main, unreleased). A name that is not UTF-8 must
+    /// therefore never be handed to it: the volume refuses to build such
+    /// a path. Becomes `.bytes` when the bundle moves to a byte-exact
+    /// release (diskjockey#219).
+    let pathEncoding: DriverPathEncoding = .utf8
 
     /// fs_ext4 serialises per-handle via Arc<RwLock> internally, but we still
     /// hold the handle + a matching Sendable-safe lock on the Swift side so
@@ -160,12 +169,12 @@ final class EXT4Backend: FileSystemBackend {
         }
     }
 
-    func stat(path: String) -> BackendFileAttributes? {
+    func stat(path: VolumePath) -> BackendFileAttributes? {
         state.withLock { handle in
             guard let fs = handle.ptr else { return nil }
 
             var attr = fs_ext4_attr_t()
-            let rc = fs_ext4_stat(fs, path, &attr)
+            let rc = path.withCString { fs_ext4_stat(fs, $0, &attr) }
             guard rc == 0 else { return nil }
 
             return BackendFileAttributes(
@@ -184,13 +193,13 @@ final class EXT4Backend: FileSystemBackend {
         }
     }
 
-    func readDirectory(path: String) -> [BackendDirectoryEntry]? {
+    func readDirectory(path: VolumePath) -> [BackendDirectoryEntry]? {
         state.withLock { handle in
             guard let fs = handle.ptr else {
                 backendLogger.error("readDirectory(\(path)): bridgeFS is nil")
                 return nil
             }
-            guard let iter = fs_ext4_dir_open(fs, path) else {
+            guard let iter = path.withCString({ fs_ext4_dir_open(fs, $0) }) else {
                 backendLogger.error("readDirectory(\(path)): fs_ext4_dir_open returned nil")
                 return nil
             }
@@ -210,9 +219,9 @@ final class EXT4Backend: FileSystemBackend {
     }
 
     private static func convertDirEntry(_ de: UnsafePointer<fs_ext4_dirent_t>) -> BackendDirectoryEntry {
-        let name = withUnsafePointer(to: de.pointee.name) { ptr in
-            ptr.withMemoryRebound(to: CChar.self, capacity: 256) { String(cString: $0) }
-        }
+        // The name's bytes, bounded by the array and never decoded
+        // (diskjockey#207, #219).
+        let name = DirentName.bytes(of: de.pointee.name) ?? []
         return BackendDirectoryEntry(
             fileID: UInt64(de.pointee.inode),
             fileType: convertFileType(fs_ext4_file_type_t(rawValue: UInt32(de.pointee.file_type))),
@@ -220,7 +229,7 @@ final class EXT4Backend: FileSystemBackend {
         )
     }
 
-    func readFile(path: String, offset: UInt64, length: UInt64,
+    func readFile(path: VolumePath, offset: UInt64, length: UInt64,
                   buffer: UnsafeMutableRawPointer) -> Int64 {
         // Wrap the caller's buffer pointer so the @Sendable
         // `withLock` body can capture it without a strict-concurrency
@@ -229,59 +238,62 @@ final class EXT4Backend: FileSystemBackend {
         let wrappedBuffer = UncheckedMutableBuffer(p: buffer)
         return state.withLock { handle in
             guard let fs = handle.ptr else { return Int64(-1) }
-            return fs_ext4_read_file(fs, path, wrappedBuffer.p, offset, length)
+            return path.withCString { fs_ext4_read_file(fs, $0, wrappedBuffer.p, offset, length) }
         }
     }
 
-    func readSymlink(path: String) -> String? {
-        state.withLock { handle -> String? in
+    func readSymlink(path: VolumePath) -> [UInt8]? {
+        state.withLock { handle -> [UInt8]? in
             guard let fs = handle.ptr else { return nil }
 
-            var buf = [CChar](repeating: 0, count: 4096)
-            let rc = fs_ext4_readlink(fs, path, &buf, buf.count)
-            guard rc == 0 else { return nil }
-
-            return String(cString: buf)
+            let capacity = 4096
+            var buf = [CChar](repeating: 0, count: capacity)
+            let rc = path.withCString { fs_ext4_readlink(fs, $0, &buf, capacity) }
+            // am-fs-ext4 0.5.1 answers 0 on success; later releases answer
+            // the target's length. Either way the target runs to the NUL,
+            // which it cannot contain, and stays bytes (diskjockey#219).
+            guard rc >= 0 else { return nil }
+            return buf.withUnsafeBytes { DirentName.bytes(in: $0) }
         }
     }
 
     // MARK: - Write path
 
-    func createFile(path: String, mode: UInt16) -> Bool {
+    func createFile(path: VolumePath, mode: UInt16) -> Bool {
         state.withLock { handle in
             guard let fs = handle.ptr else { return false }
-            return fs_ext4_create(fs, path, mode) != 0
+            return path.withCString { fs_ext4_create(fs, $0, mode) } != 0
         }
     }
 
-    func writeFile(path: String, data: UnsafeRawPointer, length: UInt64) -> Int64 {
+    func writeFile(path: VolumePath, data: UnsafeRawPointer, length: UInt64) -> Int64 {
         let wrappedData = UncheckedConstBuffer(p: data)
         return state.withLock { handle in
             guard let fs = handle.ptr else { return Int64(-1) }
-            return fs_ext4_write_file(fs, path, wrappedData.p, length)
+            return path.withCString { fs_ext4_write_file(fs, $0, wrappedData.p, length) }
         }
     }
 
     /// Positional streaming write — see `FileSystemBackend.pwrite` doc.
     /// Returned size is the new file size, not the bytes written; the
     /// volume layer translates that back to `data.count`.
-    func pwrite(path: String, offset: UInt64,
+    func pwrite(path: VolumePath, offset: UInt64,
                 data: UnsafeRawPointer, length: UInt64) -> Int64 {
         let wrappedData = UncheckedConstBuffer(p: data)
         return state.withLock { handle in
             guard let fs = handle.ptr else { return Int64(-1) }
-            return fs_ext4_pwrite(fs, path, wrappedData.p, length, offset)
+            return path.withCString { fs_ext4_pwrite(fs, $0, wrappedData.p, length, offset) }
         }
     }
 
-    func unlink(path: String) -> Bool {
+    func unlink(path: VolumePath) -> Bool {
         state.withLock { handle in
             guard let fs = handle.ptr else { return false }
-            return fs_ext4_unlink(fs, path) == 0
+            return path.withCString { fs_ext4_unlink(fs, $0) } == 0
         }
     }
 
-    func rename(src: String, dst: String) -> Bool {
+    func rename(src: VolumePath, dst: VolumePath) -> Bool {
         state.withLock { handle in
             guard let fs = handle.ptr else { return false }
             // Use the replace variant so an existing destination is
@@ -289,58 +301,58 @@ final class EXT4Backend: FileSystemBackend {
             // plain fs_ext4_rename rejects an existing dst with EEXIST,
             // which breaks in-place editors (e.g. `sed -i`) that write a
             // temp file then rename it over the original.
-            return fs_ext4_rename2(fs, src, dst, FS_EXT4_RENAME_REPLACE) == 0
+            return src.withCString { s in dst.withCString { fs_ext4_rename2(fs, s, $0, FS_EXT4_RENAME_REPLACE) } } == 0
         }
     }
 
-    func mkdir(path: String, mode: UInt16) -> Bool {
+    func mkdir(path: VolumePath, mode: UInt16) -> Bool {
         state.withLock { handle in
             guard let fs = handle.ptr else { return false }
-            return fs_ext4_mkdir(fs, path, mode) != 0
+            return path.withCString { fs_ext4_mkdir(fs, $0, mode) } != 0
         }
     }
 
-    func rmdir(path: String) -> Bool {
+    func rmdir(path: VolumePath) -> Bool {
         state.withLock { handle in
             guard let fs = handle.ptr else { return false }
-            return fs_ext4_rmdir(fs, path) == 0
+            return path.withCString { fs_ext4_rmdir(fs, $0) } == 0
         }
     }
 
-    func truncate(path: String, size: UInt64) -> Bool {
+    func truncate(path: VolumePath, size: UInt64) -> Bool {
         state.withLock { handle in
             guard let fs = handle.ptr else { return false }
-            return fs_ext4_truncate(fs, path, size) == 0
+            return path.withCString { fs_ext4_truncate(fs, $0, size) } == 0
         }
     }
 
-    func chmod(path: String, mode: UInt16) -> Bool {
+    func chmod(path: VolumePath, mode: UInt16) -> Bool {
         state.withLock { handle in
             guard let fs = handle.ptr else { return false }
-            return fs_ext4_chmod(fs, path, mode) == 0
+            return path.withCString { fs_ext4_chmod(fs, $0, mode) } == 0
         }
     }
 
-    func chown(path: String, uid: UInt32?, gid: UInt32?) -> Bool {
+    func chown(path: VolumePath, uid: UInt32?, gid: UInt32?) -> Bool {
         state.withLock { handle in
             guard let fs = handle.ptr else { return false }
             let cuid = uid ?? ~UInt32(0)
             let cgid = gid ?? ~UInt32(0)
-            return fs_ext4_chown(fs, path, cuid, cgid) == 0
+            return path.withCString { fs_ext4_chown(fs, $0, cuid, cgid) } == 0
         }
     }
 
-    func symlink(target: String, linkpath: String) -> Bool {
+    func symlink(target: [UInt8], linkpath: VolumePath) -> Bool {
         state.withLock { handle in
             guard let fs = handle.ptr else { return false }
-            return fs_ext4_symlink(fs, target, linkpath) != 0
+            return VolumePath(bytes: target).withCString { t in linkpath.withCString { fs_ext4_symlink(fs, t, $0) } } != 0
         }
     }
 
-    func link(src: String, dst: String) -> Bool {
+    func link(src: VolumePath, dst: VolumePath) -> Bool {
         state.withLock { handle in
             guard let fs = handle.ptr else { return false }
-            return fs_ext4_link(fs, src, dst) == 0
+            return src.withCString { s in dst.withCString { fs_ext4_link(fs, s, $0) } } == 0
         }
     }
 
@@ -351,14 +363,14 @@ final class EXT4Backend: FileSystemBackend {
     /// future time silently set nothing. `tv_sec` is already `Int`, so
     /// it now passes through untouched and the driver rejects anything
     /// ext4 genuinely cannot store.
-    func utimens(path: String, atime: timespec?, mtime: timespec?) -> Bool {
+    func utimens(path: VolumePath, atime: timespec?, mtime: timespec?) -> Bool {
         state.withLock { handle in
             guard let fs = handle.ptr else { return false }
             let aSec = atime.map { Int64($0.tv_sec) } ?? FS_EXT4_TIME_OMIT
             let aNsec: UInt32 = atime.map { UInt32(clamping: $0.tv_nsec) } ?? 0
             let mSec = mtime.map { Int64($0.tv_sec) } ?? FS_EXT4_TIME_OMIT
             let mNsec: UInt32 = mtime.map { UInt32(clamping: $0.tv_nsec) } ?? 0
-            return fs_ext4_utimens(fs, path, aSec, aNsec, mSec, mNsec) == 0
+            return path.withCString { fs_ext4_utimens(fs, $0, aSec, aNsec, mSec, mNsec) } == 0
         }
     }
 
