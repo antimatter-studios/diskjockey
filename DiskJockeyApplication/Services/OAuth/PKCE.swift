@@ -39,7 +39,7 @@ public struct PKCE: Sendable {
         return base64URL(Data(bytes))
     }
 
-    private static func challenge(for verifier: String) -> String {
+    static func challenge(for verifier: String) -> String {
         let digest = SHA256.hash(data: Data(verifier.utf8))
         return base64URL(Data(digest))
     }
