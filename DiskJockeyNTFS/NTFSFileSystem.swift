@@ -16,10 +16,6 @@ import FSKit
 import Foundation
 import DiskJockeyLibrary
 
-/// Single logging surface — fans out to os_log + NDJSON file (tailed
-/// by host app UI) via AppLog's configured sinks.
-let log = AppLog(source: "ntfs", sinks: AppLog.defaultSinks(source: "ntfs"))
-
 /// Disk-image container kinds the NTFS extension knows how to unwrap.
 /// Mirrored on the EXT4 side (EXT4FileSystem.ContainerKind).
 enum NTFSContainerKind: String, CustomStringConvertible {
@@ -393,18 +389,20 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         let volume = NTFSVolume(
             volumeID: volID,
             volumeName: FSFileName(string: resolvedName),
-            bridgeFS: bridgeFS,
-            contextPtr: contextPtr,
-            cfgSizeBytes: cfgSizeBytes,
-            bsdName: bsdName,
-            // Container-backed NTFS uses NTFSVolume's deferred remount
-            // (performDeferredContainerRwRemount) which goes through
+            // Container-backed NTFS uses the driver's deferred remount
+            // (remountReadWriteThroughDeviceChain) which goes through
             // fs_ntfs_{is_dirty,fsck,mount_rw}_with_fs_core_device on the
             // stacked container handle.
+            backend: NTFSDriver(
+                fs: bridgeFS,
+                contextPtr: contextPtr,
+                cfgSizeBytes: cfgSizeBytes,
+                bsdName: bsdName,
+                containerKind: containerKind,
+                partitionOffset: partitionOffset,
+                partitionLength: partitionLength),
+            bsdName: bsdName,
             requiresFsckRemount: isWritable,
-            containerKind: containerKind,
-            partitionOffset: partitionOffset,
-            partitionLength: partitionLength,
             stats: stats
         )
         // Stash volume + bsdName + contextPtr + size so `startCheck`

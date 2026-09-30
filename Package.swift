@@ -241,5 +241,36 @@ let package = Package(
             path: "DiskJockeySQUASHFSCoreTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+
+        // THE NTFS VOLUME, ON THE EXT4 MODEL: NTFS is read-write, so it has
+        // a backend protocol of its own (NTFSBackend.swift), and
+        // NTFSDriver.swift makes every fs_ntfs_* and fs_core_* call —
+        // the fsck and deferred read-write remount included — so the
+        // volume builds here without the Rust library (diskjockey#196).
+        .target(
+            name: "DiskJockeyNTFSCore",
+            dependencies: ["DiskJockeyLibrary"],
+            path: "DiskJockeyNTFS",
+            exclude: [
+                "NTFSDriver.swift",
+                "NTFSFileSystem.swift",
+                "RepairXPCService.swift",
+                "DiskJockeyNTFS-Bridging-Header.h",
+                "DiskJockeyNTFS.entitlements",
+                "Info.plist",
+            ],
+            sources: [
+                "NTFSVolume.swift",
+                "NTFSBackend.swift",
+                "NTFSLog.swift",
+            ],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "DiskJockeyNTFSCoreTests",
+            dependencies: ["DiskJockeyNTFSCore", "DiskJockeyLibrary"],
+            path: "DiskJockeyNTFSCoreTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
     ]
 )
