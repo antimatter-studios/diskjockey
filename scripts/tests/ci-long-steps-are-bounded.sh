@@ -229,10 +229,16 @@ if [ -n "$floor" ]; then
            fails=$((fails + 1)) ;;
     esac
 fi
-if [ -n "$floor" ] && [ "$floor" -ge 160 ] 2>/dev/null; then
-    echo "ok    and it covers all 160 measured app-hosted cases"
+# THE LOWEST FLOOR THIS GUARD ACCEPTS moves only with the re-basing
+# diskjockey#196 prescribes: run 34962911163 measured 160 app-hosted cases,
+# about half of them hand-written mirrors of the FSKit volumes, and as each
+# mirror leaves for the library suite the measured count falls with it:
+# 150 once the EROFS mirror had left (2026-09-30, verdict Passed).
+# It is lowered only beside a new measurement, never to make a run green.
+if [ -n "$floor" ] && [ "$floor" -ge 150 ] 2>/dev/null; then
+    echo "ok    and it covers all 150 measured app-hosted cases"
 else
-    echo "FAIL  the floor is ${floor:-unset}: run 34962911163 measured 160 app-hosted cases, so a lower floor can lose coverage silently" >&2
+    echo "FAIL  the floor is ${floor:-unset}: 150 app-hosted cases were measured once the EROFS mirror had left (diskjockey#196), so a lower floor can lose coverage silently" >&2
     fails=$((fails + 1))
 fi
 

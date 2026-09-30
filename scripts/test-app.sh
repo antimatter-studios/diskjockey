@@ -35,6 +35,15 @@
 # died before writing one. And the bundle's own verdict is compared too: the
 # floor and the exit status have disagreed with it before.
 #
+# THE FLOOR, AND THE ONE DIRECTION IT MOVES DOWN. 160 ran in the first
+# isolated-bundle measurement (run 34962911163), and about half of those were
+# hand-written mirrors of the FSKit volumes that loaded no shipped code. As
+# each mirror is replaced by tests of the real volume in the library suite,
+# this count falls and the library floor rises by more — the re-basing
+# diskjockey#196 prescribes, and the only reason this floor may go down.
+# 160 -> 165 with the XFS mirror replaced by 14 real app cases (the floor was
+# held at 160), then 150 with the 15-case EROFS mirror gone (2026-09-30, measured locally: 150, Passed).
+#
 #   scripts/test-app.sh [--verbose]
 set -uo pipefail
 
@@ -66,9 +75,9 @@ summary=$(xcrun xcresulttool get test-results summary \
             --path "$ROOT/tmp/logs/app.xcresult" --format json 2>/dev/null || true)
 executed=$(printf '%s' "$summary" | jq '(.passedTests//0)+(.failedTests//0)+(.expectedFailures//0)' 2>/dev/null || true)
 verdict=$(printf '%s' "$summary" | jq -r '.result // "no result bundle"' 2>/dev/null || true)
-echo "executed cases: ${executed:-0} (floor 160), bundle verdict: ${verdict:-unknown}"
-if [ "${executed:-0}" -lt 160 ]; then
-    echo "::error::only ${executed:-0} app-hosted test cases executed, floor is 160 — 160 ran in the first isolated-bundle measurement (run 34962911163), and a run that stops early reports no failures, so this is the truncation defect (diskjockey#139) rather than a pass"
+echo "executed cases: ${executed:-0} (floor 150), bundle verdict: ${verdict:-unknown}"
+if [ "${executed:-0}" -lt 150 ]; then
+    echo "::error::only ${executed:-0} app-hosted test cases executed, floor is 150 — 150 ran once the EROFS mirror left for the library suite (diskjockey#196), and a run that stops early reports no failures, so this is the truncation defect (diskjockey#139) rather than a pass"
     exit 1
 fi
 if [ "${verdict:-}" != "Passed" ]; then

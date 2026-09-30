@@ -132,5 +132,32 @@ let package = Package(
             path: "DiskJockeyXFSCoreTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+
+        // THE EROFS VOLUME, ON THE XFS MODEL: ErofsDriver.swift makes every
+        // fs_erofs_* call, and the volume builds here without the Rust
+        // library (diskjockey#196).
+        .target(
+            name: "DiskJockeyEROFSCore",
+            dependencies: ["DiskJockeyLibrary"],
+            path: "DiskJockeyEROFS",
+            exclude: [
+                "ErofsDriver.swift",
+                "ErofsFileSystem.swift",
+                "DiskJockeyEROFS-Bridging-Header.h",
+                "DiskJockeyEROFS.entitlements",
+                "Info.plist",
+            ],
+            sources: [
+                "ErofsVolume.swift",
+                "ErofsLog.swift",
+            ],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "DiskJockeyEROFSCoreTests",
+            dependencies: ["DiskJockeyEROFSCore", "DiskJockeyLibrary"],
+            path: "DiskJockeyEROFSCoreTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
     ]
 )
