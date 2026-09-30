@@ -18,9 +18,6 @@ import FSKit
 import Foundation
 import DiskJockeyLibrary
 
-/// Single logging surface — fans out to os_log + NDJSON file via AppLog.
-let log = AppLog(source: "btrfs", sinks: AppLog.defaultSinks(source: "btrfs"))
-
 @objc(BtrfsFileSystem)
 final class BtrfsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
 
@@ -184,7 +181,7 @@ final class BtrfsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         let volume = BtrfsVolume(
             volumeID: volID,
             volumeName: FSFileName(string: resolvedName),
-            bridgeFS: bridgeFS,
+            driver: BtrfsDriver(fs: bridgeFS),
             contextPtr: contextPtr,
             bsdName: bsdName,
             stats: stats

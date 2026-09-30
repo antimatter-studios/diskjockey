@@ -123,6 +123,8 @@
 		};
 
 		70F4AA467022B026DD5DCF38 /* BtrfsVolume.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36EF96399DE7BF54408A3BB /* BtrfsVolume.swift */; };
+		C03825C8F983691047C5AC46 /* BtrfsDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B2BCE1C05B8AA5BCC429AAF /* BtrfsDriver.swift */; };
+		F4555A8C031DEE617DA6A810 /* BtrfsLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 627A6803393DD6533F299147 /* BtrfsLog.swift */; };
 		027139E38C99564FE69885EA /* NTFSVolume.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FAA4308D6EB33A49E406790 /* NTFSVolume.swift */; };
 		02A5ECFB350AC0A504E975EB /* FSKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EA52B7280D02F6F8D737A4DF /* FSKit.framework */; };
 		05A11A3D8A16DAA84A31911B /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 429A2D79E6781D9640B98F5E /* Cocoa.framework */; };
@@ -635,6 +637,8 @@
 		37763AEC6A4FD4CCBEDDCB44 /* SquashfsFileSystem.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SquashfsFileSystem.swift; sourceTree = "<group>"; };
 		3B5571A2000000000000NTFS /* RepairXPCService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RepairXPCService.swift; sourceTree = "<group>"; };
 		D36EF96399DE7BF54408A3BB /* BtrfsVolume.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BtrfsVolume.swift; sourceTree = "<group>"; };
+		0B2BCE1C05B8AA5BCC429AAF /* BtrfsDriver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BtrfsDriver.swift; sourceTree = "<group>"; };
+		627A6803393DD6533F299147 /* BtrfsLog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BtrfsLog.swift; sourceTree = "<group>"; };
 		429A2D79E6781D9640B98F5E /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
 		45CFCF77C56D3305934A9BE2 /* EXT4FileSystem.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EXT4FileSystem.swift; sourceTree = "<group>"; };
 		501F02432E058BAF009EBB59 /* DiskJockeyFileProvider.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = DiskJockeyFileProvider.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -1544,6 +1548,8 @@
 			children = (
 				AF145656789200456662A763 /* BtrfsFileSystem.swift */,
 				D36EF96399DE7BF54408A3BB /* BtrfsVolume.swift */,
+				0B2BCE1C05B8AA5BCC429AAF /* BtrfsDriver.swift */,
+				627A6803393DD6533F299147 /* BtrfsLog.swift */,
 				B2D0CAB189C655FCA7754F3F /* Info.plist */,
 				E47E3A2622FC425B40293DA0 /* DiskJockeyBTRFS.entitlements */,
 				0E4BE77B15B91F24B7C5502D /* DiskJockeyBTRFS-Bridging-Header.h */,
@@ -2113,6 +2119,8 @@
 			files = (
 				067F091B9202C56C4D17A9F8 /* BtrfsFileSystem.swift in Sources */,
 				70F4AA467022B026DD5DCF38 /* BtrfsVolume.swift in Sources */,
+				C03825C8F983691047C5AC46 /* BtrfsDriver.swift in Sources */,
+				F4555A8C031DEE617DA6A810 /* BtrfsLog.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
