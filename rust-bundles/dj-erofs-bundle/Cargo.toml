@@ -14,7 +14,7 @@ name = "dj_erofs_bundle"
 crate-type = ["staticlib"]
 
 [dependencies]
-am-fs-erofs = "0.2.0"
+am-fs-erofs = "0.3.0"
 am-img-qcow2 = "0.4.5"
 am-img-vhd = "0.3.5"
 am-img-vhdx = "0.3.5"

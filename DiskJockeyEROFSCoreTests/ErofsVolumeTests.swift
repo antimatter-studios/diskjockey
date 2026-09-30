@@ -419,28 +419,29 @@ struct ErofsVolumeTests {
                 == [Self.latin1Name, Array("file.txt".utf8)])
     }
 
-    /// am-fs-erofs 0.2.0 decodes a path as UTF-8 (and answers an undecodable one as the root), so the entry is listed but
-    /// its path is never handed to the driver: no attributes, no stat.
-    @Test func aNameThatIsNotUTF8IsListedWithoutAttributesAndNeverStatted() throws {
+    /// am-fs-erofs 0.3.0 takes a path byte for byte, so the entry's own bytes
+    /// are handed to the driver: it is statted, and carries attributes.
+    @Test func aNameThatIsNotUTF8IsStattedByItsOwnBytes() throws {
         let d = driverWithLatin1Child()
         let v = makeVolume(d)
         let dir = v.item(forInode: 131, path: "/dir", parentInode: 128)
         let (entries, _) = try list(v, dir, withAttributes: true)
-        #expect(entries.first?.attributes == nil)
+        #expect(entries.first?.attributes?.fileID.rawValue == 140)
         #expect(entries.last?.attributes != nil)
-        #expect(d.statted.allSatisfy { $0.isValidUTF8 })
+        #expect(d.statted.contains(VolumePath(bytes: Array("/dir/".utf8) + Self.latin1Name)))
     }
 
-    @Test func lookingUpANameThatIsNotUTF8IsEILSEQAndNeverReachesTheDriver() async {
+    @Test func lookingUpANameThatIsNotUTF8ReachesTheDriverByItsOwnBytes() async throws {
         let d = driverWithLatin1Child()
         let v = makeVolume(d)
         let dir = v.item(forInode: 131, path: "/dir", parentInode: 128)
-        let code = await posixCode {
-            _ = try await v.lookupItem(named: FSFileName(data: Data(Self.latin1Name)),
-                                       inDirectory: dir)
-        }
-        #expect(code == .EILSEQ)
-        #expect(d.statted.isEmpty)
+        let (found, name) = try await v.lookupItem(named: FSFileName(data: Data(Self.latin1Name)),
+                                                   inDirectory: dir)
+        let item = try #require(found as? ErofsItem)
+        #expect(item.inode == 140)
+        #expect(item.volumePath == VolumePath(bytes: Array("/dir/".utf8) + Self.latin1Name))
+        #expect([UInt8](name.data) == Self.latin1Name)
+        #expect(d.statted == [VolumePath(bytes: Array("/dir/".utf8) + Self.latin1Name)])
     }
 
     /// A target is a path, and a path is bytes.

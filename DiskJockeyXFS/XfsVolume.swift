@@ -56,13 +56,12 @@ final class XfsVolume: FSVolume,
         )
     }
 
-    /// How the pinned driver reads a path: am-fs-xfs 0.8.0 decodes it as UTF-8
-    /// (rust-fs-xfs#269 made it byte-exact, unreleased). A name that is not
-    /// UTF-8 is still listed under its real bytes, but is refused here
-    /// rather than handed to a driver that cannot resolve it. Becomes
-    /// `.bytes` when the bundle moves to a byte-exact release
-    /// (diskjockey#219).
-    static let pathEncoding: DriverPathEncoding = .utf8
+    /// How the pinned driver reads a path: am-fs-xfs 0.9.0 takes it byte
+    /// for byte (rust-fs-xfs#269), so a name that is not UTF-8 resolves
+    /// under the same bytes its dirent reported. Earlier releases decoded it
+    /// as UTF-8; scripts/tests/path-encoding-matches-pin.sh fails a `.bytes`
+    /// declaration over one of those (diskjockey#254).
+    static let pathEncoding: DriverPathEncoding = .bytes
 
     // MARK: - Capabilities
 
