@@ -23,7 +23,7 @@ NETWORKFS_DRIVERS := ftp sftp smb dropbox webdav gdrive s3 onedrive
 
 .PHONY: all proto clean \
 	vendor-gonetworkfs vendor-gonetworkfs-force vendor-gonetworkfs-clean vendor-gonetworkfs-add \
-	vendor-bundles vendor-bundles-clean dev-link dev-unlink \
+	vendor-bundles vendor-bundles-clean vendor-probe dev-link dev-unlink \
 	vendor-all clean-all
 
 # The FS extensions each link ONE per-extension bundle staticlib (driver +
@@ -81,6 +81,13 @@ vendor-gonetworkfs-add:
 		exit 1; \
 	fi
 	@DRIVERS="$(NETWORKFS_DRIVERS) $(DRIVER)" $(MAKE) vendor-gonetworkfs
+
+# blk.probe, the image/partition probe the app shells out to: downloaded from
+# the attested release of the rust-blk-probe tag in SIBLING_PINS.txt, not
+# built, into lib/blk.probe/ (#239). Needs gh. The app only falls back to it
+# in development, so vendor-all does not fetch it.
+vendor-probe:
+	@scripts/build-blk.probe.sh
 
 # Build the driver bundles and network archives.
 vendor-all: vendor-bundles vendor-gonetworkfs
