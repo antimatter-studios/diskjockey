@@ -117,6 +117,10 @@ public extension FileSystemItem where Tag == EXT4Tag {
     convenience init(inode: UInt32, path: String, parentInode: UInt32?) {
         self.init(id: inode, path: path, parentID: parentInode)
     }
+
+    convenience init(inode: UInt32, volumePath: VolumePath, parentInode: UInt32?) {
+        self.init(id: inode, volumePath: volumePath, parentID: parentInode)
+    }
 }
 
 // MARK: - NTFS specialisation
@@ -197,6 +201,10 @@ public extension FileSystemItem where Tag == XfsTag {
     convenience init(inode: UInt64, path: String, parentInode: UInt64?) {
         self.init(id: inode, path: path, parentID: parentInode)
     }
+
+    convenience init(inode: UInt64, volumePath: VolumePath, parentInode: UInt64?) {
+        self.init(id: inode, volumePath: volumePath, parentID: parentInode)
+    }
 }
 
 // MARK: - Btrfs specialisation
@@ -226,6 +234,10 @@ public extension FileSystemItem where Tag == BtrfsTag {
     convenience init(inode: UInt64, path: String, parentInode: UInt64?) {
         self.init(id: inode, path: path, parentID: parentInode)
     }
+
+    convenience init(inode: UInt64, volumePath: VolumePath, parentInode: UInt64?) {
+        self.init(id: inode, volumePath: volumePath, parentID: parentInode)
+    }
 }
 
 // MARK: - EROFS specialisation
@@ -248,5 +260,9 @@ public extension FileSystemItem where Tag == ErofsTag {
 
     convenience init(inode: UInt64, path: String, parentInode: UInt64?) {
         self.init(id: inode, path: path, parentID: parentInode)
+    }
+
+    convenience init(inode: UInt64, volumePath: VolumePath, parentInode: UInt64?) {
+        self.init(id: inode, volumePath: volumePath, parentID: parentInode)
     }
 }

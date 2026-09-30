@@ -8,6 +8,7 @@
  */
 
 import Foundation
+import DiskJockeyLibrary
 
 // MARK: - Value types
 
@@ -48,7 +49,9 @@ struct BackendFileAttributes {
 struct BackendDirectoryEntry {
     var fileID: UInt64
     var fileType: BackendFileType
-    var name: String
+    /// The name's bytes as the directory holds them. An ext4 name has no
+    /// encoding rule, so this is never decoded (diskjockey#219).
+    var name: [UInt8]
 }
 
 /// Mirror of `fs_ext4_volume_info_t`. Everything the on-disk
@@ -107,6 +110,11 @@ struct BackendVolumeInfo {
 // MARK: - Protocol
 
 protocol FileSystemBackend: AnyObject {
+    /// How this backend's driver reads the paths it is handed. The volume
+    /// never builds a path the driver would misread: under `.utf8`, a
+    /// name that is not UTF-8 is refused before any call is made.
+    var pathEncoding: DriverPathEncoding { get }
+
     /// Get volume-level statistics.
     func volumeInfo() -> BackendVolumeInfo
 
@@ -114,68 +122,69 @@ protocol FileSystemBackend: AnyObject {
     func shutdown()
 
     /// Get file/directory attributes for a path.
-    func stat(path: String) -> BackendFileAttributes?
+    func stat(path: VolumePath) -> BackendFileAttributes?
 
     /// List all entries in a directory.
-    func readDirectory(path: String) -> [BackendDirectoryEntry]?
+    func readDirectory(path: VolumePath) -> [BackendDirectoryEntry]?
 
     /// Read file data into a buffer. Returns bytes read, or -1 on error.
-    func readFile(path: String, offset: UInt64, length: UInt64,
+    func readFile(path: VolumePath, offset: UInt64, length: UInt64,
                   buffer: UnsafeMutableRawPointer) -> Int64
 
-    /// Read a symbolic link target. Returns nil on error.
-    func readSymlink(path: String) -> String?
+    /// Read a symbolic link target, as the bytes the link holds. Returns
+    /// nil on error.
+    func readSymlink(path: VolumePath) -> [UInt8]?
 
     // MARK: - Write path
 
     /// Create an empty regular file at `path` with the given mode bits.
     /// Returns true on success.
-    func createFile(path: String, mode: UInt16) -> Bool
+    func createFile(path: VolumePath, mode: UInt16) -> Bool
 
     /// Replace the contents of `path` with `length` bytes from `data`.
     /// Returns the new size on success, or -1 on error.
     /// NOTE: this REPLACES the whole file. Use `pwrite` for partial /
     /// streaming writes; `writeFile` is the "save-as" / whole-file-replace
     /// primitive.
-    func writeFile(path: String, data: UnsafeRawPointer, length: UInt64) -> Int64
+    func writeFile(path: VolumePath, data: UnsafeRawPointer, length: UInt64) -> Int64
 
     /// Positional streaming write: splice `length` bytes from `data` into
     /// `path` at byte `offset`. Costs O(length), not O(filesize) — unlike
     /// `writeFile` which rewrites the entire file. Returns the new file
     /// size on success, or -1 on error. The file must already exist.
     /// Cap: 1 GiB per call (chunk if you have more).
-    func pwrite(path: String, offset: UInt64,
+    func pwrite(path: VolumePath, offset: UInt64,
                 data: UnsafeRawPointer, length: UInt64) -> Int64
 
     /// Remove a non-directory file. Returns true on success.
-    func unlink(path: String) -> Bool
+    func unlink(path: VolumePath) -> Bool
 
     /// Move/rename src → dst. Returns true on success.
-    func rename(src: String, dst: String) -> Bool
+    func rename(src: VolumePath, dst: VolumePath) -> Bool
 
     /// Create a directory. Returns true on success.
-    func mkdir(path: String, mode: UInt16) -> Bool
+    func mkdir(path: VolumePath, mode: UInt16) -> Bool
 
     /// Remove an empty directory. Returns true on success.
-    func rmdir(path: String) -> Bool
+    func rmdir(path: VolumePath) -> Bool
 
     /// Shrink a regular file to `size` bytes.
-    func truncate(path: String, size: UInt64) -> Bool
+    func truncate(path: VolumePath, size: UInt64) -> Bool
 
     /// Change permission bits.
-    func chmod(path: String, mode: UInt16) -> Bool
+    func chmod(path: VolumePath, mode: UInt16) -> Bool
 
     /// Change owner. Pass `nil` for either component to leave it unchanged.
-    func chown(path: String, uid: UInt32?, gid: UInt32?) -> Bool
+    func chown(path: VolumePath, uid: UInt32?, gid: UInt32?) -> Bool
 
-    /// Create a symbolic link.
-    func symlink(target: String, linkpath: String) -> Bool
+    /// Create a symbolic link whose target is `target`, byte for byte.
+    func symlink(target: [UInt8], linkpath: VolumePath) -> Bool
 
     /// Create a hard link.
-    func link(src: String, dst: String) -> Bool
+    func link(src: VolumePath, dst: VolumePath) -> Bool
 
     /// Set access and/or modify times. Pass `nil` to skip a pair.
-    func utimens(path: String, atime: timespec?, mtime: timespec?) -> Bool
+    func utimens(path: VolumePath, atime: timespec?, mtime: timespec?) -> Bool
 
     /// Flush pending writes to the underlying device. Returns true on success.
     func flush() -> Bool

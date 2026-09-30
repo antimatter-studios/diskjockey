@@ -46,6 +46,7 @@ import Testing
 /// `lastErrorMessage()` and nothing else, so the rest traps rather than
 /// returning a plausible lie.
 private final class StubBackend: FileSystemBackend {
+    let pathEncoding: DriverPathEncoding = .bytes
     var errno: Int32 = 0
     var message: String = "(stub)"
 
@@ -56,25 +57,25 @@ private final class StubBackend: FileSystemBackend {
     // returning a default that lets a test pass for the wrong reason.
     func volumeInfo() -> BackendVolumeInfo { unreachable() }
     func shutdown() { unreachable() }
-    func stat(path: String) -> BackendFileAttributes? { unreachable() }
-    func readDirectory(path: String) -> [BackendDirectoryEntry]? { unreachable() }
-    func readFile(path: String, offset: UInt64, length: UInt64,
+    func stat(path: VolumePath) -> BackendFileAttributes? { unreachable() }
+    func readDirectory(path: VolumePath) -> [BackendDirectoryEntry]? { unreachable() }
+    func readFile(path: VolumePath, offset: UInt64, length: UInt64,
                   buffer: UnsafeMutableRawPointer) -> Int64 { unreachable() }
-    func readSymlink(path: String) -> String? { unreachable() }
-    func createFile(path: String, mode: UInt16) -> Bool { unreachable() }
-    func writeFile(path: String, data: UnsafeRawPointer, length: UInt64) -> Int64 { unreachable() }
-    func pwrite(path: String, offset: UInt64,
+    func readSymlink(path: VolumePath) -> [UInt8]? { unreachable() }
+    func createFile(path: VolumePath, mode: UInt16) -> Bool { unreachable() }
+    func writeFile(path: VolumePath, data: UnsafeRawPointer, length: UInt64) -> Int64 { unreachable() }
+    func pwrite(path: VolumePath, offset: UInt64,
                 data: UnsafeRawPointer, length: UInt64) -> Int64 { unreachable() }
-    func unlink(path: String) -> Bool { unreachable() }
-    func rename(src: String, dst: String) -> Bool { unreachable() }
-    func mkdir(path: String, mode: UInt16) -> Bool { unreachable() }
-    func rmdir(path: String) -> Bool { unreachable() }
-    func truncate(path: String, size: UInt64) -> Bool { unreachable() }
-    func chmod(path: String, mode: UInt16) -> Bool { unreachable() }
-    func chown(path: String, uid: UInt32?, gid: UInt32?) -> Bool { unreachable() }
-    func symlink(target: String, linkpath: String) -> Bool { unreachable() }
-    func link(src: String, dst: String) -> Bool { unreachable() }
-    func utimens(path: String, atime: timespec?, mtime: timespec?) -> Bool { unreachable() }
+    func unlink(path: VolumePath) -> Bool { unreachable() }
+    func rename(src: VolumePath, dst: VolumePath) -> Bool { unreachable() }
+    func mkdir(path: VolumePath, mode: UInt16) -> Bool { unreachable() }
+    func rmdir(path: VolumePath) -> Bool { unreachable() }
+    func truncate(path: VolumePath, size: UInt64) -> Bool { unreachable() }
+    func chmod(path: VolumePath, mode: UInt16) -> Bool { unreachable() }
+    func chown(path: VolumePath, uid: UInt32?, gid: UInt32?) -> Bool { unreachable() }
+    func symlink(target: [UInt8], linkpath: VolumePath) -> Bool { unreachable() }
+    func link(src: VolumePath, dst: VolumePath) -> Bool { unreachable() }
+    func utimens(path: VolumePath, atime: timespec?, mtime: timespec?) -> Bool { unreachable() }
     func flush() -> Bool { unreachable() }
 
     private func unreachable(_ function: String = #function) -> Never {
@@ -235,19 +236,20 @@ struct EXT4AttributeConversionTests {
 struct EXT4VolumeHelperTests {
 
     /// The double-slash trap: `"/" + "/foo"` is `"//foo"`, which the backend
-    /// then stats as a different path from `/foo`.
-    @Test func joiningOntoRootDoesNotDoubleTheSlash() {
-        #expect(EXT4Volume.joinPath("/", "foo") == "/foo")
-        #expect(EXT4Volume.joinPath("/dir", "foo") == "/dir/foo")
-        #expect(EXT4Volume.joinPath("/a/b", "c") == "/a/b/c")
+    /// then stats as a different path from `/foo`. Paths are joined as
+    /// bytes now (diskjockey#219), by the one join every volume shares.
+    @Test func joiningOntoRootDoesNotDoubleTheSlash() throws {
+        #expect(try VolumePath.root.child(Array("foo".utf8), for: .bytes) == "/foo")
+        #expect(try VolumePath("/dir").child(Array("foo".utf8), for: .bytes) == "/dir/foo")
+        #expect(try VolumePath("/a/b").child(Array("c".utf8), for: .bytes) == "/a/b/c")
     }
 
-    @Test func joiningPreservesNamesThatLookLikePaths() {
+    @Test func joiningPreservesNamesThatLookLikePaths() throws {
         // A file may legitimately be named with dots or spaces; the join is
         // not a normaliser and must not become one.
-        #expect(EXT4Volume.joinPath("/", "..") == "/..")
-        #expect(EXT4Volume.joinPath("/dir", "a b") == "/dir/a b")
-        #expect(EXT4Volume.joinPath("/dir", ".hidden") == "/dir/.hidden")
+        #expect(try VolumePath.root.child(Array("..".utf8), for: .bytes) == "/..")
+        #expect(try VolumePath("/dir").child(Array("a b".utf8), for: .bytes) == "/dir/a b")
+        #expect(try VolumePath("/dir").child(Array(".hidden".utf8), for: .bytes) == "/dir/.hidden")
     }
 
     /// The errno translation defaults to EIO, because a thrown error with no
