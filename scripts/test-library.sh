@@ -29,7 +29,9 @@
 # taken off the main actor, then 51 + 259 = 310 with #251's name-bytes tests
 # and a mount's credentials kept out of the registry's UserDefaults suite (all
 # 2026-09-29), then 51 + 288 = 339 with the XFS volume tested as itself,
-# then 51 + 317 = 368 with the EROFS volume (both 2026-09-30). The floor moves up with the suite; it never moves down.
+# then 51 + 317 = 368 with the EROFS volume, then 51 + 342 = 393 with the
+# agent's authority checks under DiskJockeyAgentCoreTests (all 2026-09-30).
+# The floor moves up with the suite; it never moves down.
 #
 #   scripts/test-library.sh [--verbose]
 set -uo pipefail
@@ -44,9 +46,9 @@ log="${QUIET_LOG_DIR:-$ROOT/tmp/logs}/library.log"
 xct=$(grep -aoE 'Executed [0-9]+ tests' "$log" 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
 swt=$(grep -aoE 'Test run with [0-9]+ tests' "$log" 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
 total=$(( ${xct:-0} + ${swt:-0} ))
-echo "library cases executed: $total = ${xct:-0} XCTest + ${swt:-0} swift-testing (floor 368)"
-if [ "$total" -lt 368 ]; then
-    echo "::error::only $total library cases executed, floor is 368 — 368 ran on 2026-09-30, and a run that executes less than that has stopped early rather than passed (diskjockey#139)"
+echo "library cases executed: $total = ${xct:-0} XCTest + ${swt:-0} swift-testing (floor 393)"
+if [ "$total" -lt 393 ]; then
+    echo "::error::only $total library cases executed, floor is 393 — 393 ran on 2026-09-30, and a run that executes less than that has stopped early rather than passed (diskjockey#139)"
     exit 1
 fi
 exit "$rc"

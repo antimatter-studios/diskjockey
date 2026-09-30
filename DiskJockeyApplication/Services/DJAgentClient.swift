@@ -29,10 +29,24 @@ final class DJAgentClient {
         }
     }
 
-    func attachImage(atPath path: String) async throws -> FSKitMountService.HdiutilAttachResult {
-        let proxy = try makeProxy()
+    /// Attach through the agent, sending the image opened for reading as
+    /// proof that this app may read it (diskjockey#94). The agent is
+    /// unsandboxed; the open is what keeps it from attaching anything this
+    /// app's sandbox would not have let it read itself.
+    func attachImage(atPath path: String, imageURL: URL? = nil) async throws -> FSKitMountService.HdiutilAttachResult {
+        let proof: FileHandle
+        do {
+            proof = try FileHandle(forReadingFrom: imageURL ?? URL(fileURLWithPath: path))
+        } catch {
+            throw FSKitMountService.FSKitError.processFailed(
+                exitCode: -1,
+                stderr: "cannot open \(path) for reading, and the agent attaches only an image this app can read: \(error.localizedDescription)")
+        }
+        let proxy: DJAgentProtocol
+        do { proxy = try makeProxy() } catch { try? proof.close(); throw error }
         return try await withCheckedThrowingContinuation { continuation in
-            proxy.attachImage(atPath: path) { slices, error in
+            proxy.attachImage(atPath: path, proof: proof) { slices, error in
+                try? proof.close()
                 if let errorMsg = error {
                     continuation.resume(throwing: FSKitMountService.FSKitError.processFailed(
                         exitCode: -1, stderr: errorMsg))

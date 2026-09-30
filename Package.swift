@@ -56,6 +56,34 @@ let package = Package(
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
 
+        // THE AGENT'S AUTHORITY CHECKS, WITHOUT THE AGENT AROUND THEM.
+        //
+        // Same shape as DiskJockeyEXT4Core: a second view of one file in
+        // DiskJockeyAgent/, never a copy. The rest of that directory runs
+        // hdiutil, osascript and an XPC listener, none of which a test can
+        // drive; AgentAuthority.swift is what decides whether the agent
+        // will attach or detach something on its caller's behalf, and it
+        // is pure Swift over Foundation.
+        .target(
+            name: "DiskJockeyAgentCore",
+            path: "DiskJockeyAgent",
+            exclude: [
+                "AgentImpl.swift",
+                "DJAgentProtocol.swift",
+                "ProcessRunner.swift",
+                "main.swift",
+                "DiskJockeyAgent.entitlements",
+            ],
+            sources: ["AgentAuthority.swift"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "DiskJockeyAgentCoreTests",
+            dependencies: ["DiskJockeyAgentCore"],
+            path: "DiskJockeyAgentCoreTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+
         // THE EXT4 VOLUME LOGIC, WITHOUT THE EXTENSION AROUND IT.
         //
         // `sources:` is a deliberate SUBSET of DiskJockeyEXT4/, not an
