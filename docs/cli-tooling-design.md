@@ -522,6 +522,24 @@ This is the same move as the rest of the family — one definition rather
 than four copies that agree by inspection. The Linux toolset is exactly
 what four copies look like after twenty years of drift.
 
+**Where that crate is: `am-fs-core`, feature `cli`.** The plumbing every
+tool shares — dispatch on `argv[0]`, the `<tool> (<crate>) <version>`
+line, `<repo> doctor`, the JSON result and the `{"error", "code"}` failure
+with their exit statuses, `--json`/`--text`, and `generate
+names|man|completions` — is the module `fs_core::cli`, behind the `cli`
+cargo feature of `am-fs-core`. A repository describes its tools once, as a
+`cli::Family` of `cli::Tool`s, and calls `cli::main`. It turns on
+`am-fs-core/cli` only under its own `cli` feature, next to the
+`required-features` on its binary, so its static library gains nothing.
+
+**Do not copy it into a repository.** It began as `src/cli/common/`,
+copied by hand into each driver, and the copies drifted within weeks:
+one `doctor` drained a long `--version` answer while the rest stalled on
+it, one entry point aligned its help examples, and only some could write
+man pages. A fix to the plumbing is a change to `am-fs-core` and a
+release, then a pin bump in each repository — never an edit to a local
+copy (antimatter-studios/rust-fs-core#177).
+
 ---
 
 ## Distribution
