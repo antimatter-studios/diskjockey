@@ -28,7 +28,8 @@
 # read by their declared length, then 51 + 229 = 280 with the mount-table pass
 # taken off the main actor, then 51 + 259 = 310 with #251's name-bytes tests
 # and a mount's credentials kept out of the registry's UserDefaults suite (all
-# 2026-09-29). The floor moves up with the suite; it never moves down.
+# 2026-09-29), then 51 + 288 = 339 with the XFS volume tested as itself
+# (2026-09-30). The floor moves up with the suite; it never moves down.
 #
 #   scripts/test-library.sh [--verbose]
 set -uo pipefail
@@ -43,9 +44,9 @@ log="${QUIET_LOG_DIR:-$ROOT/tmp/logs}/library.log"
 xct=$(grep -aoE 'Executed [0-9]+ tests' "$log" 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
 swt=$(grep -aoE 'Test run with [0-9]+ tests' "$log" 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
 total=$(( ${xct:-0} + ${swt:-0} ))
-echo "library cases executed: $total = ${xct:-0} XCTest + ${swt:-0} swift-testing (floor 310)"
-if [ "$total" -lt 310 ]; then
-    echo "::error::only $total library cases executed, floor is 310 — 310 ran on 2026-09-29, and a run that executes less than that has stopped early rather than passed (diskjockey#139)"
+echo "library cases executed: $total = ${xct:-0} XCTest + ${swt:-0} swift-testing (floor 339)"
+if [ "$total" -lt 339 ]; then
+    echo "::error::only $total library cases executed, floor is 339 — 339 ran on 2026-09-30, and a run that executes less than that has stopped early rather than passed (diskjockey#139)"
     exit 1
 fi
 exit "$rc"
