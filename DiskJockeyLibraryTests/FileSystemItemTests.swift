@@ -163,11 +163,11 @@ final class FileSystemItemTests: XCTestCase {
     }
 
     func testBtrfsSpecialisationRoundTrips() {
-        let item = BtrfsItem(inode: 44, path: "/btrfs", parentInode: 4)
-        XCTAssertEqual(item.inode, 44)
-        XCTAssertEqual(item.parentInode, 4)
-        XCTAssertEqual(item.id, item.inode)
-        XCTAssertEqual(item.parentID, item.parentInode)
+        let item = BtrfsItem(fileID: 44, path: "/btrfs", parentFileID: 4)
+        XCTAssertEqual(item.fileID, 44)
+        XCTAssertEqual(item.parentFileID, 4)
+        XCTAssertEqual(item.id, item.fileID)
+        XCTAssertEqual(item.parentID, item.parentFileID)
     }
 
     /// Every tag's ID width, together.

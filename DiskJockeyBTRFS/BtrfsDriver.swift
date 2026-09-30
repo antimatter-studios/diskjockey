@@ -70,7 +70,8 @@ final class BtrfsDriver: ReadOnlyVolumeDriver {
             let entry = ReadOnlyDirectoryEntry(
                 name: name,
                 inode: de.pointee.inode,
-                fileType: BtrfsVolume.readOnlyFileType(fromRaw: UInt32(de.pointee.file_type)))
+                fileType: BtrfsVolume.readOnlyFileType(fromRaw: UInt32(de.pointee.file_type)),
+                isSubvolume: de.pointee.is_subvolume != 0)
             if !visit(entry) { return .finished }
         }
         // NULL here is the end, and the errno is deliberately not asked.
