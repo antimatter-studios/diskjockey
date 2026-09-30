@@ -86,7 +86,10 @@ final class FileProviderDirectClient {
         self.mountID = Self.mountID(for: domainID)
         self.mlog = log
         do {
-            self.config = try store.load(domainID: domainID)
+            // Through MountCredentials, not the store directly: the plist
+            // omits the S3 session token, which the keychain holds.
+            self.config = try MountCredentials(secrets: keychain)
+                .resolvedConfig(domainID: domainID, store: store)
         } catch {
             throw FileProviderDirectClientError.missingConfig(
                 domainID: domainID, underlying: error
