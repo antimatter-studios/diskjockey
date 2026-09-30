@@ -1110,6 +1110,43 @@ state after merge is the truth, as the stage table above requires.
 `review` reads another program's claims about a tree. None of them is
 evidence until checked against source.
 
+**Establish that a review happened before reading its silence as clean.**
+A merged PR with no findings is either reviewed and clean or not reviewed
+at all, and the review stage's input looks the same for both. Count a
+merged head as reviewed only on a positive signal at that sha, and list
+the merged PRs that have none as unreviewed in the stage's output (#119):
+
+- **CodeRabbit** posts a commit *status*, `CodeRabbit`, whose `state` is
+  `success` whatever happened. Only the `description` differs:
+  `Review completed` is a review; `Review rate limited` and
+  `Review skipped: reviews are disabled for this base branch` are not,
+  and say nothing either way. Its plan allows one review an hour.
+  Measured 2026-09-30 over the 60 most recent merges in
+  `christhomas/rust-fs-ext4` (2026-09-28 and -29): 50 read
+  `Review rate limited`, 1 `Review skipped`, 9 `Review completed`.
+
+      gh api repos/$SLUG/commits/$HEAD/status -q '.statuses[]|select(.context=="CodeRabbit")|.description'
+
+- **Greptile**'s `Greptile Review` check-run carries a countable claim
+  in `output.summary`: "N files reviewed, M comments added". It was the
+  positive signal for the four rate-limited merges #119 first measured.
+  **It has stopped posting.** Measured 2026-09-30 by walking each
+  repository's merged heads back to the newest check-run: the last is
+  on `rust-fs-xfs#178` (merged 2026-09-17) and `rust-fs-ntfs#313`
+  (merged 2026-09-21), and there is none in the 120 most recent merges
+  of `christhomas/rust-fs-ext4`, nor on this repository's latest. Until
+  that changes, CodeRabbit's `Review completed` is the only positive
+  signal left, and most merges have none.
+
+      gh api repos/$SLUG/commits/$HEAD/check-runs -q '.check_runs[]|select(.name=="Greptile Review")|.output.summary'
+
+- **An empty list is not an absent review either.** A clean review adds
+  no inline comments, and a review object's `commit_id` is the sha it
+  *started* at. `pulls/247/reviews` and `pulls/247/comments` on
+  `christhomas/rust-fs-ntfs` return nothing at merged head `dcd64b11`,
+  while Greptile's summary there says `3 files reviewed`. Ask for the
+  positive signal; do not infer one from an empty answer.
+
 **No API field says whether a finding still applies.** GitHub re-anchors
 comments, so `commit_id == head` proves only that the line still exists.
 On 2026-09-09, 17 findings arrived already fixed in the merged source,
