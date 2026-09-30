@@ -1,43 +1,10 @@
 import Foundation
 
-// `hdiutilAttach` returns `Result<[String], String>`, using a plain string
-// as the lightweight internal failure value. Allow String as an Error.
-// `@retroactive` acknowledges this conformance is on a type we don't own
-// (SE-0364) and silences the Swift 6 retroactive-conformance warning.
-extension String: @retroactive Error {}
-
 final class AgentImpl: NSObject, DJAgentProtocol {
-    /// Whether a path is one this agent will attach.
-    ///
-    /// `attachImage` attached ANY caller-supplied path — no
-    /// canonicalisation, no symlink check, no existence check. That is a
-    /// sandbox-escape primitive dressed as a convenience: a sandboxed
-    /// caller cannot open a file outside its container, but it could ask
-    /// this unsandboxed agent to attach one.
-    ///
-    /// The connection is now mutually authenticated, so the caller is at
-    /// least our own app — but an app is a large thing to trust
-    /// wholesale, and a bug in it should not become a whole-disk read.
-    /// So: resolve symlinks first, then require a regular file that
-    /// exists. Resolving BEFORE checking is the order that matters; a
-    /// symlink checked and then followed is the classic race.
-    static func attachableImage(_ path: String) -> Result<String, String> {
-        let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: resolved,
-                                             isDirectory: &isDirectory) else {
-            return .failure("no such file: \(path)")
-        }
-        guard !isDirectory.boolValue else {
-            return .failure("not a disk image: \(path) is a directory")
-        }
-        return .success(resolved)
-    }
-
     func attachImage(atPath incoming: String,
                      reply: @escaping ([String]?, String?) -> Void) {
         let path: String
-        switch Self.attachableImage(incoming) {
+        switch AgentAuthority.attachableImage(incoming, proof: -1) {
         case .success(let resolved): path = resolved
         case .failure(let why):
             reply(nil, why)
@@ -86,14 +53,10 @@ final class AgentImpl: NSObject, DJAgentProtocol {
         guard result.status == 0 else {
             return .failure("hdiutil attach exited with status \(result.status)")
         }
-        let data = result.stdout
-        var fmt = PropertyListSerialization.PropertyListFormat.xml
-        guard let plist = try? PropertyListSerialization.propertyList(
-            from: data, options: [], format: &fmt) as? [String: Any],
-              let entities = plist["system-entities"] as? [[String: Any]] else {
+        guard let devices = HdiutilPlist.devices(fromAttach: result.stdout) else {
             return .failure("failed to parse hdiutil plist output")
         }
-        return .success(entities.compactMap { $0["dev-entry"] as? String })
+        return .success(devices)
     }
 
     /// Query `hdiutil info -plist` and return the dev-entry list for the
@@ -109,24 +72,10 @@ final class AgentImpl: NSObject, DJAgentProtocol {
         // read, and this side would not read until it exited.
         guard let result = try? ProcessRunner.run(proc), result.status == 0 else { return nil }
 
-        let data = result.stdout
-        var fmt = PropertyListSerialization.PropertyListFormat.xml
-        guard let plist = try? PropertyListSerialization.propertyList(
-            from: data, options: [], format: &fmt) as? [String: Any],
-              let images = plist["images"] as? [[String: Any]] else { return nil }
-
-        let canonical = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
-        for image in images {
-            let imagePath = (image["image-path"] as? String) ?? ""
-            let imageAlias = (image["image-alias"] as? String) ?? ""
-            let imageCanonical = URL(fileURLWithPath: imagePath).resolvingSymlinksInPath().path
-            let aliasCanonical = URL(fileURLWithPath: imageAlias).resolvingSymlinksInPath().path
-            guard imageCanonical == canonical || aliasCanonical == canonical else { continue }
-            guard let entities = image["system-entities"] as? [[String: Any]] else { continue }
-            let devs = entities.compactMap { $0["dev-entry"] as? String }
-            return devs.isEmpty ? nil : devs
-        }
-        return nil
+        guard let images = HdiutilPlist.images(fromInfo: result.stdout) else { return nil }
+        guard let image = images.first(where: { $0.isImage(at: path) }),
+              !image.devices.isEmpty else { return nil }
+        return image.devices
     }
 
     /// Fire-and-forget hdiutil detach. Used to clear stale orphan attachments
@@ -142,23 +91,9 @@ final class AgentImpl: NSObject, DJAgentProtocol {
         _ = try? ProcessRunner.runDiscardingOutput(proc)
     }
 
-    /// A BSD disk name, and nothing else.
-    ///
-    /// `detachDevice` hands its argument to `hdiutil detach`. The
-    /// INTERNAL caller at the top of this file already checks the shape;
-    /// this XPC entry point did not, so a peer could name any device —
-    /// including volumes this agent never attached — and have them
-    /// forced offline.
-    ///
-    /// Anchored at both ends deliberately: an unanchored match would
-    /// accept `/dev/disk1 ; anything`.
-    static func isBSDDiskName(_ name: String) -> Bool {
-        name.range(of: #"^/dev/disk\d+(s\d+)?$"#, options: .regularExpression) != nil
-    }
-
     func detachDevice(_ bsdName: String,
                       reply: @escaping (Bool, String?) -> Void) {
-        guard Self.isBSDDiskName(bsdName) else {
+        guard AgentAuthority.isBSDDiskName(bsdName) else {
             reply(false, "refusing to detach \(bsdName): not a BSD disk name")
             return
         }

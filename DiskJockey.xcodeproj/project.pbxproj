@@ -11,6 +11,7 @@
 		DA9E17A00000000000000008 /* AgentImpl.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA9E17A00000000000000001 /* AgentImpl.swift */; };
 		DA9E17A00000000000000009 /* DJAgentProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA9E17A00000000000000002 /* DJAgentProtocol.swift */; };
 		DA9E17A0000000000000000A /* ProcessRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA9E17A00000000000000003 /* ProcessRunner.swift */; };
+		DA9E17A00000000000000021 /* AgentAuthority.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA9E17A00000000000000020 /* AgentAuthority.swift */; };
 		DA9E17A0000000000000000B /* DiskJockeyAgent in Copy LaunchAgents */ = {isa = PBXBuildFile; fileRef = DA9E17A00000000000000005 /* DiskJockeyAgent */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		022580FD53834B63CA736B5E /* ErofsVolume.swift in Sources */ = {isa = PBXBuildFile; fileRef = 425C54678D107E1DAA3C3C5D /* ErofsVolume.swift */; };
 		10381BB9950AA9A8F9E04766 /* ErofsDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 176ACFF9479FB899746A0A6B /* ErofsDriver.swift */; };
@@ -567,6 +568,7 @@
 		DA9E17A00000000000000001 /* AgentImpl.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentImpl.swift; sourceTree = "<group>"; };
 		DA9E17A00000000000000002 /* DJAgentProtocol.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DJAgentProtocol.swift; sourceTree = "<group>"; };
 		DA9E17A00000000000000003 /* ProcessRunner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProcessRunner.swift; sourceTree = "<group>"; };
+		DA9E17A00000000000000020 /* AgentAuthority.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentAuthority.swift; sourceTree = "<group>"; };
 		DA9E17A00000000000000004 /* DiskJockeyAgent.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = DiskJockeyAgent.entitlements; sourceTree = "<group>"; };
 		DA9E17A00000000000000005 /* DiskJockeyAgent */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = DiskJockeyAgent; sourceTree = BUILT_PRODUCTS_DIR; };
 		0BC347BB938FDDB740155389 /* DiskJockeyEXT4.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; path = DiskJockeyEXT4.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -1386,6 +1388,7 @@
 				DA9E17A00000000000000001 /* AgentImpl.swift */,
 				DA9E17A00000000000000002 /* DJAgentProtocol.swift */,
 				DA9E17A00000000000000003 /* ProcessRunner.swift */,
+				DA9E17A00000000000000020 /* AgentAuthority.swift */,
 				DA9E17A00000000000000004 /* DiskJockeyAgent.entitlements */,
 			);
 			path = DiskJockeyAgent;
@@ -2046,6 +2049,7 @@
 				DA9E17A00000000000000008 /* AgentImpl.swift in Sources */,
 				DA9E17A00000000000000009 /* DJAgentProtocol.swift in Sources */,
 				DA9E17A0000000000000000A /* ProcessRunner.swift in Sources */,
+				DA9E17A00000000000000021 /* AgentAuthority.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
