@@ -18,9 +18,6 @@ import FSKit
 import Foundation
 import DiskJockeyLibrary
 
-/// Single logging surface — fans out to os_log + NDJSON file via AppLog.
-let log = AppLog(source: "erofs", sinks: AppLog.defaultSinks(source: "erofs"))
-
 @objc(ErofsFileSystem)
 final class ErofsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
 
@@ -185,7 +182,7 @@ final class ErofsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         let volume = ErofsVolume(
             volumeID: volID,
             volumeName: FSFileName(string: resolvedName),
-            bridgeFS: bridgeFS,
+            driver: ErofsDriver(fs: bridgeFS),
             contextPtr: contextPtr,
             bsdName: bsdName,
             stats: stats

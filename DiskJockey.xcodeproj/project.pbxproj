@@ -13,6 +13,8 @@
 		DA9E17A0000000000000000A /* ProcessRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA9E17A00000000000000003 /* ProcessRunner.swift */; };
 		DA9E17A0000000000000000B /* DiskJockeyAgent in Copy LaunchAgents */ = {isa = PBXBuildFile; fileRef = DA9E17A00000000000000005 /* DiskJockeyAgent */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		022580FD53834B63CA736B5E /* ErofsVolume.swift in Sources */ = {isa = PBXBuildFile; fileRef = 425C54678D107E1DAA3C3C5D /* ErofsVolume.swift */; };
+		10381BB9950AA9A8F9E04766 /* ErofsDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 176ACFF9479FB899746A0A6B /* ErofsDriver.swift */; };
+		A95798F474957207EDFE0F25 /* ErofsLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B679116C2C28574A961B6142 /* ErofsLog.swift */; };
 		027139E38C99564FE69885EA /* NTFSVolume.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FAA4308D6EB33A49E406790 /* NTFSVolume.swift */; };
 		02A5ECFB350AC0A504E975EB /* FSKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EA52B7280D02F6F8D737A4DF /* FSKit.framework */; };
 		05A11A3D8A16DAA84A31911B /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 429A2D79E6781D9640B98F5E /* Cocoa.framework */; };
@@ -577,6 +579,8 @@
 		37763AEC6A4FD4CCBEDDCB44 /* SquashfsFileSystem.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SquashfsFileSystem.swift; sourceTree = "<group>"; };
 		3B5571A2000000000000NTFS /* RepairXPCService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RepairXPCService.swift; sourceTree = "<group>"; };
 		425C54678D107E1DAA3C3C5D /* ErofsVolume.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ErofsVolume.swift; sourceTree = "<group>"; };
+		176ACFF9479FB899746A0A6B /* ErofsDriver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ErofsDriver.swift; sourceTree = "<group>"; };
+		B679116C2C28574A961B6142 /* ErofsLog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ErofsLog.swift; sourceTree = "<group>"; };
 		429A2D79E6781D9640B98F5E /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
 		45CFCF77C56D3305934A9BE2 /* EXT4FileSystem.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EXT4FileSystem.swift; sourceTree = "<group>"; };
 		D0E1C0CCAAAA00000000000A /* EXT4Log.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EXT4Log.swift; sourceTree = "<group>"; };
@@ -1521,6 +1525,8 @@
 			children = (
 				836FB936BE5B2D75D811EC7C /* ErofsFileSystem.swift */,
 				425C54678D107E1DAA3C3C5D /* ErofsVolume.swift */,
+				176ACFF9479FB899746A0A6B /* ErofsDriver.swift */,
+				B679116C2C28574A961B6142 /* ErofsLog.swift */,
 				2E5B3C082C661D266FE1A1B6 /* Info.plist */,
 				C5BF7A8657D13C9E4224DF2D /* DiskJockeyEROFS.entitlements */,
 				8AEDAEBCFFCF49DC0C6D2CC5 /* DiskJockeyEROFS-Bridging-Header.h */,
@@ -2091,6 +2097,8 @@
 			files = (
 				2B438E77BD0358C07E38AEC2 /* ErofsFileSystem.swift in Sources */,
 				022580FD53834B63CA736B5E /* ErofsVolume.swift in Sources */,
+				10381BB9950AA9A8F9E04766 /* ErofsDriver.swift in Sources */,
+				A95798F474957207EDFE0F25 /* ErofsLog.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

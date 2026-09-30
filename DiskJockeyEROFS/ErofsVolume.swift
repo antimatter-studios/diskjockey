@@ -1,11 +1,17 @@
 /*
  * ErofsVolume.swift — FSKit volume for EROFS (read-only).
  *
- * Mirror of DiskJockeySQUASHFS's volume. Implements FSVolume.Operations +
- * FSVolume.ReadWriteOperations + FSVolume.PathConfOperations. EROFS is
- * read-only, so every mutating op returns EROFS; reads/lookups/enumeration
- * dispatch to the fs_erofs_* C ABI. EROFS NIDs are 64-bit, so item identity
- * is UInt64 (ErofsItem / ErofsTag).
+ * Implements FSVolume.Operations + FSVolume.ReadWriteOperations +
+ * FSVolume.PathConfOperations. EROFS is read-only, so every mutating op
+ * returns EROFS — the errno for a read-only filesystem, which here is also
+ * the filesystem of that name; reads/lookups/enumeration dispatch to the
+ * driver. EROFS NIDs are 64-bit, so item identity is UInt64
+ * (ErofsItem / ErofsTag).
+ *
+ * The driver is a ReadOnlyVolumeDriver rather than the fs_erofs_* C ABI
+ * itself: ErofsDriver.swift makes those calls, and this file makes none, so
+ * it builds in DiskJockeyEROFSCore and `swift test` runs it
+ * (diskjockey#196).
  *
  * MIT License — see LICENSE
  */
@@ -20,7 +26,7 @@ final class ErofsVolume: FSVolume,
                          FSVolume.ReadWriteOperations,
                          FSVolume.PathConfOperations {
 
-    private var bridgeFS: OpaquePointer?
+    private var driver: ReadOnlyVolumeDriver?
     private var contextPtr: UnsafeMutableRawPointer?
     private let bsdName: String
     private let stats: IOStatsCollector
@@ -28,11 +34,11 @@ final class ErofsVolume: FSVolume,
 
     init(volumeID: FSVolume.Identifier,
          volumeName: FSFileName,
-         bridgeFS: OpaquePointer,
-         contextPtr: UnsafeMutableRawPointer,
+         driver: ReadOnlyVolumeDriver,
+         contextPtr: UnsafeMutableRawPointer?,
          bsdName: String,
          stats: IOStatsCollector) {
-        self.bridgeFS = bridgeFS
+        self.driver = driver
         self.contextPtr = contextPtr
         self.bsdName = bsdName
         self.stats = stats
@@ -41,8 +47,8 @@ final class ErofsVolume: FSVolume,
 
     // MARK: - Item cache
 
-    private func item(forInode inode: UInt64, path: VolumePath,
-                      parentInode: UInt64?) -> ErofsItem {
+    func item(forInode inode: UInt64, path: VolumePath,
+              parentInode: UInt64?) -> ErofsItem {
         items.getOrCreate(
             id: inode,
             validate: { $0.volumePath == path && $0.parentInode == parentInode },
@@ -60,6 +66,9 @@ final class ErofsVolume: FSVolume,
 
     // MARK: - Capabilities
 
+    /// The name `statfs` reports, and the one place it is spelled.
+    static let fsTypeName = "erofs"
+
     /// EROFS has no journal — it is an immutable image format, so there
     /// is no log to replay and nothing to recover.
     static let readOnlyCapabilities = ReadOnlyVolumeCapabilities(hasJournal: false)
@@ -69,19 +78,10 @@ final class ErofsVolume: FSVolume,
     }
 
     var volumeStatistics: FSStatFSResult {
-        let result = FSStatFSResult(fileSystemTypeName: "erofs")
-        guard let fs = bridgeFS else { return result }
-        var info = fs_erofs_volume_info_t()
-        fs_erofs_get_volume_info(fs, &info)
-        let bs = Int(info.block_size)
-        result.blockSize = bs
-        result.ioSize = bs
-        result.totalBlocks = UInt64(info.total_blocks)
-        result.availableBlocks = 0
-        result.freeBlocks = 0
-        result.totalFiles = info.inode_count
-        result.freeFiles = 0
-        return result
+        guard let info = driver?.volumeInfo() else {
+            return FSStatFSResult(fileSystemTypeName: Self.fsTypeName)
+        }
+        return ReadOnlyVolumeSupport.statFS(info, fileSystemTypeName: Self.fsTypeName)
     }
 
     // MARK: - Lifecycle
@@ -92,27 +92,30 @@ final class ErofsVolume: FSVolume,
 
     func unmount() async {
         log.info("volume: unmount", scope: AppLogScope.lifecycle)
-        if let fs = bridgeFS {
-            fs_erofs_umount(fs)
-            bridgeFS = nil
-        }
+        driver?.unmount()
+        driver = nil
     }
 
     func activate(options: FSTaskOptions) async throws -> FSItem {
         log.info("volume: activate", scope: AppLogScope.lifecycle)
-        guard let fs = bridgeFS else { throw POSIXError(.EIO) }
-        var attr = fs_erofs_attr_t()
-        let rootInode: UInt64 = (fs_erofs_stat(fs, "/", &attr) == 0) ? attr.inode : 1
-        return item(forInode: rootInode, path: .root, parentInode: nil)
+        return try rootItem()
+    }
+
+    /// The body of `activate`, which a test can call: FSTaskOptions has
+    /// no public initialiser.
+    func rootItem() throws -> ErofsItem {
+        guard let driver else { throw POSIXError(.EIO) }
+        // A root that cannot be read is a mount that failed. This fell
+        // back to NID 1 once, handing FSKit a root that named nothing.
+        guard let root = driver.stat(.root) else { throw driver.lastPOSIXError() }
+        return item(forInode: root.inode, path: .root, parentInode: nil)
     }
 
     func deactivate(options: FSDeactivateOptions) async throws {
         log.info("volume: deactivate", scope: AppLogScope.lifecycle)
         stats.stop()
-        if let fs = bridgeFS {
-            fs_erofs_umount(fs)
-            bridgeFS = nil
-        }
+        driver?.unmount()
+        driver = nil
         if let ctx = contextPtr {
             Unmanaged<BlockDeviceContext>.fromOpaque(ctx).release()
             contextPtr = nil
@@ -125,12 +128,13 @@ final class ErofsVolume: FSVolume,
         _ desiredAttributes: FSItem.GetAttributesRequest,
         of item: FSItem
     ) async throws -> FSItem.Attributes {
-        guard let fs = bridgeFS, let eItem = item as? ErofsItem else {
+        guard let driver, let eItem = item as? ErofsItem else {
             throw POSIXError(.EBADF)
         }
-        var attr = fs_erofs_attr_t()
-        guard eItem.volumePath.withCString({ fs_erofs_stat(fs, $0, &attr) }) == 0 else {
-            throw POSIXError(.ENOENT)
+        // The driver's own errno, not a blanket ENOENT: ENOENT tells
+        // Finder the file is gone, and an I/O error has not said that.
+        guard let attr = driver.stat(eItem.volumePath) else {
+            throw driver.lastPOSIXError()
         }
         return Self.attributes(from: attr, parentInode: eItem.parentInode)
     }
@@ -148,7 +152,7 @@ final class ErofsVolume: FSVolume,
         named name: FSFileName,
         inDirectory directory: FSItem
     ) async throws -> (FSItem, FSFileName) {
-        guard let fs = bridgeFS, let dirItem = directory as? ErofsItem else {
+        guard let driver, let dirItem = directory as? ErofsItem else {
             throw POSIXError(.EBADF)
         }
         // By the name's bytes, not its String: `name.string` is nil for a
@@ -156,9 +160,8 @@ final class ErofsVolume: FSVolume,
         // looked up all the same (diskjockey#219).
         let childPath = try dirItem.volumePath.child(name, for: Self.pathEncoding)
 
-        var attr = fs_erofs_attr_t()
-        guard childPath.withCString({ fs_erofs_stat(fs, $0, &attr) }) == 0 else {
-            throw POSIXError(.ENOENT)
+        guard let attr = driver.stat(childPath) else {
+            throw driver.lastPOSIXError()
         }
         let found = item(forInode: attr.inode, path: childPath, parentInode: dirItem.inode)
         return (found, name)
@@ -171,54 +174,66 @@ final class ErofsVolume: FSVolume,
         attributes: FSItem.GetAttributesRequest?,
         packer: FSDirectoryEntryPacker
     ) async throws -> FSDirectoryVerifier {
-        guard let fs = bridgeFS, let dirItem = directory as? ErofsItem else {
+        guard let dirItem = directory as? ErofsItem else {
             throw POSIXError(.EBADF)
         }
-        guard let iter = dirItem.volumePath.withCString({ fs_erofs_dir_open(fs, $0) }) else {
-            throw POSIXError(.EIO)
-        }
-        defer { fs_erofs_dir_close(iter) }
+        let end = try entries(of: dirItem, after: cookie.rawValue,
+                              withAttributes: attributes != nil) { $0.pack(into: packer) }
+        return FSDirectoryVerifier(rawValue: end)
+    }
+
+    /// The body of `enumerateDirectory`, with the packer as a closure so
+    /// a test can stand in for it (FSKit's packer cannot be constructed).
+    /// Answers the cookie after the last entry packed.
+    func entries(
+        of dirItem: ErofsItem,
+        after startCookie: UInt64,
+        withAttributes: Bool,
+        pack: (PackableDirectoryEntry) -> Bool
+    ) throws -> UInt64 {
+        guard let driver else { throw POSIXError(.EBADF) }
 
         var entryCookie: UInt64 = 1
-        let startCookie = cookie.rawValue
-
-        while let de = fs_erofs_dir_next(iter) {
+        let walk = driver.walkDirectory(dirItem.volumePath) { entry in
             if entryCookie <= startCookie {
                 entryCookie += 1
-                continue
+                return true
             }
-            // The name's bytes, bounded by the array rather than a hand-
-            // written capacity (diskjockey#207), and never decoded: a
-            // String repairs invalid UTF-8 to U+FFFD, which shows the
-            // wrong name and merges distinct ones (diskjockey#219).
-            guard let nameBytes = DirentName.bytes(of: de.pointee.name) else {
-                throw POSIXError(.EIO)
-            }
-            let fsName = DirentName.fileName(nameBytes)
             // Nil when the pinned driver could not resolve the child; the
-            // entry is still listed, without attributes.
-            let childPath = try? dirItem.volumePath.child(nameBytes, for: Self.pathEncoding)
-            let fileType = Self.fsItemType(fromRaw: UInt32(de.pointee.file_type))
+            // entry is still listed, under its real bytes, without
+            // attributes.
+            let childPath = try? dirItem.volumePath.child(entry.name, for: Self.pathEncoding)
 
             var itemAttrs: FSItem.Attributes? = nil
-            if attributes != nil {
-                var attr = fs_erofs_attr_t()
-                if let childPath, childPath.withCString({ fs_erofs_stat(fs, $0, &attr) }) == 0 {
-                    itemAttrs = Self.attributes(from: attr, parentInode: dirItem.inode)
-                }
+            if withAttributes, let childPath, let attr = driver.stat(childPath) {
+                itemAttrs = Self.attributes(from: attr, parentInode: dirItem.inode)
             }
 
-            let packed = packer.packEntry(
-                name: fsName,
-                itemType: fileType,
-                itemID: FSItem.Identifier(rawValue: de.pointee.inode)!,
+            let packed = pack(PackableDirectoryEntry(
+                // The name's bytes, never decoded: a String repairs
+                // invalid UTF-8 to U+FFFD, which shows the wrong name and
+                // merges distinct ones (diskjockey#219).
+                name: DirentName.fileName(entry.name),
+                itemType: entry.fileType.fsItemType,
+                itemID: FSItem.Identifier(rawValue: entry.inode)!,
                 nextCookie: FSDirectoryCookie(rawValue: entryCookie),
-                attributes: itemAttrs
-            )
-            if !packed { break }
+                attributes: itemAttrs))
+            if !packed { return false }
             entryCookie += 1
+            return true
         }
-        return FSDirectoryVerifier(rawValue: entryCookie)
+        switch walk {
+        case .finished:
+            return entryCookie
+        case .openFailed:
+            throw driver.lastPOSIXError()
+        case .failedPartway:
+            // Not the end of the directory: the rest of its entries are
+            // missing, and a listing that stopped here would say they do
+            // not exist. An entry whose name could not be read ends here
+            // too.
+            throw POSIXError(.EIO)
+        }
     }
 
     func reclaimItem(_ item: FSItem) async throws {
@@ -230,17 +245,15 @@ final class ErofsVolume: FSVolume,
     // MARK: - Symlink
 
     func readSymbolicLink(_ item: FSItem) async throws -> FSFileName {
-        guard let fs = bridgeFS, let eItem = item as? ErofsItem else {
+        guard let driver, let eItem = item as? ErofsItem else {
             throw POSIXError(.EBADF)
         }
         // Success is the target's length, not zero (see SymlinkTarget).
         // A target is a path, and a path is bytes (diskjockey#219).
-        let target = try eItem.volumePath.withCString { path in
-            try SymlinkTarget.readBytes(
-                lastErrno: { Int32(fs_erofs_last_errno()) }
-            ) { buf, size in
-                fs_erofs_readlink(fs, path, buf, size)
-            }
+        let target = try SymlinkTarget.readBytes(
+            lastErrno: { driver.lastErrno() }
+        ) { buf, size in
+            driver.readlink(eItem.volumePath, buf, size)
         }
         return FSFileName(data: Data(target))
     }
@@ -292,7 +305,10 @@ final class ErofsVolume: FSVolume,
     ) async throws -> Int {
         let t0 = monotonicNanos()
         do {
-            let n = try readImpl(from: item, at: offset, length: length, into: buffer)
+            let n = try buffer.withUnsafeMutableBytes { rawBuf in
+                try readBytes(from: item, at: offset,
+                              into: UnsafeMutableRawBufferPointer(rebasing: rawBuf.prefix(length)))
+            }
             stats.recordRead(bytes: n, latencyNs: monotonicNanos() &- t0, error: false)
             return n
         } catch {
@@ -301,20 +317,21 @@ final class ErofsVolume: FSVolume,
         }
     }
 
-    private func readImpl(
-        from item: FSItem, at offset: off_t, length: Int,
-        into buffer: FSMutableFileDataBuffer
+    /// The body of `read`, over a plain buffer so a test can supply one
+    /// (FSKit's FSMutableFileDataBuffer cannot be constructed).
+    func readBytes(
+        from item: FSItem, at offset: off_t,
+        into buffer: UnsafeMutableRawBufferPointer
     ) throws -> Int {
-        guard let fs = bridgeFS, let eItem = item as? ErofsItem else {
+        guard let driver, let eItem = item as? ErofsItem else {
             throw POSIXError(.EBADF)
         }
-        return eItem.volumePath.withCString { path in
-            buffer.withUnsafeMutableBytes { rawBuf in
-                let n = fs_erofs_read_file(
-                    fs, path, rawBuf.baseAddress, UInt64(offset), UInt64(length))
-                return max(0, Int(n))
-            }
-        }
+        let n = driver.read(eItem.volumePath, at: UInt64(offset), into: buffer)
+        // Negative is a failure. It was clamped to zero once, and zero
+        // bytes is how FSKit learns it has reached the end of the file,
+        // so a read error became a silently short copy.
+        guard n >= 0 else { throw driver.lastPOSIXError() }
+        return Int(n)
     }
 
     func write(
@@ -332,38 +349,24 @@ final class ErofsVolume: FSVolume,
 
     // MARK: - Helpers
 
-    static func fsItemType(fromRaw raw: UInt32) -> FSItem.ItemType {
+    /// EROFS's directory-entry type codes (fs_erofs_file_type_t). Kept
+    /// here because the numbers are EROFS's; the mapping onto FSKit is
+    /// shared.
+    static func readOnlyFileType(fromRaw raw: UInt32) -> ReadOnlyFileType {
         switch raw {
         case 1: return .file        // FS_EROFS_FT_REG_FILE
         case 2: return .directory   // FS_EROFS_FT_DIR
         case 7: return .symlink     // FS_EROFS_FT_SYMLINK
-        default: return .file
+        default: return .other
         }
     }
 
-    static func attributes(from attr: fs_erofs_attr_t,
+    static func fsItemType(fromRaw raw: UInt32) -> FSItem.ItemType {
+        readOnlyFileType(fromRaw: raw).fsItemType
+    }
+
+    static func attributes(from attr: ReadOnlyFileAttributes,
                            parentInode: UInt64?) -> FSItem.Attributes {
-        let attrs = FSItem.Attributes()
-        attrs.type = fsItemType(fromRaw: attr.file_type)
-        attrs.mode = UInt32(attr.mode)
-        attrs.uid = attr.uid
-        attrs.gid = attr.gid
-        attrs.flags = 0
-        attrs.size = attr.size
-        attrs.allocSize = attr.size
-        attrs.linkCount = attr.link_count
-        let ts = timespec(tv_sec: Int(attr.mtime), tv_nsec: 0)
-        attrs.accessTime = ts
-        attrs.modifyTime = ts
-        attrs.changeTime = ts
-        attrs.birthTime = ts
-        if let id = FSItem.Identifier(rawValue: attr.inode) {
-            attrs.fileID = id
-        }
-        let parentRaw = parentInode ?? 1
-        if let parentID = FSItem.Identifier(rawValue: parentRaw) {
-            attrs.parentID = parentID
-        }
-        return attrs
+        ReadOnlyVolumeSupport.fsAttributes(from: attr, parentInode: parentInode)
     }
 }
