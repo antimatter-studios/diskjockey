@@ -31,3 +31,10 @@ chore               0.8.0
 # project           ref
 # -------           ---
 go-networkfs        v0.1.4
+
+# rust-blk-probe is NOT BUILT. scripts/build-blk.probe.sh downloads this
+# tag's attested darwin-arm64 release tarball and stages its bin/blk.probe,
+# because its parser crates are path dependencies that a pin on the probe
+# alone would leave unpinned (#239). Raise it to a tag whose release carries
+# that tarball.
+rust-blk-probe      v0.1.0
