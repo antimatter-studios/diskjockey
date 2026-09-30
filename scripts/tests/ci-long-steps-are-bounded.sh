@@ -233,12 +233,12 @@ fi
 # diskjockey#196 prescribes: run 34962911163 measured 160 app-hosted cases,
 # about half of them hand-written mirrors of the FSKit volumes, and as each
 # mirror leaves for the library suite the measured count falls with it:
-# 139 once the Btrfs mirror had left (2026-09-30, verdict Passed).
+# 124 once the SquashFS mirror had left (2026-09-30, verdict Passed).
 # It is lowered only beside a new measurement, never to make a run green.
-if [ -n "$floor" ] && [ "$floor" -ge 139 ] 2>/dev/null; then
-    echo "ok    and it covers all 139 measured app-hosted cases"
+if [ -n "$floor" ] && [ "$floor" -ge 124 ] 2>/dev/null; then
+    echo "ok    and it covers all 124 measured app-hosted cases"
 else
-    echo "FAIL  the floor is ${floor:-unset}: 139 app-hosted cases were measured once the Btrfs mirror had left (diskjockey#196), so a lower floor can lose coverage silently" >&2
+    echo "FAIL  the floor is ${floor:-unset}: 124 app-hosted cases were measured once the SquashFS mirror had left (diskjockey#196), so a lower floor can lose coverage silently" >&2
     fails=$((fails + 1))
 fi
 

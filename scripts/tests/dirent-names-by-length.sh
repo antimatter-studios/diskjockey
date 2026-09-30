@@ -26,10 +26,13 @@ fails=0
 ok()   { printf 'ok    %s\n' "$1"; }
 fail() { printf 'FAIL  %s\n' "$1"; fails=$((fails + 1)); }
 
-# The volumes whose C ABI reports `name_len` and whose readers have moved to
-# DirentName. A volume joins this list when it moves; it never leaves it.
+# The files that read the dirents of a C ABI reporting `name_len`, and whose
+# readers have moved to DirentName. A volume joins this list when it moves;
+# it never leaves it. The entry names the file that makes the C call: for
+# SquashFS that is the driver, since the volume's C calls moved behind a
+# protocol so the volume could be tested as itself (diskjockey#196).
 volumes=(
-    DiskJockeySQUASHFS/SquashfsVolume.swift
+    DiskJockeySQUASHFS/SquashfsDriver.swift
     DiskJockeyNTFS/NTFSVolume.swift
 )
 
