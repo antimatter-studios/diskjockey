@@ -32,8 +32,8 @@ chore_min_version: 0.6.0
 # four more cases, but 62 compiler warnings against 28, each printed with its
 # source context (34 of the new ones are one non-Sendable conversion in
 # RawDisksModel and its tests) — then 1,355 on run 36621524031 after #243,
-# with 69, then 1,710 on run 36658298559 after #251 — sixteen more cases
-# (six of them one parameterised test) and no new warnings, so pure growth.
+# with 69, then 1,710 on run 36658298559 after #251 — sixteen more tests,
+# one of them over seven arguments, and no new warnings, so pure growth.
 # Raised with each measurement rather than silenced; the warnings
 # are the thing to fix, and fixing them gives this headroom back. The scripts tier grows by
 # about 18 lines per new guard, so its row moves with the suite. The app tier's log is the RAW xcodebuild stream, which is
