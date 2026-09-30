@@ -42,14 +42,22 @@ final class BtrfsVolume: FSVolume,
 
     // MARK: - Item cache
 
-    private func item(forInode inode: UInt64, path: String,
+    private func item(forInode inode: UInt64, path: VolumePath,
                       parentInode: UInt64?) -> BtrfsItem {
         items.getOrCreate(
             id: inode,
-            validate: { $0.path == path && $0.parentInode == parentInode },
-            create: { BtrfsItem(inode: inode, path: path, parentInode: parentInode) }
+            validate: { $0.volumePath == path && $0.parentInode == parentInode },
+            create: { BtrfsItem(inode: inode, volumePath: path, parentInode: parentInode) }
         )
     }
+
+    /// How the pinned driver reads a path: am-fs-btrfs 0.7.0 decodes it as UTF-8
+    /// (rust-fs-btrfs#214 made it byte-exact, unreleased). A name that is not
+    /// UTF-8 is still listed under its real bytes, but is refused here
+    /// rather than handed to a driver that cannot resolve it. Becomes
+    /// `.bytes` when the bundle moves to a byte-exact release
+    /// (diskjockey#219).
+    static let pathEncoding: DriverPathEncoding = .utf8
 
     // MARK: - Capabilities
 
@@ -105,7 +113,7 @@ final class BtrfsVolume: FSVolume,
         guard let fs = bridgeFS else { throw POSIXError(.EIO) }
         var attr = fs_btrfs_attr_t()
         let rootInode: UInt64 = (fs_btrfs_stat(fs, "/", &attr) == 0) ? attr.inode : 1
-        return item(forInode: rootInode, path: "/", parentInode: nil)
+        return item(forInode: rootInode, path: .root, parentInode: nil)
     }
 
     func deactivate(options: FSDeactivateOptions) async throws {
@@ -131,7 +139,7 @@ final class BtrfsVolume: FSVolume,
             throw POSIXError(.EBADF)
         }
         var attr = fs_btrfs_attr_t()
-        guard fs_btrfs_stat(fs, eItem.path, &attr) == 0 else {
+        guard eItem.volumePath.withCString({ fs_btrfs_stat(fs, $0, &attr) }) == 0 else {
             throw POSIXError(.ENOENT)
         }
         return Self.attributes(from: attr, parentInode: eItem.parentInode)
@@ -153,11 +161,13 @@ final class BtrfsVolume: FSVolume,
         guard let fs = bridgeFS, let dirItem = directory as? BtrfsItem else {
             throw POSIXError(.EBADF)
         }
-        guard let nameStr = name.string else { throw POSIXError(.EINVAL) }
-        let childPath = Self.joinPath(dirItem.path, nameStr)
+        // By the name's bytes, not its String: `name.string` is nil for a
+        // name that is not UTF-8, and FSKit requires such a name to be
+        // looked up all the same (diskjockey#219).
+        let childPath = try dirItem.volumePath.child(name, for: Self.pathEncoding)
 
         var attr = fs_btrfs_attr_t()
-        guard fs_btrfs_stat(fs, childPath, &attr) == 0 else {
+        guard childPath.withCString({ fs_btrfs_stat(fs, $0, &attr) }) == 0 else {
             throw POSIXError(.ENOENT)
         }
         let found = item(forInode: attr.inode, path: childPath, parentInode: dirItem.inode)
@@ -174,7 +184,7 @@ final class BtrfsVolume: FSVolume,
         guard let fs = bridgeFS, let dirItem = directory as? BtrfsItem else {
             throw POSIXError(.EBADF)
         }
-        guard let iter = fs_btrfs_dir_open(fs, dirItem.path) else {
+        guard let iter = dirItem.volumePath.withCString({ fs_btrfs_dir_open(fs, $0) }) else {
             throw POSIXError(.EIO)
         }
         defer { fs_btrfs_dir_close(iter) }
@@ -187,17 +197,23 @@ final class BtrfsVolume: FSVolume,
                 entryCookie += 1
                 continue
             }
-            let entryName = withUnsafePointer(to: de.pointee.name) { ptr in
-                ptr.withMemoryRebound(to: CChar.self, capacity: 256) { String(cString: $0) }
+            // The name's bytes, bounded by the array rather than a hand-
+            // written capacity (diskjockey#207), and never decoded: a
+            // String repairs invalid UTF-8 to U+FFFD, which shows the
+            // wrong name and merges distinct ones (diskjockey#219).
+            guard let nameBytes = DirentName.bytes(of: de.pointee.name) else {
+                throw POSIXError(.EIO)
             }
-            let fsName = FSFileName(string: entryName)
-            let childPath = Self.joinPath(dirItem.path, entryName)
+            let fsName = DirentName.fileName(nameBytes)
+            // Nil when the pinned driver could not resolve the child; the
+            // entry is still listed, without attributes.
+            let childPath = try? dirItem.volumePath.child(nameBytes, for: Self.pathEncoding)
             let fileType = Self.fsItemType(fromRaw: UInt32(de.pointee.file_type))
 
             var itemAttrs: FSItem.Attributes? = nil
             if attributes != nil {
                 var attr = fs_btrfs_attr_t()
-                if fs_btrfs_stat(fs, childPath, &attr) == 0 {
+                if let childPath, childPath.withCString({ fs_btrfs_stat(fs, $0, &attr) }) == 0 {
                     itemAttrs = Self.attributes(from: attr, parentInode: dirItem.inode)
                 }
             }
@@ -228,12 +244,15 @@ final class BtrfsVolume: FSVolume,
             throw POSIXError(.EBADF)
         }
         // Success is the target's length, not zero (see SymlinkTarget).
-        let target = try SymlinkTarget.read(
-            lastErrno: { Int32(fs_btrfs_last_errno()) }
-        ) { buf, size in
-            fs_btrfs_readlink(fs, eItem.path, buf, size)
+        // A target is a path, and a path is bytes (diskjockey#219).
+        let target = try eItem.volumePath.withCString { path in
+            try SymlinkTarget.readBytes(
+                lastErrno: { Int32(fs_btrfs_last_errno()) }
+            ) { buf, size in
+                fs_btrfs_readlink(fs, path, buf, size)
+            }
         }
-        return FSFileName(string: target)
+        return FSFileName(data: Data(target))
     }
 
     // MARK: - Mutating ops (all rejected — read-only)
@@ -299,10 +318,12 @@ final class BtrfsVolume: FSVolume,
         guard let fs = bridgeFS, let eItem = item as? BtrfsItem else {
             throw POSIXError(.EBADF)
         }
-        return buffer.withUnsafeMutableBytes { rawBuf in
-            let n = fs_btrfs_read_file(
-                fs, eItem.path, rawBuf.baseAddress, UInt64(offset), UInt64(length))
-            return max(0, Int(n))
+        return eItem.volumePath.withCString { path in
+            buffer.withUnsafeMutableBytes { rawBuf in
+                let n = fs_btrfs_read_file(
+                    fs, path, rawBuf.baseAddress, UInt64(offset), UInt64(length))
+                return max(0, Int(n))
+            }
         }
     }
 
@@ -328,10 +349,6 @@ final class BtrfsVolume: FSVolume,
         case 7: return .symlink     // FS_BTRFS_FT_SYMLINK
         default: return .file
         }
-    }
-
-    static func joinPath(_ parent: String, _ child: String) -> String {
-        parent == "/" ? "/\(child)" : "\(parent)/\(child)"
     }
 
     static func attributes(from attr: fs_btrfs_attr_t,

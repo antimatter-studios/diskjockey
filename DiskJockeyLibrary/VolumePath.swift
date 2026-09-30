@@ -81,6 +81,75 @@ public struct VolumePath: Hashable, Sendable, CustomStringConvertible {
     }
 }
 
+/// How a driver's C ABI reads a `const char *path` it is handed.
+///
+/// A volume's paths are bytes from end to end, but a driver can only
+/// resolve what its ABI accepts. Each volume declares which ABI it is
+/// built against, beside the crate version that decides it.
+public enum DriverPathEncoding: Sendable {
+    /// The path is taken byte for byte: any name the driver's own
+    /// dirents reported resolves.
+    case bytes
+    /// The path is decoded as UTF-8 first. A path that is not valid
+    /// UTF-8 must never reach such a driver: some of them answer an
+    /// undecodable path as the ROOT, and report success (rust-fs-erofs
+    /// #148, rust-fs-ext4 #418) — so a stat describes the wrong file and
+    /// a write or unlink lands on the wrong one.
+    case utf8
+}
+
+extension VolumePath: ExpressibleByStringLiteral {
+    /// A path the code spells as text, such as `"/"`.
+    public init(stringLiteral path: String) {
+        self.init(path)
+    }
+}
+
+public extension VolumePath {
+
+    /// Whether the bytes are well-formed UTF-8: no stray continuation or
+    /// truncated sequence, no overlong form, no encoded surrogate and
+    /// nothing past U+10FFFF — exactly the input Rust's `str::from_utf8`
+    /// accepts, which is what a `.utf8` driver runs on it.
+    var isValidUTF8: Bool {
+        var iterator = bytes.makeIterator()
+        var decoder = UTF8()
+        while true {
+            switch decoder.decode(&iterator) {
+            case .scalarValue: continue
+            case .emptyInput: return true
+            case .error: return false
+            }
+        }
+    }
+
+    /// The path's last component, as bytes; empty for the root.
+    var lastComponent: [UInt8] {
+        guard let slash = bytes.lastIndex(of: UInt8(ascii: "/")) else { return bytes }
+        return Array(bytes[(slash + 1)...])
+    }
+
+    /// This directory's child `name`, as a path a driver whose ABI reads
+    /// paths as `encoding` can be handed.
+    ///
+    /// Throws ENOENT when `name` could not be one component (empty, or
+    /// holding a NUL or `/`), since no directory holds such an entry; and
+    /// EILSEQ when the driver decodes UTF-8 and the name is not, rather
+    /// than hand it a path it would misread.
+    func child(_ name: [UInt8], for encoding: DriverPathEncoding) throws -> VolumePath {
+        guard let path = appending(name) else { throw POSIXError(.ENOENT) }
+        if encoding == .utf8, !path.isValidUTF8 { throw POSIXError(.EILSEQ) }
+        return path
+    }
+
+    /// `child(_:for:)` for a name FSKit handed in, taken by its bytes:
+    /// `FSFileName.string` is nil for a name that is not UTF-8, and FSKit
+    /// requires such a name to be looked up all the same.
+    func child(_ name: FSFileName, for encoding: DriverPathEncoding) throws -> VolumePath {
+        try child([UInt8](name.data), for: encoding)
+    }
+}
+
 public extension DirentName {
     /// The name FSKit should be given for an entry whose name is `bytes`:
     /// those bytes, whether or not they are valid UTF-8.
