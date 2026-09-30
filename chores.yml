@@ -24,8 +24,8 @@ chore_min_version: 0.6.0
 #
 #   tier      lines    bytes   measured (lines / bytes)     headroom   floor
 #   scripts     650    34000   496 / 25,616 (27 files)      31% / 33%  26 files
-#   library    2150   168000   1,710 / 133,872              26% / 25%  368 cases
-#   app        5200   950000   4,119 / 750,848 (raw)        26% / 27%  150 cases
+#   library    2150   168000   1,710 / 133,872              26% / 25%  397 cases
+#   app        5200   950000   4,119 / 750,848 (raw)        26% / 27%  139 cases
 #
 # The library row has already moved three times, and that is the budget working:
 # 994 lines on run 36614133886, then 1,204 on run 36619808267 after #241 —
