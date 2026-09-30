@@ -176,7 +176,7 @@ final class XfsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         // there is always room for the terminator. Reading 16 here would
         // run past the end of the field.
         let volumeName = withUnsafePointer(to: volInfo.volume_name) { ptr in
-            ptr.withMemoryRebound(to: CChar.self, capacity: 13) { String(cString: $0) }
+            ptr.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: volInfo.volume_name)) { String(cString: $0) }
         }
         let resolvedName = volumeName.isEmpty ? "XFS" : volumeName
 

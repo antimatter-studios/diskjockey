@@ -174,7 +174,7 @@ final class ErofsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         var volInfo = fs_erofs_volume_info_t()
         fs_erofs_get_volume_info(bridgeFS, &volInfo)
         let volumeName = withUnsafePointer(to: volInfo.volume_name) { ptr in
-            ptr.withMemoryRebound(to: CChar.self, capacity: 16) { String(cString: $0) }
+            ptr.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: volInfo.volume_name)) { String(cString: $0) }
         }
         let resolvedName = volumeName.isEmpty ? "EROFS" : volumeName
 

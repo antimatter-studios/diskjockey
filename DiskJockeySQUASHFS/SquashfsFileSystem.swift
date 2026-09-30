@@ -205,7 +205,7 @@ final class SquashfsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             "fs": "squashfs",
             "block_size": "\(volInfo.block_size)",
             "compression": withUnsafePointer(to: volInfo.compression_name) { ptr in
-                ptr.withMemoryRebound(to: CChar.self, capacity: 16) { String(cString: $0) }
+                ptr.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: volInfo.compression_name)) { String(cString: $0) }
             },
             "inode_count": "\(volInfo.inode_count)",
             "bytes_used": "\(volInfo.bytes_used)",

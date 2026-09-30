@@ -217,7 +217,7 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
                 var volInfo = fs_ntfs_volume_info_t()
                 if fs_ntfs_get_volume_info(probeFS, &volInfo) == 0 {
                     let parsed = withUnsafePointer(to: volInfo.volume_name) { ptr in
-                        ptr.withMemoryRebound(to: CChar.self, capacity: 128) { cstr in
+                        ptr.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: volInfo.volume_name)) { cstr in
                             String(cString: cstr)
                         }
                     }
@@ -383,7 +383,7 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         var volInfo = fs_ntfs_volume_info_t()
         fs_ntfs_get_volume_info(bridgeFS, &volInfo)
         let volumeName = withUnsafePointer(to: volInfo.volume_name) { ptr in
-            ptr.withMemoryRebound(to: CChar.self, capacity: 128) { cstr in
+            ptr.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: volInfo.volume_name)) { cstr in
                 String(cString: cstr)
             }
         }

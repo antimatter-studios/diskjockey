@@ -126,9 +126,15 @@ final class EXT4Backend: FileSystemBackend {
     // MARK: - Volume-info helpers
 
     /// Returns the volume label, falling back to "ext4" for unlabelled volumes.
+    ///
+    /// The field is sized from the header, not restated: am-fs-ext4 0.7.0
+    /// grew it to 17 bytes so a label filling `s_volume_name`'s 16 comes back
+    /// whole with its NUL in the 17th (rust-fs-ext4#463). A literal 16 here
+    /// would rebind one byte short of that NUL.
     private static func volumeName(from info: inout fs_ext4_volume_info_t) -> String {
+        let capacity = MemoryLayout.size(ofValue: info.volume_name)
         let raw = withUnsafePointer(to: info.volume_name) { ptr in
-            ptr.withMemoryRebound(to: CChar.self, capacity: 16) { String(cString: $0) }
+            ptr.withMemoryRebound(to: CChar.self, capacity: capacity) { String(cString: $0) }
         }
         return raw.isEmpty ? "ext4" : raw
     }
@@ -137,7 +143,7 @@ final class EXT4Backend: FileSystemBackend {
     /// so it round-trips with `blkid` / `tune2fs -l`.
     private static func uuidString(from info: inout fs_ext4_volume_info_t) -> String {
         withUnsafePointer(to: info.uuid) { ptr in
-            ptr.withMemoryRebound(to: UInt8.self, capacity: 16) { b in
+            ptr.withMemoryRebound(to: UInt8.self, capacity: MemoryLayout.size(ofValue: info.uuid)) { b in
                 String(format: "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
                        b[0],  b[1],  b[2],  b[3],
                        b[4],  b[5],
@@ -152,7 +158,7 @@ final class EXT4Backend: FileSystemBackend {
     /// and surfacing an empty string confuses the host app's detail view.
     private static func lastMountedPath(from info: inout fs_ext4_volume_info_t) -> String? {
         withUnsafePointer(to: info.last_mounted) { ptr in
-            ptr.withMemoryRebound(to: CChar.self, capacity: 64) { cstr in
+            ptr.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: info.last_mounted)) { cstr in
                 let s = String(cString: cstr)
                 return s.isEmpty ? nil : s
             }
