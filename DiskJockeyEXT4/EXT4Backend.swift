@@ -54,13 +54,12 @@ private struct UncheckedConstBuffer: @unchecked Sendable {
 
 final class EXT4Backend: FileSystemBackend {
 
-    /// am-fs-ext4 0.5.1 decodes every path as UTF-8, and answers one that
-    /// does not decode as the ROOT, reporting success (rust-fs-ext4#418,
-    /// fixed on its main, unreleased). A name that is not UTF-8 must
-    /// therefore never be handed to it: the volume refuses to build such
-    /// a path. Becomes `.bytes` when the bundle moves to a byte-exact
-    /// release (diskjockey#219).
-    let pathEncoding: DriverPathEncoding = .utf8
+    /// am-fs-ext4 0.6.0 reads every in-image path as the bytes up to the
+    /// NUL (rust-fs-ext4#418), so a name is handed over exactly as its dirent
+    /// reported it, UTF-8 or not (diskjockey#219, #254). Before 0.6.0 an
+    /// undecodable path was answered as the ROOT with success, which is why
+    /// scripts/tests/path-encoding-matches-pin.sh ties this to the pin.
+    let pathEncoding: DriverPathEncoding = .bytes
 
     /// fs_ext4 serialises per-handle via Arc<RwLock> internally, but we still
     /// hold the handle + a matching Sendable-safe lock on the Swift side so
@@ -249,9 +248,9 @@ final class EXT4Backend: FileSystemBackend {
             let capacity = 4096
             var buf = [CChar](repeating: 0, count: capacity)
             let rc = path.withCString { fs_ext4_readlink(fs, $0, &buf, capacity) }
-            // am-fs-ext4 0.5.1 answers 0 on success; later releases answer
-            // the target's length. Either way the target runs to the NUL,
-            // which it cannot contain, and stays bytes (diskjockey#219).
+            // am-fs-ext4 answers the target's length, NUL-terminated, and
+            // ERANGE rather than truncating; 4096 bytes holds any ext4
+            // target and its NUL. The target stays bytes (diskjockey#219).
             guard rc >= 0 else { return nil }
             return buf.withUnsafeBytes { DirentName.bytes(in: $0) }
         }
