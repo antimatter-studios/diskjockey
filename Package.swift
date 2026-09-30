@@ -187,5 +187,32 @@ let package = Package(
             path: "DiskJockeyEROFSCoreTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+
+        // THE BTRFS VOLUME, ON THE XFS MODEL: BtrfsDriver.swift makes every
+        // fs_btrfs_* call, and the volume builds here without the Rust
+        // library (diskjockey#196).
+        .target(
+            name: "DiskJockeyBTRFSCore",
+            dependencies: ["DiskJockeyLibrary"],
+            path: "DiskJockeyBTRFS",
+            exclude: [
+                "BtrfsDriver.swift",
+                "BtrfsFileSystem.swift",
+                "DiskJockeyBTRFS-Bridging-Header.h",
+                "DiskJockeyBTRFS.entitlements",
+                "Info.plist",
+            ],
+            sources: [
+                "BtrfsVolume.swift",
+                "BtrfsLog.swift",
+            ],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "DiskJockeyBTRFSCoreTests",
+            dependencies: ["DiskJockeyBTRFSCore", "DiskJockeyLibrary"],
+            path: "DiskJockeyBTRFSCoreTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
     ]
 )
