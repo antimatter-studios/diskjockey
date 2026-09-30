@@ -53,7 +53,7 @@ christhomas/go-networkfs
 christhomas/rust-fs-ext4
 christhomas/rust-fs-ntfs
 EOF
-sort -u "$AM_SCOPE_CALLS" > "$actual"
+LC_ALL=C sort -u "$AM_SCOPE_CALLS" > "$actual"
 
 if ! diff -u "$expected" "$actual"; then
     echo "FAIL  overview did not fetch the exact 18-repository product scope" >&2
