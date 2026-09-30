@@ -18,9 +18,6 @@ import FSKit
 import Foundation
 import DiskJockeyLibrary
 
-/// Single logging surface — fans out to os_log + NDJSON file via AppLog.
-let log = AppLog(source: "xfs", sinks: AppLog.defaultSinks(source: "xfs"))
-
 @objc(XfsFileSystem)
 final class XfsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
 
@@ -187,7 +184,7 @@ final class XfsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         let volume = XfsVolume(
             volumeID: volID,
             volumeName: FSFileName(string: resolvedName),
-            bridgeFS: bridgeFS,
+            driver: XfsDriver(fs: bridgeFS),
             contextPtr: contextPtr,
             bsdName: bsdName,
             stats: stats

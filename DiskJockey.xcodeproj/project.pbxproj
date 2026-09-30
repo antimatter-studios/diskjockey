@@ -276,6 +276,8 @@
 		};
 
 		F42C71219C65C5DC15EC0FF2 /* XfsVolume.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F7519E91649EBF7FC078B49 /* XfsVolume.swift */; };
+		0E904AC5602965AB0875BD69 /* XfsDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6026755BAD62E9BFB08B879F /* XfsDriver.swift */; };
+		B0CF83A054D7856DB6C90BDF /* XfsLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE02443D6BF4EA6A10271DB2 /* XfsLog.swift */; };
 		027139E38C99564FE69885EA /* NTFSVolume.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FAA4308D6EB33A49E406790 /* NTFSVolume.swift */; };
 		02A5ECFB350AC0A504E975EB /* FSKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EA52B7280D02F6F8D737A4DF /* FSKit.framework */; };
 		05A11A3D8A16DAA84A31911B /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 429A2D79E6781D9640B98F5E /* Cocoa.framework */; };
@@ -920,6 +922,8 @@
 		37763AEC6A4FD4CCBEDDCB44 /* SquashfsFileSystem.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SquashfsFileSystem.swift; sourceTree = "<group>"; };
 		3B5571A2000000000000NTFS /* RepairXPCService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RepairXPCService.swift; sourceTree = "<group>"; };
 		0F7519E91649EBF7FC078B49 /* XfsVolume.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = XfsVolume.swift; sourceTree = "<group>"; };
+		6026755BAD62E9BFB08B879F /* XfsDriver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = XfsDriver.swift; sourceTree = "<group>"; };
+		DE02443D6BF4EA6A10271DB2 /* XfsLog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = XfsLog.swift; sourceTree = "<group>"; };
 		429A2D79E6781D9640B98F5E /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
 		45CFCF77C56D3305934A9BE2 /* EXT4FileSystem.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EXT4FileSystem.swift; sourceTree = "<group>"; };
 		501F02432E058BAF009EBB59 /* DiskJockeyFileProvider.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = DiskJockeyFileProvider.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -1545,6 +1549,8 @@
 			children = (
 				FB915B04F76AB9025CCC205C /* XfsFileSystem.swift */,
 				0F7519E91649EBF7FC078B49 /* XfsVolume.swift */,
+				6026755BAD62E9BFB08B879F /* XfsDriver.swift */,
+				DE02443D6BF4EA6A10271DB2 /* XfsLog.swift */,
 				4BF770FFFCBF77732E2D1C97 /* Info.plist */,
 				D514C685BD717CA79A70A798 /* DiskJockeyXFS.entitlements */,
 				1FC306AFB72E0BFDB7161F46 /* DiskJockeyXFS-Bridging-Header.h */,
@@ -2105,6 +2111,8 @@
 			files = (
 				A881B5A94AD648861DC79419 /* XfsFileSystem.swift in Sources */,
 				F42C71219C65C5DC15EC0FF2 /* XfsVolume.swift in Sources */,
+				0E904AC5602965AB0875BD69 /* XfsDriver.swift in Sources */,
+				B0CF83A054D7856DB6C90BDF /* XfsLog.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -103,5 +103,34 @@ let package = Package(
             path: "DiskJockeyEXT4CoreTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+
+        // THE XFS VOLUME, ON THE SAME MODEL. XfsVolume.swift makes no
+        // fs_xfs_* call — XfsDriver.swift makes them all, behind
+        // DiskJockeyLibrary's ReadOnlyVolumeDriver — so the volume and its
+        // log build here without the Rust library, and the tests construct
+        // the real XfsVolume over a stand-in driver (diskjockey#196).
+        .target(
+            name: "DiskJockeyXFSCore",
+            dependencies: ["DiskJockeyLibrary"],
+            path: "DiskJockeyXFS",
+            exclude: [
+                "XfsDriver.swift",
+                "XfsFileSystem.swift",
+                "DiskJockeyXFS-Bridging-Header.h",
+                "DiskJockeyXFS.entitlements",
+                "Info.plist",
+            ],
+            sources: [
+                "XfsVolume.swift",
+                "XfsLog.swift",
+            ],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "DiskJockeyXFSCoreTests",
+            dependencies: ["DiskJockeyXFSCore", "DiskJockeyLibrary"],
+            path: "DiskJockeyXFSCoreTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
     ]
 )
