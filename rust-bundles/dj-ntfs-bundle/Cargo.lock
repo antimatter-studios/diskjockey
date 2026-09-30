@@ -16,9 +16,9 @@ checksum = "da6291fceae2064cfcd753174bd64d89584b4927ba62b918c14da6f8614089d8"
 
 [[package]]
 name = "am-fs-ntfs"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "058e308de6c1f6696eaff7d6af59e214273431ac77fd518370830245a6fd4a5b"
+checksum = "0ef9af77bc10dbf984d040803416d0666545d2c3eae3ea21afcde41f47f03219"
 dependencies = [
  "am-fs-core",
  "log",
