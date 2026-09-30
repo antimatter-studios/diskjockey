@@ -56,10 +56,22 @@
 #                    pluginkit -a <appex>        (re-register fresh binary)
 #                    pluginkit -e use -i <id>    (enable at pluginkit level)
 #                    lsregister -u / -f on app   (refresh LaunchServices)
-#                  Note: does NOT flip the per-user FSKit user-approval flag
-#                  (System Settings → File System Extensions); do that by hand
-#                  if mount still returns "Permission denied" after.
+#                  Re-registering RESETS the per-user FSKit enablement, and
+#                  `pluginkit -e use` does not set it: re-enable each module
+#                  in System Settings → File System Extensions afterwards.
+#                  That toggle is what `mount` checks.
 #   status       — Show current app PID, build state, pluginkit registration.
+#   registry [--clear] [--keep <DiskJockey.app>]
+#                — List every path pluginkit has registered for every FSKit
+#                  extension we ship, each marked keep (inside the kept app),
+#                  live (another copy that exists) or dead (gone from disk).
+#                  Changes nothing by default. --clear deregisters every path
+#                  that is not the kept app's: pluginkit -r on the extension,
+#                  then lsregister -u on the .app it sits in. --keep defaults
+#                  to the DerivedData bundle `build` produces. The kept
+#                  module's System Settings enablement resets after any
+#                  registry edit; see docs/ext4-mount-runbook.md, "The
+#                  extension registry".
 #
 # Exits non-zero on build failures so CI / Make can chain on it.
 
@@ -95,8 +107,12 @@ readonly FSKIT_EXTENSIONS=(
     "Contents/Extensions/DiskJockeyNTFS.appex|com.antimatterstudios.diskjockey.ntfs"
     "Contents/Extensions/DiskJockeyEROFS.appex|com.antimatterstudios.diskjockey.erofs"
     "Contents/Extensions/DiskJockeySQUASHFS.appex|com.antimatterstudios.diskjockey.squashfs"
+    "Contents/Extensions/DiskJockeyXFS.appex|com.antimatterstudios.diskjockey.xfs"
+    "Contents/Extensions/DiskJockeyBTRFS.appex|com.antimatterstudios.diskjockey.btrfs"
 )
-readonly LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister"
+# Overridable so scripts/tests/dev-registry.sh can put a recording stub here
+# rather than edit the real LaunchServices database.
+readonly LSREGISTER="${DJ_LSREGISTER:-/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister}"
 
 # Small color helpers — kept to a single tput so the script degrades to plain
 # output when stdout isn't a tty (e.g. invoked from CI).
@@ -345,12 +361,11 @@ cmd_pluginkit_reload() {
     done
 
     green ""
-    green "If mount still returns 'Permission denied' or error 2 after this,"
-    green "you likely need to:"
-    green "  a) toggle the extension in System Settings → Login Items &"
-    green "     Extensions → File System Extensions, OR"
-    green "  b) log out and back in (cycles per-user fskit_agent / pkd), OR"
-    green "  c) reboot (nukes the kernel extension trust cache)."
+    yellow "This re-registered every extension, which RESETS its FSKit enablement:"
+    yellow "pluginkit's '+' above does not mean mount will accept it. Enable each"
+    yellow "module in System Settings → General → Login Items & Extensions → File"
+    yellow "System Extensions (pgrep -x pkd first; the pane is empty without it)."
+    yellow "That toggle is the gate. See docs/ext4-mount-runbook.md (diskjockey#167)."
 }
 
 cmd_clean_stale_bundles() {
@@ -424,6 +439,67 @@ cmd_doctor() {
     green "=================================================================="
 }
 
+# Every path pluginkit has registered for bundle id $1, one per line.
+registered_paths() {
+    pluginkit -mAvvv -i "$1" 2>/dev/null \
+        | awk -F'= ' '/^[[:space:]]*Path = / { print $2 }'
+}
+
+cmd_registry() {
+    # diskjockey#167. `mount` resolves an fstype through LaunchServices,
+    # which keeps every path a bundle id was ever registered at, and a dead
+    # one can win the lookup. clean-stale-bundles knows two directories;
+    # this asks pluginkit for all of them instead.
+    local clear=0 keep="$APP_BUNDLE"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --clear) clear=1; shift ;;
+            --keep)
+                [[ $# -ge 2 && -n "$2" ]] || { red "--keep needs the path of a DiskJockey.app"; return 2; }
+                keep="${2%/}"; shift 2 ;;
+            *) red "registry: unknown option $1 (expected --clear, --keep <app>)"; return 2 ;;
+        esac
+    done
+
+    local strays=()
+    for entry in "${FSKIT_EXTENSIONS[@]}"; do
+        local bid="${entry##*|}" path state any=0
+        while IFS= read -r path; do
+            [[ -z "$path" ]] && continue
+            any=1
+            if [[ "$path" == "$keep/"* ]]; then
+                state=keep
+            else
+                [[ -e "$path" ]] && state=live || state=dead
+                strays+=("$path")
+            fi
+            printf '  %-4s  %-42s  %s\n' "$state" "$bid" "$path"
+        done < <(registered_paths "$bid")
+        [[ $any -eq 1 ]] || printf '  %-4s  %-42s  %s\n' "-" "$bid" "(not registered)"
+    done
+
+    if [[ ${#strays[@]} -eq 0 ]]; then
+        green "No stray registrations: every registered path is inside $keep."
+        return 0
+    fi
+    if [[ $clear -eq 0 ]]; then
+        yellow "${#strays[@]} stray registration(s). Nothing changed; rerun with --clear to deregister them."
+        return 0
+    fi
+
+    yellow "Deregistering ${#strays[@]} stray registration(s)…"
+    local path app
+    for path in "${strays[@]}"; do
+        pluginkit -r "$path" >/dev/null 2>&1 || red "  pluginkit -r failed: $path"
+        # The .app the extension is embedded in: …/X.app/Contents/Extensions/Y.appex
+        app="${path%/Contents/*}"
+        [[ "$app" == *.app ]] && "$LSREGISTER" -u "$app" >/dev/null 2>&1 || true
+        printf '  removed  %s\n' "$path"
+    done
+    yellow "Registry edited: re-enable each kept module in System Settings → General →"
+    yellow "Login Items & Extensions → File System Extensions (enablement resets on re-registration)."
+}
+
 cmd_status() {
     if pgrep -x DiskJockey >/dev/null 2>&1; then
         local pid
@@ -478,6 +554,7 @@ main() {
         clean-stale-bundles|clean-stale)
                      cmd_clean_stale_bundles "$@" ;;
         status)      cmd_status "$@" ;;
+        registry)    cmd_registry "$@" ;;
         -h|--help|help) usage 0 ;;
         *)
             red "Unknown subcommand: $sub"
