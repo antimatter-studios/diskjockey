@@ -106,6 +106,126 @@ Test fixture images live under `vendor/rust-fs-ext4/test-disks/` — see
 - **SwiftProtobuf CLI build error** unrelated to ext4; builds succeed
   from Xcode which resolves the package graph properly.
 
+## The extension registry: what decides which extension `mount` gets
+
+This section covers every FSKit extension the app ships (ext4, NTFS, XFS,
+Btrfs, EROFS, SquashFS), not only ext4. It exists because getting a freshly
+built extension to serve a mount on 2026-09-10/11 took most of an evening,
+and every obstacle turned out to be registry state, not code (diskjockey#167).
+Four stores are involved, and they do not agree with each other:
+
+| store | what it holds | how you see it | how you change it |
+|---|---|---|---|
+| pluginkit (`pkd`) | registered bundle paths per bundle id, each with a UUID | `pluginkit -mAvvv -i <bid>` | `pluginkit -a <path>`, `pluginkit -r <path>` |
+| FSKit enablement | whether the user allowed the module | **System Settings → General → Login Items & Extensions → File System Extensions** | that toggle, and nothing else |
+| LaunchServices (`lsd`) | the fstype → bundle lookup `mount` uses | `pluginkit -mAvvv -i <bid>` shows the paths it can pick from | `lsregister -u <path>`, `lsregister -f <path>` |
+| `fskitd` | the running FSKit daemon's view | `log stream` | `scripts/dev.sh reset-daemons` |
+
+### Four facts, measured on 2026-09-10/11
+
+**1. `pluginkit` does not report FSKit enablement.** Its `+` means enabled
+at the pluginkit level. That is a different flag from the one `mount` checks:
+
+```
+$ pluginkit -m -v -A -p com.apple.fskit.fsmodule | grep ext4
++    com.antimatterstudios.diskjockey.ext4(1.4.0)  …
+$ /sbin/mount -F -t ext4 image.img /mnt
+Module com.antimatterstudios.diskjockey.ext4 is disabled!
+```
+
+`pluginkit -e use -i <bid>` does not change what `mount` sees. **The System
+Settings toggle is the gate.** It is not one of several things to try.
+
+**2. Re-registering a module resets its enablement.** The record gets a new
+UUID, and enablement belongs to the old one. Any `pluginkit -a`, any
+`lsregister -u`/`-f`, or any app launch that re-registers its extensions
+sends you back to System Settings. While you are diagnosing, this looks like
+progress when it is not: the error message changes each time you
+re-register and re-toggle.
+
+**3. LaunchServices collects stale bundle paths, and a dead one can win.**
+At one point seven paths were registered for
+`com.antimatterstudios.diskjockey.ext4`: two per-session scratch builds under
+`/private/tmp/claude-501/…`, three DerivedData directories (one of them an
+`ArchiveIntermediates` copy), the bare DerivedData `Build/Products/Debug`, and
+a project-local `build/Debug`. Four of the seven no longer existed on disk.
+When a dead path wins the lookup, `mount` reports
+`Probing resource: … No such file or directory`. That reads like a problem
+with the image, but the problem is the registry.
+
+**4. Deleting a registered bundle poisons the lookup, and killing `pkd`
+empties the settings pane.** After `pkd` is killed, the module disappears
+from the File System Extensions list, and you cannot re-enable it until `pkd`
+is running again and the pane has been reopened. Check `pgrep -x pkd` before
+you go looking for the toggle.
+
+### The error messages are not a diagnostic ladder
+
+Over that evening, `mount` alternated between `Unable to invoke task`,
+`Module … is disabled!`, `Probing resource: ENOENT` and
+`Probing resource: extensionKit error 2`. Registry state that looked the same
+gave different messages. Do not read a change of message as having passed a
+gate. Read the registry itself.
+
+### Reading the registry
+
+Every path registered for one bundle id is listed by `pluginkit -mAvvv -i`.
+Run on 2026-09-30 against an `/Applications` install:
+
+```
+$ pluginkit -mAvvv -i com.antimatterstudios.diskjockey.ext4
++    com.antimatterstudios.diskjockey.ext4(1.3.0)
+	            Path = /Applications/DiskJockey.app/Contents/Extensions/DiskJockeyEXT4.appex
+	            UUID = 036F9228-9B3C-4E61-88E8-B6134C05F598
+	   Parent Bundle = /Applications/DiskJockey.app
+	     Parent Name = DiskJockey
+ (1 plug-in)
+$ pluginkit -mAvvv -i com.antimatterstudios.diskjockey.xfs
+  (no matches)
+```
+
+One `Path =` line per registered copy. More than one line for a bundle id is
+the condition fact 3 describes. `(no matches)` means that module is not
+registered at all: the 1.3.0 install above predates the XFS and Btrfs
+extensions.
+
+`scripts/dev.sh registry` prints every registered path for every bundle id
+the app ships. It marks each path `live` or `dead` depending on whether it
+exists on disk, and `keep` for the one inside the bundle you mean to use. It
+changes nothing unless you pass `--clear`:
+
+```sh
+scripts/dev.sh registry                      # list; changes nothing
+scripts/dev.sh registry --clear              # deregister every path but the kept bundle's
+scripts/dev.sh registry --clear --keep /Applications/DiskJockey.app
+```
+
+`--keep` defaults to the DerivedData app bundle `dev.sh build` produces. For
+each stray, `--clear` runs `pluginkit -r <path>` and then `lsregister -u` on
+the `.app` the path sits in. Both are edits to the registry, and after them
+the kept bundle's module needs toggling again (fact 2).
+
+### The order of operations that works
+
+1. **Clear the strays.** Run `scripts/dev.sh registry`, read it, then
+   `scripts/dev.sh registry --clear --keep <the app you will run>`. Do not
+   delete a registered bundle directory before you deregister it (fact 4).
+2. **Register one bundle.** Launch that app once. It registers its own
+   extensions. Confirm with `scripts/dev.sh registry` that each bundle id
+   shows exactly one path, and that it is marked `keep`.
+3. **Make sure `pkd` is alive** (`pgrep -x pkd`), then enable each module in
+   System Settings → General → Login Items & Extensions → File System
+   Extensions.
+4. **Do not re-register.** From here on, `pluginkit -a`, `lsregister -f`,
+   `dev.sh pluginkit-reload`, `dev.sh doctor` and a relaunch from a
+   different path all reset step 3. `dev.sh build` writes into the kept
+   DerivedData bundle for exactly this reason.
+5. If `mount` still fails, run `scripts/dev.sh reset-daemons` (it bounces
+   `pkd`, `fskit_agent`, the per-user `lsd` and `fskitd`), reopen the
+   settings pane, and check the toggle again before you look anywhere else.
+   A change to an extension's `FSMediaTypes` in particular leaves `fskitd`
+   holding the old table until that reset.
+
 ## W1 empirical probe — findings 2026-04-18
 
 Run by instance 1 against commit `b0307e5` on branch `new-ui`.
