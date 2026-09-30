@@ -214,5 +214,32 @@ let package = Package(
             path: "DiskJockeyBTRFSCoreTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+
+        // THE SQUASHFS VOLUME, ON THE XFS MODEL: SquashfsDriver.swift makes
+        // every fs_squashfs_* call, and the volume builds here without the
+        // Rust library (diskjockey#196).
+        .target(
+            name: "DiskJockeySQUASHFSCore",
+            dependencies: ["DiskJockeyLibrary"],
+            path: "DiskJockeySQUASHFS",
+            exclude: [
+                "SquashfsDriver.swift",
+                "SquashfsFileSystem.swift",
+                "DiskJockeySQUASHFS-Bridging-Header.h",
+                "DiskJockeySQUASHFS.entitlements",
+                "Info.plist",
+            ],
+            sources: [
+                "SquashfsVolume.swift",
+                "SquashfsLog.swift",
+            ],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "DiskJockeySQUASHFSCoreTests",
+            dependencies: ["DiskJockeySQUASHFSCore", "DiskJockeyLibrary"],
+            path: "DiskJockeySQUASHFSCoreTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
     ]
 )

@@ -36,6 +36,8 @@
 		5551000000000000000A0011 /* DiskJockeyLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */; };
 		5DCB574DE589DD42D41A8454 /* DiskJockeyLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */; };
 		6B3BE70D07376FEE0939754E /* SquashfsVolume.swift in Sources */ = {isa = PBXBuildFile; fileRef = D59222192CBD5E2FB973AD5C /* SquashfsVolume.swift */; };
+		A5C4E88D5574CB6FCCAE4343 /* SquashfsDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB121EB21338FEC2B426B9D2 /* SquashfsDriver.swift */; };
+		AEB744841E24B411C20A28F0 /* SquashfsLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 323B2CCDC62D69A23E825CF4 /* SquashfsLog.swift */; };
 		6D2C0FB64B3C7B7C72EA2DB8 /* DiskJockeyEXT4.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = 0BC347BB938FDDB740155389 /* DiskJockeyEXT4.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		72A0723E43EC6118C3156685 /* RepairXPCService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDE7234E054C739FC42CCB24 /* RepairXPCService.swift */; };
 		80163389A6DD716C08F82168 /* FSKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EA52B7280D02F6F8D737A4DF /* FSKit.framework */; };
@@ -613,6 +615,8 @@
 		D0E1C0CCAAAA000000000006 /* EXT4Load.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EXT4Load.swift; sourceTree = "<group>"; };
 		D0E1C0CCAAAA000000000008 /* EXT4Maintenance.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EXT4Maintenance.swift; sourceTree = "<group>"; };
 		D59222192CBD5E2FB973AD5C /* SquashfsVolume.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SquashfsVolume.swift; sourceTree = "<group>"; };
+		BB121EB21338FEC2B426B9D2 /* SquashfsDriver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SquashfsDriver.swift; sourceTree = "<group>"; };
+		323B2CCDC62D69A23E825CF4 /* SquashfsLog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SquashfsLog.swift; sourceTree = "<group>"; };
 		EA52B7280D02F6F8D737A4DF /* FSKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FSKit.framework; path = System/Library/Frameworks/FSKit.framework; sourceTree = SDKROOT; };
 		EDB0DCD0AB44F84C21515494 /* DiskJockeySQUASHFS.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = DiskJockeySQUASHFS.entitlements; sourceTree = "<group>"; };
 		EE5CDCDA80309B6A4F073D2B /* NTFSFileSystem.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NTFSFileSystem.swift; sourceTree = "<group>"; };
@@ -1435,6 +1439,8 @@
 			children = (
 				37763AEC6A4FD4CCBEDDCB44 /* SquashfsFileSystem.swift */,
 				D59222192CBD5E2FB973AD5C /* SquashfsVolume.swift */,
+				BB121EB21338FEC2B426B9D2 /* SquashfsDriver.swift */,
+				323B2CCDC62D69A23E825CF4 /* SquashfsLog.swift */,
 				7DF1C592E144C292538E2155 /* Info.plist */,
 				EDB0DCD0AB44F84C21515494 /* DiskJockeySQUASHFS.entitlements */,
 				F18C805589B16B27AAA1120D /* DiskJockeySQUASHFS-Bridging-Header.h */,
@@ -2169,6 +2175,8 @@
 			files = (
 				AF58D83C5783B98ABADF1EBB /* SquashfsFileSystem.swift in Sources */,
 				6B3BE70D07376FEE0939754E /* SquashfsVolume.swift in Sources */,
+				A5C4E88D5574CB6FCCAE4343 /* SquashfsDriver.swift in Sources */,
+				AEB744841E24B411C20A28F0 /* SquashfsLog.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

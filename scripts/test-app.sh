@@ -43,7 +43,8 @@
 # diskjockey#196 prescribes, and the only reason this floor may go down.
 # 160 -> 165 with the XFS mirror replaced by 14 real app cases (the floor was
 # held at 160), then 150 with the 15-case EROFS mirror gone, then 139 with the 11-case
-# Btrfs mirror gone (all 2026-09-30, measured locally, bundle verdict Passed).
+# Btrfs mirror gone, then 124 with the 15-case SquashFS mirror gone (all
+# 2026-09-30, measured locally, bundle verdict Passed).
 #
 #   scripts/test-app.sh [--verbose]
 set -uo pipefail
@@ -76,9 +77,9 @@ summary=$(xcrun xcresulttool get test-results summary \
             --path "$ROOT/tmp/logs/app.xcresult" --format json 2>/dev/null || true)
 executed=$(printf '%s' "$summary" | jq '(.passedTests//0)+(.failedTests//0)+(.expectedFailures//0)' 2>/dev/null || true)
 verdict=$(printf '%s' "$summary" | jq -r '.result // "no result bundle"' 2>/dev/null || true)
-echo "executed cases: ${executed:-0} (floor 139), bundle verdict: ${verdict:-unknown}"
-if [ "${executed:-0}" -lt 139 ]; then
-    echo "::error::only ${executed:-0} app-hosted test cases executed, floor is 139 — 139 ran once the Btrfs mirror left for the library suite (diskjockey#196), and a run that stops early reports no failures, so this is the truncation defect (diskjockey#139) rather than a pass"
+echo "executed cases: ${executed:-0} (floor 124), bundle verdict: ${verdict:-unknown}"
+if [ "${executed:-0}" -lt 124 ]; then
+    echo "::error::only ${executed:-0} app-hosted test cases executed, floor is 124 — 124 ran once the SquashFS mirror left for the library suite (diskjockey#196), and a run that stops early reports no failures, so this is the truncation defect (diskjockey#139) rather than a pass"
     exit 1
 fi
 if [ "${verdict:-}" != "Passed" ]; then

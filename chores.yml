@@ -24,16 +24,18 @@ chore_min_version: 0.6.0
 #
 #   tier      lines    bytes   measured (lines / bytes)     headroom   floor
 #   scripts     650    34000   496 / 25,616 (27 files)      31% / 33%  26 files
-#   library    2150   168000   1,710 / 133,872              26% / 25%  397 cases
-#   app        5200   950000   4,119 / 750,848 (raw)        26% / 27%  139 cases
+#   library    2750   212000   2,168 / 166,527              27% / 27%  452 cases
+#   app        5200   950000   4,119 / 750,848 (raw)        26% / 27%  124 cases
 #
-# The library row has already moved three times, and that is the budget working:
+# The library row has already moved four times, and that is the budget working:
 # 994 lines on run 36614133886, then 1,204 on run 36619808267 after #241 —
 # four more cases, but 62 compiler warnings against 28, each printed with its
 # source context (34 of the new ones are one non-Sendable conversion in
 # RawDisksModel and its tests) — then 1,355 on run 36621524031 after #243,
 # with 69, then 1,710 on run 36658298559 after #251 — sixteen more tests,
-# one of them over seven arguments, and no new warnings, so pure growth.
+# one of them over seven arguments, and no new warnings, so pure growth —
+# then 2,168 on run 36706960213 once the volume mirrors began leaving for
+# the library suite (#196), 452 cases and no new warnings, pure growth again.
 # Raised with each measurement rather than silenced; the warnings
 # are the thing to fix, and fixing them gives this headroom back. The scripts tier grows by
 # about 18 lines per new guard, so its row moves with the suite. The app tier's log is the RAW xcodebuild stream, which is

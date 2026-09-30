@@ -20,9 +20,6 @@ import FSKit
 import Foundation
 import DiskJockeyLibrary
 
-/// Single logging surface — fans out to os_log + NDJSON file via AppLog.
-let log = AppLog(source: "squashfs", sinks: AppLog.defaultSinks(source: "squashfs"))
-
 @objc(SquashfsFileSystem)
 final class SquashfsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
 
@@ -191,7 +188,7 @@ final class SquashfsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         let volume = SquashfsVolume(
             volumeID: volID,
             volumeName: FSFileName(string: resolvedName),
-            bridgeFS: bridgeFS,
+            driver: SquashfsDriver(fs: bridgeFS),
             contextPtr: contextPtr,
             bsdName: bsdName,
             stats: stats
