@@ -18,8 +18,10 @@
 # Cargo.lock and each volume's declaration, and fails on a `.bytes` volume
 # whose pinned driver is older than that.
 #
-# A `.utf8` volume over a byte-exact driver is safe, only needlessly strict,
-# so it is reported but not failed: ext4 stays there until its release.
+# It also fails the other way round: a `.utf8` volume over a byte-exact
+# driver. That is safe but refuses, with EILSEQ, every name the driver can now
+# open, which is #219's own bug left in place. It was reported rather than
+# failed only while ext4 waited for its 0.6.0 release.
 #
 #   bash scripts/tests/path-encoding-matches-pin.sh
 set -uo pipefail
@@ -28,7 +30,6 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fails=0
 ok()   { printf 'ok    %s\n' "$1"; }
 fail() { printf 'FAIL  %s\n' "$1"; fails=$((fails + 1)); }
-note() { printf 'note  %s\n' "$1"; }
 
 # fs | first byte-exact release | file declaring the encoding
 table='
@@ -75,9 +76,10 @@ while read -r fs first file; do
             fi ;;
         utf8)
             if at_least "$version" "$first"; then
-                note "$fs: .utf8 over am-fs-$fs $version, which is byte-exact; $where can declare .bytes"
-            fi
-            ok "$fs: .utf8 over am-fs-$fs $version never hands the driver a non-UTF-8 path" ;;
+                fail "$fs: .utf8 ($where) over am-fs-$fs $version, which is byte-exact since $first: a non-UTF-8 name is refused that the driver would open"
+            else
+                ok "$fs: .utf8 over am-fs-$fs $version never hands the driver a non-UTF-8 path"
+            fi ;;
         *)
             fail "$fs: $where declares an encoding this guard does not know: .$encoding" ;;
     esac
