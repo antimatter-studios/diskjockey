@@ -1064,17 +1064,29 @@ not only to verification.
 
 ## Merging
 
-`pr-monitor` merges on fields, not on prose or a summary. The review bot
-here is Greptile, and its check is named `Greptile Review`.
+`pr-monitor` merges on fields, not on prose or a summary.
 
-**The review check must exist, succeed, and belong to the head sha.**
-Absent is not passing: `rust-img-vmdk#74` merged with no `Greptile Review`
-entry at all, on a repository where its neighbours all had one. Read the
-check-run on the resolved head, not the review object:
+**The gate is the required checks, and nothing else.** A PR merges when
+every check the branch protection requires has succeeded on the head
+sha, and `mergeStateStatus` is `CLEAN`. No review bot is required.
+Greptile was removed on purpose between 2026-09-17 and 2026-09-21
+because its cost was not justified, and nothing replaced it (#256).
+CodeRabbit still posts, but it is advisory and usually rate limited
+(see "Review" below). **Never make a bot's check required**: one that
+does not report is a permanent block, not a gate. What the bots used to
+catch has to be caught by tests. A defect that ships because nothing
+tested it gets a test, not a reviewer.
 
-    gh api repos/$SLUG/commits/$HEAD/check-runs -q '.check_runs[]|select(.name=="Greptile Review")|[.head_sha,.status,.conclusion]|@tsv'
+**A required check must exist, succeed, and belong to the head sha.**
+Absent is not passing: `rust-img-vmdk#74` merged with a check missing
+that all its neighbours had, which is what the rule above prevents.
+Read the check-runs on the resolved head, not a rollup or a review
+object:
 
-A review's `commit_id` is advisory in both directions. After a
+    gh api repos/$SLUG/commits/$HEAD/check-runs -q '.check_runs[]|[.name,.head_sha,.status,.conclusion]|@tsv'
+
+Where a bot does leave a review, its `commit_id` is advisory in both
+directions. After a
 force-push on `rust-fs-xfs#142` the old review still read as a pass for
 code the bot never saw; on `rust-fs-btrfs#117` the review kept the
 pre-push `commit_id` while a fresh check-run on the new head succeeded.
@@ -1130,13 +1142,12 @@ the merged PRs that have none as unreviewed in the stage's output (#119):
 - **Greptile**'s `Greptile Review` check-run carries a countable claim
   in `output.summary`: "N files reviewed, M comments added". It was the
   positive signal for the four rate-limited merges #119 first measured.
-  **It has stopped posting.** Measured 2026-09-30 by walking each
-  repository's merged heads back to the newest check-run: the last is
-  on `rust-fs-xfs#178` (merged 2026-09-17) and `rust-fs-ntfs#313`
-  (merged 2026-09-21), and there is none in the 120 most recent merges
-  of `christhomas/rust-fs-ext4`, nor on this repository's latest. Until
-  that changes, CodeRabbit's `Review completed` is the only positive
-  signal left, and most merges have none.
+  **It was retired on purpose because of its cost** (#256). The last check-runs
+  are on `rust-fs-xfs#178` (merged 2026-09-17) and `rust-fs-ntfs#313`
+  (merged 2026-09-21). It matters now only when reading a merge older
+  than that. CodeRabbit's `Review completed` is the only positive signal
+  left, most merges have none, and that is accepted: the merge gate is
+  the required checks (see "Merging").
 
       gh api repos/$SLUG/commits/$HEAD/check-runs -q '.check_runs[]|select(.name=="Greptile Review")|.output.summary'
 
