@@ -257,6 +257,12 @@ final class EXT4Volume: FSVolume,
 
     func activate(options: FSTaskOptions) async throws -> FSItem {
         log.info("volume: activate", scope: AppLogScope.lifecycle)
+        return activatedRoot()
+    }
+
+    /// The body of `activate`, which a test can call: FSTaskOptions has
+    /// no public initialiser.
+    func activatedRoot() -> EXT4Item {
         if requiresJournalReplay {
             log.info("volume: invoking deferred journal replay via backend", scope: AppLogScope.lifecycle)
             if !backend.replayJournalIfDirty() {
@@ -307,8 +313,10 @@ final class EXT4Volume: FSVolume,
         }
 
         guard let attr = backend.stat(path: ext4Item.volumePath) else {
-            log.error("attributes: backend.stat returned nil for path=\"\(ext4Item.path)\" inode=\(ext4Item.inode) errno=\(backend.lastErrno()) — throwing ENOENT", scope: AppLogScope.io)
-            throw POSIXError(.ENOENT)
+            log.error("attributes: backend.stat returned nil for path=\"\(ext4Item.path)\" inode=\(ext4Item.inode) errno=\(backend.lastErrno())", scope: AppLogScope.io)
+            // The backend's own errno, not a blanket ENOENT: ENOENT tells
+            // Finder the file is gone, and an I/O error has not said that.
+            throw Self.posixError(from: backend)
         }
         return Self.attributes(from: attr, parentInode: ext4Item.parentInode)
     }
@@ -391,7 +399,7 @@ final class EXT4Volume: FSVolume,
         let childPath = try dirItem.volumePath.child(name, for: backend.pathEncoding)
 
         guard let attr = backend.stat(path: childPath) else {
-            throw POSIXError(.ENOENT)
+            throw Self.posixError(from: backend)
         }
 
         return (item(forID: attr.fileID, path: childPath,
@@ -615,7 +623,7 @@ final class EXT4Volume: FSVolume,
         }
 
         guard let target = backend.readSymlink(path: ext4Item.volumePath) else {
-            throw POSIXError(.EIO)
+            throw Self.posixError(from: backend)
         }
 
         return FSFileName(data: Data(target))
@@ -761,10 +769,11 @@ final class EXT4Volume: FSVolume,
         }
         let childPath = try dirItem.volumePath.child(name, for: backend.pathEncoding)
 
-        // Stat to dispatch unlink vs rmdir. If stat fails the item is
-        // already gone — surface the underlying errno.
+        // Stat to dispatch unlink vs rmdir. If stat fails, surface the
+        // underlying errno — ENOENT only when the backend said the item
+        // is already gone.
         guard let attr = backend.stat(path: childPath) else {
-            throw POSIXError(.ENOENT)
+            throw Self.posixError(from: backend)
         }
         let ok: Bool
         switch attr.fileType {
