@@ -142,6 +142,18 @@ private func seededDriver() -> TableDriver {
     return d
 }
 
+/// Every item in this file is in the mounted tree, whose identifiers are
+/// its inode numbers (ordinal 0, BtrfsItemIdentity.swift), so an item is
+/// named here by its inode. Crossing into a subvolume is
+/// BtrfsSubvolumeIdentityTests' subject.
+private extension BtrfsVolume {
+    func mountedItem(inode: UInt64, path: VolumePath, parentInode: UInt64?) -> BtrfsItem {
+        // Cannot throw: only an inode past 48 bits or a subvolume does.
+        try! item(for: BtrfsObjectKey(tree: .mounted, inode: inode),
+                  path: path, parentFileID: parentInode)
+    }
+}
+
 private func makeVolume(_ driver: TableDriver) -> BtrfsVolume {
     BtrfsVolume(volumeID: FSVolume.Identifier(uuid: UUID()),
               volumeName: FSFileName(string: "test"),
@@ -230,9 +242,9 @@ struct BtrfsVolumeTests {
 
     @Test func activateAnswersTheRootByItsOwnInode() throws {
         let item = try makeVolume(seededDriver()).rootItem()
-        #expect(item.inode == 128)
+        #expect(item.fileID == 128)
         #expect(item.path == "/")
-        #expect(item.parentInode == nil)
+        #expect(item.parentFileID == nil)
     }
 
     /// A root that cannot be read is a mount that failed. Inventing an
@@ -249,7 +261,7 @@ struct BtrfsVolumeTests {
         try await v.deactivate(options: [])
         await v.unmount()
         #expect(d.unmounts == 1)
-        let root = v.item(forInode: 128, path: "/", parentInode: nil)
+        let root = v.mountedItem(inode: 128, path: "/", parentInode: nil)
         let code = await posixCode { _ = try await v.attributes(FSItem.GetAttributesRequest(), of: root) }
         #expect(code == .EBADF)
     }
@@ -258,19 +270,19 @@ struct BtrfsVolumeTests {
 
     @Test func lookupKeepsTheFull64BitInode() async throws {
         let v = makeVolume(seededDriver())
-        let dir = v.item(forInode: 131, path: "/dir", parentInode: 128)
+        let dir = v.mountedItem(inode: 131, path: "/dir", parentInode: 128)
         let (found, name) = try await v.lookupItem(named: FSFileName(string: "file.txt"),
                                                    inDirectory: dir)
         let item = try #require(found as? BtrfsItem)
-        #expect(item.inode == wideInode)
+        #expect(item.fileID == wideInode)
         #expect(item.path == "/dir/file.txt")
-        #expect(item.parentInode == 131)
+        #expect(item.parentFileID == 131)
         #expect(name.string == "file.txt")
     }
 
     @Test func lookupOfTheSameChildTwiceIsOneItem() async throws {
         let v = makeVolume(seededDriver())
-        let dir = v.item(forInode: 131, path: "/dir", parentInode: 128)
+        let dir = v.mountedItem(inode: 131, path: "/dir", parentInode: 128)
         let a = try await v.lookupItem(named: FSFileName(string: "file.txt"), inDirectory: dir).0
         let b = try await v.lookupItem(named: FSFileName(string: "file.txt"), inDirectory: dir).0
         #expect(a === b)
@@ -278,7 +290,7 @@ struct BtrfsVolumeTests {
 
     @Test func lookupOfAMissingChildIsENOENT() async {
         let v = makeVolume(seededDriver())
-        let dir = v.item(forInode: 131, path: "/dir", parentInode: 128)
+        let dir = v.mountedItem(inode: 131, path: "/dir", parentInode: 128)
         let code = await posixCode {
             _ = try await v.lookupItem(named: FSFileName(string: "absent"), inDirectory: dir)
         }
@@ -291,7 +303,7 @@ struct BtrfsVolumeTests {
         let d = seededDriver()
         d.statFailures["/dir/file.txt"] = EIO
         let v = makeVolume(d)
-        let dir = v.item(forInode: 131, path: "/dir", parentInode: 128)
+        let dir = v.mountedItem(inode: 131, path: "/dir", parentInode: 128)
         let code = await posixCode {
             _ = try await v.lookupItem(named: FSFileName(string: "file.txt"), inDirectory: dir)
         }
@@ -300,7 +312,7 @@ struct BtrfsVolumeTests {
 
     @Test func attributesCarryTheItemsParentAndTheDriversFields() async throws {
         let v = makeVolume(seededDriver())
-        let file = v.item(forInode: wideInode, path: "/dir/file.txt", parentInode: 131)
+        let file = v.mountedItem(inode: wideInode, path: "/dir/file.txt", parentInode: 131)
         let a = try await v.attributes(FSItem.GetAttributesRequest(), of: file)
         #expect(a.fileID.rawValue == wideInode)
         #expect(a.parentID.rawValue == 131)
@@ -313,7 +325,7 @@ struct BtrfsVolumeTests {
         let d = seededDriver()
         d.statFailures["/dir/file.txt"] = EIO
         let v = makeVolume(d)
-        let file = v.item(forInode: wideInode, path: "/dir/file.txt", parentInode: 131)
+        let file = v.mountedItem(inode: wideInode, path: "/dir/file.txt", parentInode: 131)
         let code = await posixCode { _ = try await v.attributes(FSItem.GetAttributesRequest(), of: file) }
         #expect(code == .EIO)
     }
@@ -322,7 +334,7 @@ struct BtrfsVolumeTests {
 
     @Test func readReturnsTheFilesBytes() throws {
         let v = makeVolume(seededDriver())
-        let file = v.item(forInode: wideInode, path: "/dir/file.txt", parentInode: 131)
+        let file = v.mountedItem(inode: wideInode, path: "/dir/file.txt", parentInode: 131)
         #expect(try read(v, file, at: 0, length: 64) == Array("btrfs bytes.".utf8))
         #expect(try read(v, file, at: 6, length: 8) == Array("bytes.".utf8))
         #expect(try read(v, file, at: 12, length: 8) == [])
@@ -335,13 +347,13 @@ struct BtrfsVolumeTests {
         let d = seededDriver()
         d.readFailures["/dir/file.txt"] = EIO
         let v = makeVolume(d)
-        let file = v.item(forInode: wideInode, path: "/dir/file.txt", parentInode: 131)
+        let file = v.mountedItem(inode: wideInode, path: "/dir/file.txt", parentInode: 131)
         #expect(throws: POSIXError(.EIO)) { _ = try read(v, file, at: 0, length: 64) }
     }
 
     @Test func readingADirectoryIsRefused() {
         let v = makeVolume(seededDriver())
-        let dir = v.item(forInode: 131, path: "/dir", parentInode: 128)
+        let dir = v.mountedItem(inode: 131, path: "/dir", parentInode: 128)
         #expect(throws: POSIXError(.EISDIR)) { _ = try read(v, dir, at: 0, length: 8) }
     }
 
@@ -349,7 +361,7 @@ struct BtrfsVolumeTests {
 
     @Test func listingARootNamesOnlyItsOwnChildrenWithRisingCookies() throws {
         let v = makeVolume(seededDriver())
-        let root = v.item(forInode: 128, path: "/", parentInode: nil)
+        let root = v.mountedItem(inode: 128, path: "/", parentInode: nil)
         let (entries, end) = try list(v, root)
         #expect(entries.map { $0.name.string } == ["dir", "link"])
         #expect(entries.map { $0.itemType } == [.directory, .symlink])
@@ -360,7 +372,7 @@ struct BtrfsVolumeTests {
 
     @Test func listingResumesAfterTheCookieItWasGiven() throws {
         let v = makeVolume(seededDriver())
-        let root = v.item(forInode: 128, path: "/", parentInode: nil)
+        let root = v.mountedItem(inode: 128, path: "/", parentInode: nil)
         let (entries, _) = try list(v, root, after: 1)
         #expect(entries.map { $0.name.string } == ["link"])
     }
@@ -369,7 +381,7 @@ struct BtrfsVolumeTests {
     /// the next call must resume from — so nothing is skipped or repeated.
     @Test func aFullPackerStopsAtAnEntryTheNextCallReturns() throws {
         let v = makeVolume(seededDriver())
-        let root = v.item(forInode: 128, path: "/", parentInode: nil)
+        let root = v.mountedItem(inode: 128, path: "/", parentInode: nil)
         let first = try list(v, root, room: 1)
         #expect(first.entries.map { $0.name.string } == ["dir"])
         let second = try list(v, root, after: first.entries.last!.nextCookie.rawValue)
@@ -378,7 +390,7 @@ struct BtrfsVolumeTests {
 
     @Test func listingWithAttributesGivesEachChildItsDirectoryAsParent() throws {
         let v = makeVolume(seededDriver())
-        let dir = v.item(forInode: 131, path: "/dir", parentInode: 128)
+        let dir = v.mountedItem(inode: 131, path: "/dir", parentInode: 128)
         let (entries, _) = try list(v, dir, withAttributes: true)
         let a = try #require(entries.first?.attributes)
         #expect(a.fileID.rawValue == wideInode)
@@ -387,7 +399,7 @@ struct BtrfsVolumeTests {
 
     @Test func listingSomethingThatIsNotADirectoryFails() {
         let v = makeVolume(seededDriver())
-        let file = v.item(forInode: wideInode, path: "/dir/file.txt", parentInode: 131)
+        let file = v.mountedItem(inode: wideInode, path: "/dir/file.txt", parentInode: 131)
         #expect(throws: POSIXError.self) { _ = try list(v, file) }
     }
 
@@ -400,7 +412,7 @@ struct BtrfsVolumeTests {
         let d = seededDriver()
         d.walkFailsAfter["/"] = 1
         let v = makeVolume(d)
-        let root = v.item(forInode: 128, path: "/", parentInode: nil)
+        let root = v.mountedItem(inode: 128, path: "/", parentInode: nil)
         #expect(throws: POSIXError(.EIO)) { _ = try list(v, root) }
     }
 
@@ -419,7 +431,7 @@ struct BtrfsVolumeTests {
 
     @Test func aNameThatIsNotUTF8IsListedByItsOwnBytes() throws {
         let v = makeVolume(driverWithLatin1Child())
-        let dir = v.item(forInode: 131, path: "/dir", parentInode: 128)
+        let dir = v.mountedItem(inode: 131, path: "/dir", parentInode: 128)
         let (entries, _) = try list(v, dir)
         #expect(entries.map { [UInt8]($0.name.data) }
                 == [Self.latin1Name, Array("file.txt".utf8)])
@@ -430,7 +442,7 @@ struct BtrfsVolumeTests {
     @Test func aNameThatIsNotUTF8IsStattedByItsOwnBytes() throws {
         let d = driverWithLatin1Child()
         let v = makeVolume(d)
-        let dir = v.item(forInode: 131, path: "/dir", parentInode: 128)
+        let dir = v.mountedItem(inode: 131, path: "/dir", parentInode: 128)
         let (entries, _) = try list(v, dir, withAttributes: true)
         #expect(entries.first?.attributes?.fileID.rawValue == 140)
         #expect(entries.last?.attributes != nil)
@@ -440,11 +452,11 @@ struct BtrfsVolumeTests {
     @Test func lookingUpANameThatIsNotUTF8ReachesTheDriverByItsOwnBytes() async throws {
         let d = driverWithLatin1Child()
         let v = makeVolume(d)
-        let dir = v.item(forInode: 131, path: "/dir", parentInode: 128)
+        let dir = v.mountedItem(inode: 131, path: "/dir", parentInode: 128)
         let (found, name) = try await v.lookupItem(named: FSFileName(data: Data(Self.latin1Name)),
                                                    inDirectory: dir)
         let item = try #require(found as? BtrfsItem)
-        #expect(item.inode == 140)
+        #expect(item.fileID == 140)
         #expect(item.volumePath == VolumePath(bytes: Array("/dir/".utf8) + Self.latin1Name))
         #expect([UInt8](name.data) == Self.latin1Name)
         #expect(d.statted == [VolumePath(bytes: Array("/dir/".utf8) + Self.latin1Name)])
@@ -455,7 +467,7 @@ struct BtrfsVolumeTests {
         let d = seededDriver()
         d.nodes["/link"]?.target = Self.latin1Name
         let v = makeVolume(d)
-        let link = v.item(forInode: 133, path: "/link", parentInode: 128)
+        let link = v.mountedItem(inode: 133, path: "/link", parentInode: 128)
         #expect([UInt8](try await v.readSymbolicLink(link).data) == Self.latin1Name)
     }
 
@@ -463,13 +475,13 @@ struct BtrfsVolumeTests {
 
     @Test func readlinkReturnsTheTarget() async throws {
         let v = makeVolume(seededDriver())
-        let link = v.item(forInode: 133, path: "/link", parentInode: 128)
+        let link = v.mountedItem(inode: 133, path: "/link", parentInode: 128)
         #expect(try await v.readSymbolicLink(link).string == "dir/file.txt")
     }
 
     @Test func readlinkOfAFileReportsTheDriversErrno() async {
         let v = makeVolume(seededDriver())
-        let file = v.item(forInode: wideInode, path: "/dir/file.txt", parentInode: 131)
+        let file = v.mountedItem(inode: wideInode, path: "/dir/file.txt", parentInode: 131)
         let code = await posixCode { _ = try await v.readSymbolicLink(file) }
         #expect(code == .EINVAL)
     }
@@ -481,8 +493,8 @@ struct BtrfsVolumeTests {
     @Test func everyMutatingOperationIsRefusedWithEROFS() async {
         let d = seededDriver()
         let v = makeVolume(d)
-        let root = v.item(forInode: 128, path: "/", parentInode: nil)
-        let file = v.item(forInode: wideInode, path: "/dir/file.txt", parentInode: 131)
+        let root = v.mountedItem(inode: 128, path: "/", parentInode: nil)
+        let file = v.mountedItem(inode: wideInode, path: "/dir/file.txt", parentInode: 131)
         let name = FSFileName(string: "new")
         let set = FSItem.SetAttributesRequest()
 

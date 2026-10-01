@@ -209,14 +209,15 @@ public extension FileSystemItem where Tag == XfsTag {
 
 // MARK: - Btrfs specialisation
 
-/// Phantom tag selecting `UInt64` identity for Btrfs inode numbers.
+/// Phantom tag selecting `UInt64` identity for Btrfs items.
 ///
 /// Btrfs objectids are 64-bit, and an inode number is only unique
 /// WITHIN a subvolume — two subvolumes of one filesystem both have an
-/// inode 256. The tag does not encode that, so anything resolving an
-/// item across subvolumes has to carry the subvolume separately; the
-/// tag's job is only to stop a btrfs id being handed to another
-/// filesystem's code path.
+/// inode 256. So a Btrfs item's `id` is NOT an inode number: it is the
+/// FSKit file identifier `BtrfsIdentifierSpace` issues for a (tree,
+/// inode) pair, and the space turns it back into the pair
+/// (diskjockey#261). The tag's job is still to stop a btrfs id being
+/// handed to another filesystem's code path.
 public enum BtrfsTag: FileSystemTag {
     public typealias ID = UInt64
 }
@@ -225,18 +226,20 @@ public enum BtrfsTag: FileSystemTag {
 public typealias BtrfsItem = FileSystemItem<BtrfsTag>
 
 public extension FileSystemItem where Tag == BtrfsTag {
-    /// Btrfs inode number — friendly spelling for `id`.
-    var inode: UInt64 { id }
+    /// The FSKit file identifier — the packed (tree, inode) pair, never
+    /// a bare inode number. Spelled `fileID` rather than `inode` so that
+    /// reading it as one is visibly wrong.
+    var fileID: UInt64 { id }
 
-    /// Parent directory's inode — friendly spelling for `parentID`.
-    var parentInode: UInt64? { parentID }
+    /// The parent directory's file identifier.
+    var parentFileID: UInt64? { parentID }
 
-    convenience init(inode: UInt64, path: String, parentInode: UInt64?) {
-        self.init(id: inode, path: path, parentID: parentInode)
+    convenience init(fileID: UInt64, path: String, parentFileID: UInt64?) {
+        self.init(id: fileID, path: path, parentID: parentFileID)
     }
 
-    convenience init(inode: UInt64, volumePath: VolumePath, parentInode: UInt64?) {
-        self.init(id: inode, volumePath: volumePath, parentID: parentInode)
+    convenience init(fileID: UInt64, volumePath: VolumePath, parentFileID: UInt64?) {
+        self.init(id: fileID, volumePath: volumePath, parentID: parentFileID)
     }
 }
 

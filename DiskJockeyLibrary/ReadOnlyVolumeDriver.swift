@@ -37,13 +37,22 @@ import Foundation
 /// dirent's bytes, whether or not they are valid UTF-8.
 public struct ReadOnlyDirectoryEntry: Equatable, Sendable {
     public var name: [UInt8]
+    /// The entry's inode — except when `isSubvolume` is set, when it is
+    /// the id of the tree the entry names.
     public var inode: UInt64
     public var fileType: ReadOnlyFileType
+    /// The entry names a whole subvolume, so `inode` is a TREE id, not an
+    /// inode of the listing directory's tree. Only Btrfs has these
+    /// (fs_btrfs.h, `is_subvolume`); every other driver leaves it false
+    /// (diskjockey#261).
+    public var isSubvolume: Bool
 
-    public init(name: [UInt8], inode: UInt64, fileType: ReadOnlyFileType) {
+    public init(name: [UInt8], inode: UInt64, fileType: ReadOnlyFileType,
+                isSubvolume: Bool = false) {
         self.name = name
         self.inode = inode
         self.fileType = fileType
+        self.isSubvolume = isSubvolume
     }
 }
 

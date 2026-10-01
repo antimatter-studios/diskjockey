@@ -5,8 +5,10 @@
  * FSVolume.PathConfOperations. This extension is read-only, so every
  * mutating op returns EROFS — the errno for a read-only filesystem, not
  * the filesystem of that name; reads/lookups/enumeration dispatch to the
- * driver. Btrfs inode numbers are 64-bit, so item identity is UInt64
- * (BtrfsItem / BtrfsTag).
+ * driver. An item's identity is its (tree, inode) pair packed into
+ * FSKit's 64-bit identifier by BtrfsIdentifierSpace, because a Btrfs inode
+ * number is unique only within one subvolume (diskjockey#261; the design is
+ * in DiskJockeyLibrary/BtrfsItemIdentity.swift).
  *
  * The driver is a ReadOnlyVolumeDriver rather than the fs_btrfs_* C ABI
  * itself: BtrfsDriver.swift makes those calls, and this file makes none, so
@@ -30,7 +32,11 @@ final class BtrfsVolume: FSVolume,
     private var contextPtr: UnsafeMutableRawPointer?
     private let bsdName: String
     private let stats: IOStatsCollector
+    /// Keyed on the packed (tree, inode) identifier, so two subvolumes'
+    /// same-numbered inodes are two entries rather than one evicting the
+    /// other (diskjockey#261).
     private let items = FileIDCache<BtrfsItem>()
+    private let ids = BtrfsIdentifierSpace()
 
     init(volumeID: FSVolume.Identifier,
          volumeName: FSFileName,
@@ -47,13 +53,33 @@ final class BtrfsVolume: FSVolume,
 
     // MARK: - Item cache
 
-    func item(forInode inode: UInt64, path: VolumePath,
-              parentInode: UInt64?) -> BtrfsItem {
-        items.getOrCreate(
-            id: inode,
-            validate: { $0.volumePath == path && $0.parentInode == parentInode },
-            create: { BtrfsItem(inode: inode, volumePath: path, parentInode: parentInode) }
+    func item(for key: BtrfsObjectKey, path: VolumePath,
+              parentFileID: UInt64?) throws -> BtrfsItem {
+        let fileID = try ids.fileID(for: key)
+        return items.getOrCreate(
+            id: fileID,
+            validate: { $0.volumePath == path && $0.parentFileID == parentFileID },
+            create: { BtrfsItem(fileID: fileID, volumePath: path, parentFileID: parentFileID) }
         )
+    }
+
+    /// The tree a directory item's entries belong to.
+    private func tree(of directory: BtrfsItem) throws -> BtrfsTree {
+        try ids.key(forFileID: directory.fileID).tree
+    }
+
+    /// The tree id of the subvolume `name` in `directory` names, or nil if
+    /// the entry is not a subvolume. Lists the directory, so it is asked
+    /// only when a lookup has crossed a subvolume boundary.
+    private func subvolumeEntry(named name: [UInt8], in directory: VolumePath,
+                                driver: ReadOnlyVolumeDriver) -> UInt64? {
+        var tree: UInt64? = nil
+        _ = driver.walkDirectory(directory) { entry in
+            guard entry.name == name else { return true }
+            tree = entry.isSubvolume ? entry.inode : nil
+            return false
+        }
+        return tree
     }
 
     /// How the pinned driver reads a path: am-fs-btrfs 0.8.0 takes it byte
@@ -108,7 +134,8 @@ final class BtrfsVolume: FSVolume,
         // A root that cannot be read is a mount that failed. This fell
         // back to inode 1 once, handing FSKit a root that named nothing.
         guard let root = driver.stat(.root) else { throw driver.lastPOSIXError() }
-        return item(forInode: root.inode, path: .root, parentInode: nil)
+        return try item(for: BtrfsObjectKey(tree: .mounted, inode: root.inode),
+                        path: .root, parentFileID: nil)
     }
 
     func deactivate(options: FSDeactivateOptions) async throws {
@@ -136,7 +163,8 @@ final class BtrfsVolume: FSVolume,
         guard let attr = driver.stat(eItem.volumePath) else {
             throw driver.lastPOSIXError()
         }
-        return Self.attributes(from: attr, parentInode: eItem.parentInode)
+        return Self.attributes(from: attr, fileID: eItem.fileID,
+                               parentFileID: eItem.parentFileID)
     }
 
     func setAttributes(
@@ -163,7 +191,16 @@ final class BtrfsVolume: FSVolume,
         guard let attr = driver.stat(childPath) else {
             throw driver.lastPOSIXError()
         }
-        let found = item(forInode: attr.inode, path: childPath, parentInode: dirItem.inode)
+        // am-fs-btrfs 0.7.0's stat does not cross into a subvolume, so a
+        // subvolume's name fails above; lookupKey's crossing branch is for
+        // a driver whose stat does (see BtrfsItemIdentity.swift).
+        let key = try BtrfsIdentity.lookupKey(
+            inDirectoryOf: try tree(of: dirItem), statInode: attr.inode,
+            subvolumeEntry: {
+                self.subvolumeEntry(named: [UInt8](name.data), in: dirItem.volumePath,
+                                    driver: driver)
+            })
+        let found = try item(for: key, path: childPath, parentFileID: dirItem.fileID)
         return (found, name)
     }
 
@@ -192,12 +229,27 @@ final class BtrfsVolume: FSVolume,
         pack: (PackableDirectoryEntry) -> Bool
     ) throws -> UInt64 {
         guard let driver else { throw POSIXError(.EBADF) }
+        let dirTree = try tree(of: dirItem)
 
         var entryCookie: UInt64 = 1
+        var identifierError: Error? = nil
         let walk = driver.walkDirectory(dirItem.volumePath) { entry in
             if entryCookie <= startCookie {
                 entryCookie += 1
                 return true
+            }
+            // An entry naming a subvolume carries a TREE id, not an inode
+            // (fs_btrfs.h, `is_subvolume`). It is listed as that
+            // subvolume's top directory — the item a lookup of the same
+            // name arrives at — never under the raw number (diskjockey#261).
+            let childID: UInt64
+            do {
+                childID = try ids.fileID(for: BtrfsIdentity.entryKey(
+                    inDirectoryOf: dirTree, direntInode: entry.inode,
+                    isSubvolume: entry.isSubvolume))
+            } catch {
+                identifierError = error
+                return false
             }
             // Nil when the pinned driver could not resolve the child; the
             // entry is still listed, under its real bytes, without
@@ -206,7 +258,8 @@ final class BtrfsVolume: FSVolume,
 
             var itemAttrs: FSItem.Attributes? = nil
             if withAttributes, let childPath, let attr = driver.stat(childPath) {
-                itemAttrs = Self.attributes(from: attr, parentInode: dirItem.inode)
+                itemAttrs = Self.attributes(from: attr, fileID: childID,
+                                            parentFileID: dirItem.fileID)
             }
 
             let packed = pack(PackableDirectoryEntry(
@@ -215,13 +268,16 @@ final class BtrfsVolume: FSVolume,
                 // merges distinct ones (diskjockey#219).
                 name: DirentName.fileName(entry.name),
                 itemType: entry.fileType.fsItemType,
-                itemID: FSItem.Identifier(rawValue: entry.inode)!,
+                itemID: FSItem.Identifier(rawValue: childID)!,
                 nextCookie: FSDirectoryCookie(rawValue: entryCookie),
                 attributes: itemAttrs))
             if !packed { return false }
             entryCookie += 1
             return true
         }
+        // An identifier that cannot be issued ends the listing as a
+        // failure, not as its end (see BtrfsIdentifierSpace.fileID).
+        if let identifierError { throw identifierError }
         switch walk {
         case .finished:
             return entryCookie
@@ -238,7 +294,7 @@ final class BtrfsVolume: FSVolume,
 
     func reclaimItem(_ item: FSItem) async throws {
         if let eItem = item as? BtrfsItem {
-            items.remove(id: eItem.inode)
+            items.remove(id: eItem.fileID)
         }
     }
 
@@ -364,8 +420,14 @@ final class BtrfsVolume: FSVolume,
         readOnlyFileType(fromRaw: raw).fsItemType
     }
 
-    static func attributes(from attr: ReadOnlyFileAttributes,
-                           parentInode: UInt64?) -> FSItem.Attributes {
-        ReadOnlyVolumeSupport.fsAttributes(from: attr, parentInode: parentInode)
+    /// `fileID` and `parentFileID` are the packed identifiers, not
+    /// `attr.inode`: the inode alone does not say which subvolume it is in.
+    static func attributes(from attr: ReadOnlyFileAttributes, fileID: UInt64,
+                           parentFileID: UInt64?) -> FSItem.Attributes {
+        let attrs = ReadOnlyVolumeSupport.fsAttributes(from: attr, parentInode: parentFileID)
+        if let id = FSItem.Identifier(rawValue: fileID) {
+            attrs.fileID = id
+        }
+        return attrs
     }
 }
