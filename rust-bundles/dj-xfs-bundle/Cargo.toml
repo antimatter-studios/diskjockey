@@ -15,7 +15,7 @@ name = "dj_xfs_bundle"
 crate-type = ["staticlib"]
 
 [dependencies]
-am-fs-xfs = "0.9.0"
+am-fs-xfs = "0.10.0"
 am-img-qcow2 = "0.4.5"
 am-img-vhd = "0.3.5"
 am-img-vhdx = "0.3.5"
