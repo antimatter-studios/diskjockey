@@ -17,6 +17,9 @@
 		10381BB9950AA9A8F9E04766 /* ErofsDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 176ACFF9479FB899746A0A6B /* ErofsDriver.swift */; };
 		A95798F474957207EDFE0F25 /* ErofsLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B679116C2C28574A961B6142 /* ErofsLog.swift */; };
 		027139E38C99564FE69885EA /* NTFSVolume.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FAA4308D6EB33A49E406790 /* NTFSVolume.swift */; };
+		4AACF3A8624AC4F4899B4A68 /* NTFSBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8B829B4C5E06040291CBF21 /* NTFSBackend.swift */; };
+		602BBAB5D00038FB1A8D971B /* NTFSDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B21F8134E3D16D5C30AC7CF /* NTFSDriver.swift */; };
+		81E563D7A692E114C4F7A0B4 /* NTFSLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF60F18224BA51A152EB5AD3 /* NTFSLog.swift */; };
 		02A5ECFB350AC0A504E975EB /* FSKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EA52B7280D02F6F8D737A4DF /* FSKit.framework */; };
 		05A11A3D8A16DAA84A31911B /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 429A2D79E6781D9640B98F5E /* Cocoa.framework */; };
 		12E594CD35D47D6A330F04B6 /* EXT4FileSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45CFCF77C56D3305934A9BE2 /* EXT4FileSystem.swift */; };
@@ -581,6 +584,9 @@
 		124211CC79A8C8CFAF453134 /* FSKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FSKit.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/FSKit.framework; sourceTree = DEVELOPER_DIR; };
 		198282EEFE5CE8718FB6299F /* libfs_ext4.a */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = archive.ar; path = libfs_ext4.a; sourceTree = "<group>"; };
 		1FAA4308D6EB33A49E406790 /* NTFSVolume.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NTFSVolume.swift; sourceTree = "<group>"; };
+		D8B829B4C5E06040291CBF21 /* NTFSBackend.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NTFSBackend.swift; sourceTree = "<group>"; };
+		7B21F8134E3D16D5C30AC7CF /* NTFSDriver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NTFSDriver.swift; sourceTree = "<group>"; };
+		BF60F18224BA51A152EB5AD3 /* NTFSLog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NTFSLog.swift; sourceTree = "<group>"; };
 		2E5B3C082C661D266FE1A1B6 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		37763AEC6A4FD4CCBEDDCB44 /* SquashfsFileSystem.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SquashfsFileSystem.swift; sourceTree = "<group>"; };
 		3B5571A2000000000000NTFS /* RepairXPCService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RepairXPCService.swift; sourceTree = "<group>"; };
@@ -1407,6 +1413,9 @@
 			children = (
 				EE5CDCDA80309B6A4F073D2B /* NTFSFileSystem.swift */,
 				1FAA4308D6EB33A49E406790 /* NTFSVolume.swift */,
+				D8B829B4C5E06040291CBF21 /* NTFSBackend.swift */,
+				7B21F8134E3D16D5C30AC7CF /* NTFSDriver.swift */,
+				BF60F18224BA51A152EB5AD3 /* NTFSLog.swift */,
 				3B5571A2000000000000NTFS /* RepairXPCService.swift */,
 				541A4DEFDFDD7491866E5B51 /* DiskJockeyNTFS-Bridging-Header.h */,
 				6345F2DEC89E3AA479220149 /* DiskJockeyNTFS.entitlements */,
@@ -2165,6 +2174,9 @@
 			files = (
 				3A9B9B37285DFD6BA8C5FE18 /* NTFSFileSystem.swift in Sources */,
 				027139E38C99564FE69885EA /* NTFSVolume.swift in Sources */,
+				4AACF3A8624AC4F4899B4A68 /* NTFSBackend.swift in Sources */,
+				602BBAB5D00038FB1A8D971B /* NTFSDriver.swift in Sources */,
+				81E563D7A692E114C4F7A0B4 /* NTFSLog.swift in Sources */,
 				3B5571A1000000000000NTFS /* RepairXPCService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

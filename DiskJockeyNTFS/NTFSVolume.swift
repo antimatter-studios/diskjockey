@@ -2,7 +2,7 @@
  * NTFSVolume.swift — FSKit volume implementation for NTFS.
  *
  * Implements FSVolume.Operations and FSVolume.ReadWriteOperations
- * for read-only access to NTFS filesystems.
+ * for read-write access to NTFS filesystems, over an NTFSBackend.
  *
  * All operations use async/await (not replyHandler callbacks) to avoid
  * deadlocks on FSKit's internal serial queue.
@@ -16,28 +16,16 @@ import os
 import DiskJockeyLibrary
 
 /// Represents a mounted NTFS volume.
-/// All file operations are dispatched to the Rust bridge layer.
+/// Every driver call goes through `backend` — `NTFSDriver` in the
+/// extension, a stand-in under `swift test` — so this file makes no C
+/// call and builds as DiskJockeyNTFSCore (diskjockey#196).
 final class NTFSVolume: FSVolume,
                         FSVolume.Operations,
                         FSVolume.ReadWriteOperations,
                         FSVolume.PathConfOperations {
 
-    /// Opaque pointer to the Rust bridge filesystem context
-    private var bridgeFS: OpaquePointer?
-
-    /// The block device resource
-
-    /// Retained block-device callback context (`BlockDeviceContext`).
-    /// Held as an opaque pointer so the C callbacks in `cfg` can deref it
-    /// the same way they do during the initial mount in
-    /// `NTFSFileSystem.loadResource`. Released in `deactivate()` after
-    /// `fs_ntfs_umount` — the Rust handle's captured callbacks are gone by
-    /// then so the pointer is safe to drop.
-    private var contextPtr: UnsafeMutableRawPointer?
-
-    /// `cfg.size_bytes` captured at load time (block_count * block_size),
-    /// reused when the volume rebuilds the cfg for fsck + RW remount.
-    private let cfgSizeBytes: UInt64
+    /// The driver, and the mount handle it owns.
+    private let backend: NTFSBackend
 
     /// BSD device name (e.g. `disk5s1`). Carried so `activate`'s deferred
     /// fsck progress events tag the right disk in the host app's log strip.
@@ -48,22 +36,6 @@ final class NTFSVolume: FSVolume,
     /// `activate(options:)` call must unmount the RO handle, run fsck via
     /// callbacks, and remount RW. Mirror of EXT4's `requiresJournalReplay`.
     private var requiresFsckRemount: Bool
-
-    /// Set when the resource sits inside a known disk-image container
-    /// (qcow2, vhd, vhdx, vmdk). Container-backed mounts use the
-    /// `_with_fs_core_device` family for dirty check + fsck + RW
-    /// remount in the deferred path; the underlying device cannot be
-    /// reopened by path so the callback-based fsck flow doesn't apply.
-    /// nil = raw NTFS partition image.
-    private let containerKind: NTFSContainerKind?
-
-    /// Set when this volume is one partition of a larger device
-    /// (raw whole-disk image OR a container holding a partition table).
-    /// When non-nil, the deferred RW remount + fsck path slices the
-    /// (possibly container-wrapped) device at [offset, offset+length)
-    /// before mounting fs_ntfs.
-    private let partitionOffset: UInt64?
-    private let partitionLength: UInt64?
 
     /// Per-mount I/O counter aggregator. Owns the 1 Hz `io.stats`
     /// emitter that the host app's AttachedDisksModel ingests. Started
@@ -78,23 +50,13 @@ final class NTFSVolume: FSVolume,
 
     init(volumeID: FSVolume.Identifier,
          volumeName: FSFileName,
-         bridgeFS: OpaquePointer,
-         contextPtr: UnsafeMutableRawPointer,
-         cfgSizeBytes: UInt64,
+         backend: NTFSBackend,
          bsdName: String,
          requiresFsckRemount: Bool,
-         containerKind: NTFSContainerKind? = nil,
-         partitionOffset: UInt64? = nil,
-         partitionLength: UInt64? = nil,
          stats: IOStatsCollector) {
-        self.bridgeFS = bridgeFS
-        self.contextPtr = contextPtr
-        self.cfgSizeBytes = cfgSizeBytes
+        self.backend = backend
         self.bsdName = bsdName
         self.requiresFsckRemount = requiresFsckRemount
-        self.containerKind = containerKind
-        self.partitionOffset = partitionOffset
-        self.partitionLength = partitionLength
         self.stats = stats
         super.init(volumeID: volumeID, volumeName: volumeName)
     }
@@ -176,8 +138,8 @@ final class NTFSVolume: FSVolume,
     /// dirent because two FSItems share an `FSItem.Identifier`.
     /// `parentRecordNumber` is `nil` only for the root directory — its
     /// parent is `FSItemIDParentOfRoot` (1).
-    private func item(forRecordNumber recno: UInt64, path: String,
-                      parentRecordNumber: UInt64?) -> NTFSItem {
+    func item(forRecordNumber recno: UInt64, path: String,
+              parentRecordNumber: UInt64?) -> NTFSItem {
         items.getOrCreate(
             id: recno,
             validate: { $0.path == path
@@ -217,14 +179,11 @@ final class NTFSVolume: FSVolume,
     var volumeStatistics: FSStatFSResult {
         let stats = FSStatFSResult(fileSystemTypeName: "ntfs")
 
-        guard let fs = bridgeFS else { return stats }
+        guard let info = backend.volumeInfo() else { return stats }
 
-        var info = fs_ntfs_volume_info_t()
-        fs_ntfs_get_volume_info(fs, &info)
-
-        stats.blockSize = Int(info.cluster_size)
-        stats.ioSize = Int(info.cluster_size)
-        stats.totalBlocks = info.total_clusters
+        stats.blockSize = Int(info.clusterSize)
+        stats.ioSize = Int(info.clusterSize)
+        stats.totalBlocks = info.totalClusters
         // TODO: `fs_ntfs_volume_info_t` doesn't expose `free_clusters`, so
         // we can't populate free / available space without extending the
         // rust FFI (touches vendor/rust-fs-ntfs). Until then, Finder's
@@ -246,22 +205,25 @@ final class NTFSVolume: FSVolume,
 
     func unmount() async {
         log.info("volume: unmount", scope: AppLogScope.lifecycle)
-        if let fs = bridgeFS {
-            fs_ntfs_umount(fs)
-            bridgeFS = nil
-        }
+        backend.unmount()
     }
 
     // MARK: - Activate/Deactivate
 
     func activate(options: FSTaskOptions) async throws -> FSItem {
         log.info("volume: activate", scope: AppLogScope.lifecycle)
+        return activatedRoot()
+    }
+
+    /// The body of `activate`, which a test can call without an
+    /// FSTaskOptions (FSKit's cannot be constructed).
+    func activatedRoot() -> NTFSItem {
         if requiresFsckRemount {
             // Container-backed OR partition-sliced volumes use the fs_core
             // device chain for the deferred RW remount. Plain whole-disk
             // raw NTFS images use the historical callback-based path.
-            if containerKind != nil || partitionOffset != nil {
-                performDeferredContainerRwRemount()
+            if backend.remountsThroughDeviceChain {
+                backend.remountReadWriteThroughDeviceChain()
             } else {
                 performDeferredFsckAndRwRemount()
             }
@@ -277,7 +239,7 @@ final class NTFSVolume: FSVolume,
     /// can render them with the same code path. `logfileBytes` is
     /// NTFS-specific (the number of bytes overwritten in `$LogFile`
     /// during recovery); ext4 sets the analogous field to 0.
-    struct FsckReport {
+    struct FsckReport: Equatable {
         let wasDirty: Bool
         let dirtyCleared: Bool
         let logfileBytes: UInt64
@@ -315,107 +277,15 @@ final class NTFSVolume: FSVolume,
     /// — both `runFsck` implementations are pure FFI wrappers that hand
     /// progress + (where applicable) findings to the caller.
     ///
-    /// The unmount→dirty-check→fsck→remount lifecycle is non-negotiable:
-    /// the rust crate refuses to call fsck against a mounted handle
-    /// (it rewrites `$LogFile` + the dirty bit on the raw device, which
-    /// would conflict with the in-memory view held by a live mount).
-    /// Even on already-clean volumes we still do the cycle because we
-    /// don't know the volume is clean until after the dirty check.
-    ///
-    /// `onProgress` fires from the rust crate's worker thread. After
-    /// this method returns, `bridgeFS` is live again (RW preferred, RO
-    /// fallback) so subsequent FSKit ops work. Concurrent reads/writes
-    /// during the call will fail.
+    /// The backend unmounts, checks, and remounts (RW preferred, RO
+    /// fallback) on every path, so subsequent FSKit ops work. Concurrent
+    /// reads/writes during the call will fail.
     func runFsck(
         onProgress: @escaping (_ phase: String, _ done: UInt64, _ total: UInt64) -> Void,
         onFinding: @escaping (FsckFinding) -> Void
     ) -> Result<FsckReport, Error> {
         _ = onFinding  // NTFS has no per-finding callback; param is for shape parity with EXT4.
-
-        // Drop any current handle before fsck. Safe to call when
-        // bridgeFS is already nil — we just skip the umount.
-        if let oldFs = bridgeFS {
-            fs_ntfs_umount(oldFs)
-            bridgeFS = nil
-        }
-
-        var cfg = fs_ntfs_blockdev_cfg_t()
-        cfg.read = { ctx, buf, offset, length in
-            guard let ctx = ctx, let buf = buf else { return EIO }
-            let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
-            return context.read(into: buf, offset: off_t(offset), length: Int(length))
-        }
-        cfg.write = { ctx, buf, offset, length in
-            guard let ctx = ctx, let buf = buf else { return EIO }
-            let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
-            return context.write(from: buf, offset: off_t(offset), length: Int(length))
-        }
-        cfg.context = contextPtr
-        cfg.size_bytes = cfgSizeBytes
-
-        // Always remount before returning — even on errors — so the
-        // volume stays usable. Captured here so every exit path runs it.
-        func remount() {
-            if let newFs = fs_ntfs_mount_with_callbacks(&cfg) {
-                bridgeFS = newFs
-            } else {
-                cfg.write = nil
-                bridgeFS = fs_ntfs_mount_with_callbacks(&cfg)
-            }
-        }
-
-        let dirtyResult = fs_ntfs_is_dirty_with_callbacks(&cfg)
-        switch dirtyResult {
-        case 1:
-            // Dirty — actually run fsck.
-            let box = FsckProgressBox(onProgress: onProgress)
-            let boxPtr = Unmanaged.passRetained(box).toOpaque()
-            defer { Unmanaged<FsckProgressBox>.fromOpaque(boxPtr).release() }
-
-            var logfileBytes: UInt64 = 0
-            var dirtyCleared: UInt8 = 0
-            let rc = fs_ntfs_fsck_with_callbacks(
-                &cfg,
-                { ctx, phase, done, total in
-                    guard let ctx = ctx, let phase = phase else { return 0 }
-                    let box = Unmanaged<FsckProgressBox>.fromOpaque(ctx).takeUnretainedValue()
-                    box.onProgress(String(cString: phase), done, total)
-                    return 0
-                },
-                boxPtr,
-                &logfileBytes,
-                &dirtyCleared
-            )
-            remount()
-            if rc == 0 {
-                return .success(FsckReport(
-                    wasDirty: true,
-                    dirtyCleared: dirtyCleared == 1,
-                    logfileBytes: logfileBytes
-                ))
-            }
-            let msg = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "fs_ntfs_fsck_with_callbacks failed (rc=\(rc))"
-            return .failure(NSError(
-                domain: NSPOSIXErrorDomain,
-                code: Int(POSIXErrorCode.EIO.rawValue),
-                userInfo: [NSLocalizedDescriptionKey: msg]
-            ))
-
-        case 0:
-            // Clean — nothing to do, just remount and report.
-            remount()
-            return .success(FsckReport(wasDirty: false, dirtyCleared: false, logfileBytes: 0))
-
-        default:
-            // Dirty check itself failed.
-            remount()
-            let msg = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "fs_ntfs_is_dirty_with_callbacks failed"
-            return .failure(NSError(
-                domain: NSPOSIXErrorDomain,
-                code: Int(POSIXErrorCode.EIO.rawValue),
-                userInfo: [NSLocalizedDescriptionKey: msg]
-            ))
-        }
+        return backend.fsck(onProgress: onProgress)
     }
 
     /// Lazy-activation entry point. Calls `runFsck` and emits the
@@ -423,171 +293,6 @@ final class NTFSVolume: FSVolume,
     /// the host app's `AttachedDisksModel` consumes. Distinct from
     /// startCheck's emissions in scope (`lifecycle` vs `fsck`) but
     /// identical in shape.
-    /// Container-backed counterpart to `performDeferredFsckAndRwRemount`.
-    /// Tears down the RO mount, builds a writable container-stacked
-    /// FsCoreDevice (qcow2 / vhd / vhdx / vmdk), runs the dirty check
-    /// + fsck via the `_with_fs_core_device` family, then remounts RW.
-    /// Mirrors the callback-based path exactly; only the device source
-    /// differs.
-    private func performDeferredContainerRwRemount() {
-        let dlog = TaggedLogger(log, fields: ["bsd": bsdName], kind: "ntfs.activate",
-                                scope: AppLogScope.lifecycle)
-        let kindLabel = containerKind.map { "\($0)" } ?? "container"
-        dlog.info("performing \(kindLabel) deferred RW remount (with fsck via fs_core_device)")
-
-        if let oldFs = bridgeFS {
-            fs_ntfs_umount(oldFs)
-            bridgeFS = nil
-        }
-
-        // Build a writable container-stacked FsCoreDevice. We rebuild it
-        // for each step (dirty check, fsck, mount) because each
-        // `_with_fs_core_device` entry borrows the handle's inner Arc;
-        // they're cheap (just callback wrapping + container header parse).
-        guard let containerHandle = buildContainerHandle(rw: true, dlog: dlog) else {
-            fallbackRemountRo()
-            return
-        }
-
-        // Step 1: dirty check.
-        let dirtyRC = fs_ntfs_is_dirty_with_fs_core_device(containerHandle)
-        let wasDirty: Bool
-        switch dirtyRC {
-        case 0:
-            wasDirty = false
-            dlog.event(kind: "volume.clean", scope: AppLogScope.volume)
-        case 1:
-            wasDirty = true
-            dlog.event(kind: "volume.dirty", scope: AppLogScope.volume)
-        default:
-            let err = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
-            dlog.error("fs_ntfs_is_dirty_with_fs_core_device rc=\(dirtyRC) err=\(err)")
-            fs_core_device_close(containerHandle)
-            fallbackRemountRo()
-            return
-        }
-
-        // Step 2: fsck only when dirty (matches the callback-based path).
-        if wasDirty {
-            dlog.event(kind: "fsck.start", scope: AppLogScope.fsck)
-            var logfileBytes: UInt64 = 0
-            var dirtyCleared: UInt8 = 0
-            let rc = fs_ntfs_fsck_with_fs_core_device(
-                containerHandle, nil, nil, &logfileBytes, &dirtyCleared
-            )
-            if rc != 0 {
-                let err = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
-                dlog.event(kind: "fsck.failed", fields: ["error": err],
-                           level: .error, scope: AppLogScope.fsck)
-                fs_core_device_close(containerHandle)
-                fallbackRemountRo()
-                return
-            }
-            dlog.event(kind: "fsck.done", fields: [
-                "dirty_cleared": dirtyCleared == 1 ? "true" : "false",
-                "logfile_bytes": "\(logfileBytes)",
-            ], scope: AppLogScope.fsck)
-        }
-
-        // Step 3: remount RW. Reuse the same handle — fsck only borrowed.
-        if let newFs = fs_ntfs_mount_rw_with_fs_core_device(containerHandle) {
-            bridgeFS = newFs
-            fs_core_device_close(containerHandle)
-            dlog.info("\(kindLabel) RW remount succeeded\(wasDirty ? " (post-fsck)" : "")")
-        } else {
-            let err = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
-            dlog.error("fs_ntfs_mount_rw_with_fs_core_device failed: \(err)")
-            fs_core_device_close(containerHandle)
-            fallbackRemountRo()
-        }
-    }
-
-    /// Build an FsCoreDevice that wraps the qcow2 layer over a fresh
-    /// callback-backed device. Caller owns + closes the returned
-    /// handle. Returns nil on failure (logged + the inner devices
-    /// released by the C ABI's ownership-transfer rules).
-    private func buildContainerHandle(rw: Bool, dlog: TaggedLogger) -> OpaquePointer? {
-        var coreCfg = FsCoreCallbackCfg()
-        coreCfg.read = { ctx, offset, buf, len in
-            guard let ctx = ctx, let buf = buf else { return EIO }
-            let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
-            return context.read(into: UnsafeMutableRawPointer(buf), offset: off_t(offset), length: Int(len))
-        }
-        if rw {
-            coreCfg.write = { ctx, offset, buf, len in
-                guard let ctx = ctx, let buf = buf else { return EIO }
-                let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
-                return context.write(from: UnsafeRawPointer(buf), offset: off_t(offset), length: Int(len))
-            }
-            coreCfg.flush = { ctx in
-                guard let ctx = ctx else { return EIO }
-                let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
-                return context.flush()
-            }
-        } else {
-            coreCfg.write = nil
-            coreCfg.flush = nil
-        }
-        coreCfg.ctx = contextPtr
-        coreCfg.size = cfgSizeBytes
-
-        guard let inner = withUnsafePointer(to: &coreCfg, { fs_core_device_from_callbacks($0) }) else {
-            let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
-            dlog.error("fs_core_device_from_callbacks failed (rw=\(rw)): \(err)")
-            return nil
-        }
-
-        var stacked: OpaquePointer = inner
-        if let kind = containerKind {
-            guard let h = NTFSContainerKind.open(kind: kind, inner: stacked, writable: rw) else {
-                let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
-                dlog.error("\(kind)_open\(rw ? "_rw" : "")_on_device failed: \(err)")
-                return nil
-            }
-            stacked = h
-        }
-
-        if let off = partitionOffset, let len = partitionLength, off > 0 || len > 0 {
-            guard let s = (rw ? fs_core_device_slice_rw(stacked, off, len)
-                              : fs_core_device_slice_ro(stacked, off, len)) else {
-                let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
-                dlog.error("fs_core_device_slice_\(rw ? "rw" : "ro") failed: \(err)")
-                fs_core_device_close(stacked)
-                return nil
-            }
-            fs_core_device_close(stacked)  // slice keeps its own Arc
-            return s
-        }
-
-        if containerKind == nil {
-            // No container, no partition slice — the deferred-remount path
-            // shouldn't have been called. Free + return nil so the caller
-            // can fall back to the callback-based path.
-            dlog.error("buildContainerHandle called on plain whole-disk volume; freeing handle")
-            fs_core_device_close(stacked)
-            return nil
-        }
-
-        return stacked
-    }
-
-    /// Rebuild a read-only container-stacked mount when the RW path
-    /// fails. Keeps the volume usable (browsable) instead of leaving
-    /// `bridgeFS` nil and every subsequent op failing with EIO.
-    private func fallbackRemountRo() {
-        let dlog = TaggedLogger(log, fields: ["bsd": bsdName], kind: "ntfs.activate",
-                                scope: AppLogScope.lifecycle)
-        guard let containerHandle = buildContainerHandle(rw: false, dlog: dlog) else {
-            dlog.error("RO fallback: buildContainerHandle failed; volume is unusable until next mount")
-            return
-        }
-        bridgeFS = fs_ntfs_mount_with_fs_core_device(containerHandle)
-        fs_core_device_close(containerHandle)
-        if bridgeFS != nil {
-            dlog.info("RO fallback remount succeeded")
-        }
-    }
-
     private func performDeferredFsckAndRwRemount() {
         let dlog = TaggedLogger(log, fields: ["bsd": bsdName], kind: "ntfs.activate",
                                 scope: AppLogScope.lifecycle)
@@ -645,38 +350,26 @@ final class NTFSVolume: FSVolume,
 
     func deactivate(options: FSDeactivateOptions) async throws {
         log.info("volume: deactivate", scope: AppLogScope.lifecycle)
+        deactivateNow()
+    }
+
+    /// The body of `deactivate`, which a test can call without an
+    /// FSDeactivateOptions.
+    func deactivateNow() {
         // Stop the stats heartbeat first so the final tally lands while
         // the AppLog sinks are still alive.
         stats.stop()
-        if let fs = bridgeFS {
-            fs_ntfs_umount(fs)
-            bridgeFS = nil
-        }
-        if let ctx = contextPtr {
-            Unmanaged<BlockDeviceContext>.fromOpaque(ctx).release()
-            contextPtr = nil
-        }
+        backend.unmount()
+        backend.releaseDevice()
     }
 
     // MARK: - File attributes
-
-    /// Box for the Swift closure the C progress callback dispatches to.
-    /// Required because `@convention(c)` callbacks (which Rust expects)
-    /// cannot capture Swift state — we pass `Unmanaged.passRetained(...)
-    /// .toOpaque()` as the `progress_ctx` and unwrap inside the C
-    /// closure. Mirrors `EXT4Backend.FsckCallbackBox`.
-    private final class FsckProgressBox {
-        let onProgress: (_ phase: String, _ done: UInt64, _ total: UInt64) -> Void
-        init(onProgress: @escaping (_ phase: String, _ done: UInt64, _ total: UInt64) -> Void) {
-            self.onProgress = onProgress
-        }
-    }
 
     func attributes(
         _ desiredAttributes: FSItem.GetAttributesRequest,
         of item: FSItem
     ) async throws -> FSItem.Attributes {
-        guard let fs = bridgeFS, let ntfsItem = item as? NTFSItem else {
+        guard backend.isMounted, let ntfsItem = item as? NTFSItem else {
             throw fs_errorForPOSIXError(EBADF)
         }
 
@@ -687,10 +380,8 @@ final class NTFSVolume: FSVolume,
                 parentRecordNumber: ntfsItem.parentRecordNumber)
         }
 
-        var attr = fs_ntfs_attr_t()
-        let rc = fs_ntfs_stat(fs, ntfsItem.path, &attr)
-        guard rc == 0 else {
-            throw fs_errorForPOSIXError(ENOENT)
+        guard let attr = backend.stat(ntfsItem.volumePath) else {
+            throw backend.lastError()
         }
 
         return Self.attributes(from: attr,
@@ -701,7 +392,7 @@ final class NTFSVolume: FSVolume,
         _ newAttributes: FSItem.SetAttributesRequest,
         on item: FSItem
     ) async throws -> FSItem.Attributes {
-        guard let fs = bridgeFS, let ntfsItem = item as? NTFSItem else {
+        guard backend.isMounted, let ntfsItem = item as? NTFSItem else {
             throw fs_errorForPOSIXError(EBADF)
         }
 
@@ -738,60 +429,48 @@ final class NTFSVolume: FSVolume,
         // Truncate (shrink-only in W2 MVP).
         if newAttributes.isValid(.size) {
             let newSize = newAttributes.size
-            var current = fs_ntfs_attr_t()
-            guard fs_ntfs_stat(fs, ntfsItem.path, &current) == 0 else {
-                throw fs_errorForPOSIXError(ENOENT)
+            guard let current = backend.stat(ntfsItem.volumePath) else {
+                throw backend.lastError()
             }
             if newSize > current.size {
                 // Grow not supported by fs_ntfs_truncate_h yet.
                 throw fs_errorForPOSIXError(ENOTSUP)
             }
-            let rc = fs_ntfs_truncate_h(fs, ntfsItem.path, newSize)
-            if rc < 0 {
-                let err = Int32(fs_ntfs_last_errno())
-                throw fs_errorForPOSIXError(err != 0 ? err : EIO)
+            if backend.truncate(ntfsItem.volumePath, to: newSize) < 0 {
+                throw backend.lastError()
             }
             consumed.insert(.size)
         }
 
         // Times: convert UNIX timespecs to NTFS FILETIME (100ns ticks
-        // since 1601-01-01 UTC). Pass NULL for any time we aren't
-        // touching.
-        let creationValid = newAttributes.isValid(.addedTime)
-        let modifyValid = newAttributes.isValid(.modifyTime)
-        let changeValid = newAttributes.isValid(.changeTime)
-        let accessValid = newAttributes.isValid(.accessTime)
+        // since 1601-01-01 UTC). Nil for any time we aren't touching.
+        var times = NTFSFileTimes()
+        if newAttributes.isValid(.addedTime) {
+            times.creation = Self.filetimeFromTimespec(newAttributes.addedTime)
+        }
+        if newAttributes.isValid(.modifyTime) {
+            times.modification = Self.filetimeFromTimespec(newAttributes.modifyTime)
+        }
+        if newAttributes.isValid(.changeTime) {
+            times.change = Self.filetimeFromTimespec(newAttributes.changeTime)
+        }
+        if newAttributes.isValid(.accessTime) {
+            times.access = Self.filetimeFromTimespec(newAttributes.accessTime)
+        }
 
-        if creationValid || modifyValid || changeValid || accessValid {
-            var creation: Int64 = 0
-            var modify: Int64 = 0
-            var change: Int64 = 0
-            var access: Int64 = 0
-            if creationValid { creation = Self.filetimeFromTimespec(newAttributes.addedTime) }
-            if modifyValid { modify = Self.filetimeFromTimespec(newAttributes.modifyTime) }
-            if changeValid { change = Self.filetimeFromTimespec(newAttributes.changeTime) }
-            if accessValid { access = Self.filetimeFromTimespec(newAttributes.accessTime) }
-
-            let rc = Self.applyTimes(
-                fs: fs, path: ntfsItem.path,
-                creation: creation, creationValid: creationValid,
-                modify: modify, modifyValid: modifyValid,
-                change: change, changeValid: changeValid,
-                access: access, accessValid: accessValid
-            )
-            if rc != 0 { throw ntfsLastError() }
-            if creationValid { consumed.insert(.addedTime) }
-            if modifyValid { consumed.insert(.modifyTime) }
-            if changeValid { consumed.insert(.changeTime) }
-            if accessValid { consumed.insert(.accessTime) }
+        if times != NTFSFileTimes() {
+            if backend.setTimes(ntfsItem.volumePath, times) != 0 { throw backend.lastError() }
+            if times.creation != nil { consumed.insert(.addedTime) }
+            if times.modification != nil { consumed.insert(.modifyTime) }
+            if times.change != nil { consumed.insert(.changeTime) }
+            if times.access != nil { consumed.insert(.accessTime) }
         }
 
         newAttributes.consumedAttributes = consumed
 
         // Re-stat to return the post-mutation attributes.
-        var attr = fs_ntfs_attr_t()
-        guard fs_ntfs_stat(fs, ntfsItem.path, &attr) == 0 else {
-            throw fs_errorForPOSIXError(ENOENT)
+        guard let attr = backend.stat(ntfsItem.volumePath) else {
+            throw backend.lastError()
         }
         return Self.attributes(from: attr,
                                parentRecordNumber: ntfsItem.parentRecordNumber)
@@ -803,7 +482,7 @@ final class NTFSVolume: FSVolume,
         named name: FSFileName,
         inDirectory directory: FSItem
     ) async throws -> (FSItem, FSFileName) {
-        guard let fs = bridgeFS, let dirItem = directory as? NTFSItem else {
+        guard backend.isMounted, let dirItem = directory as? NTFSItem else {
             throw fs_errorForPOSIXError(EBADF)
         }
 
@@ -817,13 +496,14 @@ final class NTFSVolume: FSVolume,
             throw fs_errorForPOSIXError(error.code.rawValue)
         }
 
-        var attr = fs_ntfs_attr_t()
-        let rc = childPath.withCString { fs_ntfs_stat(fs, $0, &attr) }
-        guard rc == 0 else {
-            throw fs_errorForPOSIXError(ENOENT)
+        // The driver's reason, not a blanket ENOENT: ENOENT tells FSKit
+        // the name does not exist, which is not what an I/O error means.
+        // A missing name is ENOENT from the driver itself.
+        guard let attr = backend.stat(childPath) else {
+            throw backend.lastError()
         }
 
-        let foundItem = item(forRecordNumber: attr.file_record_number,
+        let foundItem = item(forRecordNumber: attr.recordNumber,
                              path: childPath.description,
                              parentRecordNumber: dirItem.fileRecordNumber)
         return (foundItem, name)
@@ -838,69 +518,80 @@ final class NTFSVolume: FSVolume,
         attributes: FSItem.GetAttributesRequest?,
         packer: FSDirectoryEntryPacker
     ) async throws -> FSDirectoryVerifier {
-        guard let fs = bridgeFS, let dirItem = directory as? NTFSItem else {
+        guard backend.isMounted, let dirItem = directory as? NTFSItem else {
             throw fs_errorForPOSIXError(EBADF)
         }
+        let end = try entries(of: dirItem, after: cookie.rawValue,
+                              withAttributes: attributes != nil) { $0.pack(into: packer) }
+        return FSDirectoryVerifier(rawValue: end)
+    }
 
-        guard let iter = fs_ntfs_dir_open(fs, dirItem.path) else {
-            throw fs_errorForPOSIXError(EIO)
-        }
-        defer { fs_ntfs_dir_close(iter) }
-
+    /// The body of `enumerateDirectory`, with the packer as a closure so
+    /// a test can stand in for it (FSKit's packer cannot be constructed).
+    /// Answers the cookie after the last entry packed.
+    func entries(
+        of dirItem: NTFSItem,
+        after startCookie: UInt64,
+        withAttributes: Bool,
+        pack: (PackableDirectoryEntry) -> Bool
+    ) throws -> UInt64 {
         var entryCookie: UInt64 = 1
-        let startCookie = cookie.rawValue
 
-        while let de = fs_ntfs_dir_next(iter) {
+        let walk = backend.walkDirectory(dirItem.volumePath) { entry in
             if entryCookie <= startCookie {
                 entryCookie += 1
-                continue
+                return true
+            }
+            // The driver synthesises "." and ".." at the head of every
+            // listing. FSVolume.h: "Don't pack "." and ".." if
+            // `attributes` isn't nil." They keep their cookies, so a
+            // listing resumes at the same place either way.
+            if withAttributes, entry.name == Self.dot || entry.name == Self.dotDot {
+                entryCookie += 1
+                return true
             }
 
-            // By `name_len`, sized from the imported array: the header's
-            // array is FS_NTFS_DIRENT_NAME_BYTES (1024), and a 255-unit
-            // NTFS name is up to 765 bytes of UTF-8 (diskjockey#244).
-            guard let nameBytes = DirentName.bytes(
-                of: de.pointee.name, length: Int(de.pointee.name_len)
-            ) else {
-                throw fs_errorForPOSIXError(EIO)
-            }
             // The bytes, never a repaired String (diskjockey#219). The
             // driver converts NTFS's UTF-16 names to UTF-8, so a name that
             // does not decode is a driver fault: it is listed as it came,
             // and not stat'ed through a path the driver would refuse.
-            let fsName = DirentName.fileName(nameBytes)
-            let childPath = try? dirItem.volumePath.child(nameBytes, for: Self.pathEncoding)
-            let fileType = Self.fsItemType(fromRaw: de.pointee.file_type)
+            let childPath = try? dirItem.volumePath.child(entry.name, for: Self.pathEncoding)
 
             var itemAttrs: FSItem.Attributes? = nil
-            if attributes != nil {
+            if withAttributes {
                 // Always populate FSKit's full standard attribute set —
                 // see `attributes(from:parentRecordNumber:)` for the
                 // contract. An incomplete mask (missing flags /
                 // parentID / birthTime) makes the connector reject
                 // the reply, which surfaces to userspace as "file
                 // vanished."
-                var attr = fs_ntfs_attr_t()
-                if let childPath, childPath.withCString({ fs_ntfs_stat(fs, $0, &attr) }) == 0 {
+                if let childPath, let attr = backend.stat(childPath) {
                     itemAttrs = Self.attributes(
                         from: attr,
                         parentRecordNumber: dirItem.fileRecordNumber)
                 }
             }
 
-            let packed = packer.packEntry(
-                name: fsName,
-                itemType: fileType,
-                itemID: FSItem.Identifier(rawValue: de.pointee.file_record_number)!,
+            let packed = pack(PackableDirectoryEntry(
+                name: DirentName.fileName(entry.name),
+                itemType: Self.fsItemType(from: entry.fileType),
+                itemID: FSItem.Identifier(rawValue: entry.recordNumber)!,
                 nextCookie: FSDirectoryCookie(rawValue: entryCookie),
-                attributes: itemAttrs
-            )
-
-            if !packed { break }
+                attributes: itemAttrs))
+            if !packed { return false }
             entryCookie += 1
+            return true
         }
 
-        return FSDirectoryVerifier(rawValue: entryCookie)
+        switch walk {
+        case .finished:
+            return entryCookie
+        case .openFailed:
+            throw backend.lastError()
+        case .failedPartway:
+            // A name whose length the dirent's own array cannot hold.
+            throw fs_errorForPOSIXError(EIO)
+        }
     }
 
     // MARK: - Reclaim
@@ -914,17 +605,17 @@ final class NTFSVolume: FSVolume,
     // MARK: - Symlink
 
     func readSymbolicLink(_ item: FSItem) async throws -> FSFileName {
-        guard let fs = bridgeFS, let ntfsItem = item as? NTFSItem else {
+        guard backend.isMounted, let ntfsItem = item as? NTFSItem else {
             throw fs_errorForPOSIXError(EBADF)
         }
 
         // Success is the target's length, not zero (see SymlinkTarget).
         // Handed to FSKit as the bytes the driver wrote (diskjockey#219).
         let target = try SymlinkTarget.readBytes(
-            lastErrno: { Int32(fs_ntfs_last_errno()) },
+            lastErrno: { backend.lastErrno() },
             error: { fs_errorForPOSIXError($0) }
         ) { buf, size in
-            fs_ntfs_readlink(fs, ntfsItem.path, buf, size)
+            backend.readlink(ntfsItem.volumePath, buf, size)
         }
         return FSFileName(data: Data(target))
     }
@@ -935,7 +626,7 @@ final class NTFSVolume: FSVolume,
         named name: FSFileName, type: FSItem.ItemType,
         inDirectory directory: FSItem, attributes: FSItem.SetAttributesRequest
     ) async throws -> (FSItem, FSFileName) {
-        guard let fs = bridgeFS, let dirItem = directory as? NTFSItem else {
+        guard backend.isMounted, let dirItem = directory as? NTFSItem else {
             throw fs_errorForPOSIXError(EBADF)
         }
         guard let nameStr = name.string else {
@@ -961,9 +652,9 @@ final class NTFSVolume: FSVolume,
         let mftNum: Int64
         switch type {
         case .file:
-            mftNum = fs_ntfs_create_file_h(fs, dirItem.path, nameStr)
+            mftNum = backend.createFile(in: dirItem.volumePath, named: nameStr)
         case .directory:
-            mftNum = fs_ntfs_mkdir_h(fs, dirItem.path, nameStr)
+            mftNum = backend.mkdir(in: dirItem.volumePath, named: nameStr)
         case .symlink:
             // TODO: needs fs_ntfs_create_symlink_h — the path-based
             // fs_ntfs_create_symlink can't be used through a callback-
@@ -974,8 +665,7 @@ final class NTFSVolume: FSVolume,
         }
 
         if mftNum < 0 {
-            let err = Int32(fs_ntfs_last_errno())
-            throw fs_errorForPOSIXError(err != 0 ? err : EIO)
+            throw backend.lastError()
         }
 
         let newItem = item(forRecordNumber: UInt64(mftNum),
@@ -1015,7 +705,7 @@ final class NTFSVolume: FSVolume,
     func removeItem(
         _ item: FSItem, named name: FSFileName, fromDirectory directory: FSItem
     ) async throws {
-        guard let fs = bridgeFS, let ntfsItem = item as? NTFSItem else {
+        guard backend.isMounted, let ntfsItem = item as? NTFSItem else {
             throw fs_errorForPOSIXError(EBADF)
         }
 
@@ -1024,24 +714,22 @@ final class NTFSVolume: FSVolume,
             return
         }
 
-        var attr = fs_ntfs_attr_t()
-        guard fs_ntfs_stat(fs, ntfsItem.path, &attr) == 0 else {
-            throw fs_errorForPOSIXError(ENOENT)
+        guard let attr = backend.stat(ntfsItem.volumePath) else {
+            throw backend.lastError()
         }
 
         let rc: Int32
-        switch attr.file_type {
-        case FS_NTFS_FT_DIR, FS_NTFS_FT_JUNCTION:
-            rc = fs_ntfs_rmdir_h(fs, ntfsItem.path)
-        case FS_NTFS_FT_REG_FILE, FS_NTFS_FT_SYMLINK:
-            rc = fs_ntfs_unlink_h(fs, ntfsItem.path)
-        default:
+        switch attr.fileType {
+        case .directory, .junction:
+            rc = backend.rmdir(ntfsItem.volumePath)
+        case .file, .symlink:
+            rc = backend.unlink(ntfsItem.volumePath)
+        case .unknown:
             throw fs_errorForPOSIXError(ENOTSUP)
         }
 
         if rc != 0 {
-            let err = Int32(fs_ntfs_last_errno())
-            throw fs_errorForPOSIXError(err != 0 ? err : EIO)
+            throw backend.lastError()
         }
     }
 
@@ -1049,7 +737,7 @@ final class NTFSVolume: FSVolume,
         _ item: FSItem, inDirectory sourceDirectory: FSItem, named sourceName: FSFileName,
         to destinationName: FSFileName, inDirectory destinationDirectory: FSItem, overItem: FSItem?
     ) async throws -> FSFileName {
-        guard let fs = bridgeFS,
+        guard backend.isMounted,
               let srcDir = sourceDirectory as? NTFSItem,
               let dstDir = destinationDirectory as? NTFSItem,
               let ntfsItem = item as? NTFSItem else {
@@ -1065,20 +753,19 @@ final class NTFSVolume: FSVolume,
             throw fs_errorForPOSIXError(ENOTSUP)
         }
 
-        // fs_ntfs_rename2_h with FS_NTFS_RENAME_REPLACE atomically replaces an
-        // existing destination (POSIX rename(2) semantics), enforced inside
-        // the crate: file→file frees the old record + clusters, empty-dir →
-        // empty-dir overwrites, and crossing the file/directory boundary or a
-        // non-empty dir target fails with EISDIR / ENOTDIR / ENOTEMPTY. We no
-        // longer remove the destination ourselves — that was non-atomic and
-        // lost the original if the rename then failed — and we can't rely on
-        // `overItem` being populated: FSKit only passes it when the kernel had
-        // already resolved the destination, so a rename-over (e.g. `sed -i`)
-        // would otherwise slip through with a nil overItem.
-        let rc = fs_ntfs_rename2_h(fs, ntfsItem.path, dstNameStr, FS_NTFS_RENAME_REPLACE)
-        if rc != 0 {
-            let err = Int32(fs_ntfs_last_errno())
-            throw fs_errorForPOSIXError(err != 0 ? err : EIO)
+        // The backend renames with FS_NTFS_RENAME_REPLACE, which atomically
+        // replaces an existing destination (POSIX rename(2) semantics),
+        // enforced inside the crate: file→file frees the old record +
+        // clusters, empty-dir → empty-dir overwrites, and crossing the
+        // file/directory boundary or a non-empty dir target fails with
+        // EISDIR / ENOTDIR / ENOTEMPTY. We no longer remove the destination
+        // ourselves — that was non-atomic and lost the original if the
+        // rename then failed — and we can't rely on `overItem` being
+        // populated: FSKit only passes it when the kernel had already
+        // resolved the destination, so a rename-over (e.g. `sed -i`) would
+        // otherwise slip through with a nil overItem.
+        if backend.rename(ntfsItem.volumePath, toBasename: dstNameStr) != 0 {
+            throw backend.lastError()
         }
 
         return destinationName
@@ -1098,7 +785,10 @@ final class NTFSVolume: FSVolume,
     ) async throws -> Int {
         let t0 = monotonicNanos()
         do {
-            let n = try await readImpl(from: item, at: offset, length: length, into: buffer)
+            let n = try buffer.withUnsafeMutableBytes { rawBuf in
+                try readBytes(from: item, at: offset,
+                              into: UnsafeMutableRawBufferPointer(rebasing: rawBuf.prefix(length)))
+            }
             stats.recordRead(bytes: n, latencyNs: monotonicNanos() &- t0, error: false)
             return n
         } catch {
@@ -1107,11 +797,13 @@ final class NTFSVolume: FSVolume,
         }
     }
 
-    private func readImpl(
-        from item: FSItem, at offset: off_t, length: Int,
-        into buffer: FSMutableFileDataBuffer
-    ) async throws -> Int {
-        guard let fs = bridgeFS, let ntfsItem = item as? NTFSItem else {
+    /// The body of `read`, over a plain buffer so a test can supply one
+    /// (FSKit's FSMutableFileDataBuffer cannot be constructed).
+    func readBytes(
+        from item: FSItem, at offset: off_t,
+        into buffer: UnsafeMutableRawBufferPointer
+    ) throws -> Int {
+        guard backend.isMounted, let ntfsItem = item as? NTFSItem else {
             throw fs_errorForPOSIXError(EBADF)
         }
 
@@ -1120,13 +812,12 @@ final class NTFSVolume: FSVolume,
             return 0
         }
 
-        return buffer.withUnsafeMutableBytes { rawBuf in
-            let bytesRead = fs_ntfs_read_file(
-                fs, ntfsItem.path, rawBuf.baseAddress,
-                UInt64(offset), UInt64(length)
-            )
-            return max(0, Int(bytesRead))
-        }
+        let bytesRead = backend.read(ntfsItem.volumePath, at: UInt64(offset), into: buffer)
+        // Negative is a failure. It was clamped to zero once, and zero
+        // bytes is how FSKit learns it has reached the end of the file,
+        // so a read error became a silently short copy.
+        guard bytesRead >= 0 else { throw backend.lastError() }
+        return Int(bytesRead)
     }
 
     func write(
@@ -1134,7 +825,7 @@ final class NTFSVolume: FSVolume,
     ) async throws -> Int {
         let t0 = monotonicNanos()
         do {
-            let n = try await writeImpl(contents: data, to: item, at: offset)
+            let n = try writeBytes(contents: data, to: item, at: offset)
             stats.recordWrite(bytes: n, latencyNs: monotonicNanos() &- t0, error: false)
             return n
         } catch {
@@ -1143,15 +834,22 @@ final class NTFSVolume: FSVolume,
         }
     }
 
-    private func writeImpl(
+    /// The body of `write`.
+    func writeBytes(
         contents data: Data, to item: FSItem, at offset: off_t
-    ) async throws -> Int {
-        guard let fs = bridgeFS, let ntfsItem = item as? NTFSItem else {
+    ) throws -> Int {
+        guard backend.isMounted, let ntfsItem = item as? NTFSItem else {
             throw fs_errorForPOSIXError(EBADF)
         }
 
         // Ghost AppleDouble — accept the bytes, write nowhere.
         if Self.isAppleDouble(path: ntfsItem.path) { return data.count }
+
+        // POSIX write(2): zero bytes "shall return zero and have no other
+        // results". The whole-file rewrite below is sized to
+        // max(size, offset + count), so an empty write past the end grew
+        // the file with zeros.
+        if data.isEmpty { return 0 }
 
         // IMPORTANT: fs_ntfs_write_file_contents_h replaces the WHOLE
         // file. To emulate offset/partial writes we read-modify-write —
@@ -1161,9 +859,8 @@ final class NTFSVolume: FSVolume,
         // buffer. This is O(filesize) per write — slow but correct.
         // TODO: replace with streaming write API when fs_ntfs exposes it.
 
-        var attr = fs_ntfs_attr_t()
-        guard fs_ntfs_stat(fs, ntfsItem.path, &attr) == 0 else {
-            throw fs_errorForPOSIXError(ENOENT)
+        guard let attr = backend.stat(ntfsItem.volumePath) else {
+            throw backend.lastError()
         }
 
         let writeOffset = UInt64(offset)
@@ -1172,43 +869,41 @@ final class NTFSVolume: FSVolume,
         // Fast path: writing from offset 0 fully replaces or extends the
         // file — skip the read-modify-write step.
         if writeOffset == 0 && writeLen >= attr.size {
-            return try writeFastPath(fs: fs, path: ntfsItem.path, data: data)
+            return try writeFastPath(path: ntfsItem.volumePath, data: data)
         }
-        return try writeSlowPath(fs: fs, path: ntfsItem.path, data: data,
-                                  currentSize: attr.size, at: writeOffset)
+        return try writeSlowPath(path: ntfsItem.volumePath, data: data,
+                                 currentSize: attr.size, at: writeOffset)
     }
 
-    private func writeFastPath(fs: OpaquePointer, path: String, data: Data) throws -> Int {
-        let written: Int64 = data.withUnsafeBytes { rawBuf -> Int64 in
-            guard let base = rawBuf.baseAddress else { return -1 }
-            return fs_ntfs_write_file_contents_h(fs, path, base, UInt64(data.count))
-        }
-        if written < 0 { throw ntfsLastError() }
+    private func writeFastPath(path: VolumePath, data: Data) throws -> Int {
+        let written = data.withUnsafeBytes { backend.writeContents(path, $0) }
+        if written < 0 { throw backend.lastError() }
         return data.count
     }
 
     private func writeSlowPath(
-        fs: OpaquePointer, path: String, data: Data,
+        path: VolumePath, data: Data,
         currentSize: UInt64, at writeOffset: UInt64
     ) throws -> Int {
         let mergedSize = max(currentSize, writeOffset + UInt64(data.count))
-        let buf = UnsafeMutableRawPointer.allocate(byteCount: Int(mergedSize), alignment: 8)
+        let buf = UnsafeMutableRawBufferPointer.allocate(byteCount: Int(mergedSize), alignment: 8)
         defer { buf.deallocate() }
-        memset(buf, 0, Int(mergedSize))
+        buf.initializeMemory(as: UInt8.self, repeating: 0)
 
         if currentSize > 0 {
-            let read = fs_ntfs_read_file(fs, path, buf, 0, currentSize)
-            if read < 0 || UInt64(read) < currentSize { throw ntfsLastError() }
+            let read = backend.read(path, at: 0,
+                                    into: UnsafeMutableRawBufferPointer(rebasing: buf.prefix(Int(currentSize))))
+            if read < 0 || UInt64(read) < currentSize { throw backend.lastError() }
         }
 
         data.withUnsafeBytes { rawBuf in
             if let base = rawBuf.baseAddress, !rawBuf.isEmpty {
-                memcpy(buf.advanced(by: Int(writeOffset)), base, data.count)
+                memcpy(buf.baseAddress!.advanced(by: Int(writeOffset)), base, data.count)
             }
         }
 
-        let written = fs_ntfs_write_file_contents_h(fs, path, buf, mergedSize)
-        if written < 0 { throw ntfsLastError() }
+        let written = backend.writeContents(path, UnsafeRawBufferPointer(buf))
+        if written < 0 { throw backend.lastError() }
         return data.count
     }
 
@@ -1221,44 +916,17 @@ final class NTFSVolume: FSVolume,
 
     // MARK: - Helpers
 
-    private func ntfsLastError(fallback: Int32 = EIO) -> Error {
-        let err = Int32(fs_ntfs_last_errno())
-        return fs_errorForPOSIXError(err != 0 ? err : fallback)
-    }
-
-    private static func applyTimes(
-        fs: OpaquePointer, path: String,
-        creation: Int64, creationValid: Bool,
-        modify: Int64, modifyValid: Bool,
-        change: Int64, changeValid: Bool,
-        access: Int64, accessValid: Bool
-    ) -> Int32 {
-        // Pack all four timestamps into a contiguous buffer so each slot
-        // can be passed as a pointer or nil without four levels of nesting.
-        let times: ContiguousArray<Int64> = [creation, modify, change, access]
-        return times.withUnsafeBufferPointer { buf in
-            fs_ntfs_set_times_h(
-                fs, path,
-                creationValid ? buf.baseAddress      : nil,
-                modifyValid   ? buf.baseAddress! + 1 : nil,
-                changeValid   ? buf.baseAddress! + 2 : nil,
-                accessValid   ? buf.baseAddress! + 3 : nil
-            )
+    static func fsItemType(from type: NTFSFileType) -> FSItem.ItemType {
+        switch type {
+        case .file:      return .file
+        case .directory: return .directory
+        case .symlink:   return .symlink
+        default:         return .file
         }
     }
 
-    static func fsItemType(from bridgeType: fs_ntfs_file_type_t) -> FSItem.ItemType {
-        switch bridgeType {
-        case FS_NTFS_FT_REG_FILE: return .file
-        case FS_NTFS_FT_DIR:      return .directory
-        case FS_NTFS_FT_SYMLINK:  return .symlink
-        default:                       return .file
-        }
-    }
-
-    static func fsItemType(fromRaw rawType: UInt8) -> FSItem.ItemType {
-        return fsItemType(from: fs_ntfs_file_type_t(rawValue: UInt32(rawType)))
-    }
+    static let dot: [UInt8] = [UInt8(ascii: ".")]
+    static let dotDot: [UInt8] = [UInt8(ascii: "."), UInt8(ascii: ".")]
 
     /// Join a parent directory path to a child name, taking care to avoid
     /// the double-slash "//foo" trap when the parent is the root.
@@ -1266,7 +934,7 @@ final class NTFSVolume: FSVolume,
         return parent == "/" ? "/\(child)" : "\(parent)/\(child)"
     }
 
-    /// Build an `FSItem.Attributes` snapshot from an fs_ntfs_attr_t.
+    /// Build an `FSItem.Attributes` snapshot from the driver's stat.
     ///
     /// Populates **every bit in FSKit's standard attribute set** —
     /// `type, mode, linkCount, flags, size, allocSize, fileID,
@@ -1275,34 +943,34 @@ final class NTFSVolume: FSVolume,
     /// `FSVolumeConnector.getStandardItemAttributesForItem` reject the
     /// reply with errno 2 (ENOENT), which surfaces to userspace as
     /// "file vanished after save". See
-    /// `DiskJockeyTests/EXT4AttributeMaskTests.swift` for the regression
-    /// fixture and the FSKit bit layout — same contract here.
+    /// `DiskJockeyEXT4CoreTests/EXT4VolumeAttributesTests.swift` for the
+    /// FSKit bit layout — same contract here.
     ///
     /// `parentRecordNumber` is `nil` only for the root directory — its
     /// parent is the FSKit-defined `FSItemIDParentOfRoot` (1).
-    static func attributes(from attr: fs_ntfs_attr_t,
+    static func attributes(from attr: NTFSFileAttributes,
                            parentRecordNumber: UInt64?) -> FSItem.Attributes {
         let attrs = FSItem.Attributes()
-        attrs.type = fsItemType(from: attr.file_type)
+        attrs.type = fsItemType(from: attr.fileType)
         attrs.mode = UInt32(attr.mode)
         attrs.uid = 0
         attrs.gid = 0
         // Map NTFS hidden/system bits → UF_HIDDEN so Finder doesn't display
         // $MFT, $AttrDef, $Bitmap etc. at the root of every volume.
-        let isHidden = (attr.attributes & (Self.ntfsAttrHidden | Self.ntfsAttrSystem)) != 0
+        let isHidden = (attr.fileAttributes & (Self.ntfsAttrHidden | Self.ntfsAttrSystem)) != 0
         attrs.flags = isHidden ? Self.bsdFlagHidden : 0
         attrs.size = attr.size
-        attrs.linkCount = UInt32(attr.link_count)
+        attrs.linkCount = UInt32(attr.linkCount)
         attrs.allocSize = attr.size
-        attrs.accessTime = timespec(tv_sec: Int(attr.atime_sec), tv_nsec: Int(attr.atime_nsec))
-        attrs.modifyTime = timespec(tv_sec: Int(attr.mtime_sec), tv_nsec: Int(attr.mtime_nsec))
-        attrs.changeTime = timespec(tv_sec: Int(attr.ctime_sec), tv_nsec: Int(attr.ctime_nsec))
+        attrs.accessTime = timespec(tv_sec: Int(attr.accessTime.sec), tv_nsec: Int(attr.accessTime.nsec))
+        attrs.modifyTime = timespec(tv_sec: Int(attr.modifyTime.sec), tv_nsec: Int(attr.modifyTime.nsec))
+        attrs.changeTime = timespec(tv_sec: Int(attr.changeTime.sec), tv_nsec: Int(attr.changeTime.nsec))
         // NTFS stores StandardInformation::CreationTime as the birth
         // time. The previous code routed it into addedTime (an
         // HFS+/APFS concept), which left FSKit's required birthTime
         // bit unset.
-        attrs.birthTime = timespec(tv_sec: Int(attr.crtime_sec), tv_nsec: Int(attr.crtime_nsec))
-        if let id = FSItem.Identifier(rawValue: attr.file_record_number) {
+        attrs.birthTime = timespec(tv_sec: Int(attr.creationTime.sec), tv_nsec: Int(attr.creationTime.nsec))
+        if let id = FSItem.Identifier(rawValue: attr.recordNumber) {
             attrs.fileID = id
         }
         let parentRaw = parentRecordNumber ?? 1
