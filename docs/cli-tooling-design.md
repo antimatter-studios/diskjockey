@@ -1,11 +1,14 @@
 # CLI tooling: naming, packaging and distribution
 
-Decided 2026-08-31. This records the reasoning as well as the decisions,
-because most of the choices below look arbitrary from the outside and
-several of them went *against* the obvious answer for a measured reason.
+Decided 2026-08-31, and brought into line with the owner's decisions on
+the tracker (#235) on 2026-10-02. This records the reasoning as well as
+the decisions, because most of the choices below look arbitrary from the
+outside and several of them went *against* the obvious answer for a
+measured reason.
 
-Nothing here is built yet. It exists so that when the formatters land,
-the surface they get is decided rather than improvised.
+Most of it is built: every filesystem and disk-image driver now ships its
+tools, released with the library and installable from the tap. What is
+shipped, and what is still open, is in [Current state](#current-state).
 
 ---
 
@@ -125,8 +128,8 @@ either of which is fatal on its own:
 
 Running them in a VM at runtime fails both tests as well. Where they
 *are* useful is as **test oracles at arm's length** — a separate
-process, no linking, no copying. That is the contract `mkfs_ext4` has
-with the ext4 checker and `mkfs_erofs` has with the erofs checker in CI,
+process, no linking, no copying. That is the contract `mkfs.ext4` has
+with the ext4 checker and `mkfs.erofs` has with the erofs checker in CI,
 and it is unaffected by any of the above.
 
 ---
@@ -220,16 +223,18 @@ and `debugfs` has a `cat` command. But this scheme's whole claim is one
 uniform vocabulary rather than twenty years of drift, and borrowing
 shell idioms piecemeal is how that drift begins.
 
-The namespace verbs the drivers already implement follow the same rule —
-name the operation, in matched pairs where one exists:
+Namespace verbs follow the same rule — name the operation, in matched
+pairs where one exists — and, like every per-path operation, they are
+subcommands of `fs.<fs>`, not dotted names:
 
 ```
-mkdir.ext4  disk.img /new/dir
-rm.ext4     disk.img /path
-mv.ext4     disk.img /from /to
-ln.ext4     disk.img /target /link
-touch.ext4  disk.img /path
+fs.ext4  disk.img mkdir /new/dir
 ```
+
+`mkdir` is the one namespace verb in the shipped set. The drivers can
+do more (`rust-ntfs` has `rm`, `rename`, `link` and `touch`), and should
+one ever be added it is named the same way — `rm`, `mv`, `ln`, `touch`
+— as a subcommand.
 
 **The target is always the first argument.** `mkfs.*` and `fsck.*`
 already work that way, so extending it costs nothing and means the disk
@@ -315,25 +320,37 @@ Nothing needs to replace it. The identification step already exists as a
 domain-named tool:
 
 ```
-blk.probe /dev/disk4          → ext4
-ls.ext4   /dev/disk4 /etc
+blk.probe /dev/disk4                          → ext4, partition at 1048576
+fs.ext4   --offset 1048576 /dev/disk4 ls /etc
 ```
 
 Two commands, both honest, and nothing is ever inferred wrongly on a
-mutating verb.
+mutating verb. `--offset <bytes>` is on every `fs.<fs>`, so a partition
+inside a whole-disk image is addressable from `blk.probe`'s `start`.
 
-**Package names are a different layer.** `diskjockey-btrfs` as a
-*formula* is fine — packages are routinely vendor-named and no formula
-name lands on anyone's PATH. Only what lands in `bin/` must be
-domain-named.
+`blk.probe` itself is **an internal tool of this application**, staged
+inside the app bundle: it has no formula and is not part of the public
+`fs.`/`img.` families (owner decision, #235).
+
+**Package names are a different layer**, and no formula name lands on
+anyone's PATH. A formula is named for the **repository** —
+`rust-fs-btrfs` — see [Distribution](#distribution).
 
 ### Cargo cannot produce a dotted name
 
-Tested: `error: invalid character '.' in crate name`. So the cargo
-target keeps an underscore (`mkfs_ext4`) and the **release step**
-renames it, so the published tarball carries the real name. Renaming in
+Tested: `error: invalid character '.' in crate name`. So the one cargo
+target in each repository is the multi-call binary, named for the
+**repository** (`rust-fs-ext4`), and the dotted names are relative
+symlinks to it that the **release step** makes. The published tarball
+carries the real names and nothing cargo calls anything. Renaming in
 the formula instead would leave the build-system artefact visible in a
 public artifact.
+
+The repository name is also installed on PATH, as the one name nothing
+else can shadow, and it carries `<repo> doctor`: it resolves each dotted
+name on PATH, checks through `--version` that the one found is ours, and
+prints the winner and the exact fix if not. Every repository's `cli`
+suite runs it first and fails with its output if anything is shadowed.
 
 ---
 
@@ -350,9 +367,12 @@ filesystems answer the same way.
    two are different layers.)
 
 2. **Same flags for the same concepts** — `--label`, `--size`,
-   `--force`, `--json`, `--quiet`. This is where Linux fails worst: `-L`
-   happens to agree across the three formatters, but `-f`, `-n` and `-b`
-   all diverge.
+   `--force`, `--json`, `--text`, `--quiet`, `--offset`. This is where
+   Linux fails worst: `-L` happens to agree across the three formatters,
+   but `-f`, `-n` and `-b` all diverge. Every tool parses with clap,
+   behind a `cli` cargo feature with `required-features` on the binary,
+   so the static libraries the app links gain nothing; `--help` carries
+   an example per subcommand.
 
 3. **Same output envelope.** Common fields at the top, filesystem
    specifics nested:
@@ -394,12 +414,15 @@ filesystems answer the same way.
 
    So the split is a rule rather than an exception:
 
-   - **one specific action** gets its own dotted name — `mkfs`, `fsck`,
-     `read`, `write`, `ls`, `mkdir`, `rm`, `mv`, `ln`, `touch`. Support
-     is per-verb, so the link carries it.
-   - **a namespace of operations over a keyspace** gets one tool with
-     subcommands. Support is per-key and has to be discovered by
-     asking, which is what `fs.<fs> <target> get` with no key does.
+   - **a whole-filesystem lifecycle action** gets its own dotted name —
+     `mkfs` and `fsck`, and nothing else. Support is per-verb, so the
+     link carries it.
+   - **everything else** — the per-path operations (`ls`, `read`,
+     `write`, `mkdir`) and the keyspace (`get`, `set`, `info`) — is a
+     subcommand of `fs.<fs>`. Support is per-key or per-path and has to
+     be discovered by asking, which is what `fs.<fs> <target> get` with
+     no key does, and an unsupported verb answers with a structured
+     error rather than `command not found`.
 
    **JSON by default; `--text` for humans.** These tools exist to be
    driven — the automated test pipeline is the primary consumer, not
@@ -421,7 +444,7 @@ filesystems answer the same way.
    **One carve-out, and it is forced rather than chosen:** `read` writes
    FILE BYTES to stdout and `write` consumes them on stdin. Wrapping
    arbitrary binary in JSON means base64, which makes the ordinary
-   `read.ext4 disk.img /path > out.bin` both wrong and expensive. So:
+   `fs.ext4 disk.img read /path > out.bin` both wrong and expensive. So:
 
    | | default |
    |---|---|
@@ -498,22 +521,20 @@ filesystems answer the same way.
    already mandates cover both in one verb:
 
    ```
-   info.ext4 disk.img                 # whole envelope
-   info.ext4 disk.img label --text    # one bare value
+   fs.ext4 disk.img info              # whole envelope
+   fs.ext4 disk.img info label --text # one bare value
    ```
 
    What actually argues for two names is narrower, and it is
    discoverability against symmetry. `info` is the conventional name —
    `xfs_info`, `ntfsinfo`, `dumpe2fs` — and is what someone asking "what
    IS this filesystem" reaches for. But `get`/`set` is a pair, and
-   `info`/`set` is not: a reader who has learnt `set.ext4 disk.img label
-   X` will guess `get.ext4 disk.img label`.
+   `info`/`set` is not: a reader who has learnt `fs.ext4 disk.img set
+   label X` will guess `fs.ext4 disk.img get label`.
 
-   The multi-call design settles that cheaply. One binary dispatching on
-   `argv[0]` means a second name is **one more symlink and no code at
-   all** — so both exist, with one implementation behind them. That is
-   not the compromise it would be if these were separate binaries; it is
-   the same property that makes the whole verb matrix affordable.
+   Subcommands settle that cheaply: a second name is **one more alias
+   and no code at all** — so both exist, with one implementation behind
+   them.
 
 **Enforcement:** the verb set, flag vocabulary and output envelope live
 in a shared crate that each filesystem *fills in*. A new filesystem then
@@ -542,6 +563,46 @@ copy (antimatter-studios/rust-fs-core#177).
 
 ---
 
+## Disk images: `img.<fmt>`
+
+The container formats (qcow2, vhd, vhdx, vmdk) **join the interface
+contract under their own family name**, `img.<fmt> <image> <subcommand>`
+(owner decision, #235). They are not `fs.*` tools and they get no
+per-verb dotted names.
+
+- **The same shape as `fs.<fs>`:** target first, JSON metadata by
+  default with `--text`, raw bytes for content, structured errors,
+  "not implemented" answers, `--version`, `doctor`, the shared flags and
+  envelope (`format`, `virtual_size`, `block_size`, `backing`, `dirty`,
+  then format-specific keys nested).
+- **A verb set that fits a block address space:** `info`/`get [key]`;
+  `read [--offset N] [--length N]`, which with no range streams the whole
+  virtual disk as raw bytes, so conversion to raw is just reading;
+  `write --offset N` from stdin; `create <size>` where the crate can
+  create; `resize` and `set` answer "not implemented". No `ls` and no
+  `mkdir`: an image has no paths.
+- **Rejected: `info.qcow2`, `ls.qcow2`**, for the reason the dotted file
+  verbs were rejected above — there is no principled place to stop, and
+  a missing link reads as "not installed" rather than "not supported".
+- **Rejected: teaching `fs.<fs>` to open containers**
+  (`fs.ext4 disk.qcow2 ls /`). A filesystem crate would then link
+  container readers, against the rule that each crate is its own archive.
+  Composition goes through a raw image instead:
+
+  ```sh
+  img.qcow2 d.qcow2 read -o d.raw && fs.ext4 d.raw ls /
+  ```
+
+  The cost, stated plainly: a temporary raw file as large as the virtual
+  disk. For an escape hatch that is acceptable. If it proves not to be,
+  the answer is a separate composing tool, not bundling.
+
+The tools these replace — `qcow2_tool`, `vhd_tool` and `lssquashfs` —
+were never in a tarball or a formula, so there are no transition links;
+each repository's CHANGELOG names the replacement.
+
+---
+
 ## Distribution
 
 ### Homebrew, not direct download
@@ -553,76 +614,116 @@ the channel on its own.
 
 The tap already exists: `antimatter-studios/homebrew-tap`.
 
-### One tap, formulae named per repo
+### One tap, formulae named for the repository
 
-The binaries are built and released from each filesystem's own repo; the
-*formulae* all live in the one existing tap. Six taps would mean six
-`brew tap` commands before anything is installable.
+The binaries are built and released from each driver's own repository;
+the *formulae* all live in the one existing tap. Eleven taps would mean
+eleven `brew tap` commands before anything is installable.
 
-Formulae are named for the **repo**, not for one binary —
-`diskjockey-btrfs`, not `mkfs-btrfs` — because a repo grows tools and a
-binary-named formula goes stale the moment it ships a second one. The
-ecosystem agrees: e2fsprogs is one formula shipping 30 binaries.
+Formulae are named for the **repository**, not for one binary —
+`brew install antimatter-studios/tap/rust-fs-btrfs`, not `mkfs-btrfs` —
+because a repository grows tools and a binary-named formula goes stale
+the moment it ships a second one. The ecosystem agrees: e2fsprogs is one
+formula shipping 30 binaries. (An earlier draft named them
+`diskjockey-<fs>`; that is superseded by the owner's decision on #235.)
 
 House idiom for this tap is **prebuilt per-platform tarballs from GitHub
 Releases** with sha256 (see `chore.rb`), not build-from-source. Tarballs
-are named for the crate — `am-fs-btrfs-0.6.0-darwin-arm64.tar.gz` —
-with the dotted binary inside: artifact named for the source, binary
-named for the user, and no extra dot for a filename parser to trip over.
+are named for the crate — `am-fs-btrfs-0.8.0-darwin-arm64.tar.gz` —
+with the tools inside: artifact named for the source, binary named for
+the user, and no extra dot for a filename parser to trip over. Targets:
+`darwin-arm64` and `linux-x86_64`.
 
-Every repo's current `release.yml` is crates.io publish only, so emitting
-binary tarballs is new work in each. It should be **one reusable
-workflow** called with a binary name, not seven copies of the same YAML.
+### The tarball is the contract; the formula is a template
 
-### Linking: macOS yes, Linux keg-only
+Every repository's tarball is an install prefix with one layout:
 
-| platform | linked | why |
-|---|---|---|
-| macOS | yes | nothing to shadow — no `mkfs` dispatcher exists, and no `mkfs.*` ships in the base system |
-| Linux | **keg-only** | the real tools exist and should win by default |
+```
+bin/<repo>                                  the multi-call binary, the real file
+bin/<dotted name>                           -> <repo>, a relative symlink, per tool
+share/man/man1/, share/man/man8/            section 8 for mkfs.*/fsck.*, 1 for the rest
+share/zsh/site-functions/
+share/bash-completion/completions/
+share/fish/vendor_completions.d/
+share/<repo>/CAVEATS                        at most four lines, shown after install
+LICENSE
+```
 
-The Linux hazard is not hypothetical and is not solved by declining to
-write a dispatcher: `mkfs -t ext4` works on any Linux box because
-util-linux's `mkfs` is already there, and it resolves `mkfs.ext4` off
-PATH regardless of our intentions. Leaving it to PATH ordering means the
-outcome depends on how a user's shell happens to be configured, and the
-failure mode is someone formatting a real disk with our implementation
-while believing they ran the mature one. That is a race worth not
-entering.
+The man pages and completions are generated by the binary itself
+(`<repo> generate man|completions`, through `clap_mangen` and
+`clap_complete`), so a page cannot describe a flag the program does not
+take. Each repository's CI builds the tarball on every pull request and
+checks the layout, so a release is not the first time it is put
+together.
 
-Precedent, in our own dependency tree: Homebrew ships e2fsprogs
-`keg_only`, which is why `mkfs.ext4` is present on a Mac with it
-installed and still absent from PATH.
+Every formula is then the same template — `prefix.install Dir["*"]`,
+caveats read from `share/<repo>/CAVEATS` — and the tap's CI checks each
+`rust-fs-*`/`rust-img-*` formula against it. The tap only syncs
+version, URL and sha256.
+
+### Released with the library, attested, synced by hand
+
+- **The CLI rides the library's release, at the same version.** A
+  manually pushed `v*` tag runs the repository's `release.yml`, which
+  publishes the crate and attaches the tarballs. There is no separate
+  trigger for the tools.
+- **Every tarball is attested** with build provenance
+  (`actions/attest-build-provenance`). Before a formula update merges,
+  each asset is checked with
+
+  ```
+  gh attestation verify <tarball> --repo <owner>/<repo> \
+      --signer-workflow <owner>/<repo>/.github/workflows/release.yml
+  ```
+
+  plus its sha256 against the formula and `--version` naming the
+  expected crate and version. That proves the binary was built by that
+  repository's release workflow from a commit in that repository; it
+  does not protect against a malicious commit reaching the tag, which
+  review and branch protection still carry.
+- **The tap sync stays human-gated.** A release only publishes the
+  tarballs. The formula moves when the tap's sync workflow is run by
+  hand and its pull request merged; `brew update` then picks it up.
+  Nothing in a driver repository triggers the tap.
+
+The release jobs are still **one copy per repository**. The design
+asked for one reusable workflow called with the repository's names, and
+that is not built yet: see [Still open](#still-open).
+
+### Linking: ours is the default, on macOS and Linux
+
+Formulae **link normally on both platforms**, with no `keg_only` and no
+`conflicts_with`: ours is the default on PATH, which is how it gets
+used and how its bugs get found. (An earlier draft made the leaves
+keg-only on Linux so the system tools would win; that is superseded by
+the owner's decision on #235.)
+
+The hazard that draft was guarding against is real — util-linux's `mkfs
+-t ext4` resolves `mkfs.ext4` off PATH — and it is answered by making
+the winner visible instead of hiding ours:
+
+- **`--version` names the crate** (`mkfs.ext4 (am-fs-ext4) 0.7.0`), so
+  which one ran is never a guess.
+- **`<repo> doctor`** resolves every dotted name on PATH and says which
+  package won, and the exact fix if it is not ours.
+- **CAVEATS names the collision where one exists.** Measured: Homebrew's
+  `e2fsprogs` is keg-only on macOS, so there is no clash; `erofs-utils`
+  is linked and installs `mkfs.erofs`, so `rust-fs-erofs`'s CAVEATS gives
+  the `brew unlink erofs-utils` line and where the reference stays;
+  `btrfs-progs` is linked, but none of its names ships here.
 
 It is a default, not a lock-in — `brew unlink` and `brew link --force`
 both work. And you can add a name later; you cannot take one away, so
 ship the minimal set.
 
-### The umbrella
+### The umbrella, later
 
-`diskjockey-tools` (preferred over `diskjockey-cli`, which reads as
-"the CLI version of DiskJockey" — a thing we are explicitly not
-building) is a pure meta-formula: `depends_on` lines and no binaries of
-its own.
-
-It keeps one job on Linux: because the leaves are keg-only there, it
-collects symlinks into a single directory so there is **one** PATH line
-instead of six. Symlink to each leaf's `opt_bin`, never to the Cellar
-path — `opt` follows the current version, so the umbrella survives leaf
-upgrades untouched.
-
-It must be keg-only on Linux too. A linked umbrella symlinking
-everything would put `mkfs.ext4` back on PATH and undo the whole reason
-the leaves are keg-only.
-
-```console
-# macOS
-brew install antimatter-studios/tap/diskjockey-tools     # done
-
-# Linux
-brew install antimatter-studios/tap/diskjockey-tools
-export PATH="$(brew --prefix diskjockey-tools)/bin:$PATH"
-```
+A pure meta-formula — `depends_on` lines and no binaries of its own —
+comes once three or more drivers ship, which they now do. Because the
+leaves are linked, it has no PATH job to do: it is only a one-line
+install for the whole set. Its name is not decided; it is a package
+name, so it may carry a vendor name, but it must not read as "the CLI
+version of the app", which these tools are explicitly not.
 
 ---
 
@@ -660,7 +761,7 @@ separate packages:
 
 | | signing | pipeline |
 |---|---|---|
-| `mkfs.*`, `fsck.*`, `blk.probe` | none — nothing validates them | plain cross-compile + tarball |
+| `mkfs.*`, `fsck.*`, `fs.*`, `img.*`, `blk.probe` | none — nothing validates them | plain native build + attested tarball |
 | `diskjockey` | Developer ID required | signed build, cert in CI |
 
 The filesystem tools stay trivially portable; only the control CLI
@@ -670,17 +771,31 @@ inherits Apple's machinery.
 
 ## Current state
 
-| repo | ships today | planned |
-|---|---|---|
-| rust-fs-ext4 | `mkfs_ext4` | rename to `mkfs.ext4` |
-| rust-fs-erofs | `mkfs_erofs` | rename to `mkfs.erofs` |
-| rust-fs-ntfs | `rust-ntfs` (**test-harness driver**) | `mkfs.ntfs` added |
-| rust-fs-squashfs | `lssquashfs` | fold into the verb scheme |
-| rust-blk-probe | `blk.probe` | dotted like the rest (owner decision, #235); cargo target `blk_probe`, renamed when staged |
-| rust-img-qcow2 | `qcow2_tool` | rename — `_tool` says nothing |
-| rust-img-vhd | `vhd_tool` | rename |
-| rust-fs-xfs | — | **mkfs deferred — see below**; read verbs first |
-| rust-fs-btrfs | — | **mkfs deferred — see below**; read verbs first |
+As of 2026-10-02. Each repository's tools, its release with tarballs,
+and its formula; the per-repository issues are linked from the tracker,
+#235.
+
+| repository | ships | release with tarballs | formula |
+|---|---|---|---|
+| rust-fs-ext4 | `mkfs.ext4`, `fsck.ext4`, `fs.ext4` | v0.7.0, but its tarball carries only `mkfs.ext4` (christhomas/rust-fs-ext4#475) | `rust-fs-ext4` |
+| rust-fs-ntfs | `mkfs.ntfs`, `fsck.ntfs`, `fs.ntfs` | v0.7.0 | `rust-fs-ntfs` |
+| rust-fs-xfs | `fs.xfs` | v0.10.0 | pending (homebrew-tap#219) |
+| rust-fs-btrfs | `fs.btrfs` | not yet: v0.8.0 attached only the crate (antimatter-studios/rust-fs-btrfs#242) | after that release |
+| rust-fs-erofs | `mkfs.erofs`, `fs.erofs` | v0.3.0 | `rust-fs-erofs` |
+| rust-fs-squashfs | `fs.squashfs` (replaced `lssquashfs`) | v0.3.0 | `rust-fs-squashfs` |
+| rust-img-qcow2 | `img.qcow2` (replaced `qcow2_tool`) | v0.5.1 | `rust-img-qcow2` |
+| rust-img-vhd | `img.vhd` (replaced `vhd_tool`) | v0.5.1 | `rust-img-vhd` |
+| rust-img-vhdx | `img.vhdx` | v0.5.0 | pending (homebrew-tap#215) |
+| rust-img-vmdk | `img.vmdk` | v0.4.0 | pending (homebrew-tap#220) |
+| rust-blk-probe | `blk.probe`, internal to the app | v0.1.0 | none, by decision |
+| rust-partitions | none: `blk.probe` already prints the table; an editor is `sfdisk`/`gdisk` territory | — | — |
+
+Every `fs.<fs>` carries every verb — `ls`, `read`, `write`, `mkdir`,
+`get`/`info`, `set`, `resize` — and answers the ones its driver cannot
+do (a read-only format, a write shape the driver refuses, a resize no
+driver implements) with a structured error. Every `img.<fmt>` carries
+`info`/`get`, `read`, `write`, `create`, `set` and `resize` on the same
+terms. `rust-ntfs` stays the Windows harness driver, unshipped.
 
 ### Why `mkfs.xfs` and `mkfs.btrfs` are deferred — measured 2026-09-04
 
@@ -730,11 +845,36 @@ have `fsck` implementations. Someone can borrow a Linux box to *create*
 a filesystem; "read this disk that will not mount" is why they installed
 DiskJockey, and macOS offers nothing for it.
 
+## Settled since the first draft
+
+- **House style for tools with no dispatcher convention.** A tool that
+  is one member of a per-format family is `<family>.<format>`, target
+  first: `fs.<fs>` and `img.<fmt>`. `lssquashfs` folded into
+  `fs.squashfs`, `qcow2_tool` became `img.qcow2`, `vhd_tool` became
+  `img.vhd`. The probe is `blk.probe`, dotted like the rest; the
+  repository and crate stay `rust-blk-probe`.
+- **The image formats join the verb scheme** as `img.<fmt>` — see
+  [Disk images](#disk-images-imgfmt).
+- **Formula names, linking, attestation and the tap sync** — see
+  [Distribution](#distribution).
+
 ## Still open
 
-- House style for tools with no dispatcher convention — `lssquashfs`,
-  `qcow2_tool`, `vhd_tool`. The tap leans short and lowercase
-  (`chore`, `ddt`, `dotman`, `tacli`). The probe is `blk.probe`, dotted
-  like the filesystem tools (owner decision, #235).
-- Whether the image formats (qcow2, vhd, vhdx, vmdk) join the same verb
-  scheme — `info.qcow2`, `ls.qcow2` — or stay separate tools.
+- **One reusable release workflow.** Every repository carries its own
+  `package-cli`/`release-cli` jobs and its own `scripts/package-cli.sh`,
+  and the copies already differ. They belong once, in `rust-fs-core`,
+  called with the repository's names (antimatter-studios/rust-fs-core#193).
+- **The cross-repository pipe test.** `fs.<a> src read <path> | fs.<b>
+  dst write <path>`, compared by SHA-256 and passed through the
+  destination's oracle, plus `img.qcow2 … read` into `fs.ext4` and
+  `blk.probe` into `fs.<fs> --offset`. Proposed as a `chore
+  test:cli-pipe` task in this repository, run against Homebrew-installed
+  formulae on a schedule or by dispatch. It cannot be a required check,
+  because it depends on releases from several repositories (#292).
+- **A `blk.<fmt>` family for partition tables** (`blk.gpt`, `blk.mbr`:
+  `ls`, `info`, `read <n>` streaming one partition's bytes), which would
+  complete `img.qcow2 … read | blk.gpt … read 2 | fs.ext4 … ls`. Not
+  decided; revisit after the `fs.`/`img.` tools land.
+- **`set label` writers** for ext4, xfs and btrfs, and **resize** for
+  every filesystem: the verbs exist and answer "not implemented" until
+  the drivers can do it.
