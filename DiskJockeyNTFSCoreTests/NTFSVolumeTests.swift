@@ -66,7 +66,7 @@ private final class TableBackend: NTFSBackend {
     var remountsThroughDeviceChain = false
     var info: NTFSVolumeInfo? = nil
     var fsckResult: Result<NTFSVolume.FsckReport, Error> =
-        .success(.init(wasDirty: false, dirtyCleared: false, logfileBytes: 0))
+        .success(.init(wasDirty: false, dirtyCleared: false))
 
     /// Paths whose stat fails with this errno instead of answering.
     var statFailures: [VolumePath: Int32] = [:]
@@ -827,11 +827,11 @@ struct NTFSVolumeTests {
 
     @Test func runFsckHandsBackTheDriversReport() throws {
         let b = seededBackend()
-        let report = NTFSVolume.FsckReport(wasDirty: true, dirtyCleared: true, logfileBytes: 65536)
+        let report = NTFSVolume.FsckReport(wasDirty: true, dirtyCleared: true)
         b.fsckResult = .success(report)
         let result = makeVolume(b).runFsck(onProgress: { _, _, _ in }, onFinding: { _ in })
         #expect(try result.get() == report)
-        #expect(report.toEventFields() == ["dirty_cleared": "true", "logfile_bytes": "65536"])
+        #expect(report.toEventFields() == ["dirty_cleared": "true"])
     }
 
     /// The device context the C callbacks read through must outlive the

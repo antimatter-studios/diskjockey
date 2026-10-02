@@ -189,11 +189,10 @@ public enum DiskEventHandler {
             )
         case "fsck.done":
             let dirtyCleared = (fields["dirty_cleared"] ?? "false") == "true"
-            let logfileBytes = UInt64(fields["logfile_bytes"] ?? "0") ?? 0
             let repaired = fields["repaired_count"].flatMap(UInt64.init)
             let anomalies = fields["anomalies"].flatMap(UInt64.init)
             return FsckStatusUpdate(
-                status: .completed(dirtyCleared: dirtyCleared, logfileBytes: logfileBytes),
+                status: .completed(dirtyCleared: dirtyCleared),
                 repairedCount: repaired,
                 anomaliesFound: anomalies
             )

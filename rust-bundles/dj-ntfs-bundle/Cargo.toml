@@ -14,7 +14,7 @@ name = "dj_ntfs_bundle"
 crate-type = ["staticlib"]
 
 [dependencies]
-am-fs-ntfs = "0.6.0"
+am-fs-ntfs = "0.7.0"
 am-img-qcow2 = "0.5.1"
 am-img-vhd = "0.5.1"
 am-img-vhdx = "0.5.0"

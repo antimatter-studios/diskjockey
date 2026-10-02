@@ -804,7 +804,7 @@ struct AttachedDiskDetailView: View {
                 .foregroundStyle(.white)
                 .padding(.horizontal, 6).padding(.vertical, 2)
                 .background(Capsule().fill(status == .dirty ? Color.red : Color.orange))
-        case .completed(let cleared, _) where cleared:
+        case .completed(let cleared) where cleared:
             Text("repaired")
                 .font(.caption2).bold()
                 .foregroundStyle(.white)
@@ -851,16 +851,13 @@ struct AttachedDiskDetailView: View {
         case .running(let phase, _, _):
             Label("Running fsck · \(phase)", image: "tabler-arrow-triangle-2-circlepath")
                 .foregroundStyle(.orange)
-        case .completed(let cleared, let bytes):
-            // `cleared == true` covers both NTFS ($LogFile reset + dirty
-            // bit cleared) and ext4 (anomalies repaired) — the model
-            // collapses both into one boolean. `bytes` is whatever the
-            // extension chose to count as "scanned/reset volume" — see
-            // partition log for per-finding detail. Wording diverges by
-            // fs because NTFS's "repair" is a $LogFile rewrite while
-            // ext4's is a structural anomaly fix — same boolean, very
-            // different user-visible meaning.
-            let detail = completedDetail(fsType: fsType, cleared: cleared, bytes: bytes)
+        case .completed(let cleared):
+            // `cleared == true` covers both NTFS (dirty bit cleared over
+            // an empty or clean $LogFile) and ext4 (anomalies repaired) —
+            // the model collapses both into one boolean; the partition log
+            // has per-finding detail. Wording diverges by fs because the
+            // same boolean means very different things to the user.
+            let detail = completedDetail(fsType: fsType, cleared: cleared)
             Label(detail, image: "tabler-checkmark-seal-fill")
                 .foregroundStyle(.green)
         case .failed(let err):
@@ -869,18 +866,20 @@ struct AttachedDiskDetailView: View {
         }
     }
 
-    private func completedDetail(fsType: String, cleared: Bool, bytes: UInt64) -> String {
+    private func completedDetail(fsType: String, cleared: Bool) -> String {
         switch fsType {
         case "fsntfs":
+            // fsck never rewrites $LogFile: it refuses a log that may
+            // hold transactions, and otherwise only clears the flag.
             return cleared
-                ? "Dirty bit cleared — $LogFile reset (\(bytes) bytes touched)"
-                : "Volume already clean (\(bytes) bytes scanned)"
+                ? "Dirty bit cleared — $LogFile was empty or clean"
+                : "Volume already clean"
         default:
             // ext4 wording — also the safe fallback for any future
             // verify-capable fs that hasn't customised its phrasing yet.
             return cleared
-                ? "Anomalies cleared (\(bytes) bytes touched) — see partition log"
-                : "No anomalies found (\(bytes) bytes scanned)"
+                ? "Anomalies cleared — see partition log"
+                : "No anomalies found"
         }
     }
 

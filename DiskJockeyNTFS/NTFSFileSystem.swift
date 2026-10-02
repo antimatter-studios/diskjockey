@@ -708,8 +708,10 @@ extension NTFSFileSystem: FSManageableResourceMaintenanceOperations {
 /// Maps the rust crate's phase/done/total stream onto a 0-100
 /// `NSProgress.completedUnitCount`. Mirror of `EXT4FileSystem`'s
 /// `FsckProgressTracker` with NTFS-specific phase weights — the rust
-/// crate emits `"reset_logfile"` (long, byte-count progress) and
-/// `"clear_dirty"` (single tick around a 2-byte write).
+/// crate emits `"check_logfile"` (reading `$LogFile` to decide whether
+/// it may hold transactions) and `"clear_dirty"` (single tick around a
+/// 2-byte write). It emitted `"reset_logfile"` before am-fs-ntfs 0.7.0,
+/// which no longer writes the log.
 ///
 /// Lock guards the mutable cursor so callbacks fired from the rust
 /// thread are serialised against any future caller.
@@ -722,7 +724,7 @@ final class FsckProgressTracker: @unchecked Sendable {
 
     private static let totalUnits: Int64 = 100
     private static let phaseWeight: [String: Int64] = [
-        "reset_logfile": 90,
+        "check_logfile": 90,
         "clear_dirty":   10,
     ]
 

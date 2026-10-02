@@ -73,12 +73,11 @@ struct DiskEventHandlerTests {
             kind: "fsck.done",
             fields: [
                 "dirty_cleared": "true",
-                "logfile_bytes": "4096",
                 "repaired_count": "7",
                 "anomalies": "3",
             ]
         )
-        #expect(update?.status == .completed(dirtyCleared: true, logfileBytes: 4096))
+        #expect(update?.status == .completed(dirtyCleared: true))
         #expect(update?.repairedCount == 7)
         #expect(update?.anomaliesFound == 3)
     }
@@ -86,9 +85,9 @@ struct DiskEventHandlerTests {
     @Test func testDecodeFsckStatusDoneWithMissingCountersLeavesThemNil() {
         let update = DiskEventHandler.decodeFsckStatus(
             kind: "fsck.done",
-            fields: ["dirty_cleared": "true", "logfile_bytes": "0"]
+            fields: ["dirty_cleared": "true"]
         )
-        #expect(update?.status == .completed(dirtyCleared: true, logfileBytes: 0))
+        #expect(update?.status == .completed(dirtyCleared: true))
         #expect(update?.repairedCount == nil)
         #expect(update?.anomaliesFound == nil)
     }
@@ -115,13 +114,12 @@ struct DiskEventHandlerTests {
             kind: "fsck.done",
             fields: [
                 "dirty_cleared": "true",
-                "logfile_bytes": "4096",
                 "repaired_count": "7",
                 "anomalies": "3",
             ],
             to: &disk
         )
-        #expect(disk.fsckStatus == .completed(dirtyCleared: true, logfileBytes: 4096))
+        #expect(disk.fsckStatus == .completed(dirtyCleared: true))
         #expect(disk.lastRepairedCount == 7)
         #expect(disk.lastAnomaliesFound == 3)
     }

@@ -236,30 +236,28 @@ final class NTFSVolume: FSVolume,
 
     /// Mirror of `EXT4Backend.FsckReport`. Common fields (`wasDirty`,
     /// `dirtyCleared`) are intentionally identically named so callers
-    /// can render them with the same code path. `logfileBytes` is
-    /// NTFS-specific (the number of bytes overwritten in `$LogFile`
-    /// during recovery); ext4 sets the analogous field to 0.
+    /// can render them with the same code path. There is no byte count:
+    /// since am-fs-ntfs 0.7.0 fsck decides from `$LogFile` and never
+    /// writes it, so the count it used to report is always zero.
     struct FsckReport: Equatable {
         let wasDirty: Bool
         let dirtyCleared: Bool
-        let logfileBytes: UInt64
 
         /// Format the report as `fsck.done` event fields. Mirrors
         /// `EXT4Backend.FsckReport.toEventFields()` — both include
-        /// `dirty_cleared` and `logfile_bytes` so the host app's
+        /// `dirty_cleared` so the host app's
         /// `AttachedDisksModel.applyEventInPlace` consumes either with
         /// the same code path.
         func toEventFields() -> [String: String] {
             return [
                 "dirty_cleared": dirtyCleared ? "true" : "false",
-                "logfile_bytes": "\(logfileBytes)",
             ]
         }
     }
 
     /// Mirror of `EXT4Backend.FsckFinding`. NTFS fsck has no
     /// per-finding callback (the rust crate only reports progress + a
-    /// terminal logfile_bytes / dirty_cleared pair), so the `onFinding`
+    /// terminal dirty_cleared flag), so the `onFinding`
     /// closure is never invoked — kept for shape parity with EXT4 so
     /// `startCheck` looks identical across extensions.
     struct FsckFinding {
