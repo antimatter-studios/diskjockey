@@ -18,7 +18,7 @@ public enum FsckStatus: Equatable, Hashable, Sendable {
     case clean
     case dirty
     case running(phase: String, done: UInt64, total: UInt64)
-    case completed(dirtyCleared: Bool, logfileBytes: UInt64)
+    case completed(dirtyCleared: Bool)
     case failed(String)
 }
 

@@ -302,7 +302,6 @@ final class NTFSDriver: NTFSBackend {
             let boxPtr = Unmanaged.passRetained(box).toOpaque()
             defer { Unmanaged<FsckProgressBox>.fromOpaque(boxPtr).release() }
 
-            var logfileBytes: UInt64 = 0
             var dirtyCleared: UInt8 = 0
             let rc = fs_ntfs_fsck_with_callbacks(
                 &cfg,
@@ -313,15 +312,13 @@ final class NTFSDriver: NTFSBackend {
                     return 0
                 },
                 boxPtr,
-                &logfileBytes,
                 &dirtyCleared
             )
             remount()
             if rc == 0 {
                 return .success(NTFSVolume.FsckReport(
                     wasDirty: true,
-                    dirtyCleared: dirtyCleared == 1,
-                    logfileBytes: logfileBytes
+                    dirtyCleared: dirtyCleared == 1
                 ))
             }
             let msg = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "fs_ntfs_fsck_with_callbacks failed (rc=\(rc))"
@@ -334,7 +331,7 @@ final class NTFSDriver: NTFSBackend {
         case 0:
             // Clean — nothing to do, just remount and report.
             remount()
-            return .success(NTFSVolume.FsckReport(wasDirty: false, dirtyCleared: false, logfileBytes: 0))
+            return .success(NTFSVolume.FsckReport(wasDirty: false, dirtyCleared: false))
 
         default:
             // Dirty check itself failed.
@@ -392,10 +389,9 @@ final class NTFSDriver: NTFSBackend {
         // Step 2: fsck only when dirty (matches the callback-based path).
         if wasDirty {
             dlog.event(kind: "fsck.start", scope: AppLogScope.fsck)
-            var logfileBytes: UInt64 = 0
             var dirtyCleared: UInt8 = 0
             let rc = fs_ntfs_fsck_with_fs_core_device(
-                containerHandle, nil, nil, &logfileBytes, &dirtyCleared
+                containerHandle, nil, nil, &dirtyCleared
             )
             if rc != 0 {
                 let err = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
@@ -407,7 +403,6 @@ final class NTFSDriver: NTFSBackend {
             }
             dlog.event(kind: "fsck.done", fields: [
                 "dirty_cleared": dirtyCleared == 1 ? "true" : "false",
-                "logfile_bytes": "\(logfileBytes)",
             ], scope: AppLogScope.fsck)
         }
 
