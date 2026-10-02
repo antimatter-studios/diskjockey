@@ -635,7 +635,7 @@ filesystems. Branded correctly, because the brand is its subject —
 The transport already exists. `com.antimatterstudios.diskjockey.agent`
 is a registered Mach service and `DJAgentClient.swift` already connects
 to it with `NSXPCConnection(machServiceName:)`. It vends `attachImage`,
-`detachDevice`, `mountFSKit` and `probeImage` — all operations a
+`detachDevice` and `probeImage` — all operations a
 sandboxed app cannot perform itself, which is why the agent exists. The
 `diskjockey://` URL scheme is the other channel but is fire-and-forget,
 so it is useless for scripting.
