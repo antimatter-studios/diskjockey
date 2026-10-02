@@ -164,6 +164,77 @@ struct OperationLockTests {
     }
 }
 
+// MARK: - The check the system runs while mounting (diskjockey#166)
+
+/// `diskutil mount` loads the volume, runs a `-q` check through
+/// `startCheck`, and then mounts. The log the issue quotes ends at
+/// `fsck.done` and the mount fails. Two properties of the lock decide
+/// whether the mount's first operations are answered or refused EBUSY.
+@Suite("OperationLock and the mount-time check")
+struct OperationLockMountTimeCheckTests {
+
+    /// FSKit treats `didComplete` as the end of the check and mounts from
+    /// there. Whatever the report closure does stands in for the volume's
+    /// first operation: it must find the lock free.
+    @Test("the lock is free by the time completion is reported",
+          arguments: [FsckOperation.verify, .repair, .quickCheck])
+    func finishReleasesBeforeReporting(op: FsckOperation) {
+        let lock = OperationLock()
+        #expect(lock.tryAcquire(op) == nil)
+        var holderWhenReported: FsckOperation? = op
+        var reported = false
+        lock.finish {
+            reported = true
+            holderWhenReported = lock.current
+        }
+        #expect(reported, "finish must report exactly as it was asked to")
+        #expect(holderWhenReported == nil,
+                "completion was reported while \(op.displayName) still held the lock — the mount's first operations are refused EBUSY")
+        #expect(lock.current == nil)
+    }
+
+    /// The other half of "free": a repair queued behind the check can
+    /// start the moment the check is reported over.
+    @Test func anotherOperationCanStartFromTheCompletionReport() {
+        let lock = OperationLock()
+        #expect(lock.tryAcquire(.quickCheck) == nil)
+        var refusedBy: FsckOperation? = .quickCheck
+        lock.finish { refusedBy = lock.tryAcquire(.repair) }
+        #expect(refusedBy == nil,
+                "a repair must be able to acquire once the check is reported done")
+        #expect(lock.current == .repair)
+    }
+
+    /// The options FSKit forwarded in the issue's log were exactly ["-q"].
+    @Test func theMountsQuickCheckIsRecognisedFromItsOptions() {
+        #expect(FsckOperation(checkOptions: ["-q"]) == .quickCheck)
+        #expect(FsckOperation(checkOptions: []) == .verify)
+        #expect(FsckOperation(checkOptions: ["-n"]) == .verify)
+        #expect(FsckOperation(checkOptions: ["-y"]) == .repair)
+        #expect(FsckOperation(checkOptions: ["-q", "-y"]) == .repair,
+                "a repair writes, so it is a repair whatever else is asked")
+    }
+
+    /// The mount's own operations arrive while the quick check runs; they
+    /// must not be refused. A verify or repair someone asked for on a
+    /// mounted volume still quiesces it, as it did before.
+    @Test func onlyTheQuickCheckLeavesTheVolumeAnswering() {
+        #expect(FsckOperation.quickCheck.quiescesVolume == false,
+                "the mount-time check must not make the volume refuse the mount's operations")
+        #expect(FsckOperation.verify.quiescesVolume)
+        #expect(FsckOperation.repair.quiescesVolume)
+    }
+
+    /// Not quiescing the volume is not the same as not holding the lock:
+    /// a repair still may not start under a running quick check.
+    @Test func aQuickCheckStillExcludesARepair() {
+        let lock = OperationLock()
+        #expect(lock.tryAcquire(.quickCheck) == nil)
+        #expect(lock.tryAcquire(.repair) == .quickCheck)
+        #expect(lock.tryAcquire(.verify) == .quickCheck)
+    }
+}
+
 @Suite("FsckOperation")
 struct FsckOperationTests {
 
@@ -178,8 +249,8 @@ struct FsckOperationTests {
     }
 
     @Test func displayNamesAreDistinctAndNonEmpty() {
-        let names = [FsckOperation.verify, .repair].map(\.displayName)
-        #expect(names == ["verify", "repair"])
+        let names = [FsckOperation.verify, .repair, .quickCheck].map(\.displayName)
+        #expect(names == ["verify", "repair", "quick check"])
         #expect(Set(names).count == names.count)
     }
 }
