@@ -73,9 +73,14 @@ public enum FsckOperation: String, Sendable {
 
     /// Whether the volume answers its own operations EBUSY while this
     /// operation holds the lock (the "quiesce" in `EXT4Volume.ensureIdle`).
+    ///
+    /// The quick check does not: the operations that reach the volume
+    /// while it runs are the mount's own, and refusing them fails the
+    /// mount (diskjockey#166). They wait on the backend's lock instead.
     public var quiescesVolume: Bool {
         switch self {
-        case .verify, .repair, .quickCheck: return true
+        case .verify, .repair: return true
+        case .quickCheck: return false
         }
     }
 }
@@ -119,8 +124,8 @@ public final class OperationLock: @unchecked Sendable {
     /// immediately. Every one of them that finds the lock still held is
     /// refused EBUSY.
     public func finish(reporting report: () -> Void) {
-        report()
         release()
+        report()
     }
 
     /// Snapshot of the current holder, or nil if `.idle`. Useful for
