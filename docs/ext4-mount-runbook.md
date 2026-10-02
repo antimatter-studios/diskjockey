@@ -48,13 +48,13 @@ extension on macOS 26. Assumes the Swift side has built cleanly in Xcode
 
 ## Mount flow via the UI
 
-File > Attach ext4 image… (⌘⇧E) ⇒ file picker ⇒ name prompt.
+File > Attach disk image… (⌘⇧E) ⇒ file picker. There is no name prompt
+and no filesystem choice.
 
-Under the hood, DiskJockey runs:
-
-```sh
-/sbin/mount -F -t ext4 <image-path> /Volumes/<name>
-```
+Under the hood, DiskJockey attaches the image with `hdiutil attach` (through
+its agent) and mounts each resulting device with Disk Arbitration. DA probes
+the device, picks the driver itself, and mounts the volume at
+`/Volumes/<its own label>`; the app's log names the mount point DA reports.
 
 ## Mount flow via CLI (for debugging)
 
