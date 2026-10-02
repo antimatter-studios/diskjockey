@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
-# check-bundle-core-pin.sh — refuse a committed bundle lockfile that resolves
-# am-fs-core below the minimum this project has actually verified.
+# check-bundle-floors.sh — refuse a committed bundle lockfile that resolves
+# am-fs-core, or an image-container crate, below the minimum this project has
+# actually verified.
 #
 # WHY THIS EXISTS RATHER THAN RELYING ON the guards' pre-commit rust-deps-pinned.
 # That hook's `cargo metadata --locked` check (part 4) asks "is this lockfile
@@ -16,26 +17,48 @@
 #
 # So this asks a different, narrower question: not "is the lock internally
 # consistent" but "does it name a version we have actually decided is the
-# floor." MINIMUM_AM_FS_CORE below is that floor, bumped by hand when a fix
-# in am-fs-core is judged to matter to this project -- the same way
+# floor." FLOORS below holds that floor per crate, bumped by hand when a fix
+# in the crate is judged to matter to this project -- the same way
 # SIBLING_PINS.txt is bumped by hand for go-networkfs. It is not a general
 # "warn about anything behind latest" check; that is a different, harder
 # problem (a floor that always trails whatever crates.io just published is
 # not a policy anyone would follow), and it is not this script's job to
 # invent one -- see the note on agent-skills#34 in the issue this closes.
 #
-# Usage:  scripts/check-bundle-core-pin.sh
-#         scripts/check-bundle-core-pin.sh --self-test
+# Usage:  scripts/check-bundle-floors.sh
+#         scripts/check-bundle-floors.sh --self-test
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 
-# Bumped by hand. 0.2.10 is the release fixing the silent-wrong-bytes GPT
-# slice defect from diskjockey#90 (am-fs-core CHANGELOG 0.2.5) plus three
-# further correctness fixes (0.2.8, 0.2.9, and the pre-0.2.10 Unreleased
+# Bumped by hand, one line per crate: the crate, its floor, and why.
+#
+# am-fs-core 0.2.10 is the release fixing the silent-wrong-bytes GPT slice
+# defect from diskjockey#90 (am-fs-core CHANGELOG 0.2.5) plus three further
+# correctness fixes (0.2.8, 0.2.9, and the pre-0.2.10 Unreleased
 # oversize-slice fix) that shipped between the version these bundles had
 # been stuck on and this one.
-MINIMUM_AM_FS_CORE="0.2.10"
+#
+# THE IMAGE CRATES (#277). Every bundle links all four, and the EXT4 and
+# NTFS extensions open .qcow2/.vhd/.vhdx/.vmdk images through them. They sat
+# one and two breaking releases behind with nothing to notice, which is the
+# shape #90 was, so they have floors too:
+#   am-img-vmdk 0.4.0  concurrent writes lost data while reporting success; a
+#                      zeroed grain read as the descriptor; the grain-table
+#                      cache was keyed by slot, not table.
+#   am-img-vhdx 0.4.0  a log format it could not parse was replayed, and an
+#                      unknown Required region was not refused.
+#   am-img-qcow2 0.5.0 allocating a cluster wrote past the device's end
+#                      instead of asking it for room.
+#   am-img-vhd 0.4.0   create_fixed's size agrees with its CHS geometry. No
+#                      read-path fix; the floor is what the bundles moved to.
+FLOORS=(
+    "am-fs-core 0.2.10"
+    "am-img-qcow2 0.5.0"
+    "am-img-vhd 0.4.0"
+    "am-img-vhdx 0.4.0"
+    "am-img-vmdk 0.4.0"
+)
 
 # Compare two dotted-numeric versions field by field. Returns 0 (true) if
 # $1 >= $2.
@@ -64,7 +87,7 @@ version_ge() {
     return 0 # equal
 }
 
-# Every version resolved for `am-fs-core` in one Cargo.lock, one per line.
+# Every version resolved for crate $2 in one Cargo.lock, one per line.
 # Empty if the package is not present at all -- a bundle that stopped
 # depending on it entirely is not this script's problem to diagnose further,
 # and a non-empty-required check downstream will refuse to treat that as a pass.
@@ -76,10 +99,10 @@ version_ge() {
 # runtime into one staticlib: the duplicate `_rust_eh_personality` this
 # per-bundle layout exists to prevent.
 locked_versions() {
-    local lockfile="$1"
-    awk '
+    local lockfile="$1" crate="$2"
+    awk -v want="name = \"$crate\"" '
         /^\[\[package\]\]/ { hit = 0 }
-        $0 == "name = \"am-fs-core\"" { hit = 1; next }
+        $0 == want { hit = 1; next }
         hit && /^version = / { v = $0; gsub(/^version = "|"$/, "", v); print v; hit = 0 }
     ' "$lockfile"
 }
@@ -121,27 +144,33 @@ for bundle in "$root"/rust-bundles/dj-*-bundle; do
     [ -f "$lockfile" ] || continue
     found_any=1
     name=$(basename "$bundle")
-    versions=$(locked_versions "$lockfile")
-    if [ -z "$versions" ]; then
-        echo "[deps] $name: am-fs-core not found in Cargo.lock -- cannot verify the pin" >&2
-        fail=1
-        continue
-    fi
-    # ONE CORE PER BUNDLE, checked before the floor: two resolutions that
-    # both clear it are still two runtimes, so looping the floor check over
-    # each would pass exactly the lockfile this refuses.
-    if [ "$(printf '%s\n' "$versions" | wc -l | tr -d ' ')" -gt 1 ]; then
-        echo "[deps] $name: Cargo.lock resolves am-fs-core more than once: $(printf '%s\n' "$versions" | tr '\n' ' ')" >&2
-        echo "       One core per bundle. Align the sibling crates' am-fs-core requirements, then cargo update -p am-fs-core." >&2
-        fail=1
-        continue
-    fi
-    v="$versions"
-    if ! version_ge "$v" "$MINIMUM_AM_FS_CORE"; then
-        echo "[deps] $name: am-fs-core $v is below the required floor $MINIMUM_AM_FS_CORE" >&2
-        echo "       Fix: (cd $bundle && cargo update -p am-fs-core) && git add $lockfile" >&2
-        fail=1
-    fi
+    for floor in "${FLOORS[@]}"; do
+        crate="${floor% *}"
+        minimum="${floor#* }"
+        versions=$(locked_versions "$lockfile" "$crate")
+        if [ -z "$versions" ]; then
+            echo "[deps] $name: $crate not found in Cargo.lock -- cannot verify the pin" >&2
+            fail=1
+            continue
+        fi
+        # ONE RESOLUTION PER BUNDLE, checked before the floor: two that both
+        # clear it are still two copies in one staticlib -- two Rust runtimes
+        # for the core, and every #[no_mangle] export twice for an image crate.
+        # Looping the floor check over each would pass exactly the lockfile
+        # this refuses.
+        if [ "$(printf '%s\n' "$versions" | wc -l | tr -d ' ')" -gt 1 ]; then
+            echo "[deps] $name: Cargo.lock resolves $crate more than once: $(printf '%s\n' "$versions" | tr '\n' ' ')" >&2
+            echo "       One per bundle. Align the sibling crates' $crate requirements, then cargo update -p $crate." >&2
+            fail=1
+            continue
+        fi
+        v="$versions"
+        if ! version_ge "$v" "$minimum"; then
+            echo "[deps] $name: $crate $v is below the required floor $minimum" >&2
+            echo "       Fix: raise $crate in $bundle/Cargo.toml, (cd $bundle && cargo update -p $crate) && git add $lockfile" >&2
+            fail=1
+        fi
+    done
 done
 
 # Non-emptiness first. A glob that matched nothing would report success
@@ -153,6 +182,6 @@ if [ "$found_any" -eq 0 ]; then
 fi
 
 if [ "$fail" -eq 0 ]; then
-    echo "all bundle lockfiles pin am-fs-core >= $MINIMUM_AM_FS_CORE"
+    echo "all bundle lockfiles pin each crate once, at or above its floor: ${FLOORS[*]}"
 fi
 exit "$fail"
