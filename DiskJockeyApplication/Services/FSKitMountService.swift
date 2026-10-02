@@ -60,20 +60,14 @@ final class FSKitMountService {
 
     enum FSKitError: LocalizedError {
         case processFailed(exitCode: Int32, stderr: String)
-        case mountPointInUse(String)
         case invalidMountName(String)
-        case authorizationDenied(stderr: String)
 
         var errorDescription: String? {
             switch self {
             case .processFailed(let code, let stderr):
                 return "mount exited \(code): \(stderr)"
-            case .mountPointInUse(let path):
-                return "mount point \(path) already has a volume attached"
             case .invalidMountName(let name):
                 return "invalid mount name \"\(name)\": must be non-empty and contain no slashes"
-            case .authorizationDenied(let stderr):
-                return "administrator authorization was denied or cancelled: \(stderr)"
             }
         }
     }
@@ -86,12 +80,10 @@ final class FSKitMountService {
     ///   - name: volume name — becomes the mount point under /Volumes.
     ///   - fsType: FSKit short name (e.g. `ext4`, `ntfs`). Must correspond to
     ///     a registered FSModule the system can dispatch to.
-    ///   - mountOptions: optional `-o` task-options string passed verbatim
-    ///     to mount(8). Used for partition slicing (`partition_offset=N,
-    ///     partition_length=M,container=K`); the matching extension reads
-    ///     these via FSTaskOptions.taskOptions.
-    func attach(imagePath source: String, name: String, fsType: String,
-                mountOptions: String? = nil) async throws {
+    ///
+    /// A partition table is mounted slice by slice, as `hdiutil attach`
+    /// reports the slices; there is no per-call partition option.
+    func attach(imagePath source: String, name: String, fsType: String) async throws {
         try Self.validateMountName(name)
 
         // Block device path — use DA directly, no root needed.
@@ -380,39 +372,6 @@ final class FSKitMountService {
     private static func validateMountName(_ name: String) throws {
         guard !name.isEmpty, !name.contains("/"), !name.contains("..") else {
             throw FSKitError.invalidMountName(name)
-        }
-    }
-
-    private static func run(executable: String, arguments: [String]) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: executable)
-            process.arguments = arguments
-
-            let stderrPipe = Pipe()
-            process.standardError = stderrPipe
-            process.standardOutput = Pipe()   // suppress stdout noise
-
-            process.terminationHandler = { proc in
-                if proc.terminationStatus == 0 {
-                    continuation.resume()
-                } else {
-                    let data = (try? stderrPipe.fileHandleForReading.readToEnd()) ?? Data()
-                    let msg = String(data: data, encoding: .utf8) ?? ""
-                    continuation.resume(
-                        throwing: FSKitError.processFailed(
-                            exitCode: proc.terminationStatus,
-                            stderr: msg.trimmingCharacters(in: .whitespacesAndNewlines)
-                        )
-                    )
-                }
-            }
-
-            do {
-                try process.run()
-            } catch {
-                continuation.resume(throwing: error)
-            }
         }
     }
 
