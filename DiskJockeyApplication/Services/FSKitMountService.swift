@@ -74,18 +74,34 @@ final class FSKitMountService {
 
     // MARK: - Attach
 
-    /// Mount an image or block device at `/Volumes/<name>` via FSKit.
-    /// - Parameters:
-    ///   - source: absolute path to a filesystem image or /dev/diskN node.
-    ///   - name: volume name — becomes the mount point under /Volumes.
-    ///   - fsType: FSKit short name (e.g. `ext4`, `ntfs`). Must correspond to
-    ///     a registered FSModule the system can dispatch to.
+    /// One volume Disk Arbitration mounted: the device it mounted, and the
+    /// mount point DA's own description reports for it.
+    struct MountedVolume {
+        let device: String
+        /// `kDADiskDescriptionVolumePathKey`, read back after the mount;
+        /// nil when DA reported none.
+        let mountPoint: String?
+
+        /// For a log line: the mount point DA reported, never one guessed
+        /// from a name.
+        var described: String {
+            mountPoint ?? "\(device) (DA reported no mount point)"
+        }
+    }
+
+    /// Mount an image or block device through Disk Arbitration.
     ///
+    /// The caller chooses neither the mount point nor the driver, so neither
+    /// is a parameter. `DADiskMountWithArguments` is given no path, so
+    /// diskarbitrationd mounts each volume at `/Volumes/<its own label>`;
+    /// and it picks the driver (Apple's, or one of our FSKit modules) by
+    /// probing the device, with no argument that names a filesystem type.
     /// A partition table is mounted slice by slice, as `hdiutil attach`
     /// reports the slices; there is no per-call partition option.
-    func attach(imagePath source: String, name: String, fsType: String) async throws {
-        try Self.validateMountName(name)
-
+    /// - Parameter source: absolute path to a filesystem image or /dev/diskN node.
+    /// - Returns: every volume mounted, with the mount point DA reports.
+    @discardableResult
+    func attach(imagePath source: String) async throws -> [MountedVolume] {
         // Block device path — use DA directly, no root needed.
         // diskarbitrationd handles privilege and invokes the appropriate
         // driver (Apple or FSKit extension) based on fs probing.
@@ -95,11 +111,12 @@ final class FSKitMountService {
             }
             DASessionSetDispatchQueue(session, .global(qos: .userInitiated))
             logger.info("attach (DA) \(source, privacy: .public)")
-            try await Self.mountSliceWithDA(source, session: session)
-            return
+            let volume = try await Self.mountSliceWithDA(source, session: session)
+            logger.info("DA mounted \(source, privacy: .public) -> \(volume.described, privacy: .public)")
+            return [volume]
         }
 
-        logger.info("attach (hdiutil) \(fsType, privacy: .public) \(source, privacy: .public)")
+        logger.info("attach (hdiutil) \(source, privacy: .public)")
         let hdiResult = try await Self.runHdiutilAttach(at: source)
         guard let daSession = DASessionCreate(kCFAllocatorDefault) else {
             _ = try? await Self.runHdiutilDetach(hdiResult.parentDevice)
@@ -108,21 +125,23 @@ final class FSKitMountService {
         DASessionSetDispatchQueue(daSession, .global(qos: .userInitiated))
         // Mount slices if image has a partition table; otherwise mount the whole-disk device.
         let targets = hdiResult.slices.isEmpty ? [hdiResult.parentDevice] : hdiResult.slices
-        var mountedCount = 0
+        var mounted: [MountedVolume] = []
         var lastError: Error?
         for target in targets {
             do {
-                try await Self.mountSliceWithDA(target, session: daSession)
-                mountedCount += 1
+                let volume = try await Self.mountSliceWithDA(target, session: daSession)
+                logger.info("DA mounted \(target, privacy: .public) -> \(volume.described, privacy: .public)")
+                mounted.append(volume)
             } catch {
                 logger.error("DA mount \(target, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
                 lastError = error
             }
         }
-        if mountedCount == 0 {
+        if mounted.isEmpty {
             _ = try? await Self.runHdiutilDetach(hdiResult.parentDevice)
             throw lastError ?? FSKitError.processFailed(exitCode: -1, stderr: "All DA mounts failed")
         }
+        return mounted
     }
 
     /// Multi-partition attach: probe the image's partition table, then
@@ -140,15 +159,12 @@ final class FSKitMountService {
     /// block devices and are skipped. Our FSKit extensions handle the
     /// container format internally.
     ///
-    /// Returns the actual mount paths chosen by DA (based on volume label),
-    /// which may differ from the mountPointPrefix-pN prediction.
+    /// Returns every volume mounted, with the mount point DA reports for it.
+    /// DA mounts each one at its own label, so there is no prefix to pass.
     func attachAllPartitions(imagePath source: String,
                              imageURL: URL? = nil,
-                             mountPointPrefix: String,
                              partitions: [DiskProbeResult.Partition],
-                             container: String = "raw") async throws -> [String] {
-        try Self.validateMountName(mountPointPrefix)
-
+                             container: String = "raw") async throws -> [MountedVolume] {
         let hdiutilCompatible = container == "raw" || container == "vhd" || container == "vmdk"
 
         struct Classified {
@@ -204,17 +220,16 @@ final class FSKitMountService {
             }
             DASessionSetDispatchQueue(session, .global(qos: .userInitiated))
 
-            var mounted: [String] = []
+            var mounted: [MountedVolume] = []
             for (part, _) in c.supported {
                 guard let slice = sliceByIndex[part.index] else {
                     logger.error("no hdiutil slice for partition \(part.index) (\(part.fsKind, privacy: .public))")
                     continue
                 }
                 do {
-                    try await Self.mountSliceWithDA(slice, session: session)
-                    let mp = Self.mountedPath(of: slice, session: session) ?? slice
-                    logger.info("DA mounted \(slice, privacy: .public) -> \(mp, privacy: .public)")
-                    mounted.append(mp)
+                    let volume = try await Self.mountSliceWithDA(slice, session: session)
+                    logger.info("DA mounted \(slice, privacy: .public) -> \(volume.described, privacy: .public)")
+                    mounted.append(volume)
                 } catch {
                     logger.error("DA mount \(slice, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
                 }
@@ -272,7 +287,10 @@ final class FSKitMountService {
     /// and handles the privileged mount(2) call — the sandboxed app needs no
     /// elevated privileges. For FSKit-registered filesystems (ext4, NTFS) the
     /// daemon probes installed extensions and invokes the appropriate one.
-    private static func mountSliceWithDA(_ bsdName: String, session: DASession) async throws {
+    ///
+    /// Returns the mount point DA's description reports once the mount has
+    /// completed: DA chose it, so DA is the only authority on where it is.
+    private static func mountSliceWithDA(_ bsdName: String, session: DASession) async throws -> MountedVolume {
         let devName = bsdName.hasPrefix("/dev/") ? String(bsdName.dropFirst(5)) : bsdName
         guard let disk = DADiskCreateFromBSDName(kCFAllocatorDefault, session, devName) else {
             throw FSKitError.processFailed(exitCode: -1, stderr: "DA: no disk object for \(bsdName)")
@@ -301,6 +319,7 @@ final class FSKitMountService {
             DADiskMountWithArguments(disk, nil, DADiskMountOptions(kDADiskMountOptionDefault), cb, ptr, &args)
             args[0]?.release()
         }
+        return MountedVolume(device: bsdName, mountPoint: mountedPath(of: bsdName, session: session))
     }
 
     /// Query the mount path of an already-mounted block device from DA.
@@ -505,9 +524,9 @@ enum FSKitAttachController {
     /// it." Used by both the sidebar "Add Disk Image" button and the
     /// drag-and-drop handler. First probes the partition table via the
     /// staged blk.probe binary — if there's an MBR/GPT with supported
-    /// partitions, mounts each one separately at /Volumes/<name>-pN.
-    /// Falls back to whole-device mount when probe fails or finds no
-    /// partition table.
+    /// partitions, mounts each one separately, where DA puts it (its own
+    /// label under /Volumes). Falls back to whole-device mount when probe
+    /// fails or finds no partition table.
     static func attachUserPickedImage(at url: URL, logRepository: LogRepository? = nil) {
         // Try blk.probe first — it handles containers (qcow2/vhd/vhdx/vmdk)
         // and raw images with MBR/GPT tables or a single filesystem.
@@ -539,42 +558,36 @@ enum FSKitAttachController {
             return detected.fsType
         }()
 
-        let fsType: String
-        if let resolved = resolvedFsType {
-            fsType = resolved
-        } else {
-            let pick = NSAlert()
+        // Disk Arbitration picks the driver by probing, and takes no
+        // filesystem type, so there is nothing to ask the user to choose: an
+        // image nothing here recognised is offered as "mount anyway", and
+        // macOS decides.
+        if resolvedFsType == nil {
+            let ask = NSAlert()
             switch detected.container {
             case .some(let kind):
-                pick.messageText = "\(kind.label) disk image detected"
-                pick.informativeText = "\(url.lastPathComponent) is a \(kind.label) container. Pick the filesystem the guest formatted inside it (typically ext4 for Linux VMs, NTFS for Windows VMs)."
+                ask.messageText = "\(kind.label) disk image detected"
+                ask.informativeText = "\(url.lastPathComponent) is a \(kind.label) container. macOS probes what is inside it and mounts it with whichever installed driver recognises the filesystem, or reports that none does."
             case .none:
-                pick.messageText = "Couldn't detect filesystem"
-                pick.informativeText = "\(url.lastPathComponent) doesn't look like a raw ext4 or NTFS partition image. Pick a driver to try anyway, or cancel."
+                ask.messageText = "Couldn't detect filesystem"
+                ask.informativeText = "\(url.lastPathComponent) doesn't look like a raw ext4 or NTFS partition image. macOS can still probe it and mount it with whichever installed driver recognises it, or report that none does."
             }
-            pick.addButton(withTitle: "Mount as ext4")
-            pick.addButton(withTitle: "Mount as NTFS")
-            pick.addButton(withTitle: "Cancel")
-            switch pick.runModal() {
-            case .alertFirstButtonReturn:  fsType = "ext4"
-            case .alertSecondButtonReturn: fsType = "ntfs"
-            default: return
-            }
+            ask.addButton(withTitle: "Mount Anyway")
+            ask.addButton(withTitle: "Cancel")
+            guard ask.runModal() == .alertFirstButtonReturn else { return }
         }
 
-        // DA mounts at the volume's own label — no need to ask the user for a name.
-        let name = url.deletingPathExtension().lastPathComponent
-        logRepository?.logFSKit(
-            "attach (\(fsType)) requested: \(url.path) -> /Volumes/\(name)", category: "info")
+        let probed = resolvedFsType.map { " (probed as \($0))" } ?? ""
+        logRepository?.logFSKit("attach requested: \(url.path)\(probed)", category: "info")
         Task { @MainActor in
             do {
-                try await FSKitMountService.shared.attach(
-                    imagePath: url.path, name: name, fsType: fsType)
+                let mounted = try await FSKitMountService.shared.attach(imagePath: url.path)
                 logRepository?.logFSKit(
-                    "mounted /Volumes/\(name) from \(url.path) (\(fsType))", category: "info")
+                    "mounted \(url.path) at \(mounted.map(\.described).joined(separator: ", "))",
+                    category: "info")
             } catch {
                 logRepository?.logFSKit(
-                    "mount /Volumes/\(name) failed: \(error.localizedDescription)",
+                    "mount \(url.path) failed: \(error.localizedDescription)",
                     category: "error")
                 let fail = NSAlert(error: error)
                 fail.runModal()
@@ -633,7 +646,6 @@ enum FSKitAttachController {
             return "  \(support) p\(p.index): \(p.fsKind)\(label), \(mb) MiB\(driver)"
         }.joined(separator: "\n")
 
-        let prefix = url.deletingPathExtension().lastPathComponent
         let alert = NSAlert()
         alert.messageText = "\(plural(probe.partitions.count, "partition")) detected (\(probe.table.uppercased()))"
         var info = "\(url.lastPathComponent) (\(probe.container)):\n\(lines)\n\nWill mount \(plural(supported.count, "partition")). Each volume will appear under its own label in /Volumes."
@@ -652,11 +664,10 @@ enum FSKitAttachController {
                 let mounted = try await FSKitMountService.shared.attachAllPartitions(
                     imagePath: url.path,
                     imageURL: url,
-                    mountPointPrefix: prefix,
                     partitions: probe.partitions,
                     container: probe.container)
                 logRepository?.logFSKit(
-                    "mounted \(mounted.count) partition(s): \(mounted.joined(separator: ", "))",
+                    "mounted \(mounted.count) partition(s): \(mounted.map(\.described).joined(separator: ", "))",
                     category: "info")
             } catch {
                 logRepository?.logFSKit(
@@ -669,7 +680,7 @@ enum FSKitAttachController {
     }
 
     /// Open a file picker then route through `attachUserPickedImage`.
-    /// Sidebar "Add Disk Image" button entry point.
+    /// Entry point for the sidebar "Add Disk Image" button and the File menu.
     static func promptAndAttachAuto(logRepository: LogRepository? = nil) {
         let panel = NSOpenPanel()
         panel.title = "Choose a disk image"
@@ -688,36 +699,6 @@ enum FSKitAttachController {
                 return
             }
             attachUserPickedImage(at: url, logRepository: logRepository)
-        }
-    }
-
-    static func promptAndAttach(fsType: String, logRepository: LogRepository? = nil) {
-        let display = fsType.uppercased()
-        let panel = NSOpenPanel()
-        panel.title = "Choose a \(display) image or device"
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.message = "Pick a .img or block device to mount as \(fsType)."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-
-        // DA mounts at the volume's own label — no need to ask the user for a name.
-        let name = url.deletingPathExtension().lastPathComponent
-        logRepository?.logFSKit(
-            "attach (\(fsType)) requested: \(url.path)", category: "info")
-        Task { @MainActor in
-            do {
-                try await FSKitMountService.shared.attach(
-                    imagePath: url.path, name: name, fsType: fsType)
-                logRepository?.logFSKit(
-                    "mounted \(url.path) (\(fsType))", category: "info")
-            } catch {
-                logRepository?.logFSKit(
-                    "mount /Volumes/\(name) failed: \(error.localizedDescription)",
-                    category: "error")
-                let fail = NSAlert(error: error)
-                fail.runModal()
-            }
         }
     }
 }

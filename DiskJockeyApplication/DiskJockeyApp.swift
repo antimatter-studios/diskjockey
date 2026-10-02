@@ -84,20 +84,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // File menu
         let fileMenuItem = NSMenuItem()
         let fileMenu = NSMenu(title: "File")
-        let attachEXT4 = fileMenu.addItem(
-            withTitle: "Attach ext4 image…",
-            action: #selector(attachEXT4Image),
+        // One item, not one per filesystem: Disk Arbitration picks the
+        // driver by probing and takes no filesystem type, so a per-type item
+        // would offer a choice nothing applies (diskjockey#290).
+        let attachImage = fileMenu.addItem(
+            withTitle: "Attach disk image…",
+            action: #selector(attachDiskImage),
             keyEquivalent: "e"
         )
-        attachEXT4.keyEquivalentModifierMask = [.command, .shift]
-        attachEXT4.target = self
-        let attachNTFS = fileMenu.addItem(
-            withTitle: "Attach NTFS image…",
-            action: #selector(attachNTFSImage),
-            keyEquivalent: "n"
-        )
-        attachNTFS.keyEquivalentModifierMask = [.command, .shift]
-        attachNTFS.target = self
+        attachImage.keyEquivalentModifierMask = [.command, .shift]
+        attachImage.target = self
         let detachVolume = fileMenu.addItem(
             withTitle: "Detach volume…",
             action: #selector(detachEXT4Volume),
@@ -135,11 +131,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Window
 
-    @objc private func attachEXT4Image() { attachImage(fsType: "ext4") }
-    @objc private func attachNTFSImage() { attachImage(fsType: "ntfs") }
-
-    private func attachImage(fsType: String) {
-        FSKitAttachController.promptAndAttach(fsType: fsType, logRepository: container.logRepository)
+    @objc private func attachDiskImage() {
+        FSKitAttachController.promptAndAttachAuto(logRepository: container.logRepository)
     }
 
     @objc private func detachEXT4Volume() {
