@@ -221,7 +221,7 @@ probe_leg() {
             fail "$name: blk.probe routed slot $slot to $tool, which is not installed"
             continue
         fi
-        got="$("$tool" --offset "$start" "$raw" read /data.bin 2> "$WORK/read.err" | sha256)"
+        got="$("$tool" --offset "$((start + 512))" "$raw" read /data.bin 2> "$WORK/read.err" | sha256)"
         pipelines=$((pipelines + 1))
         [ "$got" = "$SRC_SHA" ] \
             && ok "$name: blk.probe | $tool --offset $start read /data.bin gives back its bytes" \
