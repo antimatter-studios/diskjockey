@@ -11,7 +11,6 @@ struct DiskImageInspectorView: View {
     let logRepository: LogRepository?
     let onDismiss: () -> Void
 
-    @State private var mountName: String
     @State private var isMounting = false
     @State private var mountError: String?
 
@@ -20,7 +19,6 @@ struct DiskImageInspectorView: View {
         self.probe = probe
         self.logRepository = logRepository
         self.onDismiss = onDismiss
-        self._mountName = State(initialValue: url.deletingPathExtension().lastPathComponent)
     }
 
     // MARK: - Map block model (pre-computed to avoid mutation inside @ViewBuilder)
@@ -279,19 +277,13 @@ struct DiskImageInspectorView: View {
                     .foregroundStyle(.red)
             }
 
+            // No name field: Disk Arbitration mounts each volume at its own
+            // label and takes no mount point from us, so a name typed here
+            // would reach nothing (diskjockey#290).
             HStack(alignment: .bottom, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    let isMulti = probe.table != "none" && !probe.partitions.isEmpty
-                    Text(isMulti ? "Mount prefix" : "Mount name")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    TextField("Name", text: $mountName)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 240)
-                    Text(mountHintText)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
+                Text(mountHintText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
                 Spacer()
 
@@ -304,7 +296,7 @@ struct DiskImageInspectorView: View {
                     performMount()
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(mountName.trimmingCharacters(in: .whitespaces).isEmpty || isMounting)
+                .disabled(isMounting)
                 .buttonStyle(.borderedProminent)
             }
         }
@@ -317,19 +309,16 @@ struct DiskImageInspectorView: View {
     }
 
     private var mountHintText: String {
-        let name = mountName.trimmingCharacters(in: .whitespaces)
         if probe.table != "none" && !probe.partitions.isEmpty {
             let count = probe.partitions.filter { isMountableKind($0.fsKind) }.count
-            return "\(count) partition\(count == 1 ? "" : "s") → /Volumes/\(name)-p0, …"
+            return "\(count) partition\(count == 1 ? "" : "s"), each under its own label in /Volumes"
         }
-        return "→ /Volumes/\(name)"
+        return "Appears under its own label in /Volumes"
     }
 
     // MARK: - Mount action
 
     private func performMount() {
-        let name = mountName.trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty else { return }
         isMounting = true
         mountError = nil
 
@@ -339,23 +328,18 @@ struct DiskImageInspectorView: View {
                     let mounted = try await FSKitMountService.shared.attachAllPartitions(
                         imagePath: url.path,
                         imageURL: url,
-                        mountPointPrefix: name,
                         partitions: probe.partitions,
                         container: probe.container
                     )
                     logRepository?.addLogEntry(LogEntry(
-                        message: "inspector: mounted \(mounted.count) partition(s): \(mounted.joined(separator: ", "))",
+                        message: "inspector: mounted \(mounted.count) partition(s): \(mounted.map(\.described).joined(separator: ", "))",
                         category: "info", source: "FSKit"))
                 } else {
-                    guard let fsType = resolveSingleFsType() else {
-                        mountError = "Cannot determine filesystem type."
-                        isMounting = false
-                        return
-                    }
-                    try await FSKitMountService.shared.attach(
-                        imagePath: url.path, name: name, fsType: fsType)
+                    // DA probes the device and picks the driver itself; there
+                    // is no filesystem type to resolve first and pass on.
+                    let mounted = try await FSKitMountService.shared.attach(imagePath: url.path)
                     logRepository?.addLogEntry(LogEntry(
-                        message: "inspector: mounted /Volumes/\(name) (\(fsType))",
+                        message: "inspector: mounted \(url.lastPathComponent) at \(mounted.map(\.described).joined(separator: ", "))",
                         category: "info", source: "FSKit"))
                 }
                 onDismiss()
@@ -364,17 +348,6 @@ struct DiskImageInspectorView: View {
             }
             isMounting = false
         }
-    }
-
-    private func resolveSingleFsType() -> String? {
-        if let kind = probe.deviceFsKind, kind != "unknown" {
-            switch kind {
-            case "ext4", "ext3", "ext2": return "ext4"
-            case "ntfs": return "ntfs"
-            default: break
-            }
-        }
-        return FSKitAttachController.detectFSType(at: url).fsType
     }
 
     // MARK: - Helpers
