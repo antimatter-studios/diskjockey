@@ -328,7 +328,7 @@ private struct DirectMountSidebarRow: View {
 // MARK: - Attached Disk Sidebar Row
 //
 // A disk that was mounted by the system (either directly by our FSKit
-// extension via auto-probe, or by `mount -F` from the CLI / Attach menu).
+// extension via auto-probe, by the Attach menu, or by `mount -F` from a terminal).
 // Display-only; no configuration.
 private struct AttachedDiskSidebarRow: View {
     let disk: AttachedDisk

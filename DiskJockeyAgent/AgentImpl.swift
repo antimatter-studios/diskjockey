@@ -154,34 +154,6 @@ final class AgentImpl: NSObject, DJAgentProtocol {
         }
     }
 
-    func mountFSKit(source: String, mountPoint: String, fsType: String,
-                    partitionOffset: Int64, partitionLength: Int64,
-                    reply: @escaping (Bool, String?) -> Void) {
-        var cmd = "/bin/mkdir -p \(Self.shellQuote(mountPoint)) && /sbin/mount -F -t \(Self.shellQuote(fsType)) "
-        if partitionOffset > 0 {
-            cmd += "-o \(Self.shellQuote("partition_offset=\(partitionOffset),partition_length=\(partitionLength)")) "
-        }
-        cmd += "\(Self.shellQuote(source)) \(Self.shellQuote(mountPoint))"
-
-        let appleScript = "do shell script \(Self.appleScriptQuote(cmd)) with prompt \"Disk Jockey wants to mount a disk image.\" with administrator privileges"
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            guard let script = NSAppleScript(source: appleScript) else {
-                reply(false, "NSAppleScript init failed")
-                return
-            }
-            var errorDict: NSDictionary?
-            script.executeAndReturnError(&errorDict)
-            if let err = errorDict {
-                let code = (err[NSAppleScript.errorNumber] as? Int) ?? 0
-                let msg = (err[NSAppleScript.errorMessage] as? String) ?? "error \(code)"
-                reply(false, msg)
-            } else {
-                reply(true, nil)
-            }
-        }
-    }
-
     func probeImage(atPath path: String,
                     reply: @escaping (String?, String?) -> Void) {
         guard let probeURL = Self.locateBlkProbe() else {
@@ -232,15 +204,5 @@ final class AgentImpl: NSObject, DJAgentProtocol {
         }
 #endif
         return nil
-    }
-
-    static func shellQuote(_ s: String) -> String {
-        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
-    static func appleScriptQuote(_ s: String) -> String {
-        "\"" + s
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 }
