@@ -48,6 +48,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
+# Read-only, stated here rather than inherited from the repository's default
+# workflow permission, so the grant is decided by this reviewed file and not by
+# a setting nobody sees change (#283). Nothing here needs more: uploads and
+# caches do not use the contents scope for writing.
+permissions:
+  contents: read
+
 jobs:
   # THE SCRIPTS IN scripts/ HAD NO GATE AT ALL, and the pipeline is
   # steered by them. `am-ledger list pr` returned 90 rows, 2 of them at
@@ -360,7 +367,7 @@ jobs:
     needs: [scripts, library-tests, test]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Check every needed result
         env:
           NEEDED_RESULTS: ${{ join(needs.*.result, ' ') }}
