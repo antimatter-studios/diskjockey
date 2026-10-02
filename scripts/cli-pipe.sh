@@ -21,7 +21,7 @@
 #                file's bytes. `start` is checked against sgdisk's own first
 #                sector, and the same tool one block past `start` must NOT
 #                give the bytes back, so the leg is one that can fail;
-#   containers   qemu-img converts the disk to qcow2 and to VHDX. blk.probe
+#   containers   qemu-img converts the disk to qcow2, VHDX, VHD and VMDK. blk.probe
 #                reads each container directly, `img.<fmt> read` turns it
 #                back into a raw disk that must be byte-identical to the one
 #                qemu-img was given, and the fs tools read from that;
@@ -48,9 +48,8 @@
 # a run that stops short is refused even when nothing it did run failed.
 #
 # Not here yet, because the tools do not exist as released tarballs: every
-# leg with ext4 (rust-fs-ext4's release carries mkfs.ext4 only), XFS and
-# Btrfs as endpoints, and VHD/VMDK containers. They join as their releases
-# land; #292 lists them.
+# leg with ext4 (rust-fs-ext4's release carries mkfs.ext4 only) or Btrfs as
+# an endpoint. They join as their releases land; #292 lists them.
 #
 # Quiet, like the test tiers: the whole run goes to tmp/logs/cli-pipe.log
 # through scripts/quiet-run.sh, and a pass prints one verdict line.
@@ -62,8 +61,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
 
 # Every pipeline below ends in a byte comparison and is counted. 3 partitions
-# read through the raw disk, the qcow2 and the VHDX, plus 2 fs -> fs copies.
-FLOOR=11
+# read through the raw disk and four containers, plus 2 fs -> fs copies.
+FLOOR=17
 
 # The released tools. One row per repository: the asset prefix its release
 # workflow names tarballs with, and the tools this test needs from it. Only
@@ -76,7 +75,9 @@ christhomas/rust-fs-ntfs            am-fs-ntfs       fs.ntfs mkfs.ntfs fsck.ntfs
 antimatter-studios/rust-fs-squashfs am-fs-squashfs   fs.squashfs
 antimatter-studios/rust-fs-erofs    am-fs-erofs      fs.erofs
 antimatter-studios/rust-img-qcow2   am-img-qcow2     img.qcow2
-antimatter-studios/rust-img-vhdx    am-img-vhdx      img.vhdx'
+antimatter-studios/rust-img-vhdx    am-img-vhdx      img.vhdx
+antimatter-studios/rust-img-vhd     am-img-vhd       img.vhd
+antimatter-studios/rust-img-vmdk    am-img-vmdk      img.vmdk'
 
 # The oracles: tools that are not ours, and how to get each.
 # tool        brew           apt
@@ -235,11 +236,13 @@ $LAYOUT
 EOF
 }
 
-# container_leg FMT — qemu-img makes the container; blk.probe reads it;
-# img.<fmt> turns it back into the raw disk, and the fs tools read that.
+# container_leg FMT QEMU_FMT [QEMU_OPTS] — qemu-img makes the container;
+# blk.probe reads it; img.<fmt> turns it back into the raw disk, and the fs
+# tools read that.
 container_leg() {
-    local fmt="$1" image="$WORK/disk.$1" raw="$WORK/via-$1.raw"
-    if ! qemu-img convert -f raw -O "$fmt" "$WORK/disk.img" "$image" > "$WORK/qemu.err" 2>&1; then
+    local fmt="$1" qfmt="$2" image="$WORK/disk.$1" raw="$WORK/via-$1.raw"
+    shift 2
+    if ! qemu-img convert -f raw -O "$qfmt" "$@" "$WORK/disk.img" "$image" > "$WORK/qemu.err" 2>&1; then
         fail "$fmt: qemu-img could not make the $fmt container$(why "$WORK/qemu.err")"
         return
     fi
@@ -321,8 +324,12 @@ EOF
     echo "the disk: $(sgdisk -p "$WORK/disk.img" | grep -cE '^ +[0-9]+ ') partitions, data.bin sha256 $SRC_SHA"
 
     probe_leg raw "$WORK/disk.img" "$WORK/disk.img"
-    container_leg qcow2
-    container_leg vhdx
+    container_leg qcow2 qcow2
+    container_leg vhdx vhdx
+    # force_size: qemu's VHD otherwise rounds the disk to a CHS geometry, and
+    # the round trip would differ from the disk by that rounding.
+    container_leg vhd vpc -o force_size=on
+    container_leg vmdk vmdk
 
     if [ -s "$WORK/probe-raw.json" ]; then
         copy_leg 0 squashfs
