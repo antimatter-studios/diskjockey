@@ -358,10 +358,14 @@ its checkout when that is on a clean `main`, and otherwise from a throwaway
 worktree of the pinned ref, so a developer's branch cannot reach the app's
 binary. A dirty `main` stops the build rather than guessing.
 
-`scripts/check-bundle-core-pin.sh` runs first in CI and needs nothing but the
+`scripts/check-bundle-floors.sh` runs first in CI and needs nothing but the
 checkout. It exists because a lockfile can be internally consistent and still
 pin a version nobody has verified — `am-fs-core` sat six releases behind for
-eight releases, missing a silent-wrong-bytes fix (diskjockey#90).
+eight releases, missing a silent-wrong-bytes fix (diskjockey#90), and the four
+image-container crates sat one and two breaking releases behind, missing a
+vmdk write that lost data while reporting success (diskjockey#277). It holds
+each bundle to one resolution of each crate, at or above a floor written in
+the script with the fix that set it.
 
 ## What gates a merge
 

@@ -210,7 +210,7 @@ jobs:
       # script's own header for why this is not the same check as the
       # pre-commit hook's `cargo metadata --locked`.
       - name: Check bundle dependency floor
-        run: scripts/check-bundle-core-pin.sh
+        run: scripts/check-bundle-floors.sh
 
       # The siblings are checkouts beside this repository now, not
       # submodules. Cloned at the ref SIBLING_PINS.txt names, so CI builds
