@@ -6,7 +6,14 @@
  *   • `probeResource(resource:replyHandler:)` for `FSBlockDeviceResource`
  *     (the normal "plug a disk in" path).
  *   • `probeFileResource(_:replyHandler:)` for `FSPathURLResource`
- *     (the file-backed mount path, e.g. `mount -t ext4 disk.img`).
+ *     (a file-backed mount). THIS module never receives one from
+ *     `mount -F`: mount(8) builds a block-device resource for any module
+ *     declaring FSSupportsBlockResources and reads FSSupportsPathURLs only
+ *     when it does not (#165), so the Info.plist declares path URLs false.
+ *     The branch is kept for a path-only module (block resources false,
+ *     FSRequiresSecurityScopedPathURLResources true), which is what a
+ *     file-backed mount needs; scripts/tests/fskit-path-url-declarations.sh
+ *     holds the declarations to that rule.
  *
  * Both run the same logical pipeline: try the known disk-image
  * container magics at offset 0 (and the conectix footer for fixed

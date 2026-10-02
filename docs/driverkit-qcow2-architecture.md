@@ -14,7 +14,7 @@ There are two viable paths for QCOW2/VHDX mounting:
 | **A — FSKit V2 `FSPathURLResource`** | Low — extend existing FSKit extensions | Available: macOS 26.0 target matches |
 | **B — DriverKit `IOUserBlockStorageDevice`** | High — new dext, entitlement exception, async I/O dispatch | Full block-device semantics, MAS-compatible |
 
-**Recommendation: ship Path A first.** The FSKit API became public in macOS 26.0 (same as the project's deployment target), requires no new entitlements beyond what the extensions already hold, and the Rust Qcow2 reader is already compiled into `libqcow2.a` and linked into the EXT4/NTFS extensions. Path B is documented below as the fallback if Apple rejects Path A at app review or if `FSPathURLResource` turns out not to be mountable via `DADiskMount` at runtime.
+**Recommendation: ship Path A first.** The FSKit API became public in macOS 26.0 (same as the project's deployment target), requires no new entitlements beyond what the extensions already hold, and the Rust Qcow2 reader is already compiled into `libqcow2.a` and linked into the EXT4/NTFS extensions. Path B is documented below as the fallback if Apple rejects Path A at app review or if `FSPathURLResource` turns out not to be mountable via `DADiskMount` at runtime. (`DADiskMount` only ever mounts a block device, so in practice the route is `mount -F`; see the answer under §1.3, #165.)
 
 ---
 
@@ -65,6 +65,20 @@ The existing `FSKitMountService.attach()` already calls DA for block devices and
 ```
 
 **Open question for first test:** does `mount -F -t ext4 file:///disk.qcow2 /Volumes/Foo` reach the FSKit extension with an `FSPathURLResource`, or does `mount(8)` reject a non-/dev path? If it rejects, the fallback is to call the FSKit XPC service directly (undocumented but the existing `mount -F` wrapper already does this on macOS 26).
+
+**Answered (#165, from Apple's source).** `mount(8)` does not reject the path, but it never reaches the EXT4 or NTFS modules as an `FSPathURLResource` either. `disklib/fskit_support.m` in diskdev_cmds (identical from diskdev_cmds-751, macOS 26.0, through -757, and the same order in the shipped 26.1 `mount` binary) picks one resource kind per module from its attributes, block first:
+
+```objc
+if (acceptsBD) {            // FSSupportsBlockResources
+    theResource = [FSBlockDeviceResource proxyResourceForBSDName:argv0String isWritable:writable];
+} else if (acceptsPath) {   // FSSupportsPathURLs
+    theResource = securityScoped  // FSRequiresSecurityScopedPathURLResources
+        ? [FSPathURLResource secureResourceWithURL:url readonly:!writable]
+        : [FSPathURLResource resourceWithURL:url];
+}
+```
+
+A module declaring both receives the image *path* as a BSD-name proxy, which resolves to no device, so the extension is never launched — the `extensionKit error 2` / ENOENT from `probeResourceSync:usingBundle:` that #165 measured. The modules now declare `FSSupportsPathURLs = false`, which is what `mount(8)` actually does with them, and `scripts/tests/fskit-path-url-declarations.sh` holds every module to that rule. Path A therefore needs a **separate, path-only FSKit module** (`FSSupportsBlockResources = false`, `FSSupportsPathURLs = true`, `FSRequiresSecurityScopedPathURLResources = true`, its own `FSShortName`); a sandboxed module given the plain `resourceWithURL:` form has no grant to open the file. Whether such a module mounts an image end to end on macOS 26 is still untested here.
 
 ### 1.4 Extension changes (EXT4 and NTFS)
 
