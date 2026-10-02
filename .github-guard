@@ -16,10 +16,11 @@
 # front of a reviewer every time it changes.
 #
 # The four names below are the whole PR gate and nothing else. `ci.yml` is
-# the only workflow that runs on `pull_request` (`release.yml` is tag- and
+# the only workflow that gates a `pull_request` (`release.yml` is tag- and
 # dispatch-driven, so its checks can never report on a PR and must never be
 # required — a required check that never reports is a permanent block, not a
-# gate). Verified against this repository: the check-suite of main's HEAD
+# gate; `cli-pipe.yml` runs only on the pull requests that change it, so it is
+# declared advisory below for the same reason). Verified against this repository: the check-suite of main's HEAD
 # returns exactly these four under app slug `github-actions`, each concluded
 # success, ci-ok included.
 #
@@ -57,6 +58,9 @@
 	# ci-ok was advisory until it had concluded success on main; that is the
 	# order github-protect-main needs before it will keep a declared name.
 	required = ci-ok
+	# CLI pipe tests other repositories' releases, so it runs only on the
+	# pull requests that change it, and it can never be a gate (#292).
+	advisory = CLI pipe
 
 # Scratch output must stay local even if it is force-added past .gitignore.
 [paths]

@@ -229,6 +229,7 @@ chore test:app           # the app tier: xcodebuild, DiskJockeyTests only
 chore test               # all three, cheapest first
 chore check:agents-core  # AGENTS.md still carries the shared block, unmodified
 chore audit:family-scripts  # every Rust crate runs core's family scripts, no copies
+chore test:cli-pipe      # the released driver CLIs compose: probe -> fs --offset, pipes
 ```
 
 Note what is **not** here. diskjockey orchestrates the twelve library
@@ -378,10 +379,12 @@ drifts silently as jobs are renamed or added; a list nobody reviews is a
 residue, not a decision. The legs stay required beside the aggregate, so each
 must still report success under its own name whatever `ci-ok` believes.
 
-`ci.yml` is the only workflow that runs on `pull_request`. `release.yml` is tag-
+`ci.yml` is the only workflow that gates a `pull_request`. `release.yml` is tag-
 and dispatch-driven, so its checks can never report on a PR and **must never be
 required** — a required check that never reports is a permanent block, not a
-gate.
+gate. `cli-pipe.yml` (`CLI pipe`) runs on a schedule, on dispatch and only on
+the pull requests that change it, and tests other repositories' releases, so
+`.github-guard` declares it `advisory`.
 
 Two things worth knowing before you read a green tick here:
 

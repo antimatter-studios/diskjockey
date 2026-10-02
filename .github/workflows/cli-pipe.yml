@@ -1,0 +1,66 @@
+name: CLI pipe
+
+# THE DRIVERS' RELEASED TOOLS COMPOSE (#292, from #235). scripts/cli-pipe.sh
+# installs each tool from its repository's latest release, attestation
+# verified, makes a GPT disk with sgdisk, mksquashfs, mkfs.erofs and qemu-img,
+# and runs blk.probe -> fs.<fs_kind> --offset, img.<fmt> read -> fs.<fs>, and
+# fs.<a> read | fs.ntfs write end to end.
+#
+# NOT A PULL-REQUEST GATE. What it tests is other repositories' releases, so a
+# red run here says a sibling released something that no longer fits, which
+# no change in this repository's pull request caused or can fix. It runs on a
+# schedule, on demand, and on the pull requests that change the test itself —
+# and .github-guard declares it advisory, so it is never a required check.
+#
+# macos-26 (arm64), because rust-blk-probe releases a darwin-arm64 tarball
+# only: on Linux the probe leg could not run, and nothing skips.
+
+on:
+  schedule:
+    - cron: '23 6 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - scripts/cli-pipe.sh
+      - scripts/quiet-run.sh
+      - .github/workflows/cli-pipe.yml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+# Read-only. Release downloads and attestation lookups on public repositories
+# need nothing more.
+permissions:
+  contents: read
+
+jobs:
+  cli-pipe:
+    name: CLI pipe
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The oracles: tools that are not ours, to make the images with.
+      - name: Install the image tools
+        timeout-minutes: 10
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+          HOMEBREW_NO_INSTALL_CLEANUP: '1'
+        run: brew install gptfdisk qemu squashfs erofs-utils jq
+
+      - name: Pipe the released tools together
+        timeout-minutes: 8
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/cli-pipe.sh
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: logs-cli-pipe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: tmp/logs/
+          retention-days: 7
+          if-no-files-found: warn

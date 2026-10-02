@@ -125,6 +125,16 @@ tasks:
       - scripts/test-library.sh {{.CLI_ARGS}}
       - scripts/test-app.sh {{.CLI_ARGS}}
 
+  test:cli-pipe:
+    desc: The released drivers' tools compose — blk.probe -> fs.<fs> --offset, img.<fmt> read, fs.<a> read | fs.<b> write
+    # Not one of the three tiers and not part of `chore test`: it installs
+    # other repositories' latest releases, so its answer moves when they
+    # release, and the CLI pipe workflow runs it on a schedule rather than on
+    # every pull request. No `sources`, for the same reason as overview:list.
+    # -- --no-install tests whatever is already on PATH (a Homebrew install).
+    cmds:
+      - scripts/cli-pipe.sh {{.CLI_ARGS}}
+
   check:agents-core:
     desc: AGENTS.md still carries the shared agent-core block, unmodified
     # A task naming a script and nothing else. The same script runs inside the
