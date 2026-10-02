@@ -221,7 +221,7 @@ probe_leg() {
             fail "$name: blk.probe routed slot $slot to $tool, which is not installed"
             continue
         fi
-        got="$("$tool" --offset "$((start + 512))" "$raw" read /data.bin 2> "$WORK/read.err" | sha256)"
+        got="$("$tool" --offset "$start" "$raw" read /data.bin 2> "$WORK/read.err" | sha256)"
         pipelines=$((pipelines + 1))
         [ "$got" = "$SRC_SHA" ] \
             && ok "$name: blk.probe | $tool --offset $start read /data.bin gives back its bytes" \
@@ -366,7 +366,8 @@ if [ "${1:-}" = --run-all ]; then
     run_all "$@"
 fi
 
-# The quiet wrapper. Budget measured on CI; see chores.yml's table.
+# The quiet wrapper. The budget is chores.yml's cli-pipe row: 102 lines /
+# 6,688 bytes measured on run 37073259858, about a quarter over.
 wrap=() pass=()
 for a in "$@"; do
     case "$a" in
@@ -377,7 +378,7 @@ for a in "$@"; do
 done
 rc=0
 # ${a[@]+"${a[@]}"}: an empty array is "unbound" to macOS's bash 3.2.
-scripts/quiet-run.sh ${wrap[@]+"${wrap[@]}"} cli-pipe 200 20000 -- \
+scripts/quiet-run.sh ${wrap[@]+"${wrap[@]}"} cli-pipe 130 8400 -- \
     bash scripts/cli-pipe.sh --run-all ${pass[@]+"${pass[@]}"} || rc=$?
 log="${QUIET_LOG_DIR:-$ROOT/tmp/logs}/cli-pipe.log"
 grep -E '^ran [0-9]+ pipeline' "$log" 2>/dev/null | tail -1

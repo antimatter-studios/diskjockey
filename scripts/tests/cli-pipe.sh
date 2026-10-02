@@ -7,7 +7,8 @@
 # tools, so it runs in the CLI pipe workflow, not here. What this job CAN
 # prove, with nothing installed:
 #
-#   1. chore test:cli-pipe runs the script, and the workflow runs it on a
+#   1. chore test:cli-pipe runs the script, through quiet-run.sh with the
+#      budget chores.yml's table records, and the workflow runs it on a
 #      schedule and on dispatch, keeps tmp/logs/ whatever the result, and is
 #      declared advisory — never required, since it tests other repositories'
 #      releases;
@@ -74,6 +75,12 @@ if out="$(ruby -ryaml -e '
 else
     fail "cli-pipe.yml: ${out:-could not be read}"
 fi
+
+# The run is budgeted like a tier, and chores.yml's table records the numbers.
+budget="$(grep -oE 'quiet-run\.sh.* cli-pipe [0-9]+ [0-9]+ --' "$SCRIPT" | head -1 | awk '{for (i = 1; i <= NF; i++) if ($i == "cli-pipe") { print $(i + 1), $(i + 2); exit }}')"
+row="$(grep -E '^#[[:space:]]+cli-pipe[[:space:]]+[0-9]+[[:space:]]+[0-9]+' "$REPO/chores.yml" | head -1 | awk '{print $3, $4}')"
+if [ -n "$budget" ] && [ "$row" = "$budget" ]; then ok "it runs through quiet-run.sh with budget $budget, as chores.yml's table records"
+else fail "chores.yml's cli-pipe row says '${row:-nothing}' where the script enforces '${budget:-nothing}'"; fi
 
 required="$(git config -f "$REPO/.github-guard" --get-all checks.required 2>/dev/null)"
 advisory="$(git config -f "$REPO/.github-guard" --get-all checks.advisory 2>/dev/null)"
