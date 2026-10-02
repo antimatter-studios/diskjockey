@@ -4,15 +4,6 @@ import OSLog
 import DiskArbitration
 import DiskJockeyLibrary
 
-/// Mounts ext4 images / block devices via macOS 26's `mount -F` path, which
-/// routes to fskitd without the `com.apple.developer.fskit.fsclient`
-/// entitlement. Companion to `MountManager` (File Provider) — FSKit
-/// extensions live in their own lane because they bypass NSFileProvider
-/// entirely.
-///
-/// The bundled DiskJockeyEXT4 FSKit extension must be registered with
-/// pluginkit (which happens automatically once the host app has launched
-/// at least once with the embedded .appex in place).
 /// JSON shape emitted by the staged `blk.probe` CLI binary. Mirrors the
 /// schema the binary documents in its own usage block. Codable keys map
 /// to snake_case JSON via a custom CodingKeys table.
@@ -50,6 +41,17 @@ struct DiskProbeResult: Decodable {
     }
 }
 
+/// Mounts disk images and block devices through the FSKit extensions.
+/// An image is turned into block devices by `hdiutil attach`, run by the
+/// unsandboxed agent, and each device is then mounted through
+/// DiskArbitration, which picks the FSKit extension that claims it; a
+/// `/dev/` path goes to DiskArbitration directly. Nothing here needs root.
+/// Companion to `MountManager` (File Provider) — FSKit extensions live in
+/// their own lane because they bypass NSFileProvider entirely.
+///
+/// The bundled FSKit extensions must be registered with pluginkit (which
+/// happens automatically once the host app has launched at least once
+/// with the embedded .appex in place).
 @MainActor
 final class FSKitMountService {
     static let shared = FSKitMountService()
