@@ -76,6 +76,13 @@ tasks:
     cmds:
       - scripts/am-overview --tsv
 
+  audit:family-scripts:
+    desc: Every Rust crate runs the family scripts from rust-fs-core and keeps no copy
+    # Reads each default branch on GitHub, so no `sources` for the same reason
+    # as overview:list. Exit 1 names the projects that still carry a copy.
+    cmds:
+      - scripts/am-family-scripts
+
   pr:list:
     desc: Every pull request across the constellation (add -- --state open, --tsv, ...)
     # No `sources`, for the same reason as overview:list: the answer is on GitHub.

@@ -228,6 +228,7 @@ chore test:library       # the library tier: swift test, host-free
 chore test:app           # the app tier: xcodebuild, DiskJockeyTests only
 chore test               # all three, cheapest first
 chore check:agents-core  # AGENTS.md still carries the shared block, unmodified
+chore audit:family-scripts  # every Rust crate runs core's family scripts, no copies
 ```
 
 Note what is **not** here. diskjockey orchestrates the twelve library

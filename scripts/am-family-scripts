@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+#
+# am-family-scripts — does every Rust crate in the constellation run the
+# family's scripts from rust-fs-core, and keep no copy of its own?
+#
+# The family scripts -- output-budget.sh, test-floor.sh, semver-check.sh --
+# live in rust-fs-core and nowhere else. Each crate carries one bootstrap,
+# scripts/core.sh, byte-identical to core's, and calls `scripts/core.sh
+# test-floor ...` / `scripts/core.sh semver-check`. They used to be a copy in
+# every repository, and the copies drifted: one silent-exit bug in the floor
+# was fixed seven times, a counting rule one repository added reached no
+# other. Each crate's CI runs `scripts/core.sh family-check` against itself;
+# this is the same three checks across the whole constellation at once, read
+# from each default branch on GitHub, so "every repository did it" is a
+# command's answer rather than somebody's claim:
+#
+#   1. NO COPY      scripts/{output-budget,test-floor,semver-check}.sh absent
+#   2. ONE BOOTSTRAP scripts/core.sh present and identical to rust-fs-core's
+#   3. NO CALLER    no workflow, chores.yml or scripts/*.sh runs a local
+#                   scripts/test-floor.sh or scripts/semver-check.sh
+#
+#   scripts/am-family-scripts             every rust-* project
+#   scripts/am-family-scripts NAME...     only those projects
+#
+# Exit status: 0 when every project passes, 1 when any fails, 4 when a
+# project could not be read -- a project nobody looked at is not a pass.
+#
+# Environment, for tests:
+#   AM_FAMILY_FIXTURE   a directory holding one tree per project name; read
+#                       instead of GitHub
+set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=constellation-repositories.sh
+. "$HERE/constellation-repositories.sh"
+
+FIXTURE="${AM_FAMILY_FIXTURE:-}"
+CORE_NAME="rust-fs-core"
+
+slug_of() {
+    local entry
+    for entry in "${CONSTELLATION_REPOSITORIES[@]}"; do
+        [ "${entry%%:*}" = "$1" ] && { echo "${entry#*:}"; return 0; }
+    done
+    [ -n "$FIXTURE" ] && { echo "fixture/$1"; return 0; }
+    return 1
+}
+
+# list NAME -- every blob path in the project's default branch.
+list() {
+    if [ -n "$FIXTURE" ]; then
+        [ -d "$FIXTURE/$1" ] || return 1
+        (cd "$FIXTURE/$1" && find . -type f | sed 's#^\./##')
+    else
+        gh api "repos/$(slug_of "$1")/git/trees/HEAD?recursive=1" \
+            --jq '.tree[] | select(.type == "blob") | .path'
+    fi
+}
+
+# read NAME PATH -- one file's content.
+read_file() {
+    if [ -n "$FIXTURE" ]; then
+        cat "$FIXTURE/$1/$2"
+    else
+        gh api "repos/$(slug_of "$1")/contents/$2" -H 'Accept: application/vnd.github.raw'
+    fi
+}
+
+if [ $# -gt 0 ]; then
+    projects=("$@")
+elif [ -n "$FIXTURE" ]; then
+    mapfile -t projects < <(cd "$FIXTURE" && ls -d rust-* 2>/dev/null)
+else
+    projects=()
+    for entry in "${CONSTELLATION_REPOSITORIES[@]}"; do
+        case "${entry%%:*}" in rust-*) projects+=("${entry%%:*}") ;; esac
+    done
+fi
+
+if ! core_bootstrap="$(read_file "$CORE_NAME" scripts/core.sh 2>/dev/null)" || [ -z "$core_bootstrap" ]; then
+    echo "am-family-scripts: cannot read $CORE_NAME's scripts/core.sh -- nothing to compare against" >&2
+    exit 4
+fi
+
+passed=0
+failed=0
+unread=0
+for name in "${projects[@]}"; do
+    if ! paths="$(list "$name" 2>/dev/null)" || [ -z "$paths" ]; then
+        printf 'UNREAD %s: its file list could not be fetched\n' "$name"
+        unread=$((unread + 1))
+        continue
+    fi
+    problems=()
+
+    if [ "$name" != "$CORE_NAME" ]; then
+        for script in output-budget.sh test-floor.sh semver-check.sh; do
+            grep -qxF "scripts/$script" <<<"$paths" && problems+=("carries a copy: scripts/$script")
+        done
+        if ! grep -qxF scripts/core.sh <<<"$paths"; then
+            problems+=("no scripts/core.sh")
+        elif [ "$(read_file "$name" scripts/core.sh 2>/dev/null)" != "$core_bootstrap" ]; then
+            problems+=("scripts/core.sh differs from $CORE_NAME's")
+        fi
+    fi
+
+    while IFS= read -r path; do
+        case "$path" in
+            .github/workflows/*.yml|.github/workflows/*.yaml|chores.yml|scripts/*.sh) ;;
+            *) continue ;;
+        esac
+        [ "$name" = "$CORE_NAME" ] && case "$path" in scripts/*.sh) continue ;; esac
+        hits="$(read_file "$name" "$path" 2>/dev/null \
+            | grep -nE 'scripts/(test-floor|semver-check)\.sh' \
+            | grep -vE '^[0-9]+:\s*#' || true)"
+        [ -n "$hits" ] && problems+=("$path runs a local copy: $(head -1 <<<"$hits")")
+    done <<<"$paths"
+
+    if [ "${#problems[@]}" -eq 0 ]; then
+        printf 'PASS   %s\n' "$name"
+        passed=$((passed + 1))
+    else
+        printf 'FAIL   %s\n' "$name"
+        printf '         %s\n' "${problems[@]}"
+        failed=$((failed + 1))
+    fi
+done
+
+total=${#projects[@]}
+echo "am-family-scripts: $passed of $total projects run the family scripts from $CORE_NAME and keep no copy"
+[ "$unread" -eq 0 ] || exit 4
+[ "$failed" -eq 0 ] || exit 1
+exit 0
