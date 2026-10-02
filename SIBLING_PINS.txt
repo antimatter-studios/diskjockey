@@ -30,7 +30,7 @@ chore               0.8.0
 
 # project           ref
 # -------           ---
-go-networkfs        v0.1.4
+go-networkfs        v0.1.5
 
 # rust-blk-probe is NOT BUILT. scripts/build-blk.probe.sh downloads this
 # tag's attested darwin-arm64 release tarball and stages its bin/blk.probe,

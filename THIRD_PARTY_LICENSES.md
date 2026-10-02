@@ -50,7 +50,7 @@ to UEFI targets, so it is never built here.
 ## Transitive Go dependencies (go-networkfs)
 
 Measured at the `go-networkfs` version this repository pins
-(`SIBLING_PINS.txt`: `v0.1.4`) by listing the modules every driver and
+(`SIBLING_PINS.txt`: `v0.1.5`) by listing the modules every driver and
 library package links, `cmd/`, `examples/` and test servers excluded:
 
     go list -deps -f '{{if .Module}}{{if not .Module.Main}}{{.Module.Path}}@{{.Module.Version}}{{end}}{{end}}' <packages>
