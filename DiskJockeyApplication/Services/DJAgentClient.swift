@@ -108,15 +108,6 @@ final class DJAgentClient {
         }
     }
 
-    func mountFSKit(source: String, mountPoint: String, fsType: String,
-                    partitionOffset: Int64 = 0, partitionLength: Int64 = 0) async throws {
-        let proxy = try makeProxy()
-        try await callAgent(fallbackError: "agent mountFSKit failed") { cb in
-            proxy.mountFSKit(source: source, mountPoint: mountPoint, fsType: fsType,
-                             partitionOffset: partitionOffset, partitionLength: partitionLength, reply: cb)
-        }
-    }
-
     private func callAgent(fallbackError: String,
                            body: @escaping (@escaping (Bool, String?) -> Void) -> Void) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -141,7 +132,7 @@ final class DJAgentClient {
     /// `~/Library/LaunchAgents`, which the user can write to without
     /// authorisation, so any process running as the user could claim
     /// the name and receive `attachImage(atPath:)`,
-    /// `detachDevice(_:)` and `mountFSKit(...)` from a sandboxed app
+    /// `detachDevice(_:)` and `probeImage(atPath:)` from a sandboxed app
     /// that believed it was talking to its own helper.
     ///
     /// `anchor apple generic` is the half that does the work: it
