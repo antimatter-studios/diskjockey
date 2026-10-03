@@ -17,7 +17,12 @@
 #   3. the installer, run for real against a stub `gh` and `uname`, verifies
 #      each tarball's attestation against its own repository's release
 #      workflow, and refuses — linking nothing — a tarball whose attestation
-#      does not verify, whose .sha256 disagrees, or that lacks a tool.
+#      does not verify, whose .sha256 disagrees, or that lacks a tool, and
+#      names the issue tracking every release it is still waiting for;
+#   4. the pairs #296 asks for are in the script's tables — ext4 both ways,
+#      XFS and EROFS into ext4, Btrfs into NTFS — with the floor counting
+#      them, and a Linux leg runs it beside the macOS one, with the oracles
+#      only Linux has (xfsprogs, btrfs-progs, ntfs-3g).
 #
 #   bash scripts/tests/cli-pipe.sh
 set -uo pipefail
@@ -34,10 +39,24 @@ trap 'rm -rf "$sandbox"' EXIT
 
 command -v ruby >/dev/null 2>&1 || { echo "cli-pipe: ruby is required to parse the workflow" >&2; exit 1; }
 
-# The tools the script needs from releases, read from its own table.
-ours="$(awk '/^TOOLS=/{on=1; sub(/^TOOLS=./, "")} on{for (i = 3; i <= NF; i++) { t = $i; sub(/'"'"'$/, "", t); print t } } on && /'"'"'$/{exit}' "$SCRIPT" | sort -u)"
+# table NAME — the rows of one of the script's quoted tables (TOOLS, PAIRS,
+# LAYOUT, AWAITING), quotes and blank lines dropped.
+table() {
+    awk -v name="$1" -v q="'" '
+        index($0, name "=" q) == 1 { on = 1; $0 = substr($0, length(name) + 3) }
+        on { end = (substr($0, length($0)) == q); gsub(q, ""); if (NF) print; if (end) exit }' "$SCRIPT"
+}
+# TOOLS rows are "repository prefix on tools...", where `on` is all or linux.
+tools_on() { table TOOLS | awk -v p="$1" '$3 == "all" || $3 == p { for (i = 4; i <= NF; i++) print $i }' | sort -u; }
+repos_on() { table TOOLS | awk -v p="$1" '$3 == "all" || $3 == p { print $1 }'; }
+repo_of()  { table TOOLS | awk -v t="$1" '{ for (i = 4; i <= NF; i++) if ($i == t) { print $1; exit } }'; }
+
+case "$(uname -s)" in Darwin) here=darwin ;; *) here=linux ;; esac
+
+# The tools the script needs from releases on this host, read from its table.
+ours="$(tools_on "$here")"
 n_ours="$(printf '%s\n' "$ours" | grep -c .)"
-[ "$n_ours" -ge 8 ] && ok "the script names $n_ours released tools" \
+[ "$n_ours" -ge 8 ] && ok "the script names $n_ours released tools for $here" \
     || fail "could not read the released tools from $SCRIPT's TOOLS table (got $n_ours)"
 
 # --------------------------------------------------------------- 1. wiring
@@ -57,21 +76,31 @@ if out="$(ruby -ryaml -e '
     bad = []
     bad << "no schedule" unless on.key?("schedule")
     bad << "no workflow_dispatch" unless on.key?("workflow_dispatch")
-    job = (d["jobs"] || {}).values.find { |j| (j["steps"] || []).any? { |s| s["run"].to_s.include?("scripts/cli-pipe.sh") } }
-    if job.nil?
-      bad << "no job runs scripts/cli-pipe.sh"
-    else
-      bad << "the job is not named CLI pipe" unless job["name"] == "CLI pipe"
-      bad << "no timeout-minutes on the job" unless job["timeout-minutes"]
-      bad << "tmp/logs/ is not uploaded with if: always()" unless (job["steps"] || []).any? { |s|
+    jobs = (d["jobs"] || {}).values.select { |j| (j["steps"] || []).any? { |s| s["run"].to_s.include?("scripts/cli-pipe.sh") } }
+    { "macos" => "CLI pipe", "ubuntu" => "CLI pipe (Linux)" }.each do |os, name|
+      job = jobs.find { |j| j["runs-on"].to_s.start_with?(os) }
+      if job.nil?
+        bad << "no #{os} job runs scripts/cli-pipe.sh"
+        next
+      end
+      bad << "the #{os} job is named #{job["name"].inspect}, not #{name}" unless job["name"] == name
+      bad << "no timeout-minutes on the #{os} job" unless job["timeout-minutes"]
+      bad << "the #{os} job does not upload tmp/logs/ with if: always()" unless (job["steps"] || []).any? { |s|
         s["uses"].to_s.include?("actions/upload-artifact") &&
           s["if"].to_s.gsub(/\s/, "") =~ /\A(\$\{\{)?always\(\)(\}\})?\z/ &&
           s.fetch("with", {})["path"].to_s.lines.map(&:strip).include?("tmp/logs/") }
+      if os == "ubuntu"
+        runs = (job["steps"] || []).map { |s| s["run"].to_s }.join("\n")
+        %w[xfsprogs btrfs-progs ntfs-3g e2fsprogs].each { |pkg|
+          bad << "the Linux job does not install #{pkg}" unless runs =~ /apt-get install[^\n]*\b#{Regexp.escape(pkg)}\b/ }
+      end
     end
+    names = jobs.map { |j| j["name"] }
+    bad << "two jobs share a name: #{names.inspect}" unless names.uniq.size == names.size
     puts bad.join("; ")
     exit(bad.empty? ? 0 : 1)
 ' "$WORKFLOW" 2>&1)"; then
-    ok "the workflow runs it on a schedule and on dispatch, bounded, and keeps tmp/logs/"
+    ok "the workflow runs it on macOS and on Linux, on a schedule and on dispatch, bounded, keeping tmp/logs/"
 else
     fail "cli-pipe.yml: ${out:-could not be read}"
 fi
@@ -84,13 +113,15 @@ else fail "chores.yml's cli-pipe row says '${row:-nothing}' where the script enf
 
 required="$(git config -f "$REPO/.github-guard" --get-all checks.required 2>/dev/null)"
 advisory="$(git config -f "$REPO/.github-guard" --get-all checks.advisory 2>/dev/null)"
-if printf '%s\n' "$required" | grep -qx 'CLI pipe'; then
-    fail "CLI pipe is a required check, but it tests other repositories' releases"
-elif printf '%s\n' "$advisory" | grep -qx 'CLI pipe'; then
-    ok ".github-guard declares CLI pipe advisory, not required"
-else
-    fail ".github-guard does not declare CLI pipe at all"
-fi
+for name in 'CLI pipe' 'CLI pipe (Linux)'; do
+    if printf '%s\n' "$required" | grep -qxF "$name"; then
+        fail "$name is a required check, but it tests other repositories' releases"
+    elif printf '%s\n' "$advisory" | grep -qxF "$name"; then
+        ok ".github-guard declares $name advisory, not required"
+    else
+        fail ".github-guard does not declare $name at all"
+    fi
+done
 
 # --------------------------------------------- 2. missing tools fail, named
 # PATH has nothing of ours on it: only the system's own directories.
@@ -101,7 +132,7 @@ if [ "$rc" != 0 ]; then ok "a run with the tools missing fails (exit $rc)"
 else fail "a run with none of the released tools on PATH passed: $out"; fi
 named=0
 for tool in $ours; do
-    repo="$(awk -v t="$tool" '/^TOOLS=/{on=1} on{for (i = 3; i <= NF; i++) { x = $i; sub(/'"'"'$/, "", x); if (x == t) { r = $1; sub(/^TOOLS=./, "", r); print r; exit } } }' "$SCRIPT")"
+    repo="$(repo_of "$tool")"
     grep -qF "MISSING $tool — from $repo's release" "$log" 2>/dev/null \
         && grep -F "MISSING $tool " "$log" | grep -qF "brew install antimatter-studios/tap/${repo#*/}" \
         && named=$((named + 1)) \
@@ -117,24 +148,27 @@ printf '%s\n' "$out" | grep -q 'MISSING blk.probe' \
 # ------------------------------------------------- 3. the installer refuses
 stub="$sandbox/stub"
 mkdir -p "$stub"
+# uname: the platform is $STUB_OS/$STUB_ARCH, Darwin/arm64 unless set.
 cat > "$stub/uname" <<'EOF'
 #!/bin/sh
-case "$1" in -s) echo Darwin ;; -m) echo arm64 ;; *) echo Darwin ;; esac
+case "$1" in -m) echo "${STUB_ARCH:-arm64}" ;; *) echo "${STUB_OS:-Darwin}" ;; esac
 EOF
 # gh: `release view` answers v1.2.3; `release download` builds the asked-for
-# tarball with every tool but $STUB_DROP, and a .sha256 only when STUB_SHA is
-# set (to "bad" or "good"); `attestation verify` exits $STUB_ATTEST.
+# tarball with every tool but $STUB_DROP, has no asset at all for the
+# repository $STUB_NOASSET, and a .sha256 only when STUB_SHA is set (to "bad"
+# or "good"); `attestation verify` exits $STUB_ATTEST.
 cat > "$stub/gh" <<'EOF'
 #!/usr/bin/env bash
 echo "gh $*" >> "$STUB_LOG"
 case "$1 $2" in
     "release view") echo v1.2.3; exit 0 ;;
     "release download")
-        shift 3; pattern="" dir="."
+        shift 3; pattern="" dir="." repo=""
         while [ $# -gt 0 ]; do
-            case "$1" in --pattern) pattern="$2"; shift ;; --dir) dir="$2"; shift ;; esac
+            case "$1" in --pattern) pattern="$2"; shift ;; --dir) dir="$2"; shift ;; --repo) repo="$2"; shift ;; esac
             shift
         done
+        [ "$repo" != "${STUB_NOASSET:-}" ] || exit 1
         case "$pattern" in
             *.sha256)
                 [ -n "${STUB_SHA:-}" ] || exit 1
@@ -158,30 +192,38 @@ esac
 EOF
 chmod +x "$stub/uname" "$stub/gh"
 
-# install CASE — run the script (installing) against the stubs.
+# install CASE [VAR=value...] — run the script (installing) against the stubs.
 install() {
     local case="$1"; shift
     STATE="$sandbox/state-$case"
     : > "$sandbox/gh-$case.log"
-    OUT="$(cd "$REPO" && env PATH="$stub:/usr/bin:/bin" STUB_LOG="$sandbox/gh-$case.log" STUB_TOOLS="$ours" \
+    OUT="$(cd "$REPO" && env PATH="$stub:/usr/bin:/bin" STUB_LOG="$sandbox/gh-$case.log" STUB_TOOLS="$(tools_on linux)" \
         CLI_PIPE_DIR="$STATE" QUIET_LOG_DIR="$sandbox/logs-$case" "$@" bash "$SCRIPT" 2>&1)"; RC=$?
     LOG="$sandbox/logs-$case/cli-pipe.log"
     LINKED="$(find "$STATE/tools/bin" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')"
 }
 
-install good STUB_ATTEST=0
-installed="$(grep -c '^installed .* attestation verified$' "$LOG" 2>/dev/null)"
-n_repos="$(awk '/^TOOLS=/{on=1} on && NF{n++} on && /'"'"'$/{print n; exit}' "$SCRIPT")"
-[ "$installed" = "$n_repos" ] && [ "$LINKED" = "$n_ours" ] \
-    && ok "verified releases install: $installed repositories, $LINKED tools linked" \
-    || fail "a clean install recorded $installed of $n_repos repositories and linked $LINKED of $n_ours tools: $(head -5 "$LOG" 2>/dev/null)"
-signed=0
-while read -r repo; do
-    grep -qF -- "attestation verify" "$sandbox/gh-good.log" \
-        && grep "attestation verify" "$sandbox/gh-good.log" | grep -F -- "--repo $repo " | grep -qF -- "--signer-workflow $repo/.github/workflows/release.yml" \
-        && signed=$((signed + 1)) || fail "$repo's tarball was not verified against $repo's own release workflow"
-done < <(awk '/^TOOLS=/{on=1} on && NF{r = $1; sub(/^TOOLS=./, "", r); print r} on && /'"'"'$/{exit}' "$SCRIPT")
-[ "$signed" = "$n_repos" ] && ok "each tarball's attestation is checked against its own repository's release workflow"
+# One clean install per platform: each installs that platform's tarballs of
+# exactly the repositories its legs use.
+for plat in darwin:Darwin:arm64 linux:Linux:x86_64; do
+    p="${plat%%:*}" os="${plat#*:}"; os="${os%%:*}" arch="${plat##*:}"
+    case "$p" in darwin) label=darwin-arm64 ;; linux) label=linux-x86_64 ;; esac
+    install "good-$p" STUB_ATTEST=0 STUB_OS="$os" STUB_ARCH="$arch"
+    want_repos="$(repos_on "$p" | grep -c .)" want_tools="$(tools_on "$p" | grep -c .)"
+    installed="$(grep -c '^installed .* attestation verified$' "$LOG" 2>/dev/null)"
+    [ "$installed" = "$want_repos" ] && [ "$LINKED" = "$want_tools" ] \
+        && ok "$p: verified releases install: $installed repositories, $LINKED tools linked" \
+        || fail "$p: a clean install recorded $installed of $want_repos repositories and linked $LINKED of $want_tools tools: $(head -5 "$LOG" 2>/dev/null)"
+    other="$(grep 'release download' "$sandbox/gh-good-$p.log" | grep -v -- "-$label.tar.gz" | head -1)"
+    [ -z "$other" ] && ok "$p: every tarball asked for is the $label one" \
+        || fail "$p: the installer asked for another platform's tarball: $other"
+    signed=0
+    while read -r repo; do
+        grep "attestation verify" "$sandbox/gh-good-$p.log" | grep -F -- "--repo $repo " | grep -qF -- "--signer-workflow $repo/.github/workflows/release.yml" \
+            && signed=$((signed + 1)) || fail "$p: $repo's tarball was not verified against $repo's own release workflow"
+    done < <(repos_on "$p")
+    [ "$signed" = "$want_repos" ] && ok "$p: each tarball's attestation is checked against its own repository's release workflow"
+done
 
 install unattested STUB_ATTEST=1
 case "$RC:$OUT" in
@@ -205,6 +247,62 @@ case "$RC:$OUT" in
     *"has no bin/fs.ntfs"*) ok "a tarball without one of its tools is refused, naming it" ;;
     *) fail "a tarball without bin/fs.ntfs was refused without naming it: $OUT" ;;
 esac
+
+# A release that is still to come is named with the issue tracking it, and
+# every one of them in the same run, not only the first the loop met.
+install awaited STUB_OS=Linux STUB_ARCH=x86_64 STUB_DROP=fs.ext4 STUB_NOASSET=antimatter-studios/rust-fs-btrfs
+case "$RC:$OUT" in
+    0:*) fail "a run with fs.ext4 and the Btrfs tarball missing passed" ;;
+    *"has no bin/fs.ext4"*"christhomas/rust-fs-ext4#480"*)
+        case "$OUT" in
+            *"rust-fs-btrfs"*"antimatter-studios/rust-fs-btrfs#250"*)
+                ok "each release still to come is refused, every one in the same run, naming the issue that tracks it" ;;
+            *) fail "the missing fs.ext4 was named, but the missing Btrfs tarball was not, with antimatter-studios/rust-fs-btrfs#250: $OUT" ;;
+        esac ;;
+    *) fail "the missing fs.ext4 was not named with christhomas/rust-fs-ext4#480: $OUT" ;;
+esac
+
+# ------------------------------------------ 4. the pairs #296 asks for
+for want in christhomas/rust-fs-ext4:fs.ext4 christhomas/rust-fs-ext4:fsck.ext4 \
+            antimatter-studios/rust-fs-xfs:fs.xfs antimatter-studios/rust-fs-btrfs:fs.btrfs; do
+    [ "$(repo_of "${want#*:}")" = "${want%%:*}" ] \
+        && ok "${want#*:} is installed from ${want%%:*}'s release" \
+        || fail "the TOOLS table installs no ${want#*:} from ${want%%:*}"
+done
+tools_on linux | grep -qx blk.probe \
+    && ok "the Linux leg installs blk.probe" \
+    || fail "the Linux leg does not install blk.probe, so it could probe nothing"
+
+# PAIRS rows are "from to on". Each pair must run on Linux at least, where
+# every oracle it needs is installable.
+for pair in squashfs:ntfs erofs:ntfs ext4:ntfs ntfs:ext4 xfs:ext4 erofs:ext4 btrfs:ntfs; do
+    from="${pair%%:*}" to="${pair#*:}"
+    on="$(table PAIRS | awk -v f="$from" -v t="$to" '$1 == f && $2 == t { print $3; exit }')"
+    case "$on" in
+        all|linux) ok "the $from -> $to pipeline runs ($on)" ;;
+        "") fail "the PAIRS table has no $from -> $to pipeline" ;;
+        *) fail "the $from -> $to pipeline runs on '$on', not on Linux" ;;
+    esac
+done
+
+# Every endpoint of a pair has a partition on the disk, on every platform
+# the pair runs on; and each platform's floor counts every pipeline it has:
+# each partition read through the raw disk and four containers, and each pair.
+for p in darwin linux; do
+    kinds="$(table LAYOUT | awk -v p="$p" '$6 == "all" || $6 == p { print $5 }')"
+    parts="$(printf '%s\n' "$kinds" | grep -c .)"
+    pairs="$(table PAIRS | awk -v p="$p" '$3 == "all" || $3 == p' | grep -c .)"
+    while read -r from to _; do
+        for k in "$from" "$to"; do
+            printf '%s\n' "$kinds" | grep -qx "$k" || fail "$p: the $from -> $to pipeline needs a $k partition, and the $p layout has none"
+        done
+    done < <(table PAIRS | awk -v p="$p" '$3 == "all" || $3 == p')
+    floor="$(grep -E "^FLOOR_$(printf '%s' "$p" | tr '[:lower:]' '[:upper:]')=[0-9]+" "$SCRIPT" | head -1 | cut -d= -f2)"
+    need=$((parts * 5 + pairs))
+    [ -n "$floor" ] && [ "$floor" -ge "$need" ] && [ "$pairs" -gt 0 ] \
+        && ok "$p: the floor of $floor counts $parts partitions through 5 readers and $pairs pairs" \
+        || fail "$p: the floor is '${floor:-missing}', below the $need pipelines of $parts partitions and $pairs pairs"
+done
 
 echo
 if [ "$fails" -eq 0 ]; then
