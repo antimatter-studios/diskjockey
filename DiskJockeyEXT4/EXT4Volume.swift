@@ -145,8 +145,14 @@ final class EXT4Volume: FSVolume,
     /// Called as the first instruction in every user-facing FS op —
     /// keeps the quiesce contract explicit and gives callers a fast
     /// recognisable error instead of blocking on the backend lock.
+    ///
+    /// Only an operation that quiesces the volume refuses: the quick check
+    /// the system runs while mounting does not, because the operations
+    /// that arrive during it are the mount's own (diskjockey#166). They
+    /// wait on the backend's lock instead, which the check holds for as
+    /// long as it reads the device.
     private func ensureIdle() throws {
-        if let current = opLock.current {
+        if let current = opLock.current, current.quiescesVolume {
             log.info(
                 "EBUSY: refusing op — \(current.displayName) in progress",
                 scope: AppLogScope.io

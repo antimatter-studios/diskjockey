@@ -62,25 +62,29 @@ extension EXT4FileSystem: FSManageableResourceMaintenanceOperations {
         // there. We accept the BSD-style flags Apple's tools use:
         //   -y : repair without prompting (yes-to-all)
         //   -n : audit only, never write   (already the default)
-        //   -q : quick check (currently treated as audit-only)
+        //   -q : quick check, audit-only. This is the check the system
+        //        runs while mounting (`diskutil mount` arrives here with
+        //        exactly ["-q"]), so it holds the lock as `.quickCheck`,
+        //        which does not make the volume refuse the mount's own
+        //        operations (diskjockey#166).
         // Plain argv contains/`-y` works because FSKit drops fsck_fskit's
         // canonical short options into taskOptions verbatim. The log
         // line surfaces both the raw argv and our derived intent so
         // future debugging doesn't require re-instrumenting.
         let argv = options.taskOptions
-        let repairRequested = argv.contains("-y")
+        let acquireOp = FsckOperation(checkOptions: argv)
+        let repairRequested = acquireOp == .repair
 
-        // Cooperative tri-state mutex. Reject up front if the volume
-        // is already being verified or repaired. The matching release
-        // sits inside the Task.detached closure below so the lock
-        // tracks the actual operation lifetime, not just this scope.
-        let acquireOp: FsckOperation = repairRequested ? .repair : .verify
+        // Cooperative mutex. Reject up front if the volume is already
+        // being checked or repaired. The matching release sits inside
+        // the Task.detached closure below so the lock tracks the actual
+        // operation lifetime, not just this scope.
         if let busy = opLock.tryAcquire(acquireOp) {
             dlog.warn("startCheck rejected: volume busy with \(busy.displayName)")
             throw POSIXError(.EBUSY)
         }
 
-        dlog.info("startCheck: bsd=\(bsdName) taskOptions=\(argv) repair=\(repairRequested)")
+        dlog.info("startCheck: bsd=\(bsdName) taskOptions=\(argv) operation=\(acquireOp.rawValue) repair=\(repairRequested)")
         dlog.event(kind: "fsck.start", fields: [
             "repair": repairRequested ? "true" : "false",
         ])
@@ -122,12 +126,14 @@ extension EXT4FileSystem: FSManageableResourceMaintenanceOperations {
         // Wrapped with `enter/exitOperation` so the parent-death
         // watchdog (see `scheduleWatchdogIfNeeded`) knows fsck is
         // still in flight if the mount tears down mid-pass.
+        //
+        // The lock is released through `opLock.finish(reporting:)`, which
+        // ends the operation before `task.didComplete` tells FSKit it is
+        // over: FSKit goes on to mount from there, and a lock still held
+        // at that moment refuses the mount's first operations EBUSY
+        // (diskjockey#166).
         Self.enterOperation()
         Task.detached {
-            defer {
-                opLock.release()
-                Self.exitOperation()
-            }
             let result = backend.runFsck(
                 repair: repairRequested,
                 onProgress: { phase, done, total in
@@ -176,17 +182,22 @@ extension EXT4FileSystem: FSManageableResourceMaintenanceOperations {
                 }
             )
 
+            let outcome: (any Error)?
             switch result {
             case .success(let report):
                 dlog.event(kind: "fsck.done", fields: report.toEventFields())
                 progress.completedUnitCount = 100
-                task.didComplete(error: nil)
+                outcome = nil
 
             case .failure(let err):
                 dlog.event(kind: "fsck.failed", fields: [
                     "error": "\(err)",
                 ])
-                task.didComplete(error: err)
+                outcome = err
+            }
+            opLock.finish {
+                Self.exitOperation()
+                task.didComplete(error: outcome)
             }
         }
 
