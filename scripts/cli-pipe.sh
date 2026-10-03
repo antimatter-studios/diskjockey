@@ -244,14 +244,19 @@ why() { local t; t="$(cat "$@" 2>/dev/null | grep -v '^$' | head -3 | tr '\n' ' 
 # The partitions sgdisk lays out: slot, first sector, size, GPT type, the
 # fs_kind blk.probe must report for what is put there, and where it runs.
 # The Linux-only rows come last, so the slots stay contiguous on macOS. XFS
-# is 320M because current mkfs.xfs refuses anything under 300 MiB.
+# is 320M because current mkfs.xfs refuses anything under 300 MiB. Btrfs is
+# 128M because mkfs.btrfs's minimum device is 109 MiB (114,294,784 bytes)
+# and on a regular file it extends the file rather than refusing: with a 64M
+# row the copy ran past the disk's end, so sgdisk found no backup GPT at the
+# last LBA (run 37138277392). The caller of make_fs now refuses any image
+# larger than its partition, so an overrun names itself.
 #   slot  sector  size  type  fs_kind   on
 LAYOUT='0     2048    8M    8300  squashfs  all
 1     18432   8M    8300  erofs     all
 2     34816   16M   0700  ntfs      all
 3     67584   16M   8300  ext4      all
 4     100352  320M  8300  xfs       linux
-5     755712  64M   8300  btrfs     linux'
+5     755712  128M  8300  btrfs     linux'
 
 # The fs -> fs pipelines: `fs.<from> read /data.bin | fs.<to> write
 # /from-<from>.bin`, both by --offset into the same disk.
@@ -471,6 +476,10 @@ run_all() {
         [ -n "$slot" ] || continue
         make_fs "$kind" "$size" "$WORK/p$slot.img" > "$WORK/mk.log" 2>&1 \
             || { echo "cli-pipe: could not make the $kind for slot $slot: $(tail -3 "$WORK/mk.log")"; exit 1; }
+        # A maker that grows its file past the partition would be copied
+        # over the next partition or past the disk's end, behind the GPT.
+        [ "$(wc -c < "$WORK/p$slot.img")" -le "$(( ${size%M} * 1048576 ))" ] \
+            || { echo "cli-pipe: the $kind for slot $slot is $(wc -c < "$WORK/p$slot.img") bytes, larger than its $size partition"; exit 1; }
         args+=(-n "$((slot + 1)):$sector:+$size" -t "$((slot + 1)):$type" -c "$((slot + 1)):$kind")
     done <<EOF
 $LAYOUT_HERE
@@ -540,11 +549,11 @@ if [ "${1:-}" = --run-all ]; then
     run_all "$@"
 fi
 
-# The quiet wrapper. The budget is chores.yml's cli-pipe row: 102 lines /
-# 6,688 bytes measured on run 37073259858, about a quarter over. That run had
-# 17 pipelines; the ext4, XFS and Btrfs legs (#296) print more, and cannot be
-# measured until their releases land. A pass over budget exits 65, and the
-# first green run on each platform is the measurement to raise the row with.
+# The quiet wrapper. The budget is chores.yml's cli-pipe row: 152 lines /
+# 9,252 bytes measured on macOS on run 37138277392 (25 pipelines, every check
+# passed), about a quarter over. Linux runs 37 pipelines and has not yet had
+# a green run to measure. A pass over budget exits 65, and the first green
+# Linux run is the measurement to raise the row with.
 wrap=() pass=()
 for a in "$@"; do
     case "$a" in
@@ -555,7 +564,7 @@ for a in "$@"; do
 done
 rc=0
 # ${a[@]+"${a[@]}"}: an empty array is "unbound" to macOS's bash 3.2.
-scripts/quiet-run.sh ${wrap[@]+"${wrap[@]}"} cli-pipe 130 8400 -- \
+scripts/quiet-run.sh ${wrap[@]+"${wrap[@]}"} cli-pipe 190 11600 -- \
     bash scripts/cli-pipe.sh --run-all ${pass[@]+"${pass[@]}"} || rc=$?
 log="${QUIET_LOG_DIR:-$ROOT/tmp/logs}/cli-pipe.log"
 grep -E '^ran [0-9]+ pipeline' "$log" 2>/dev/null | tail -1
