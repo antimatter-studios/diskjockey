@@ -12,8 +12,13 @@ name: CLI pipe
 # schedule, on demand, and on the pull requests that change the test itself —
 # and .github-guard declares it advisory, so it is never a required check.
 #
-# macos-26 (arm64), because rust-blk-probe releases a darwin-arm64 tarball
-# only: on Linux the probe leg could not run, and nothing skips.
+# TWO LEGS (#296). macos-26 (arm64), and ubuntu-latest, where the oracles
+# that have no macOS build live: mkfs.xfs (xfsprogs), mkfs.btrfs
+# (btrfs-progs) and ntfscat (ntfs-3g). The script's tables say which
+# partitions and pairs each leg runs, and each leg has its own floor. Until
+# the releases they install exist — fs.ext4 (christhomas/rust-fs-ext4#480),
+# fs.btrfs (antimatter-studios/rust-fs-btrfs#250) and a linux-x86_64
+# blk.probe — both legs fail, naming what they wait for: nothing skips.
 
 on:
   schedule:
@@ -48,7 +53,11 @@ jobs:
         env:
           HOMEBREW_NO_AUTO_UPDATE: '1'
           HOMEBREW_NO_INSTALL_CLEANUP: '1'
-        run: brew install gptfdisk qemu squashfs erofs-utils jq
+        run: |
+          brew install gptfdisk qemu squashfs erofs-utils e2fsprogs jq
+          # e2fsprogs is keg-only: macOS has no mke2fs of its own to shadow.
+          echo "$(brew --prefix e2fsprogs)/sbin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix e2fsprogs)/bin" >> "$GITHUB_PATH"
 
       - name: Pipe the released tools together
         timeout-minutes: 8
@@ -61,6 +70,37 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: logs-cli-pipe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: tmp/logs/
+          retention-days: 7
+          if-no-files-found: warn
+
+  cli-pipe-linux:
+    name: CLI pipe (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The oracles, the macOS leg's and the three that only Linux has.
+      - name: Install the image tools
+        timeout-minutes: 10
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q gdisk qemu-utils squashfs-tools erofs-utils e2fsprogs xfsprogs btrfs-progs ntfs-3g jq
+
+      # A 434 MiB disk, against the macOS leg's 50: XFS will not be made
+      # smaller than 300 MiB, and four containers each round-trip it.
+      - name: Pipe the released tools together
+        timeout-minutes: 15
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/cli-pipe.sh
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: logs-cli-pipe-linux-${{ github.run_id }}-${{ github.run_attempt }}
           path: tmp/logs/
           retention-days: 7
           if-no-files-found: warn
