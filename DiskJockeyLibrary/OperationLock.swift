@@ -23,6 +23,8 @@
 //                flight. Repair attempts are rejected with EBUSY.
 //   .repairing — a journaled repair pass (`RepairXPCService`) is in
 //                flight. Verify attempts are rejected with EBUSY.
+//   .quickCheck — the read-only `-q` check the system runs while
+//                mounting. Excludes a verify or repair like the others.
 //
 // Both extensions (EXT4, NTFS) instantiate one OperationLock per
 // MountedResource. Lifetime matches the volume's mount lifetime.
@@ -34,12 +36,51 @@ import os
 public enum FsckOperation: String, Sendable {
     case verify
     case repair
+    /// The quick check (`-q`) the system runs as part of mounting a
+    /// volume: `diskutil mount` reaches the module as `startCheck` with
+    /// `taskOptions == ["-q"]` between `loadResource` and the volume's
+    /// first operations (diskjockey#166). It is the BSD `fsck -q`
+    /// convention — "was this volume unmounted cleanly?" — and it is
+    /// read-only.
+    case quickCheck
 
     /// Human-readable form for log lines and UI banners.
     public var displayName: String {
         switch self {
         case .verify: return "verify"
         case .repair: return "repair"
+        case .quickCheck: return "quick check"
+        }
+    }
+
+    /// The operation a `startCheck` call asks for, from the flags FSKit
+    /// forwards in `FSTaskOptions.taskOptions` (the module's
+    /// `FSCheckOptionSyntax` is `nqy`):
+    ///   -y : repair            → `.repair`, whatever else is present,
+    ///                            because it writes
+    ///   -q : the mount's quick → `.quickCheck`
+    ///        check
+    ///   otherwise (-n, none)   → `.verify`, the audit a person asked for
+    public init(checkOptions argv: [String]) {
+        if argv.contains("-y") {
+            self = .repair
+        } else if argv.contains("-q") {
+            self = .quickCheck
+        } else {
+            self = .verify
+        }
+    }
+
+    /// Whether the volume answers its own operations EBUSY while this
+    /// operation holds the lock (the "quiesce" in `EXT4Volume.ensureIdle`).
+    ///
+    /// The quick check does not: the operations that reach the volume
+    /// while it runs are the mount's own, and refusing them fails the
+    /// mount (diskjockey#166). They wait on the backend's lock instead.
+    public var quiescesVolume: Bool {
+        switch self {
+        case .verify, .repair: return true
+        case .quickCheck: return false
         }
     }
 }
@@ -72,6 +113,19 @@ public final class OperationLock: @unchecked Sendable {
     /// closure that owns the operation lifecycle).
     public func release() {
         lock.withLock { $0 = nil }
+    }
+
+    /// End the operation holding this lock, then report that it ended.
+    ///
+    /// `report` is where a maintenance task calls
+    /// `FSTask.didComplete(error:)`. The order between the two is the
+    /// contract: once FSKit is told a check has completed it goes on to
+    /// mount, and the kernel's first operations on the volume may arrive
+    /// immediately. Every one of them that finds the lock still held is
+    /// refused EBUSY.
+    public func finish(reporting report: () -> Void) {
+        release()
+        report()
     }
 
     /// Snapshot of the current holder, or nil if `.idle`. Useful for

@@ -142,13 +142,14 @@ private final class RecordingBackend: FileSystemBackend {
 }
 
 private func makeVolume(_ backend: RecordingBackend,
-                        requiresJournalReplay: Bool = false) -> EXT4Volume {
+                        requiresJournalReplay: Bool = false,
+                        opLock: OperationLock = OperationLock()) -> EXT4Volume {
     EXT4Volume(volumeID: FSVolume.Identifier(uuid: UUID()),
                volumeName: FSFileName(string: "test"),
                backend: backend,
                requiresJournalReplay: requiresJournalReplay,
                stats: IOStatsCollector(label: "test", emit: { _ in }),
-               opLock: OperationLock())
+               opLock: opLock)
 }
 
 private func posixCode(_ body: () async throws -> Void) async -> POSIXErrorCode? {
@@ -395,5 +396,43 @@ struct EXT4VolumeOperationsTests {
         let root = makeVolume(b, requiresJournalReplay: true).activatedRoot()
         #expect(b.calls == [.replayJournal])
         #expect(root.path == "/")
+    }
+
+    // MARK: the check the system runs while mounting (diskjockey#166)
+
+    /// `diskutil mount` on a read-only resource: load, a `-q` check, and a
+    /// mount that fails with the log ending at `fsck.done`. A read-only
+    /// load has no journal replay in `activate`, so nothing holds the
+    /// mount back while the check still holds the lock, and the first
+    /// thing a mount asks of a volume is its root. That must be answered.
+    @Test func theRootIsAnsweredWhileTheMountsQuickCheckHoldsTheLock() async throws {
+        let b = RecordingBackend()
+        b.nodes["/x"] = .file
+        let lock = OperationLock()
+        let v = makeVolume(b, requiresJournalReplay: false, opLock: lock)
+        #expect(lock.tryAcquire(FsckOperation(checkOptions: ["-q"])) == nil)
+
+        let root = v.activatedRoot()
+        let code = await posixCode {
+            _ = try await v.attributes(FSItem.GetAttributesRequest(), of: root)
+            _ = try await v.lookupItem(named: name("x"), inDirectory: root)
+        }
+        #expect(code == nil,
+                "the mount's own root operations were refused (\(String(describing: code))) by the quick check it is waiting on")
+    }
+
+    /// The quiesce a person asks for is unchanged: during a verify or a
+    /// repair of a mounted volume, its operations are still refused.
+    @Test("a verify or repair still refuses the volume's operations",
+          arguments: [FsckOperation.verify, .repair])
+    func aVerifyOrRepairStillRefuses(op: FsckOperation) async {
+        let lock = OperationLock()
+        let v = makeVolume(RecordingBackend(), opLock: lock)
+        #expect(lock.tryAcquire(op) == nil)
+        let root = v.item(forID: 2, path: "/", parentInode: nil)
+        let code = await posixCode {
+            _ = try await v.attributes(FSItem.GetAttributesRequest(), of: root)
+        }
+        #expect(code == .EBUSY)
     }
 }

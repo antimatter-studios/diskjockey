@@ -584,9 +584,11 @@ extension NTFSFileSystem: FSManageableResourceMaintenanceOperations {
         // reads/writes on the volume will fail while fsck runs (we drop
         // bridgeFS before the dirty check) — that's expected; fsck
         // temporarily takes the volume offline. opLock release sits
-        // here because the operation continues asynchronously.
+        // here because the operation continues asynchronously, and goes
+        // through `opLock.finish(reporting:)` so the operation has ended
+        // before `task.didComplete` tells FSKit it may mount
+        // (diskjockey#166).
         Task.detached {
-            defer { opLock.release() }
             let result = volume.runFsck(
                 onProgress: { phase, done, total in
                     let now = monotonicNanos()
@@ -610,18 +612,20 @@ extension NTFSFileSystem: FSManageableResourceMaintenanceOperations {
                 }
             )
 
+            let outcome: (any Error)?
             switch result {
             case .success(let report):
                 dlog.event(kind: "fsck.done", fields: report.toEventFields())
                 progress.completedUnitCount = 100
-                task.didComplete(error: nil)
+                outcome = nil
 
             case .failure(let err):
                 dlog.event(kind: "fsck.failed", fields: [
                     "error": "\(err)",
                 ])
-                task.didComplete(error: err)
+                outcome = err
             }
+            opLock.finish { task.didComplete(error: outcome) }
         }
 
         return progress
