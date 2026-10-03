@@ -549,11 +549,10 @@ if [ "${1:-}" = --run-all ]; then
     run_all "$@"
 fi
 
-# The quiet wrapper. The budget is chores.yml's cli-pipe row: 152 lines /
-# 9,252 bytes measured on macOS on run 37138277392 (25 pipelines, every check
-# passed), about a quarter over. Linux runs 37 pipelines and has not yet had
-# a green run to measure. A pass over budget exits 65, and the first green
-# Linux run is the measurement to raise the row with.
+# The quiet wrapper. The budget is chores.yml's cli-pipe row: 213 lines /
+# 12,909 bytes measured on Linux on run 37146995541 (37 pipelines, every check
+# passed), about a quarter over. macOS prints less (152 / 9,252 on run
+# 37138277392), and both legs share the row. A pass over budget exits 65.
 wrap=() pass=()
 for a in "$@"; do
     case "$a" in
@@ -564,7 +563,7 @@ for a in "$@"; do
 done
 rc=0
 # ${a[@]+"${a[@]}"}: an empty array is "unbound" to macOS's bash 3.2.
-scripts/quiet-run.sh ${wrap[@]+"${wrap[@]}"} cli-pipe 190 11600 -- \
+scripts/quiet-run.sh ${wrap[@]+"${wrap[@]}"} cli-pipe 270 16200 -- \
     bash scripts/cli-pipe.sh --run-all ${pass[@]+"${pass[@]}"} || rc=$?
 log="${QUIET_LOG_DIR:-$ROOT/tmp/logs}/cli-pipe.log"
 grep -E '^ran [0-9]+ pipeline' "$log" 2>/dev/null | tail -1

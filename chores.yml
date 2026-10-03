@@ -26,7 +26,7 @@ chore_min_version: 0.6.0
 #   scripts     810    42600   649 / 34,084 (40 files)      25% / 25%  26 files
 #   library    2750   212000   2,168 / 166,527              27% / 27%  521 cases
 #   app        5200   950000   4,119 / 750,848 (raw)        26% / 27%  85 cases
-#   cli-pipe    190    11600   152 / 9,252 (macOS)          25% / 25%  25 macOS, 37 Linux
+#   cli-pipe    270    16200   213 / 12,909 (Linux)         27% / 25%  25 macOS, 37 Linux
 #
 # cli-pipe is not a fourth tier: it installs other repositories' releases and
 # runs in its own scheduled workflow, not in `chore test` (#292). Its row is
@@ -35,8 +35,10 @@ chore_min_version: 0.6.0
 # #296 raised its floor to 25 pipelines on macOS and 37 on Linux, with the
 # ext4, XFS and Btrfs legs. The row was raised from 130 / 8,400 on macOS's
 # first green run with them, run 37138277392, 2026-10-03: 152 lines / 9,252
-# bytes, every check passed, exit 65 only for the budget. Linux has not had a
-# green run yet; its first one is re-measured here.
+# bytes, every check passed, exit 65 only for the budget. Linux, which runs
+# more pipelines, then had its first green run, run 37146995541, 2026-10-03:
+# 213 lines / 12,909 bytes, every check passed, exit 65 only for the budget.
+# Both legs share this row, so it is set from the larger, Linux.
 #
 # The library row has already moved four times, and that is the budget working:
 # 994 lines on run 36614133886, then 1,204 on run 36619808267 after #241 —
