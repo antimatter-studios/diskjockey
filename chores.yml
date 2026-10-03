@@ -23,9 +23,15 @@ chore_min_version: 0.6.0
 # is about a quarter over the measurement, and each row says what it is:
 #
 #   tier      lines    bytes   measured (lines / bytes)     headroom   floor
-#   scripts     650    34000   496 / 25,616 (27 files)      31% / 33%  26 files
+#   scripts     810    42600   649 / 34,084 (40 files)      25% / 25%  26 files
 #   library    2750   212000   2,168 / 166,527              27% / 27%  521 cases
 #   app        5200   950000   4,119 / 750,848 (raw)        26% / 27%  85 cases
+#   cli-pipe    130     8400   102 / 6,688                  27% / 26%  17 pipelines
+#
+# cli-pipe is not a fourth tier: it installs other repositories' releases and
+# runs in its own scheduled workflow, not in `chore test` (#292). Its row is
+# here because it runs through the same wrapper and is held to a budget the
+# same way; measured on run 37073259858, 2026-10-02, all 17 pipelines green.
 #
 # The library row has already moved four times, and that is the budget working:
 # 994 lines on run 36614133886, then 1,204 on run 36619808267 after #241 —
@@ -124,6 +130,16 @@ tasks:
       - scripts/test-scripts.sh {{.CLI_ARGS}}
       - scripts/test-library.sh {{.CLI_ARGS}}
       - scripts/test-app.sh {{.CLI_ARGS}}
+
+  test:cli-pipe:
+    desc: The released drivers' tools compose — blk.probe -> fs.<fs> --offset, img.<fmt> read, fs.<a> read | fs.<b> write
+    # Not one of the three tiers and not part of `chore test`: it installs
+    # other repositories' latest releases, so its answer moves when they
+    # release, and the CLI pipe workflow runs it on a schedule rather than on
+    # every pull request. No `sources`, for the same reason as overview:list.
+    # -- --no-install tests whatever is already on PATH (a Homebrew install).
+    cmds:
+      - scripts/cli-pipe.sh {{.CLI_ARGS}}
 
   check:agents-core:
     desc: AGENTS.md still carries the shared agent-core block, unmodified
