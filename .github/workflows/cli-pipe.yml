@@ -31,8 +31,8 @@ on:
       - .github/workflows/cli-pipe.yml
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.head_ref || format('{0}-{1}', github.ref_name, github.sha) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Read-only. Release downloads and attestation lookups on public repositories
 # need nothing more.
