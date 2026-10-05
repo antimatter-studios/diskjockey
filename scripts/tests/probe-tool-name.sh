@@ -15,7 +15,9 @@
 #      bundle's Resources.
 #   3. No tracked file spells the tool `blk-probe`. The repository is still
 #      `rust-blk-probe`, and dated reports record what things were called
-#      when they were written; those are the only exceptions.
+#      when they were written; those are the exceptions, with
+#      docs/constellation/naming-discussion.md, which discusses `blk-probe`
+#      as a crates.io package name rather than as the tool.
 #
 #   bash scripts/tests/probe-tool-name.sh
 set -uo pipefail
@@ -44,7 +46,8 @@ grep -qF '"lib/blk.probe/blk.probe"' "$mount" && ok "the app's dev fallback is l
 hits="$(git -C "$REPO" grep -nF 'blk-probe' -- . \
     ":(exclude)$SELF" \
     ':(exclude)docs/constellation-report-2026-08-30.md' \
-    ':(exclude)docs/constellation/evidence-2026-08-30.md' |
+    ':(exclude)docs/constellation/evidence-2026-08-30.md' \
+    ':(exclude)docs/constellation/naming-discussion.md' |
     sed 's/rust-blk-probe//g' | grep -F 'blk-probe' || true)"
 if [ -z "$hits" ]; then
     ok "no tracked file names the tool blk-probe"
