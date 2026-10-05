@@ -177,77 +177,111 @@ would create a cargo package called fs-ext4."* That is the 09-04 bare-name
 plan, with one difference: the repositories keep their `rust-` prefix
 rather than being renamed to match.
 
+**2026-10-05, later.** Weighing the three taken bare names again, the owner
+moved to the prefix on everything: *"because rust doesn't support namespaces,
+we'll have to keep the rust- prefix even if rust crates don't like it, and
+then it's at least consistent. rust-fs-ext4 -> rust_fs_ext4 is verbose, but
+at least consistent."* And on the prefix question generally: *"I don't like
+am-rust-x, I think it's also ugly, so let's use rust-fs as a prefix in git,
+the cargo crate and everything, even if rust doesn't like it."*
+
+**2026-10-05, last.** The owner then proposed dropping the prefix at the
+source level only: *"repo rust-fs-ext4, crate rust-fs-ext4, package
+fs_ext4 ... all the external packages are all consistent, and we chop off
+the rust-x prefix when it comes to the source code level. We would only have
+a problem if you tried to use the multiple overlapping crates."*
+
 ## 5. Where it stands
 
-**Direction (owner, 2026-10-05):** no `am-` anywhere. The repository keeps
-the language marker; the crate takes the bare name:
+**Direction (owner, 2026-10-05):** every name a person meets outside the
+source is the repository's; inside the source, the `rust-` prefix is dropped.
+No `am-`.
 
 | | example |
 |---|---|
-| repository | `antimatter-studios/rust-fs-ext4` |
-| crate | `fs-ext4` |
-| import | `fs_ext4` |
-| C symbols | `fs_ext4_*` (unchanged) |
+| repository | `antimatter-studios/rust-fs-ext4` (unchanged) |
+| crate on crates.io | `rust-fs-ext4` |
+| multi-call binary, Homebrew formula | `rust-fs-ext4` (unchanged) |
+| per-tool names | `fs.ext4`, `mkfs.ext4` (unchanged) |
+| import (`[lib] name`) | `fs_ext4` (unchanged) |
+| C ABI symbols | `fs_ext4_*` (unchanged, and now the same stem as the import) |
+
+Applied to the family:
+
+| repository = crate | import |
+|---|---|
+| `rust-fs-core` | `fs_core` |
+| `rust-fs-ext4`, `-ntfs`, `-xfs`, `-btrfs`, `-erofs`, `-squashfs` | `fs_ext4` and so on |
+| `rust-img-qcow2`, `-vhd`, `-vhdx`, `-vmdk` | `img_qcow2` and so on (today `qcow2`) |
+| `rust-partitions` | `partitions` |
+| `rust-lzo1x` | `lzo1x` |
+| `rust-blk-probe` | `blk_probe` |
+
+Why this one:
+
+- **One public name.** Whoever finds the library on GitHub, crates.io,
+  Homebrew or `$PATH` meets the same name and types the same name. crates.io
+  has no namespaces, so some prefix is unavoidable; `rust-` is the one every
+  repository already carries, and every `rust-*` name the family needs was
+  free on 2026-10-05.
+- **The source stays short and unchanged.** Every `fs_*` crate is imported
+  this way already, so the 1,814 import edits a full rename would cost
+  disappear; only the img crates' imports move, from `qcow2` to
+  `img_qcow2`, which is the prefix rule applied to them.
+- **Precedent.** A package name that differs from the import is ordinary
+  Rust: `rust-ini` is imported as `ini`, and this family already ships
+  `am-fs-ext4` imported as `fs_ext4`. A README states the import at the
+  top so nobody has to guess.
+- **The cost of an import-name clash is small.** Two crates with the same
+  import name only collide when one crate lists both as direct
+  dependencies — ours `rust-fs-core` and the unrelated `fs-core` both
+  import as `fs_core`, as could `partitions` and `lzo1x`. Cargo resolves that
+  with one `name = { package = "..." }` line where the dependency is
+  declared; two such crates deeper in the dependency graph never meet.
 
 **Settled:**
 
-- **No `am-` prefix** on any crate. The antimatter-studios brand lives in the
+- **No `am-` prefix**, anywhere. The antimatter-studios brand lives in the
   GitHub org.
-- **The img crates' imports match their packages:** `img-qcow2` is imported
-  as `img_qcow2`, not `qcow2` (and likewise `vhd`, `vhdx`, `vmdk`). Package
-  name equal to import name is the point of the change, so the img crates
-  pay the import edits rather than keep a mismatch. Consumers: the ntfs and
-  ext4 image readers, the bundles, and the img crates' own tests and CLIs.
+- **Crate equals repository**, so the three taken bare names (`fs-core`,
+  `partitions`, `lzo1x`) need no invented replacement.
+- **The import is the repository name without `rust-`**, underscored. This
+  supersedes the same day's "`rust_fs_ext4` everywhere" answer.
+- **C symbols are unchanged**, and match the import.
+- **No repository, binary or formula is renamed**, except as below.
 
 **Open:**
 
-1. **What to call the three crates whose bare name is taken.** The 09-04
-   proposals, re-checked 2026-10-05:
-   - `fs-core` → `fs-driver-core` (free). Alternatives: `fs-common`,
-     `fs-kit`. It is the crate every other one depends on, so a consumer
-     rarely types it.
-   - `partitions` → `disk-partitions` (free). Alternative:
-     `partition-table`, which is narrower than what the crate does,
-     especially if rust-blk-probe merges into it (rust-partitions#150).
-   - `lzo1x` → the 09-04 proposal was `lzo1x-decompress`, which is no
-     longer accurate: the crate compresses as well since 0.2.0, and its CLI
-     reads and writes `.lzo` files. `lzo1x-codec` is free. `lzop` is free
-     but is the name of the reference tool the crate is tested against.
-2. **Whether the repositories keep `rust-`.** The 10-05 direction keeps it;
-   the 09-04 plan renamed repositories to equal the crate (`fs-ext4`), the
-   `tokio-rs/tokio` shape. Keeping it costs nothing and keeps the language
-   visible in a mixed org; dropping it makes repository equal crate.
-3. **What the multi-call binaries and Homebrew formulas are called.** Today
-   both follow the repository (`rust-fs-xfs`), and the per-tool names
-   (`fs.xfs`, `mkfs.xfs`, `lzo1x`) are what a user actually types. If the
-   repositories keep `rust-`, nothing here needs to change.
-4. **What the abandoned `am-*` crates say.** The options are in section 3.
+1. **Partitions.** The owner said "disk partitions" sounds better than
+   "partitions". Either the crate is `rust-partitions` (import
+   `partitions`), matching the repository with nothing renamed, or both
+   become `rust-disk-partitions` (import `disk_partitions`), which renames
+   the repository too.
+2. **What the abandoned `am-*` crates say.** The options are in section 3.
    A final version whose description and README name the new crate is the
    minimum; whether to also `yank` earlier versions, or publish a
    `pub use` shim, is a choice about how loudly to redirect.
-5. **rust-blk-probe's crate.** Never published, so naming the package `blk-probe` costs nothing (the tool stays `blk.probe`);
-   it may stop being a crate of its own if it merges into rust-partitions
-   (#150), in which case the question disappears.
-6. **Future crates.** The availability lottery is the standing argument
-   for a prefix. With bare names, a future crate whose name is taken needs
-   a rule for its exception, so that the fourth one is not decided ad hoc.
+3. **rust-blk-probe** is already named this way and was never published; if
+   it merges into the partitions crate (rust-partitions#150) the question
+   disappears.
 
 ## 6. What a rename touches, once decided
 
 So the cost is visible before it is scheduled:
 
-- each library's `Cargo.toml` `[package] name`, and `[lib] name` for the
-  img crates;
+- each library's `Cargo.toml` `[package] name` and `[lib] name`;
 - every dependency line naming an `am-*` crate: the drivers on
   `am-fs-core`, the readers on the img crates and `am-partitions`, the
   three Windows drivers, and the six `rust-bundles/dj-*-bundle`
   aggregators in this repository;
-- the img crates' imports (`use qcow2::` and friends), compiler-checked;
+- the img crates' imports (`use qcow2::` becomes `use img_qcow2::`),
+  mechanical and compiler-checked; no other import changes;
 - READMEs, install examples, CHANGELOGs and `cargo add` lines;
-- the publishing order: `fs-core`'s replacement first, then the img crates
-  and partitions, then the filesystem crates, then the bundles;
+- the publishing order: `rust-fs-core` first, then the img crates,
+  partitions and lzo1x, then the filesystem crates, then the bundles;
 - a final release of each `am-*` crate pointing at its successor;
-- `SIBLING_PINS.txt` and `chores.yml` only if repositories are renamed.
+- `SIBLING_PINS.txt` and `chores.yml` only if a repository is renamed
+  (the partitions question).
 
 Do it once, across the whole constellation, with one coordinated change per
 repository, so no crate depends on a mixture of old and new names.
