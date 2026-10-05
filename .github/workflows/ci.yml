@@ -45,7 +45,7 @@ on:
 # Cancel an in-progress run when a newer commit supersedes it: keyed per source
 # branch for PRs (head_ref), per ref for main pushes (ref_name).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.sha }}
+  group: ${{ github.workflow }}-${{ github.head_ref || format('{0}-{1}', github.ref_name, github.sha) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Read-only, stated here rather than inherited from the repository's default
