@@ -191,11 +191,20 @@ fs_ext4 ... all the external packages are all consistent, and we chop off
 the rust-x prefix when it comes to the source code level. We would only have
 a problem if you tried to use the multiple overlapping crates."*
 
+Asked whether the scheme conflicts with anything, the review found no
+blocker: the three import-name clashes it keeps (`fs_core`, `partitions`,
+`lzo1x`) exist today and cost one rename line in the rare crate that lists
+both namesakes directly, and the four the img crates have today (`qcow2`,
+`vhd`, `vhdx`, `vmdk` are all taken on crates.io) go away. The owner: *"if
+we migrate to the same naming scheme, eventually we'll end up with a better,
+more consistent setup rather than everything using different conventions."*
+
 ## 5. Where it stands
 
-**Direction (owner, 2026-10-05):** every name a person meets outside the
+**Decided (owner, 2026-10-05):** every name a person meets outside the
 source is the repository's; inside the source, the `rust-` prefix is dropped.
-No `am-`.
+No `am-`. The migration is tracked by diskjockey#301 and is not yet
+scheduled.
 
 | | example |
 |---|---|
@@ -249,6 +258,17 @@ Why this one:
   supersedes the same day's "`rust_fs_ext4` everywhere" answer.
 - **C symbols are unchanged**, and match the import.
 - **No repository, binary or formula is renamed**, except as below.
+
+**Known clashes the scheme keeps** (from the review above): `fs_core`,
+`partitions` and `lzo1x` are also the import names of unrelated crates.
+Only a crate that depends on both namesakes directly has to rename one
+(`name = { package = "..." }`); `lzo1x` is the likeliest, since the other
+one is GPL and a reader typing `use lzo1x::` could reach either.
+`rust-disk-partitions` would clear the `partitions` clash.
+
+**Tidy at migration time:** `rust-fs-ntfs` also builds a `rust-ntfs` binary,
+and `rust-fs-ext4` and `rust-fs-ntfs` build `mkfs_ext4` and `mkfs_ntfs`
+beside the dotted tool names; `cargo install` puts all of them on PATH.
 
 **Open:**
 
