@@ -49,7 +49,7 @@ Read from each repository's `Cargo.toml` on `main`, 2026-10-05.
 | `rust-img-vmdk` | `am-img-vmdk` | `vmdk` | 0.4.0 | `rust-img-vmdk` |
 | `rust-partitions` | `am-partitions` | `partitions` | 0.5.0 | — |
 | `rust-lzo1x` | `am-lzo1x` | `lzo1x` | 0.3.1 | `rust-lzo1x` (answers as `lzo1x`) |
-| `rust-blk-probe` | `rust-blk-probe` (never published) | `blk_probe` | 0.1.2 | `blk_probe` |
+| `rust-blk-probe` | `rust-blk-probe` (never published) | `blk_probe` | 0.1.2 | `blk_probe`, shipped as the tool `blk.probe` |
 
 Not in scope, and why:
 
@@ -208,7 +208,7 @@ the language marker; the crate takes the bare name:
      rarely types it.
    - `partitions` → `disk-partitions` (free). Alternative:
      `partition-table`, which is narrower than what the crate does,
-     especially if `blk-probe` merges into it (rust-partitions#150).
+     especially if rust-blk-probe merges into it (rust-partitions#150).
    - `lzo1x` → the 09-04 proposal was `lzo1x-decompress`, which is no
      longer accurate: the crate compresses as well since 0.2.0, and its CLI
      reads and writes `.lzo` files. `lzo1x-codec` is free. `lzop` is free
@@ -225,7 +225,7 @@ the language marker; the crate takes the bare name:
    A final version whose description and README name the new crate is the
    minimum; whether to also `yank` earlier versions, or publish a
    `pub use` shim, is a choice about how loudly to redirect.
-5. **`blk-probe`.** Never published, so naming it `blk-probe` costs nothing;
+5. **rust-blk-probe's crate.** Never published, so naming the package `blk-probe` costs nothing (the tool stays `blk.probe`);
    it may stop being a crate of its own if it merges into rust-partitions
    (#150), in which case the question disappears.
 6. **Future crates.** The availability lottery is the standing argument
