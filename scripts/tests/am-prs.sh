@@ -73,12 +73,12 @@ check "state and origin combine" "5" "$(printf '%s\n' "$tsv" | awk -F'\t' 'NR > 
 check "an unknown state is refused" 2 "$rc"
 
 # ------------------------------------------------------- 4. a failed fetch
-: > "$sandbox/antimatter-studios-rust-partitions.fail"
-out="$("$BIN" --project diskjockey --project rust-partitions 2>&1)"; rc=$?
+: > "$sandbox/antimatter-studios-rust-disk-partitions.fail"
+out="$("$BIN" --project diskjockey --project rust-disk-partitions 2>&1)"; rc=$?
 check "a failed fetch exits 4" 4 "$rc"
-contains "and names the project" "FETCH FAILED  rust-partitions" "$out"
+contains "and names the project" "FETCH FAILED  rust-disk-partitions" "$out"
 contains "while the readable project still lists" "by a contributor" "$out"
-rm -f "$sandbox/antimatter-studios-rust-partitions.fail"
+rm -f "$sandbox/antimatter-studios-rust-disk-partitions.fail"
 
 # A token-wide limit stops the whole run before printing partial rows or
 # querying the next project, in both human and TSV output modes.
@@ -87,25 +87,25 @@ for message in 'API rate limit exceeded (HTTP 403)' \
                'GraphQL: API rate limit already exceeded (RATE_LIMITED)'; do
     calls="$sandbox/calls"
     : > "$calls"
-    printf '%s\n' "$message" > "$sandbox/antimatter-studios-rust-partitions.ratelimit"
-    out="$(AM_PRS_CALLS="$calls" "$BIN" --project diskjockey --project rust-partitions \
+    printf '%s\n' "$message" > "$sandbox/antimatter-studios-rust-disk-partitions.ratelimit"
+    out="$(AM_PRS_CALLS="$calls" "$BIN" --project diskjockey --project rust-disk-partitions \
         --project rust-lzo1x --tsv 2>&1)"; rc=$?
     check "a rate limit exits 5 [$message]" 5 "$rc"
-    contains "and names the stop [$message]" 'stopped at rust-partitions' "$out"
+    contains "and names the stop [$message]" 'stopped at rust-disk-partitions' "$out"
     check "and stops after two fetches [$message]" 2 "$(wc -l < "$calls" | tr -d ' ')"
     case "$out" in
         *$'project\tpr\tstate'*) echo "FAIL — rate limit printed a partial TSV [$message]" >&2; fails=$((fails + 1)) ;;
         *) echo "ok — rate limit printed no partial TSV [$message]" ;;
     esac
 done
-printf '%s\n' 'API rate limit exceeded' > "$sandbox/antimatter-studios-rust-partitions.ratelimit"
-out="$("$BIN" --project diskjockey --project rust-partitions 2>&1)"; rc=$?
+printf '%s\n' 'API rate limit exceeded' > "$sandbox/antimatter-studios-rust-disk-partitions.ratelimit"
+out="$("$BIN" --project diskjockey --project rust-disk-partitions 2>&1)"; rc=$?
 check 'a rate limit also exits 5 in human mode' 5 "$rc"
 case "$out" in
     *PROJECT*) echo 'FAIL — rate limit printed a partial human table' >&2; fails=$((fails + 1)) ;;
     *) echo 'ok — rate limit printed no partial human table' ;;
 esac
-rm -f "$sandbox/antimatter-studios-rust-partitions.ratelimit"
+rm -f "$sandbox/antimatter-studios-rust-disk-partitions.ratelimit"
 
 # --------------------------------------------------------- 5. nothing found
 out="$("$BIN" --project rust-lzo1x 2>&1)"; rc=$?

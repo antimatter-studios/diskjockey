@@ -121,26 +121,26 @@ check "the labels column holds the label" "bug" "$(printf '%s\n' "$tsv" | awk -F
 check "the title column holds the title" "five days old" "$(printf '%s\n' "$tsv" | awk -F'\t' '$2==13 {print $5}')"
 
 # ------------------------------------------------------- 4. a failed fetch
-: > "$sandbox/antimatter-studios-rust-partitions.fail"
-out="$("$BIN" --project diskjockey --project rust-partitions 2>&1)"; rc=$?
+: > "$sandbox/antimatter-studios-rust-disk-partitions.fail"
+out="$("$BIN" --project diskjockey --project rust-disk-partitions 2>&1)"; rc=$?
 check "a failed fetch exits 4" 4 "$rc"
 contains "the row says so" "FETCH FAILED" "$out"
 contains "and the shortfall is stated" "incomplete BY THAT MUCH" "$out"
 contains "while the readable project still counts" "diskjockey              2" "$out"
-rm -f "$sandbox/antimatter-studios-rust-partitions.fail"
+rm -f "$sandbox/antimatter-studios-rust-disk-partitions.fail"
 
 # ------------------------------------------------ 4b. the list names everyone
 # Every project gets a heading, including one with nothing open and one whose
 # fetch failed, so the list cannot read as complete when it is not.
-: > "$sandbox/antimatter-studios-rust-partitions.fail"
-out="$("$BIN" --list --project diskjockey --project rust-partitions --project rust-lzo1x 2>&1)"; rc=$?
+: > "$sandbox/antimatter-studios-rust-disk-partitions.fail"
+out="$("$BIN" --list --project diskjockey --project rust-disk-partitions --project rust-lzo1x 2>&1)"; rc=$?
 check "a failed fetch in the list still exits 4" 4 "$rc"
 contains "the list heads each project with its count" "diskjockey — 2 open" "$out"
 contains "the list prints issue number and title" "five days old" "$out"
 contains "each issue carries its link" "https://github.com/antimatter-studios/diskjockey/issues/13 " "$out"
-contains "a failed project is named in the list" "rust-partitions — FETCH FAILED" "$out"
+contains "a failed project is named in the list" "rust-disk-partitions — FETCH FAILED" "$out"
 contains "an empty project is named, not skipped" "rust-lzo1x — 0 open" "$out"
-rm -f "$sandbox/antimatter-studios-rust-partitions.fail"
+rm -f "$sandbox/antimatter-studios-rust-disk-partitions.fail"
 
 # ------------------------------------------- 4c. pull requests in the list
 # Two PRs on one issue take two lines, and the title stays on the first.
@@ -163,19 +163,19 @@ rm -f "$sandbox/antimatter-studios-diskjockey.prsfail"
 
 # ------------------------------------------- 4d. pull request counts
 echo "3 40" > "$sandbox/antimatter-studios-diskjockey.prcounts"
-echo "1 2" > "$sandbox/antimatter-studios-rust-partitions.prcounts"
-out="$("$BIN" --summary --project diskjockey --project rust-partitions 2>&1)"; rc=$?
+echo "1 2" > "$sandbox/antimatter-studios-rust-disk-partitions.prcounts"
+out="$("$BIN" --summary --project diskjockey --project rust-disk-partitions 2>&1)"; rc=$?
 check "the summary with PR counts exits 0" 0 "$rc"
 check "the row ends in open and closed PRs" 1 "$(printf '%s\n' "$out" | grep -Ec '^diskjockey +2 .* 3 +40$')"
 check "the total sums both PR columns" 1 "$(printf '%s\n' "$out" | grep -Ec '^TOTAL +2 +4 +42$')"
 
 # An unreadable count is `?`, never 0, and the total says it is partial.
-: > "$sandbox/antimatter-studios-rust-partitions.prcountsfail"
-out="$("$BIN" --summary --project diskjockey --project rust-partitions 2>&1)"; rc=$?
+: > "$sandbox/antimatter-studios-rust-disk-partitions.prcountsfail"
+out="$("$BIN" --summary --project diskjockey --project rust-disk-partitions 2>&1)"; rc=$?
 check "a failed PR count exits 4" 4 "$rc"
-check "the row shows it as unknown" 1 "$(printf '%s\n' "$out" | grep -Ec '^rust-partitions +0 .* \? +\?$')"
+check "the row shows it as unknown" 1 "$(printf '%s\n' "$out" | grep -Ec '^rust-disk-partitions +0 .* \? +\?$')"
 check "and the total is marked partial" 1 "$(printf '%s\n' "$out" | grep -Ec '^TOTAL .* 3\+\? +40\+\?$')"
-contains "and the shortfall names the lookup" "rust-partitions (pull request counts)" "$out"
+contains "and the shortfall names the lookup" "rust-disk-partitions (pull request counts)" "$out"
 rm -f "$sandbox"/*.prcounts "$sandbox"/*.prcountsfail
 
 # ------------------------------------------------ 4e. a rate limit stops it
@@ -199,19 +199,19 @@ for message in "API rate limit exceeded for user ID 1. (HTTP 403)" \
                "You have exceeded a secondary rate limit. (HTTP 403)" \
                "GraphQL: API rate limit already exceeded for user ID 1. (RATE_LIMITED)"; do
     : > "$calls"
-    printf '%s' "$message" > "$sandbox/antimatter-studios-rust-partitions.ratelimit"
+    printf '%s' "$message" > "$sandbox/antimatter-studios-rust-disk-partitions.ratelimit"
     out="$(AM_OVERVIEW_CALLS="$calls" AM_OVERVIEW_FETCH="$sandbox/fetch-limited" \
-        "$BIN" --summary --project diskjockey --project rust-partitions --project rust-lzo1x 2>&1)"; rc=$?
+        "$BIN" --summary --project diskjockey --project rust-disk-partitions --project rust-lzo1x 2>&1)"; rc=$?
     check "a rate limit exits 5 [$message]" 5 "$rc"
     contains "and says it was rate limited [$message]" "rate limit" "$out"
-    contains "and where it stopped [$message]" "stopped at rust-partitions" "$out"
+    contains "and where it stopped [$message]" "stopped at rust-disk-partitions" "$out"
     check "and makes no request after it [$message]" 2 "$(wc -l < "$calls" | tr -d ' ')"
     case "$out" in
         *PROJECT*) echo "FAIL — a rate-limited run printed a table [$message]" >&2; fails=$((fails + 1)) ;;
         *) echo "ok — a rate-limited run prints no table [$message]" ;;
     esac
 done
-rm -f "$sandbox/antimatter-studios-rust-partitions.ratelimit"
+rm -f "$sandbox/antimatter-studios-rust-disk-partitions.ratelimit"
 
 # The same for the pull request lookups, which run after the issue fetch.
 printf 'GraphQL: API rate limit already exceeded (RATE_LIMITED)' > "$sandbox/limited-msg"
@@ -222,16 +222,16 @@ exit 1
 STUB
 chmod +x "$sandbox/fetch-counts-limited"
 out="$(AM_OVERVIEW_FETCH_PR_COUNTS="$sandbox/fetch-counts-limited" \
-    "$BIN" --summary --project diskjockey --project rust-partitions 2>&1)"; rc=$?
+    "$BIN" --summary --project diskjockey --project rust-disk-partitions 2>&1)"; rc=$?
 check "a rate-limited PR count exits 5" 5 "$rc"
 contains "and names the lookup" "stopped at diskjockey (pull request counts)" "$out"
 
 # An ordinary failure is still an ordinary failure: exit 4, the run goes on.
-: > "$sandbox/antimatter-studios-rust-partitions.fail"
-out="$("$BIN" --summary --project rust-partitions --project diskjockey 2>&1)"; rc=$?
+: > "$sandbox/antimatter-studios-rust-disk-partitions.fail"
+out="$("$BIN" --summary --project rust-disk-partitions --project diskjockey 2>&1)"; rc=$?
 check "a failure that is not a rate limit still exits 4" 4 "$rc"
 contains "and the next project is still read" "diskjockey              2" "$out"
-rm -f "$sandbox/antimatter-studios-rust-partitions.fail"
+rm -f "$sandbox/antimatter-studios-rust-disk-partitions.fail"
 
 # --------------------------------------------------------- 5. nothing found
 rm -f "$sandbox/antimatter-studios-diskjockey.rows"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The product pipeline covers DiskJockey, its fifteen modules and the two test
+# The product pipeline covers DiskJockey, its twenty modules and the two test
 # harnesses their oracles run in, and nothing from the separate
 # pipeline-infrastructure scope.
 set -uo pipefail
@@ -35,12 +35,19 @@ expected="$sandbox/expected"
 actual="$sandbox/actual"
 cat > "$expected" <<'EOF'
 antimatter-studios/diskjockey
+antimatter-studios/erofs-win-driver
+antimatter-studios/ext4-win-driver
 antimatter-studios/fs-linux-test-harness
 antimatter-studios/fs-windows-test-harness
+antimatter-studios/go-networkfs
 antimatter-studios/rust-blk-probe
+antimatter-studios/rust-disk-partitions
+antimatter-studios/rust-fs-bcachefs
 antimatter-studios/rust-fs-btrfs
 antimatter-studios/rust-fs-core
 antimatter-studios/rust-fs-erofs
+antimatter-studios/rust-fs-ext4
+antimatter-studios/rust-fs-ntfs
 antimatter-studios/rust-fs-squashfs
 antimatter-studios/rust-fs-xfs
 antimatter-studios/rust-img-qcow2
@@ -48,28 +55,26 @@ antimatter-studios/rust-img-vhd
 antimatter-studios/rust-img-vhdx
 antimatter-studios/rust-img-vmdk
 antimatter-studios/rust-lzo1x
-antimatter-studios/rust-partitions
-christhomas/go-networkfs
-christhomas/rust-fs-ext4
-christhomas/rust-fs-ntfs
+antimatter-studios/winfsp-fs-skeleton
+antimatter-studios/xfs-win-driver
 EOF
 LC_ALL=C sort -u "$AM_SCOPE_CALLS" > "$actual"
 
 if ! diff -u "$expected" "$actual"; then
-    echo "FAIL  overview did not fetch the exact 18-repository product scope" >&2
+    echo "FAIL  overview did not fetch the exact 23-repository product scope" >&2
     exit 1
 fi
 
 calls="$(wc -l < "$AM_SCOPE_CALLS" | tr -d ' ')"
 unique="$(wc -l < "$actual" | tr -d ' ')"
-if [ "$calls" != 18 ] || [ "$unique" != 18 ]; then
-    echo "FAIL  expected 18 unique fetches, got $calls calls / $unique unique" >&2
+if [ "$calls" != 23 ] || [ "$unique" != 23 ]; then
+    echo "FAIL  expected 23 unique fetches, got $calls calls / $unique unique" >&2
     exit 1
 fi
 
 case "$output" in
-    *"no open issues in any of the 18 projects"*) ;;
-    *) printf 'FAIL  completion output does not state the 18-project scope:\n%s\n' "$output" >&2; exit 1 ;;
+    *"no open issues in any of the 23 projects"*) ;;
+    *) printf 'FAIL  completion output does not state the 23-project scope:\n%s\n' "$output" >&2; exit 1 ;;
 esac
 
 echo "constellation-product-scope: all checks passed"
