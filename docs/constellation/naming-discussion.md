@@ -222,7 +222,7 @@ Applied to the family:
 | `rust-fs-core` | `fs_core` |
 | `rust-fs-ext4`, `-ntfs`, `-xfs`, `-btrfs`, `-erofs`, `-squashfs` | `fs_ext4` and so on |
 | `rust-img-qcow2`, `-vhd`, `-vhdx`, `-vmdk` | `img_qcow2` and so on (today `qcow2`) |
-| `rust-partitions` | `partitions` |
+| `rust-disk-partitions` (renamed from `rust-partitions`) | `disk_partitions` |
 | `rust-lzo1x` | `lzo1x` |
 | `rust-blk-probe` | `blk_probe` |
 
@@ -235,8 +235,9 @@ Why this one:
   free on 2026-10-05.
 - **The source stays short and unchanged.** Every `fs_*` crate is imported
   this way already, so the 1,814 import edits a full rename would cost
-  disappear; only the img crates' imports move, from `qcow2` to
-  `img_qcow2`, which is the prefix rule applied to them.
+  disappear; only the img and partitions crates' imports move: `qcow2` to
+  `img_qcow2`, which is the prefix rule applied to them, and `partitions`
+  to `disk_partitions`, which follows the crate's new name.
 - **Precedent.** A package name that differs from the import is ordinary
   Rust: `rust-ini` is imported as `ini`, and this family already ships
   `am-fs-ext4` imported as `fs_ext4`. A README states the import at the
@@ -257,14 +258,18 @@ Why this one:
 - **The import is the repository name without `rust-`**, underscored. This
   supersedes the same day's "`rust_fs_ext4` everywhere" answer.
 - **C symbols are unchanged**, and match the import.
-- **No repository, binary or formula is renamed**, except as below.
+- **No repository, binary or formula is renamed**, except partitions:
+- **Partitions is `rust-disk-partitions`** (owner, 2026-10-06): repository,
+  crate, and import `disk_partitions`. The repository is renamed from
+  `rust-partitions` (GitHub redirects the old name), and its importers move
+  from `use partitions::` to `use disk_partitions::`.
 
-**Known clashes the scheme keeps** (from the review above): `fs_core`,
-`partitions` and `lzo1x` are also the import names of unrelated crates.
+**Known clashes the scheme keeps** (from the review above): `fs_core`
+and `lzo1x` are also the import names of unrelated crates (`partitions`
+was a third, until the partitions crate became `disk_partitions`).
 Only a crate that depends on both namesakes directly has to rename one
 (`name = { package = "..." }`); `lzo1x` is the likeliest, since the other
 one is GPL and a reader typing `use lzo1x::` could reach either.
-`rust-disk-partitions` would clear the `partitions` clash.
 
 **Tidy at migration time:** `rust-fs-ntfs` also builds a `rust-ntfs` binary,
 and `rust-fs-ext4` and `rust-fs-ntfs` build `mkfs_ext4` and `mkfs_ntfs`
@@ -272,17 +277,12 @@ beside the dotted tool names; `cargo install` puts all of them on PATH.
 
 **Open:**
 
-1. **Partitions.** The owner said "disk partitions" sounds better than
-   "partitions". Either the crate is `rust-partitions` (import
-   `partitions`), matching the repository with nothing renamed, or both
-   become `rust-disk-partitions` (import `disk_partitions`), which renames
-   the repository too.
-2. **What the abandoned `am-*` crates say.** The options are in section 3.
+1. **What the abandoned `am-*` crates say.** The options are in section 3.
    A final version whose description and README name the new crate is the
    minimum; whether to also `yank` earlier versions, or publish a
    `pub use` shim, is a choice about how loudly to redirect.
-3. **rust-blk-probe** is already named this way and was never published; if
-   it merges into the partitions crate (rust-partitions#150) the question
+2. **rust-blk-probe** is already named this way and was never published; if
+   it merges into the partitions crate (rust-partitions#150, now rust-disk-partitions) the question
    disappears.
 
 ## 6. What a rename touches, once decided
@@ -300,8 +300,10 @@ So the cost is visible before it is scheduled:
 - the publishing order: `rust-fs-core` first, then the img crates,
   partitions and lzo1x, then the filesystem crates, then the bundles;
 - a final release of each `am-*` crate pointing at its successor;
-- `SIBLING_PINS.txt` and `chores.yml` only if a repository is renamed
-  (the partitions question).
+- the `rust-partitions` repository rename, and with it every
+  `SIBLING_PINS.txt`, `chores.yml` URL, sibling path and README link that
+  names it; `use partitions::` becomes `use disk_partitions::` in its
+  importers.
 
 Do it once, across the whole constellation, with one coordinated change per
 repository, so no crate depends on a mixture of old and new names.
