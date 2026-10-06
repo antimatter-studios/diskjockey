@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# scripts/agents-core-check.sh must REJECT a modified, stale or absent shared
+# rust-fs-core's scripts/agents-core-check.sh, run in place from the
+# rust-fs-core checkout ($FS_CORE_ROOT, else ../rust-fs-core), must REJECT a
+# modified, stale or absent shared
 # block, not merely accept a good one. A gate that cannot fail is
 # indistinguishable from no gate, which is the whole reason the block carries a
 # digest rather than a version number somebody remembers to bump.
@@ -12,6 +14,14 @@ fails=0
 ok()  { printf '  ok   %s\n' "$1"; }
 bad() { printf '  FAIL %s\n' "$1" >&2; fails=$((fails + 1)); }
 
+# The check is rust-fs-core's, and this repository keeps no copy of it. No
+# checkout to run it from is a failure, not a skip.
+CHECK="${FS_CORE_ROOT:-$REPO/../rust-fs-core}/scripts/agents-core-check.sh"
+if [ ! -f "$CHECK" ]; then
+    bad "$CHECK does not exist: check rust-fs-core out beside this repository, or set FS_CORE_ROOT"
+    exit 1
+fi
+
 BAK="$(mktemp)"; cp AGENTS.md "$BAK"
 restore() { cp "$BAK" AGENTS.md; }
 trap 'restore; rm -f "$BAK"' EXIT
@@ -21,7 +31,7 @@ trap 'restore; rm -f "$BAK"' EXIT
 # report every failure as a pass.
 expect() {
     local what="$1" want="$2"
-    scripts/agents-core-check.sh >/dev/null 2>&1
+    FS_CORE_CALLER="$REPO" bash "$CHECK" >/dev/null 2>&1
     local rc=$?
     case "$want" in
         zero)    [ "$rc" -eq 0 ] && ok "$what" || bad "$what: expected exit 0, got $rc" ;;

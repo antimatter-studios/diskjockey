@@ -30,7 +30,8 @@ than duplicating them:
 
 The section between the BEGIN/END markers below is **shared, byte-identical,
 with every repository in this family**. Do not edit it here: change the
-canonical copy and propagate it, or `scripts/agents-core-check.sh` will fail.
+canonical copy and propagate it, or rust-fs-core's `scripts/agents-core-check.sh`
+(run in place from `../rust-fs-core`) will fail.
 Everything after the END marker is specific to this repository.
 
 <!-- BEGIN SHARED BLOCK: agent-core v2 sha256:38af4d2c5377d38ab382baa4eab4aa679841e2b4eba4f4d01dacd255ffa7d32e -->
@@ -397,8 +398,11 @@ Two things worth knowing before you read a green tick here:
   has no conclusion field at all. Read `mergeStateStatus` and
   `statusCheckRollup.state`.
 
-`scripts/agents-core-check.sh` verifies the shared block above is intact. It
-runs two ways, and neither needed a new CI job: `chore check:agents-core` calls
+rust-fs-core's `scripts/agents-core-check.sh` verifies the shared block above
+is intact, run in place from the `../rust-fs-core` checkout: this repository
+keeps no copy, as no repository in the family does (rust-fs-core#212), and the
+`Shell scripts` job clones core at v0.3.3 beside the checkout first. It runs
+two ways, and neither needed a new CI job: `chore check:agents-core` calls
 it directly, and `scripts/tests/agents-core-check.sh` — picked up by the
 existing `Shell scripts` glob — runs it against this repository's real
 `AGENTS.md` and then proves it *fails* on a modified block, a missing marker, a
