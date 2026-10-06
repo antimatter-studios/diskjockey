@@ -78,6 +78,12 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # rust-fs-core's agents-core check runs in place from this checkout
+      # (scripts/tests/agents-core-check.sh); this repository keeps no copy.
+      # The tag is the release whose check reads the guide of the repository
+      # it is run for.
+      - name: rust-fs-core, beside this checkout
+        run: git clone --quiet --depth 1 --branch v0.3.3 https://github.com/antimatter-studios/rust-fs-core.git ../rust-fs-core
       - name: Semantics the Xcode job cannot reach
         # The loop, the `<name>: all checks passed` contract and the floor
         # live in scripts/test-scripts.sh, which `chore check:scripts` runs
