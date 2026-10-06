@@ -9,74 +9,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
-name = "am-fs-btrfs"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2531cadee691988d954c11d5f1c21486644d710225b03819e2855d235cbd4b4"
-dependencies = [
- "am-fs-core",
- "am-lzo1x",
- "blake2b_simd",
- "crc32c",
- "miniz_oxide 0.9.1",
- "ruzstd 0.9.0",
- "sha2",
- "twox-hash",
-]
-
-[[package]]
-name = "am-fs-core"
-version = "0.2.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da6291fceae2064cfcd753174bd64d89584b4927ba62b918c14da6f8614089d8"
-
-[[package]]
-name = "am-img-qcow2"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4703a7dc4a5f6afcff928018d14e8f6814902d61367399b396f717ea28e02eeb"
-dependencies = [
- "am-fs-core",
- "flate2",
- "ruzstd 0.8.3",
-]
-
-[[package]]
-name = "am-img-vhd"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "009889914b5acdd976014350463ea13bf9d53bc1c9a2df57ba38a976a81724a2"
-dependencies = [
- "am-fs-core",
-]
-
-[[package]]
-name = "am-img-vhdx"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d82ab77f1029f8ebba176497cef7a6b4ff39453a71946edb5442f065fffa7362"
-dependencies = [
- "am-fs-core",
- "crc32c",
-]
-
-[[package]]
-name = "am-img-vmdk"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6b7f7c6858f5cf855ae56d8b7a2e6ba2258294c03ec1d7ed5d4ff404dd07d45"
-dependencies = [
- "am-fs-core",
- "flate2",
-]
-
-[[package]]
-name = "am-lzo1x"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "762388655758a7548847ae271a4ec6b0552a53a8b4bec1fa68e7f2064312d042"
-
-[[package]]
 name = "arrayvec"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -164,11 +96,11 @@ dependencies = [
 name = "dj-btrfs-bundle"
 version = "0.0.0"
 dependencies = [
- "am-fs-btrfs",
- "am-img-qcow2",
- "am-img-vhd",
- "am-img-vhdx",
- "am-img-vmdk",
+ "rust-fs-btrfs",
+ "rust-img-qcow2",
+ "rust-img-vhd",
+ "rust-img-vhdx",
+ "rust-img-vmdk",
 ]
 
 [[package]]
@@ -215,6 +147,74 @@ checksum = "b63fbc4a50860e98e7b2aa7804ded1db5cbc3aff9193adaff57a6931bf7c4b4c"
 dependencies = [
  "adler2",
 ]
+
+[[package]]
+name = "rust-fs-btrfs"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf15f9773c65e99f2ad1930c6bd359aa8316c4fbd4e61aca6a4baa20cef7ee7a"
+dependencies = [
+ "blake2b_simd",
+ "crc32c",
+ "miniz_oxide 0.9.1",
+ "rust-fs-core",
+ "rust-lzo1x",
+ "ruzstd 0.9.0",
+ "sha2",
+ "twox-hash",
+]
+
+[[package]]
+name = "rust-fs-core"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b365cc6907eae316a8315540ec91f2a88a0822134b6036300c3b821aed59091f"
+
+[[package]]
+name = "rust-img-qcow2"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e8b56bc4a5f4a0254b46e866cbfee054dca958b29555f2516786a839451dffd"
+dependencies = [
+ "flate2",
+ "rust-fs-core",
+ "ruzstd 0.8.3",
+]
+
+[[package]]
+name = "rust-img-vhd"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa1be828fa0fbf78f44d4b9fa8f8f7792a9f309ec32b65da94171fe3cc58e2cf"
+dependencies = [
+ "rust-fs-core",
+]
+
+[[package]]
+name = "rust-img-vhdx"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5830ad76d562c2ba843af8daa3662979bc34a86608e25f9120b4a58176407884"
+dependencies = [
+ "crc32c",
+ "rust-fs-core",
+]
+
+[[package]]
+name = "rust-img-vmdk"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "598013721283ad0a431d9eeb152d472353dc3974e7822c7ab8b8ba7e3ae03eca"
+dependencies = [
+ "flate2",
+ "rust-fs-core",
+]
+
+[[package]]
+name = "rust-lzo1x"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6fd08cac3694f478b11379ad5e198d839827d6f0d8fa3b5c3a593e95cf6e8522"
 
 [[package]]
 name = "rustc_version"

@@ -52,12 +52,16 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 #                      instead of asking it for room.
 #   am-img-vhd 0.4.0   create_fixed's size agrees with its CHS geometry. No
 #                      read-path fix; the floor is what the bundles moved to.
+# THE CRATES WERE RENAMED on 2026-10-06 (docs/constellation/naming-discussion.md):
+# each am-* crate above is published as rust-* now, at the next minor version,
+# and the first rust-* release of each carries every fix named here. So the
+# floors below are those first releases, under the new names.
 FLOORS=(
-    "am-fs-core 0.2.10"
-    "am-img-qcow2 0.5.0"
-    "am-img-vhd 0.4.0"
-    "am-img-vhdx 0.4.0"
-    "am-img-vmdk 0.4.0"
+    "rust-fs-core 0.3.0"
+    "rust-img-qcow2 0.6.0"
+    "rust-img-vhd 0.6.0"
+    "rust-img-vhdx 0.6.0"
+    "rust-img-vmdk 0.5.0"
 )
 
 # Compare two dotted-numeric versions field by field. Returns 0 (true) if

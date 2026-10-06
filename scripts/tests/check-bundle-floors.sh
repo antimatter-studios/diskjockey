@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# check-bundle-floors.sh (test) — one am-fs-core per bundle (diskjockey#129),
+# check-bundle-floors.sh (test) — one rust-fs-core per bundle (diskjockey#129),
 # and every floored crate at or above its floor (#277).
 #
-# `locked_version` printed the FIRST am-fs-core version in a Cargo.lock and
+# `locked_version` printed the FIRST rust-fs-core version in a Cargo.lock and
 # exited, so a second resolution was never compared and never reported. Two
 # resolutions link two copies of the core's Rust runtime into one staticlib
 # (the duplicate `_rust_eh_personality` the per-bundle layout exists to
@@ -30,7 +30,7 @@ fail() { printf 'FAIL  %s\n' "$1"; fails=$((fails + 1)); }
 pkg() { printf '[[package]]\nname = "%s"\nversion = "%s"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\n\n' "$1" "$2"; }
 floors="$(sed -n '/^FLOORS=(/,/^)/p' "$REPO/scripts/check-bundle-floors.sh" | grep -oE '"[a-z0-9-]+ [0-9.]+"' | tr -d '"')"
 floor_of() { printf '%s\n' "$floors" | awk -v c="$1" '$1 == c { print $2 }'; }
-floor="$(floor_of am-fs-core)"
+floor="$(floor_of rust-fs-core)"
 # lock <case> <core versions...>: a one-bundle tree whose lockfile resolves
 # them, beside every other floored crate at its floor -- or, for one crate
 # named in $OVERRIDE as "crate v1 [v2]", at those versions instead ("DROP"
@@ -42,11 +42,11 @@ lock() {
     cp "$REPO/scripts/check-bundle-floors.sh" "$d/scripts/"
     {
         printf 'version = 3\n\n'
-        pkg am-fs-btrfs 0.6.2
-        local v; for v in "$@"; do pkg am-fs-core "$v"; done
+        pkg rust-fs-btrfs 0.6.2
+        local v; for v in "$@"; do pkg rust-fs-core "$v"; done
         local crate min
         while read -r crate min; do
-            [ "$crate" = am-fs-core ] && continue
+            [ "$crate" = rust-fs-core ] && continue
             if [ "${OVERRIDE%% *}" = "$crate" ]; then
                 for v in ${OVERRIDE#* }; do [ "$v" = DROP ] || pkg "$crate" "$v"; done
             else
@@ -82,20 +82,20 @@ case "$OUT" in
     *) fail "the refusal does not name both versions: $OUT" ;;
 esac
 
-vmdk="$(floor_of am-img-vmdk)"
-OVERRIDE="am-img-vmdk 0.3.5" lock vmdk-low "$floor"
-[ "$RC" != 0 ] && [[ "$OUT" == *"am-img-vmdk 0.3.5 is below the required floor $vmdk"* ]] \
+vmdk="$(floor_of rust-img-vmdk)"
+OVERRIDE="rust-img-vmdk 0.3.5" lock vmdk-low "$floor"
+[ "$RC" != 0 ] && [[ "$OUT" == *"rust-img-vmdk 0.3.5 is below the required floor $vmdk"* ]] \
     && ok "an image crate below its floor is refused, by name" \
-    || fail "am-img-vmdk 0.3.5 against a floor of $vmdk was not refused by name (rc=$RC): $OUT"
-OVERRIDE="am-img-qcow2 $(floor_of am-img-qcow2) 9.0.0" lock qcow2-twice "$floor"
-[ "$RC" != 0 ] && [[ "$OUT" == *"resolves am-img-qcow2 more than once"* ]] \
+    || fail "rust-img-vmdk 0.3.5 against a floor of $vmdk was not refused by name (rc=$RC): $OUT"
+OVERRIDE="rust-img-qcow2 $(floor_of rust-img-qcow2) 9.0.0" lock qcow2-twice "$floor"
+[ "$RC" != 0 ] && [[ "$OUT" == *"resolves rust-img-qcow2 more than once"* ]] \
     && ok "an image crate resolved twice is refused: its C exports would link twice" \
-    || fail "two am-img-qcow2 resolutions passed (rc=$RC): $OUT"
-OVERRIDE="am-img-vhdx DROP"
+    || fail "two rust-img-qcow2 resolutions passed (rc=$RC): $OUT"
+OVERRIDE="rust-img-vhdx DROP"
 lock vhdx-missing "$floor"
-[ "$RC" != 0 ] && [[ "$OUT" == *"am-img-vhdx not found in Cargo.lock"* ]] \
+[ "$RC" != 0 ] && [[ "$OUT" == *"rust-img-vhdx not found in Cargo.lock"* ]] \
     && ok "control: a lockfile missing a floored crate is refused, by name" \
-    || fail "a lockfile without am-img-vhdx passed"
+    || fail "a lockfile without rust-img-vhdx passed"
 OVERRIDE=""
 
 bash "$REPO/scripts/check-bundle-floors.sh" --self-test >/dev/null 2>&1 \
