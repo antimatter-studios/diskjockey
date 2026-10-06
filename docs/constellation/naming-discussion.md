@@ -275,13 +275,24 @@ one is GPL and a reader typing `use lzo1x::` could reach either.
 and `rust-fs-ext4` and `rust-fs-ntfs` build `mkfs_ext4` and `mkfs_ntfs`
 beside the dotted tool names; `cargo install` puts all of them on PATH.
 
+- **The CLI layer is unchanged**, as `docs/cli-tooling-design.md` set it:
+  one cargo target per repository, the multi-call binary named for the
+  repository, `<verb>.<fs>` names as relative symlinks the release makes,
+  the Homebrew formula named for the repository. The stray extra targets
+  (`mkfs_ext4` in rust-fs-ext4, `rust-ntfs` and `mkfs_ntfs` in
+  rust-fs-ntfs) break the one-target rule and are removed.
+- **The `am-*` crates get one final release each** (owner, 2026-10-06):
+  the same code, a description saying the crate is renamed and receives
+  no further versions, and a README naming and linking the `rust-*`
+  crate with the one-line `Cargo.toml` change. Nothing is yanked and no
+  `pub use` shim is published; projects switch when they choose to. A
+  shim can still be published later if an outside user turns up.
+- **The migration is now** (owner, 2026-10-06): before more people depend
+  on the `am-*` names.
+
 **Open:**
 
-1. **What the abandoned `am-*` crates say.** The options are in section 3.
-   A final version whose description and README name the new crate is the
-   minimum; whether to also `yank` earlier versions, or publish a
-   `pub use` shim, is a choice about how loudly to redirect.
-2. **rust-blk-probe** is already named this way and was never published; if
+1. **rust-blk-probe** is already named this way and was never published; if
    it merges into the partitions crate (rust-partitions#150, now rust-disk-partitions) the question
    disappears.
 
