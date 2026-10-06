@@ -43,7 +43,7 @@ outdir = sys.argv[1]
 meta = json.load(sys.stdin)
 copied = []
 for pkg in meta["packages"]:
-    if not pkg["name"].startswith("am-"):
+    if not pkg["name"].startswith("rust-"):
         continue
     src = os.path.dirname(pkg["manifest_path"])
     for h in glob.glob(os.path.join(src, "include", "*.h")):
@@ -56,7 +56,7 @@ print("  headers: " + " ".join(sorted(copied)))
     ( cd "$bundle" && cargo metadata --format-version 1 ) | python3 -c '
 import sys, json
 meta = json.load(sys.stdin)
-deps = sorted((p["name"], p["version"]) for p in meta["packages"] if p["name"].startswith("am-"))
+deps = sorted((p["name"], p["version"]) for p in meta["packages"] if p["name"].startswith("rust-"))
 print("bundle resolved crates (crates.io unless dev-linked):")
 for n, v in deps:
     print(f"  {n} {v}")

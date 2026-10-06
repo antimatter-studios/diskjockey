@@ -14,7 +14,8 @@
 # cleanly and passes every mock-driver test.
 #
 # The table below is the first release of each driver whose C ABI reads an
-# in-image path as the bytes up to the NUL. The guard reads each bundle's
+# in-image path as the bytes up to the NUL. The crates are rust-fs-* now; the
+# versions continue the am-fs-* numbering, so the table needs no change. The guard reads each bundle's
 # Cargo.lock and each volume's declaration, and fails on a `.bytes` volume
 # whose pinned driver is older than that.
 #
@@ -43,8 +44,8 @@ ext4     0.6.0  DiskJockeyEXT4/EXT4Backend.swift
 # at_least A B: A >= B as dotted versions.
 at_least() { [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" = "$2" ]; }
 
-pinned() { # <fs> — the am-fs-<fs> version the bundle's lockfile resolves
-    awk -v n="am-fs-$1" '
+pinned() { # <fs> — the rust-fs-<fs> version the bundle's lockfile resolves
+    awk -v n="rust-fs-$1" '
         $0 == "name = \"" n "\"" { hit = 1; next }
         hit && /^version = / { gsub(/version = |"/, ""); print; exit }
     ' "$REPO/rust-bundles/dj-$1-bundle/Cargo.lock" 2>/dev/null
@@ -58,7 +59,7 @@ while read -r fs first file; do
     [ -n "$fs" ] || continue
     version="$(pinned "$fs")"
     if [ -z "$version" ]; then
-        fail "$fs: rust-bundles/dj-$fs-bundle/Cargo.lock resolves no am-fs-$fs"
+        fail "$fs: rust-bundles/dj-$fs-bundle/Cargo.lock resolves no rust-fs-$fs"
         continue
     fi
     encoding="$(declared "$file")"
@@ -70,15 +71,15 @@ while read -r fs first file; do
     case "$encoding" in
         bytes)
             if at_least "$version" "$first"; then
-                ok "$fs: .bytes over am-fs-$fs $version, byte-exact since $first"
+                ok "$fs: .bytes over rust-fs-$fs $version, byte-exact since $first"
             else
-                fail "$fs: .bytes ($where) over am-fs-$fs $version, which decodes paths as UTF-8; byte-exact from $first"
+                fail "$fs: .bytes ($where) over rust-fs-$fs $version, which decodes paths as UTF-8; byte-exact from $first"
             fi ;;
         utf8)
             if at_least "$version" "$first"; then
-                fail "$fs: .utf8 ($where) over am-fs-$fs $version, which is byte-exact since $first: a non-UTF-8 name is refused that the driver would open"
+                fail "$fs: .utf8 ($where) over rust-fs-$fs $version, which is byte-exact since $first: a non-UTF-8 name is refused that the driver would open"
             else
-                ok "$fs: .utf8 over am-fs-$fs $version never hands the driver a non-UTF-8 path"
+                ok "$fs: .utf8 over rust-fs-$fs $version never hands the driver a non-UTF-8 path"
             fi ;;
         *)
             fail "$fs: $where declares an encoding this guard does not know: .$encoding" ;;

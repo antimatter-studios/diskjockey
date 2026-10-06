@@ -10,15 +10,15 @@
 
 #import "fs_ntfs.h"
 
-// fs_core.h + qcow2.h ship alongside fs_ntfs.h (same include dir). The
-// matching symbols are linked into libdj_ntfs_bundle.a via the am-fs-core +
-// am-img-* cargo deps, so Swift code in this extension can call
+// fs_core.h + img_qcow2.h ship alongside fs_ntfs.h (same include dir). The
+// matching symbols are linked into libdj_ntfs_bundle.a via the rust-fs-core +
+// rust-img-* cargo deps, so Swift code in this extension can call
 // fs_core_device_from_callbacks + qcow2_open_rw_on_device without
 // pulling in a separate static archive.
 #import "fs_core.h"
-#import "qcow2.h"
-#import "vhd.h"
-#import "vhdx.h"
-#import "vmdk.h"
+#import "img_qcow2.h"
+#import "img_vhd.h"
+#import "img_vhdx.h"
+#import "img_vmdk.h"
 
 #endif

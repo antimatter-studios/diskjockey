@@ -1,6 +1,6 @@
 # Consumer-side aggregator for the DiskJockeyNTFS FSKit extension.
 # Depends on the PUBLISHED, proven crates.io releases (not local paths), so
-# every crate's am-fs-core resolves to one published am-fs-core and cargo
+# every crate's rust-fs-core resolves to one published rust-fs-core and cargo
 # links a single std. Leaf crates are unchanged (ntfs keeps its vendored
 # rust-fs-core). Not published itself.
 [package]
@@ -14,11 +14,11 @@ name = "dj_ntfs_bundle"
 crate-type = ["staticlib"]
 
 [dependencies]
-am-fs-ntfs = "0.7.0"
-am-img-qcow2 = "0.5.1"
-am-img-vhd = "0.5.1"
-am-img-vhdx = "0.5.0"
-am-img-vmdk = "0.4.0"
+rust-fs-ntfs = "0.9.0"
+rust-img-qcow2 = "0.6.0"
+rust-img-vhd = "0.6.0"
+rust-img-vhdx = "0.6.0"
+rust-img-vmdk = "0.5.0"
 
 [profile.release]
 lto = true

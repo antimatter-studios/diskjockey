@@ -7,7 +7,7 @@
 # Distribution builds resolve every driver from crates.io (the published,
 # proven versions). For local co-development that round-trip is too slow, so
 # this appends a `[patch.crates-io]` block to the bundle's Cargo.toml that
-# redirects the driver — and the shared `am-fs-core` — to sibling
+# redirects the driver — and the shared `rust-fs-core` — to sibling
 # checkouts. Edit the sibling source, rebuild, see the change immediately.
 #
 # IMPORTANT: a dev-linked bundle is NOT distribution-clean. Do not commit it.
@@ -16,7 +16,7 @@
 # Usage:
 #   scripts/dev-link.sh <ext4|ntfs|erofs|squashfs> [extra-crate ...]
 #     extra-crate: also redirect another crate to its sibling checkout, e.g.
-#                  `am-img-qcow2` to co-develop the qcow2 reader. (See the
+#                  `rust-img-qcow2` to co-develop the qcow2 reader. (See the
 #                  ntfs caveat in the memory: ntfs + a local img reader can
 #                  reintroduce a core-path split.)
 set -euo pipefail
@@ -33,16 +33,14 @@ bundle="$root/rust-bundles/dj-${fs}-bundle"
 toml="$bundle/Cargo.toml"
 [ -f "$toml" ] || { echo "no bundle Cargo.toml at $toml" >&2; exit 1; }
 
-# The shared am-fs-core must resolve to the SAME sibling path the driver uses,
+# The shared rust-fs-core must resolve to the SAME sibling path the driver uses,
 # or cargo sees two sources and refuses.
 core_path="../../../rust-fs-core"
 
 # crate -> sibling checkout directory name
 crate_to_dir() {
     case "$1" in
-        am-img-*)  echo "rust-img-${1#am-img-}" ;;
-        am-fs-*)   echo "rust-fs-${1#am-fs-}" ;;
-        am-partitions) echo "rust-partitions" ;;
+        rust-img-*|rust-fs-*|rust-disk-partitions) echo "$1" ;;
         *) echo "" ;;
     esac
 }
@@ -54,8 +52,8 @@ crate_to_dir() {
     echo ""
     echo "# >>> dev-link: LOCAL DEV — DO NOT COMMIT. Restore: make dev-unlink FS=${fs}"
     echo "[patch.crates-io]"
-    echo "am-fs-${fs} = { path = \"../../../rust-fs-${fs}\" }"
-    echo "am-fs-core = { path = \"${core_path}\" }"
+    echo "rust-fs-${fs} = { path = \"../../../rust-fs-${fs}\" }"
+    echo "rust-fs-core = { path = \"${core_path}\" }"
     for extra in "$@"; do
         dir="$(crate_to_dir "$extra")"
         [ -n "$dir" ] || { echo "skip unknown extra crate '$extra'" >&2; continue; }
@@ -64,7 +62,7 @@ crate_to_dir() {
     echo "# <<< dev-link"
 } >> "$toml"
 
-echo "dev-link: dj-${fs}-bundle now resolves the driver + am-fs-core${*:+ + $*} from the sibling checkouts beside this repository."
+echo "dev-link: dj-${fs}-bundle now resolves the driver + rust-fs-core${*:+ + $*} from the sibling checkouts beside this repository."
 echo "  edit the sibling checkout, then rebuild the bundle/app to test."
 echo "  restore distribution-clean state with:  make dev-unlink FS=${fs}"
 if ( cd "$bundle" && cargo build --release --target aarch64-apple-darwin >/dev/null 2>&1 ); then

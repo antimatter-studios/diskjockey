@@ -112,7 +112,7 @@ install-agent:
 #   make dev-link   FS=ext4 EXTRA=am-img-qcow2   # also co-develop a reader
 #   make dev-unlink FS=ext4
 dev-link:
-	@test -n "$(FS)" || { echo "usage: make dev-link FS=<ext4|ntfs|erofs|squashfs|xfs|btrfs> [EXTRA='am-img-qcow2 ...']"; exit 2; }
+	@test -n "$(FS)" || { echo "usage: make dev-link FS=<ext4|ntfs|erofs|squashfs|xfs|btrfs> [EXTRA='rust-img-qcow2 ...']"; exit 2; }
 	@scripts/dev-link.sh $(FS) $(EXTRA)
 
 dev-unlink:

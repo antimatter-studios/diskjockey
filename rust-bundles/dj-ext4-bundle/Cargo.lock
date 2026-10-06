@@ -9,66 +9,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
-name = "am-fs-core"
-version = "0.2.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49893bd1e199021b81b02a4745e182d5db41d70b08de90a1cdd617b165ef3367"
-
-[[package]]
-name = "am-fs-ext4"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d35708082db26305160b63940e8a52df75a88379184c895cdc9b1c019872393"
-dependencies = [
- "am-fs-core",
- "bitflags",
- "caseless",
- "crc32c",
- "js-sys",
- "unicode-normalization",
-]
-
-[[package]]
-name = "am-img-qcow2"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4703a7dc4a5f6afcff928018d14e8f6814902d61367399b396f717ea28e02eeb"
-dependencies = [
- "am-fs-core",
- "flate2",
- "ruzstd",
-]
-
-[[package]]
-name = "am-img-vhd"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "009889914b5acdd976014350463ea13bf9d53bc1c9a2df57ba38a976a81724a2"
-dependencies = [
- "am-fs-core",
-]
-
-[[package]]
-name = "am-img-vhdx"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d82ab77f1029f8ebba176497cef7a6b4ff39453a71946edb5442f065fffa7362"
-dependencies = [
- "am-fs-core",
- "crc32c",
-]
-
-[[package]]
-name = "am-img-vmdk"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6b7f7c6858f5cf855ae56d8b7a2e6ba2258294c03ec1d7ed5d4ff404dd07d45"
-dependencies = [
- "am-fs-core",
- "flate2",
-]
-
-[[package]]
 name = "bitflags"
 version = "2.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -117,11 +57,11 @@ dependencies = [
 name = "dj-ext4-bundle"
 version = "0.0.0"
 dependencies = [
- "am-fs-ext4",
- "am-img-qcow2",
- "am-img-vhd",
- "am-img-vhdx",
- "am-img-vmdk",
+ "rust-fs-ext4",
+ "rust-img-qcow2",
+ "rust-img-vhd",
+ "rust-img-vhdx",
+ "rust-img-vmdk",
 ]
 
 [[package]]
@@ -207,6 +147,66 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001"
 dependencies = [
  "proc-macro2",
+]
+
+[[package]]
+name = "rust-fs-core"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b365cc6907eae316a8315540ec91f2a88a0822134b6036300c3b821aed59091f"
+
+[[package]]
+name = "rust-fs-ext4"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "935fd35ddcd26853677042ffff62084b65273cf978031e2905a081af094d97a0"
+dependencies = [
+ "bitflags",
+ "caseless",
+ "crc32c",
+ "js-sys",
+ "rust-fs-core",
+ "unicode-normalization",
+]
+
+[[package]]
+name = "rust-img-qcow2"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e8b56bc4a5f4a0254b46e866cbfee054dca958b29555f2516786a839451dffd"
+dependencies = [
+ "flate2",
+ "rust-fs-core",
+ "ruzstd",
+]
+
+[[package]]
+name = "rust-img-vhd"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa1be828fa0fbf78f44d4b9fa8f8f7792a9f309ec32b65da94171fe3cc58e2cf"
+dependencies = [
+ "rust-fs-core",
+]
+
+[[package]]
+name = "rust-img-vhdx"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5830ad76d562c2ba843af8daa3662979bc34a86608e25f9120b4a58176407884"
+dependencies = [
+ "crc32c",
+ "rust-fs-core",
+]
+
+[[package]]
+name = "rust-img-vmdk"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "598013721283ad0a431d9eeb152d472353dc3974e7822c7ab8b8ba7e3ae03eca"
+dependencies = [
+ "flate2",
+ "rust-fs-core",
 ]
 
 [[package]]
