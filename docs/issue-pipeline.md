@@ -71,7 +71,7 @@ remote is a failed preflight, not a clone.
 
 As reconciled from the checked-out siblings and their canonical GitHub
 repositories on 2026-09-15, the product project contains DiskJockey plus these
-fifteen modules, and (since 2026-09-26) the two test harnesses the drivers'
+sixteen modules (rust-fs-bcachefs since 2026-10-06), and (since 2026-09-26) the two test harnesses the drivers'
 oracles run in. Use this only to create/reconcile the project’s stored list;
 after that, the stored project scope and the preflight above control the run.
 
@@ -80,19 +80,20 @@ after that, the stored project scope and the preflight above control the run.
 | `diskjockey` | `https://github.com/antimatter-studios/diskjockey.git` |
 | `rust-fs-core` | `https://github.com/antimatter-studios/rust-fs-core.git` |
 | `rust-fs-xfs` | `https://github.com/antimatter-studios/rust-fs-xfs.git` |
-| `rust-fs-ext4` | `https://github.com/christhomas/rust-fs-ext4.git` |
+| `rust-fs-ext4` | `https://github.com/antimatter-studios/rust-fs-ext4.git` |
 | `rust-fs-btrfs` | `https://github.com/antimatter-studios/rust-fs-btrfs.git` |
+| `rust-fs-bcachefs` | `https://github.com/antimatter-studios/rust-fs-bcachefs.git` |
 | `rust-fs-erofs` | `https://github.com/antimatter-studios/rust-fs-erofs.git` |
 | `rust-fs-squashfs` | `https://github.com/antimatter-studios/rust-fs-squashfs.git` |
-| `rust-fs-ntfs` | `https://github.com/christhomas/rust-fs-ntfs.git` |
+| `rust-fs-ntfs` | `https://github.com/antimatter-studios/rust-fs-ntfs.git` |
 | `rust-img-qcow2` | `https://github.com/antimatter-studios/rust-img-qcow2.git` |
 | `rust-img-vhd` | `https://github.com/antimatter-studios/rust-img-vhd.git` |
 | `rust-img-vhdx` | `https://github.com/antimatter-studios/rust-img-vhdx.git` |
 | `rust-img-vmdk` | `https://github.com/antimatter-studios/rust-img-vmdk.git` |
-| `rust-partitions` | `https://github.com/antimatter-studios/rust-partitions.git` |
+| `rust-disk-partitions` | `https://github.com/antimatter-studios/rust-disk-partitions.git` |
 | `rust-lzo1x` | `https://github.com/antimatter-studios/rust-lzo1x.git` |
 | `rust-blk-probe` | `https://github.com/antimatter-studios/rust-blk-probe.git` |
-| `go-networkfs` | `https://github.com/christhomas/go-networkfs.git` |
+| `go-networkfs` | `https://github.com/antimatter-studios/go-networkfs.git` |
 | `fs-windows-test-harness` | `https://github.com/antimatter-studios/fs-windows-test-harness.git` |
 | `fs-linux-test-harness` | `https://github.com/antimatter-studios/fs-linux-test-harness.git` |
 
