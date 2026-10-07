@@ -91,7 +91,7 @@ row 12 "$(now_minus 3600)" - "one hour old"       > "$sandbox/antimatter-studios
 row 13 "$(now_minus 432000)" bug "five days old" >> "$sandbox/antimatter-studios-diskjockey.rows"
 out="$("$BIN" --project diskjockey 2>&1)"; rc=$?
 check "the canonical product list runs" 0 "$rc"
-contains "the count is the row count" "diskjockey              2" "$out"
+check "the count is the row count" 1 "$(printf '%s\n' "$out" | grep -Ec '^diskjockey +2 ')"
 
 # ------------------------------------------------- 2. an hour is not a day
 # The whole point of parsing the timestamp as UTC: with `date -j -f` and no
@@ -126,7 +126,7 @@ out="$("$BIN" --project diskjockey --project rust-disk-partitions 2>&1)"; rc=$?
 check "a failed fetch exits 4" 4 "$rc"
 contains "the row says so" "FETCH FAILED" "$out"
 contains "and the shortfall is stated" "incomplete BY THAT MUCH" "$out"
-contains "while the readable project still counts" "diskjockey              2" "$out"
+check "while the readable project still counts" 1 "$(printf '%s\n' "$out" | grep -Ec '^diskjockey +2 ')"
 rm -f "$sandbox/antimatter-studios-rust-disk-partitions.fail"
 
 # ------------------------------------------------ 4b. the list names everyone
@@ -177,6 +177,41 @@ check "the row shows it as unknown" 1 "$(printf '%s\n' "$out" | grep -Ec '^rust-
 check "and the total is marked partial" 1 "$(printf '%s\n' "$out" | grep -Ec '^TOTAL .* 3\+\? +40\+\?$')"
 contains "and the shortfall names the lookup" "rust-disk-partitions (pull request counts)" "$out"
 rm -f "$sandbox"/*.prcounts "$sandbox"/*.prcountsfail
+
+# ------------------------------------------------ 4f. the columns line up
+# The name column was a fixed 18 wide, so a longer project name pushed the
+# rest of its row right, and the PRS CLOSED header was one wider than its
+# column. Every number has to end where its header label ends, in both
+# tables, whatever the longest name is. A blank cell (the TOTAL row's ages)
+# is allowed; a cell that ends anywhere else is printed.
+misaligned() { # misaligned <label|label|...> <table, header first>
+    # ≥ is folded to one byte so a position means the same on every awk.
+    printf '%s\n' "$2" | sed 's/≥/>/g' | LC_ALL=C awk -v labels="$1" '
+        NR == 1 {
+            n = split(labels, l, "|")
+            for (i = 1; i <= n; i++) { s[i] = index($0, l[i]); e[i] = s[i] + length(l[i]) - 1 }
+            next
+        }
+        {
+            for (i = 1; i <= n; i++) {
+                cell = substr($0, s[i], e[i] - s[i] + 1); past = substr($0, e[i] + 1, 1)
+                if (cell ~ /^ *$/ && past ~ /^ ?$/) continue
+                if (substr($0, e[i], 1) ~ /[^ ]/ && past ~ /^ ?$/) continue
+                print; next
+            }
+        }'
+}
+echo "1 2" > "$sandbox/antimatter-studios-rust-disk-partitions.prcounts"
+echo "0 1234" > "$sandbox/antimatter-studios-fs-windows-test-harness.prcounts"
+row 7 "$(now_minus 86400)" - "a harness issue" > "$sandbox/antimatter-studios-fs-windows-test-harness.rows"
+out="$("$BIN" --summary --project diskjockey --project fs-windows-test-harness --project rust-disk-partitions 2>&1)"; rc=$?
+check "the summary with a long name exits 0" 0 "$rc"
+check "every summary cell ends under its header" "" \
+    "$(misaligned 'OPEN|OLDEST|>30d|PRS OPEN|PRS CLOSED' "$out")"
+out="$("$BIN" --project diskjockey --project fs-windows-test-harness 2>&1)"
+check "every issue cell ends under its header" "" \
+    "$(misaligned 'ISSUE|AGE' "$(printf '%s\n' "$out" | sed '1,/^$/d')")"
+rm -f "$sandbox"/*.prcounts "$sandbox/antimatter-studios-fs-windows-test-harness.rows"
 
 # ------------------------------------------------ 4e. a rate limit stops it
 # Once GitHub is rate limiting the token, every later request fails the same
@@ -230,7 +265,7 @@ contains "and names the lookup" "stopped at diskjockey (pull request counts)" "$
 : > "$sandbox/antimatter-studios-rust-disk-partitions.fail"
 out="$("$BIN" --summary --project rust-disk-partitions --project diskjockey 2>&1)"; rc=$?
 check "a failure that is not a rate limit still exits 4" 4 "$rc"
-contains "and the next project is still read" "diskjockey              2" "$out"
+check "and the next project is still read" 1 "$(printf '%s\n' "$out" | grep -Ec '^diskjockey +2 ')"
 rm -f "$sandbox/antimatter-studios-rust-disk-partitions.fail"
 
 # --------------------------------------------------------- 5. nothing found
