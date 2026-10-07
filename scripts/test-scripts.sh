@@ -28,6 +28,7 @@
 # room to retire a couple deliberately, and none for a glob that quietly
 # stopped matching. The XFS callback wiring guard brings the measured suite
 # to 43 files on 2026-10-07 (#320), floor 43.
+# The XFS v5 release-runner contract brings it to 44 files (#325), floor 44.
 # It moves up with the suite; it never moves down.
 #
 # `rc`, not `status`: `status` is READ-ONLY in zsh, so a loop written with it
@@ -38,7 +39,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
-FLOOR=43
+FLOOR=44
 
 # The raw loop, whose whole output is the tier's log. Failure lines carry a
 # TIER-FAIL prefix so the quiet verdict below can name them without a tail.
