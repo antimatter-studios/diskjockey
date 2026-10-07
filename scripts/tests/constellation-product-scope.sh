@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# The product pipeline covers DiskJockey, its twenty modules and the two test
-# harnesses their oracles run in, and nothing from the separate
-# pipeline-infrastructure scope.
+# The product pipeline covers DiskJockey, its modules, the Windows drivers and
+# the skeleton they share, and the two test harnesses their oracles run in,
+# and nothing from the separate pipeline-infrastructure scope.
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -34,6 +34,7 @@ fi
 expected="$sandbox/expected"
 actual="$sandbox/actual"
 cat > "$expected" <<'EOF'
+antimatter-studios/btrfs-win-driver
 antimatter-studios/diskjockey
 antimatter-studios/erofs-win-driver
 antimatter-studios/ext4-win-driver
@@ -61,20 +62,20 @@ EOF
 LC_ALL=C sort -u "$AM_SCOPE_CALLS" > "$actual"
 
 if ! diff -u "$expected" "$actual"; then
-    echo "FAIL  overview did not fetch the exact 23-repository product scope" >&2
+    echo "FAIL  overview did not fetch the exact 24-repository product scope" >&2
     exit 1
 fi
 
 calls="$(wc -l < "$AM_SCOPE_CALLS" | tr -d ' ')"
 unique="$(wc -l < "$actual" | tr -d ' ')"
-if [ "$calls" != 23 ] || [ "$unique" != 23 ]; then
-    echo "FAIL  expected 23 unique fetches, got $calls calls / $unique unique" >&2
+if [ "$calls" != 24 ] || [ "$unique" != 24 ]; then
+    echo "FAIL  expected 24 unique fetches, got $calls calls / $unique unique" >&2
     exit 1
 fi
 
 case "$output" in
-    *"no open issues in any of the 23 projects"*) ;;
-    *) printf 'FAIL  completion output does not state the 23-project scope:\n%s\n' "$output" >&2; exit 1 ;;
+    *"no open issues in any of the 24 projects"*) ;;
+    *) printf 'FAIL  completion output does not state the 24-project scope:\n%s\n' "$output" >&2; exit 1 ;;
 esac
 
 echo "constellation-product-scope: all checks passed"
