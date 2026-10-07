@@ -38,7 +38,9 @@
 # then 51 + 470 = 521 with the NTFS volume tested as itself (all
 # 2026-09-30), then 65 + 477 = 542 with Btrfs items identified by tree and
 # inode (#261), measured 2026-10-01 in run 36843228664, then 65 + 512 = 577
-# with the 21 XFS bounded callback tests (#320), measured locally 2026-10-07.
+# with the 21 XFS bounded callback tests (#320), measured locally 2026-10-07,
+# then 65 + 528 = 593 with the XFS writable-policy gate (#321), measured
+# locally 2026-10-07 (all passed; tmp/logs/library.log).
 # The floor moves up with the suite; it never moves down.
 #
 #   scripts/test-library.sh [--verbose]
@@ -54,9 +56,9 @@ log="${QUIET_LOG_DIR:-$ROOT/tmp/logs}/library.log"
 xct=$(grep -aoE 'Executed [0-9]+ tests' "$log" 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
 swt=$(grep -aoE 'Test run with [0-9]+ tests' "$log" 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
 total=$(( ${xct:-0} + ${swt:-0} ))
-echo "library cases executed: $total = ${xct:-0} XCTest + ${swt:-0} swift-testing (floor 577)"
-if [ "$total" -lt 577 ]; then
-    echo "::error::only $total library cases executed, floor is 577 — 577 ran on 2026-10-07, and a run that executes less than that has stopped early rather than passed (diskjockey#139)"
+echo "library cases executed: $total = ${xct:-0} XCTest + ${swt:-0} swift-testing (floor 593)"
+if [ "$total" -lt 593 ]; then
+    echo "::error::only $total library cases executed, floor is 593 — 593 ran on 2026-10-07, and a run that executes less than that has stopped early rather than passed (diskjockey#139)"
     exit 1
 fi
 exit "$rc"
