@@ -29,5 +29,6 @@ CONSTELLATION_REPOSITORIES=(
     "ext4-win-driver:antimatter-studios/ext4-win-driver"
     "xfs-win-driver:antimatter-studios/xfs-win-driver"
     "erofs-win-driver:antimatter-studios/erofs-win-driver"
+    "btrfs-win-driver:antimatter-studios/btrfs-win-driver"
     "winfsp-fs-skeleton:antimatter-studios/winfsp-fs-skeleton"
 )
