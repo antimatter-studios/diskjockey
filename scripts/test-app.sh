@@ -88,4 +88,9 @@ if [ "${verdict:-}" != "Passed" ]; then
     echo "::error::the result bundle reports ${verdict:-unknown} rather than Passed"
     exit 1
 fi
+if [ "$rc" = 0 ]; then
+    # The published fs_core ABI and the POSIX byte oracle must agree with the
+    # shipped XFS callbacks. Missing archives/frameworks fail this gate.
+    bash scripts/test-xfs-block-device.sh || rc=$?
+fi
 exit "$rc"
