@@ -860,20 +860,22 @@ DiskJockey, and macOS offers nothing for it.
   [Disk images](#disk-images-imgfmt).
 - **Formula names, linking, attestation and the tap sync** — see
   [Distribution](#distribution).
+- **One reusable release workflow.** The tarball is packaged, attested
+  and attached once, by rust-fs-core's `release-cli.yml`
+  (antimatter-studios/rust-fs-core#202), which every crate's
+  `release.yml` calls with its own names; no repository keeps a copy.
+  rust-blk-probe still attests from its own `release.yml`.
+- **The cross-repository pipe test** is `chore test:cli-pipe`
+  (`scripts/cli-pipe.sh`, #295, #296), run by `cli-pipe.yml` on a
+  schedule and by dispatch, on macOS and Linux. It installs each
+  driver's latest attested release tarball, then pipes
+  `fs.<a> … read | fs.<b> … write`, `img.<fmt> … read` and
+  `blk.probe` into `fs.<fs> --offset`, comparing by SHA-256 and through
+  the destination's oracle. It is advisory, not required: it tests other
+  repositories' releases.
 
 ## Still open
 
-- **One reusable release workflow.** Every repository carries its own
-  `package-cli`/`release-cli` jobs and its own `scripts/package-cli.sh`,
-  and the copies already differ. They belong once, in `rust-fs-core`,
-  called with the repository's names (antimatter-studios/rust-fs-core#193).
-- **The cross-repository pipe test.** `fs.<a> src read <path> | fs.<b>
-  dst write <path>`, compared by SHA-256 and passed through the
-  destination's oracle, plus `img.qcow2 … read` into `fs.ext4` and
-  `blk.probe` into `fs.<fs> --offset`. Proposed as a `chore
-  test:cli-pipe` task in this repository, run against Homebrew-installed
-  formulae on a schedule or by dispatch. It cannot be a required check,
-  because it depends on releases from several repositories (#292).
 - **A `blk.<fmt>` family for partition tables** (`blk.gpt`, `blk.mbr`:
   `ls`, `info`, `read <n>` streaming one partition's bytes), which would
   complete `img.qcow2 … read | blk.gpt … read 2 | fs.ext4 … ls`. Not
