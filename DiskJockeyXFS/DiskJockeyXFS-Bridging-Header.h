@@ -11,10 +11,10 @@
 #import "fs_xfs.h"
 
 // fs_core.h ships alongside fs_xfs.h (same include dir). Its symbols
-// (fs_core_device_from_callbacks, fs_core_device_slice_ro, …) are linked
-// into libdj_xfs_bundle.a via the am-fs-core cargo dep, so this read-only
-// extension can wrap an FSBlockDeviceResource as an FsCoreDevice and slice
-// a partition out of it before mounting.
+// (fs_core_device_from_callbacks, fs_core_device_slice_ro/rw, …) are linked
+// into libdj_xfs_bundle.a via rust-fs-core. The XFS callback context applies
+// partition offsets and bounds aligned transfers; a native slice also fences
+// the callback handle. Volume operations remain read-only at this stage.
 #import "fs_core.h"
 
 #endif

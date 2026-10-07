@@ -15,6 +15,7 @@ sections below carry the detail; these say what shipped and from where.
 
 ### Added
 
+- **The XFS device bridge supports bounded writes and flushes.** Partition-relative callbacks preserve partial blocks, reject overflow and writes outside the mounted slice, report short transfers and device errors, and refuse read-only resources. Native ABI and POSIX byte-oracle checks gate the app tier; XFS volume operations remain read-only pending the later integration steps (#320).
 - **btrfs-win-driver is in the constellation list.** The overview, the ledger and the worktree tools now cover the Btrfs Windows driver beside the ext4, xfs and erofs ones, and the product-scope test expects all 24 repositories (#302).
 
 ### Fixed
