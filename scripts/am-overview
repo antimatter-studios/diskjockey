@@ -300,15 +300,9 @@ elif [ "$MODE" = list ]; then
     echo
     printf 'TOTAL — %s open across %s project(s)\n' "$total" "$(wc -l < "$summary" | tr -d ' ')"
 else
-    # %8s, not %6s: printf pads by bytes and ≥ is three of them.
-    printf '%-18s %6s %7s %8s %8s %9s\n' PROJECT OPEN OLDEST "≥${STALE_DAYS}d" "PRS OPEN" "PRS CLOSED"
     pr_open_total=0; pr_closed_total=0; pr_unknown=0
-    while IFS=$'\x1f' read -r name count oldest stale _ pr_open pr_closed; do
-        if [ "$count" = "FETCH FAILED" ]; then
-            printf '%-18s %6s\n' "$name" "FETCH FAILED"
-            continue
-        fi
-        printf '%-18s %6s %7s %6s %8s %9s\n' "$name" "$count" "$oldest" "$stale" "$pr_open" "$pr_closed"
+    while IFS=$'\x1f' read -r _ count _ _ _ pr_open pr_closed; do
+        [ "$count" = "FETCH FAILED" ] && continue
         if [ "$pr_open" = '?' ]; then
             pr_unknown=1
         else
@@ -318,13 +312,50 @@ else
     # A total over a project whose counts are unknown would be a lower bound
     # dressed as a number, so it is marked the same way the row is.
     [ "$pr_unknown" -eq 0 ] || { pr_open_total="${pr_open_total}+?"; pr_closed_total="${pr_closed_total}+?"; }
-    printf '%-18s %6s %7s %6s %8s %9s\n' TOTAL "$total" "" "" "$pr_open_total" "$pr_closed_total"
+
+    # Every column is as wide as its widest cell, header included, so a long
+    # project name or a large count widens its column instead of pushing the
+    # rest of its row out of line — the name column was a fixed 18 once, and
+    # three project names are longer. Cells are ASCII except the ≥ header,
+    # which is one column but three bytes; printf pads by bytes, so that
+    # header's width is counted, and padded, by hand.
+    stale_width=$(( ${#STALE_DAYS} + 2 ))
+    w=(7 4 6 "$stale_width" 8 10)   # PROJECT OPEN OLDEST ≥Nd PRS-OPEN PRS-CLOSED
+    widen() {
+        local i=0 v
+        for v in "$@"; do [ "${#v}" -le "${w[$i]}" ] || w[$i]=${#v}; i=$((i + 1)); done
+    }
+    widen TOTAL "$total" "" "" "$pr_open_total" "$pr_closed_total"
+    while IFS=$'\x1f' read -r name count oldest stale _ pr_open pr_closed; do
+        if [ "$count" = "FETCH FAILED" ]; then widen "$name"; continue; fi
+        widen "$name" "$count" "$oldest" "$stale" "$pr_open" "$pr_closed"
+    done < "$summary"
+    summary_row() {
+        printf "%-${w[0]}s  %${w[1]}s  %${w[2]}s  %${w[3]}s  %${w[4]}s  %${w[5]}s\n" "$@"
+    }
+
+    printf "%-${w[0]}s  %${w[1]}s  %${w[2]}s  %$(( w[3] - stale_width ))s%s  %${w[4]}s  %${w[5]}s\n" \
+        PROJECT OPEN OLDEST "" "≥${STALE_DAYS}d" "PRS OPEN" "PRS CLOSED"
+    while IFS=$'\x1f' read -r name count oldest stale _ pr_open pr_closed; do
+        if [ "$count" = "FETCH FAILED" ]; then
+            printf "%-${w[0]}s  %s\n" "$name" "FETCH FAILED"
+            continue
+        fi
+        summary_row "$name" "$count" "$oldest" "$stale" "$pr_open" "$pr_closed"
+    done < "$summary"
+    summary_row TOTAL "$total" "" "" "$pr_open_total" "$pr_closed_total"
 
     if [ "$MODE" = full ] && [ "$total" -gt 0 ]; then
+        # Same rule, and the same name column, so the two tables line up.
+        wi=5; wa=3
+        while IFS=$'\x1f' read -r _ num age _ _; do
+            [ $(( ${#num} + 1 )) -le "$wi" ] || wi=$(( ${#num} + 1 ))
+            [ "${#age}" -le "$wa" ] || wa=${#age}
+        done < "$rows"
         echo
-        printf '%-18s %6s %6s  %s\n' PROJECT ISSUE AGE TITLE
+        printf "%-${w[0]}s  %${wi}s  %${wa}s  %s\n" PROJECT ISSUE AGE TITLE
         sort -t$'\x1f' -k1,1 -k2,2n "$rows" | while IFS=$'\x1f' read -r name num age labels title; do
-            printf '%-18s %6s %6s  %s\n' "$name" "#$num" "$age" "${title:0:88}"
+            printf "%-${w[0]}s  %${wi}s  %${wa}s  %s\n" "$name" "#$num" "$age" "${title:0:88}"
         done
     fi
 fi
