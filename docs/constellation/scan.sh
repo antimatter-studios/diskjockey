@@ -19,7 +19,7 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/.." || exit 1
 OUT="${CLAUDE_JOB_DIR:?set CLAUDE_JOB_DIR to a writable directory}/tmp/constellation-evidence.txt"
 mkdir -p "$(dirname "$OUT")"
 : > "$OUT"
-REPOS="rust-fs-ext4 rust-fs-ntfs rust-fs-xfs rust-fs-btrfs rust-fs-erofs rust-fs-squashfs rust-img-qcow2 rust-img-vhd rust-img-vhdx rust-img-vmdk rust-partitions rust-lzo1x rust-blk-probe"
+REPOS="rust-fs-ext4 rust-fs-ntfs rust-fs-xfs rust-fs-btrfs rust-fs-bcachefs rust-fs-erofs rust-fs-squashfs rust-img-qcow2 rust-img-vhd rust-img-vhdx rust-img-vmdk rust-disk-partitions rust-lzo1x rust-blk-probe"
 
 say() { echo "$@" >> "$OUT"; }
 

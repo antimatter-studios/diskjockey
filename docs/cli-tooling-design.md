@@ -771,24 +771,27 @@ inherits Apple's machinery.
 
 ## Current state
 
-As of 2026-10-02. Each repository's tools, its release with tarballs,
+As of 2026-10-07. Each repository's tools, its release with tarballs,
 and its formula; the per-repository issues are linked from the tracker,
-#235.
+#235. Every release's tarballs are built and attested by rust-fs-core's
+shared release-cli.yml, except rust-blk-probe's, which its own release.yml
+attests.
 
 | repository | ships | release with tarballs | formula |
 |---|---|---|---|
-| rust-fs-ext4 | `mkfs.ext4`, `fsck.ext4`, `fs.ext4` | v0.7.0, but its tarball carries only `mkfs.ext4` (christhomas/rust-fs-ext4#475) | `rust-fs-ext4` |
-| rust-fs-ntfs | `mkfs.ntfs`, `fsck.ntfs`, `fs.ntfs` | v0.7.0 | `rust-fs-ntfs` |
-| rust-fs-xfs | `fs.xfs` | v0.10.0 | pending (homebrew-tap#219) |
-| rust-fs-btrfs | `fs.btrfs` | not yet: v0.8.0 attached only the crate (antimatter-studios/rust-fs-btrfs#242) | after that release |
-| rust-fs-erofs | `mkfs.erofs`, `fs.erofs` | v0.3.0 | `rust-fs-erofs` |
-| rust-fs-squashfs | `fs.squashfs` (replaced `lssquashfs`) | v0.3.0 | `rust-fs-squashfs` |
-| rust-img-qcow2 | `img.qcow2` (replaced `qcow2_tool`) | v0.5.1 | `rust-img-qcow2` |
-| rust-img-vhd | `img.vhd` (replaced `vhd_tool`) | v0.5.1 | `rust-img-vhd` |
-| rust-img-vhdx | `img.vhdx` | v0.5.0 | pending (homebrew-tap#215) |
-| rust-img-vmdk | `img.vmdk` | v0.4.0 | pending (homebrew-tap#220) |
-| rust-blk-probe | `blk.probe`, internal to the app | v0.1.0 | none, by decision |
-| rust-partitions | none: `blk.probe` already prints the table; an editor is `sfdisk`/`gdisk` territory | — | — |
+| rust-fs-ext4 | `mkfs.ext4`, `fsck.ext4`, `fs.ext4` | v0.8.0 | `rust-fs-ext4` |
+| rust-fs-ntfs | `mkfs.ntfs`, `fsck.ntfs`, `fs.ntfs` | v0.9.0 | `rust-fs-ntfs` |
+| rust-fs-xfs | `mkfs.xfs`, `fsck.xfs`, `fs.xfs` | v0.12.1 | `rust-fs-xfs` |
+| rust-fs-btrfs | `mkfs.btrfs`, `fsck.btrfs`, `fs.btrfs` | v0.10.2 | `rust-fs-btrfs` |
+| rust-fs-bcachefs | `fs.bcachefs`, `fsck.bcachefs` (check only) | not yet: no release | after its first release |
+| rust-fs-erofs | `mkfs.erofs`, `fs.erofs` | v0.4.0 | `rust-fs-erofs` |
+| rust-fs-squashfs | `fs.squashfs` (replaced `lssquashfs`) | v0.4.0 | `rust-fs-squashfs` |
+| rust-img-qcow2 | `img.qcow2` (replaced `qcow2_tool`) | v0.6.0 | `rust-img-qcow2` |
+| rust-img-vhd | `img.vhd` (replaced `vhd_tool`) | v0.6.0 | `rust-img-vhd` |
+| rust-img-vhdx | `img.vhdx` | v0.6.0 | `rust-img-vhdx` |
+| rust-img-vmdk | `img.vmdk` | v0.5.0 | `rust-img-vmdk` |
+| rust-blk-probe | `blk.probe`, internal to the app | v0.1.2 | none, by decision |
+| rust-disk-partitions | none: `blk.probe` already prints the table; an editor is `sfdisk`/`gdisk` territory | — | — |
 
 Every `fs.<fs>` carries every verb — `ls`, `read`, `write`, `mkdir`,
 `get`/`info`, `set`, `resize` — and answers the ones its driver cannot
