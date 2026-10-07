@@ -429,16 +429,16 @@ public final class AttachedDisksModel: ObservableObject {
     /// that have authoritative "this device is gone" information from
     /// outside the mount table (DiskArbitration disappearance, mostly).
     ///
-    /// Also fires `diskutil unmount force` against the matching mount
-    /// path. The motivation: FSKit extensions whose `unmount` would
+    /// Also force-unmounts the matching mount path through
+    /// DiskArbitration (`MountTableParser.forceUnmountStale`). The motivation: FSKit extensions whose `unmount` would
     /// have flushed bytes to disk can't actually do so once the device
     /// is gone, so the kernel may keep the mount entry alive as a
     /// zombie. The zombie blocks future mounts on the same path /
     /// device, and `mount(8)` keeps reporting it for minutes (or
     /// indefinitely) until the kernel times the FS out. Forcing the
     /// unmount here cleans the mount table immediately.
-    /// Best-effort: if the entry is already gone, diskutil exits
-    /// non-zero and we log + move on.
+    /// Best-effort: if the entry is already gone, the unmount is
+    /// refused and we log + move on.
     ///
     /// Why this can't just lean on `refresh()`: polling can't drop
     /// the row until the kernel removes the mount entry, and the
@@ -469,8 +469,8 @@ public final class AttachedDisksModel: ObservableObject {
         if disks.count != before {
             AppLog.shared.info("detached: bsd=\(bsd) (DA disappearance — row dropped)")
         }
-        // Best-effort cleanup of any lingering mount entry. Run
-        // detached so the diskutil call doesn't block this method
+        // Best-effort cleanup of any lingering mount entry. It is
+        // asynchronous so the unmount doesn't block this method
         // (which is on the main actor — UI shouldn't wait on a
         // subprocess for an op that's allowed to silently fail).
         if let stale = stale {

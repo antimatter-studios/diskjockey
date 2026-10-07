@@ -79,6 +79,7 @@ Honest list of known gaps as of 2026-05-09:
 - **No installer / notarised release.** Building from source with an Apple Developer account is the only path today.
 - **UI redesign** — a full SwiftUI redesign of the desktop app is on the backlog; current UI is functional but unpolished in places.
 - **Linux drive icon** uses a Tabler placeholder until a permissively-licensed Tux glyph is sourced.
+- **`diskutil mount` / `diskutil unmount` do not work on FSKit volumes** (ext4, NTFS, XFS, Btrfs, EROFS, SquashFS). diskutil goes through storagekitd, which does not recognise third-party FSKit file systems and fails before asking DiskArbitration. The app mounts and unmounts through DiskArbitration instead; from a shell, use `mount -F -t ext4 diskNsM <dir>` and `umount <dir>`.
 
 ---
 

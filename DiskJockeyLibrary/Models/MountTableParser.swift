@@ -127,35 +127,19 @@ public enum MountTableParser {
         return out
     }
 
-    /// Detached helper that fires `diskutil unmount force <mountPath>`
-    /// to clear a zombie mount entry. Errors are logged at INFO (not
-    /// ERROR) — the caller's expectation is "if there's a zombie, kill
-    /// it; if there isn't, no problem." Runs `Task.detached` so the
-    /// caller (on `@MainActor`) doesn't block on a subprocess.
+    /// Force-unmount a zombie mount entry through DiskArbitration
+    /// (`VolumeUnmounter`, `kDADiskUnmountOptionForce`). Not
+    /// `diskutil unmount force`: storagekitd does not recognise FSKit
+    /// volumes and refused every one of them (#166). Errors are logged
+    /// at INFO (not ERROR) — the caller's expectation is "if there's a
+    /// zombie, kill it; if there isn't, no problem." Asynchronous, so
+    /// the caller (on `@MainActor`) does not wait.
     public static func forceUnmountStale(mountPath: String, bsd: String) {
-        Task.detached {
-            let p = Process()
-            p.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
-            p.arguments = ["unmount", "force", mountPath]
-            let pipe = Pipe()
-            p.standardOutput = pipe
-            p.standardError = pipe
-            do {
-                try p.run()
-                // Read before waiting — see `enumerate`.
-                let outData = try? pipe.fileHandleForReading.readToEnd()
-                p.waitUntilExit()
-                let rc = p.terminationStatus
-                let out = outData
-                    .flatMap { String(data: $0, encoding: .utf8) }?
-                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                if rc == 0 {
-                    AppLog.shared.info("zombie mount cleanup: bsd=\(bsd) path=\(mountPath) — diskutil unmount force succeeded")
-                } else {
-                    AppLog.shared.info("zombie mount cleanup: bsd=\(bsd) path=\(mountPath) — diskutil exit=\(rc) (likely already gone): \(out)")
-                }
-            } catch {
-                AppLog.shared.info("zombie mount cleanup: bsd=\(bsd) — could not spawn diskutil: \(error.localizedDescription)")
+        VolumeUnmounter.unmount(mountPath: mountPath, force: true) { error in
+            if let error = error {
+                AppLog.shared.info("zombie mount cleanup: bsd=\(bsd) path=\(mountPath) — not unmounted (likely already gone): \(error.localizedDescription)")
+            } else {
+                AppLog.shared.info("zombie mount cleanup: bsd=\(bsd) path=\(mountPath) — force unmount succeeded")
             }
         }
     }
