@@ -20,6 +20,7 @@ sections below carry the detail; these say what shipped and from where.
 ### Fixed
 
 - **The Unmount button and the stale-mount cleanup work on FSKit volumes.** Both ran `diskutil unmount`, which storagekitd refuses for every FSKit volume ("The volume needs to be mounted"); they now unmount through DiskArbitration, and refuse any path that is not itself a mount point (#166).
+- **A transient HTTP 5xx from the chore release download no longer fails a CI job.** `ci.yml` and `release.yml` retry the download up to five times on any error, and `scripts/check-chore-pin.sh` refuses a chore download that does not.
 
 ### Changed
 

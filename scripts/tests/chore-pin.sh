@@ -26,7 +26,8 @@ jobs:
       - name: Install chore
         run: |
           ver=$(awk '$1=="chore"{print $2}' SIBLING_PINS.txt)
-          curl -fsSL "https://github.com/antimatter-studios/chore/releases/download/v${ver}/chore-${ver}-darwin-arm64.tar.gz" \
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 \
+            "https://github.com/antimatter-studios/chore/releases/download/v${ver}/chore-${ver}-darwin-arm64.tar.gz" \
             | tar -xz -C /usr/local/bin chore
 EOF
 }
@@ -92,6 +93,24 @@ refused "a tap install beside the pinned one is refused" "from a tap"
 tree cargo 'chore 0.8.0' 'chore_min_version: 0.6.0' "$(good_step)
       - run: cargo install --git https://github.com/antimatter-studios/chore chore"
 refused "a cargo install is refused" "cargo install"
+
+# GitHub's release download answers an occasional HTTP 500, and a download
+# with no retry turns that one answer into a red job before anything under
+# test has run (rust-fs-ext4#494, rust-fs-btrfs#286).
+tree no-retry 'chore 0.8.0' 'chore_min_version: 0.6.0' 'jobs:
+  build:
+    steps:
+      - run: |
+          ver=$(awk '"'"'$1=="chore"{print $2}'"'"' SIBLING_PINS.txt)
+          curl -fsSL "https://github.com/antimatter-studios/chore/releases/download/v${ver}/chore-${ver}-darwin-arm64.tar.gz" \
+            | tar -xz -C /usr/local/bin chore'
+refused "a download that does not retry a transient server error is refused" "transient HTTP 5xx"
+
+tree few-retries 'chore 0.8.0' 'chore_min_version: 0.6.0' "$(good_step | sed 's/--retry 5/--retry 1/')"
+refused "a download that retries fewer than three times is refused" "transient HTTP 5xx"
+
+tree some-errors-only 'chore 0.8.0' 'chore_min_version: 0.6.0' "$(good_step | sed 's/--retry-all-errors //')"
+refused "a download that retries only some errors is refused" "transient HTTP 5xx"
 
 tree nothing 'chore 0.8.0' 'chore_min_version: 0.6.0' 'jobs: {}'
 refused "a pin no workflow installs is refused" "honoured by nothing"

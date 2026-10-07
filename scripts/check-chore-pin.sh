@@ -59,7 +59,32 @@ if [ -n "$pin" ] && [ -n "$floor" ] && version_lt "$pin" "$floor"; then
     say "SIBLING_PINS.txt installs chore $pin, below chores.yml's chore_min_version $floor"
 fi
 
-# Every workflow that installs chore takes the version from the pin.
+# bare_downloads <workflow>: each chore download that does not survive one
+# transient server error. GitHub's release download answers an occasional HTTP
+# 500, and a curl with no retry turns that one answer into a red job before
+# anything under test has run (rust-fs-ext4#494, rust-fs-btrfs#286). A
+# download must retry at least three times, and on any error. Comments are
+# dropped and `\` continuations joined, so a flag on the next line counts.
+bare_downloads() {
+    awk '
+        { sub(/^[ \t]+/, "") }
+        /^#/ { next }
+        {
+            continued = sub(/\\$/, "")
+            joined = joined $0 " "
+            if (continued) next
+            if (joined ~ /(^|[ \t(|])curl[ \t]/ && joined ~ /chore\/releases\/download/) {
+                retries = 0
+                if (match(joined, /--retry [0-9]+/)) retries = substr(joined, RSTART + 8, RLENGTH - 8) + 0
+                if (retries < 3 || joined !~ /--retry-all-errors/) print joined
+            }
+            joined = ""
+        }
+    ' "$1"
+}
+
+# Every workflow that installs chore takes the version from the pin, and
+# retries the download.
 installs=0
 for wf in "$ROOT"/.github/workflows/*.yml "$ROOT"/.github/workflows/*.yaml; do
     [ -f "$wf" ] || continue
@@ -78,6 +103,9 @@ for wf in "$ROOT"/.github/workflows/*.yml "$ROOT"/.github/workflows/*.yaml; do
     if ! grep -qF "awk '\$1==\"chore\"{print \$2}' SIBLING_PINS.txt" "$wf"; then
         say "$name downloads chore without reading its version from SIBLING_PINS.txt"
     fi
+    while IFS= read -r download; do
+        say "$name fails the job on one transient HTTP 5xx from the chore download; add --retry 5 --retry-all-errors --retry-delay 2: $download"
+    done < <(bare_downloads "$wf")
 done
 if [ "$installs" = 0 ]; then
     say "no workflow downloads a chore release, so the pin in SIBLING_PINS.txt is honoured by nothing"
