@@ -238,7 +238,7 @@ jobs:
         shell: bash
         run: |
           ver=$(awk '$1=="chore"{print $2}' SIBLING_PINS.txt)
-          curl -fsSL "https://github.com/antimatter-studios/chore/releases/download/v${ver}/chore-${ver}-darwin-arm64.tar.gz" \
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 "https://github.com/antimatter-studios/chore/releases/download/v${ver}/chore-${ver}-darwin-arm64.tar.gz" \
             | tar -xz -C /usr/local/bin chore
           chore --version
 
