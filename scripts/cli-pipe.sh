@@ -40,8 +40,9 @@
 #
 # INSTALLED FROM RELEASES, VERIFIED. Each tool comes from its repository's
 # latest GitHub release, the platform's tarball, refused unless its
-# build-provenance attestation was signed by that repository's release
-# workflow (and, where the release publishes one, its .sha256 matches): the
+# build-provenance attestation was signed by the workflow that builds it,
+# rust-fs-core's release-cli.yml or the repository's own release.yml (and,
+# where the release publishes one, its .sha256 matches): the
 # same checks scripts/build-blk.probe.sh makes for the probe the app ships.
 # Latest rather than pinned, because the question is whether what a user can
 # install today composes. `--no-install` uses whatever is already on PATH
@@ -98,16 +99,28 @@ on_here() { [ "$1" = all ] || [ "$1" = "$HERE" ]; }
 #
 # repository                          asset prefix     on     tools
 TOOLS='antimatter-studios/rust-blk-probe   rust-blk-probe   all    blk.probe
-christhomas/rust-fs-ntfs            am-fs-ntfs       all    fs.ntfs mkfs.ntfs fsck.ntfs
-christhomas/rust-fs-ext4            am-fs-ext4       all    fs.ext4 fsck.ext4
-antimatter-studios/rust-fs-squashfs am-fs-squashfs   all    fs.squashfs
-antimatter-studios/rust-fs-erofs    am-fs-erofs      all    fs.erofs
-antimatter-studios/rust-fs-xfs      am-fs-xfs        linux  fs.xfs
-antimatter-studios/rust-fs-btrfs    am-fs-btrfs      linux  fs.btrfs
-antimatter-studios/rust-img-qcow2   am-img-qcow2     all    img.qcow2
-antimatter-studios/rust-img-vhdx    am-img-vhdx      all    img.vhdx
-antimatter-studios/rust-img-vhd     am-img-vhd       all    img.vhd
-antimatter-studios/rust-img-vmdk    am-img-vmdk      all    img.vmdk'
+antimatter-studios/rust-fs-ntfs     rust-fs-ntfs     all    fs.ntfs mkfs.ntfs fsck.ntfs
+antimatter-studios/rust-fs-ext4     rust-fs-ext4     all    fs.ext4 fsck.ext4
+antimatter-studios/rust-fs-squashfs rust-fs-squashfs all    fs.squashfs
+antimatter-studios/rust-fs-erofs    rust-fs-erofs    all    fs.erofs
+antimatter-studios/rust-fs-xfs      rust-fs-xfs      linux  fs.xfs
+antimatter-studios/rust-fs-btrfs    rust-fs-btrfs    linux  fs.btrfs
+antimatter-studios/rust-img-qcow2   rust-img-qcow2   all    img.qcow2
+antimatter-studios/rust-img-vhdx    rust-img-vhdx    all    img.vhdx
+antimatter-studios/rust-img-vhd     rust-img-vhd     all    img.vhd
+antimatter-studios/rust-img-vmdk    rust-img-vmdk    all    img.vmdk'
+
+# Who signs a release's attestation. The drivers' tarballs are built and
+# attested by rust-fs-core's shared release-cli.yml, called from each
+# repository's release.yml; a repository listed here attests its tarballs
+# from its own release.yml instead.
+CORE_SIGNER=antimatter-studios/rust-fs-core/.github/workflows/release-cli.yml
+OWN_ATTESTED='antimatter-studios/rust-blk-probe'
+# signer REPO — the workflow whose attestation REPO's tarballs carry.
+signer() {
+    if printf '%s\n' "$OWN_ATTESTED" | grep -qx "$1"; then echo "$1/.github/workflows/release.yml"
+    else echo "$CORE_SIGNER"; fi
+}
 
 # Releases still to come: a repository whose latest release cannot give this
 # test what it needs on a platform, and the issue that tracks the release
@@ -115,9 +128,9 @@ antimatter-studios/rust-img-vmdk    am-img-vmdk      all    img.vmdk'
 # it is waiting for. Delete the row when the release lands.
 #
 # repository                          on     waiting on
-AWAITING='christhomas/rust-fs-ext4            all    a release with fs.ext4 and fsck.ext4 in its tarballs, christhomas/rust-fs-ext4#480
-antimatter-studios/rust-fs-btrfs    all    a release with tarballs at all, antimatter-studios/rust-fs-btrfs#250
-antimatter-studios/rust-blk-probe   linux  a release cut since antimatter-studios/rust-blk-probe#45 added the linux-x86_64 tarball'
+# None is outstanding now. CLI_PIPE_AWAITING replaces the table, which is how
+# the script's own test exercises it.
+AWAITING="${CLI_PIPE_AWAITING-}"
 
 # The oracles: tools that are not ours, how to get each, and where. XFS and
 # Btrfs have no macOS build, and Homebrew's ntfs-3g needs macFUSE.
@@ -195,8 +208,8 @@ install_one() {
             || { echo "cli-pipe: $asset is sha256 $actual, but its .sha256 says ${expected:-nothing}"; return 1; }
     fi
     gh attestation verify "$dir/dl/$asset" --repo "$repo" \
-        --signer-workflow "$repo/.github/workflows/release.yml" >/dev/null 2>&1 \
-        || { echo "cli-pipe: $asset has no attestation signed by $repo's release workflow; refusing it"; return 1; }
+        --signer-workflow "$(signer "$repo")" >/dev/null 2>&1 \
+        || { echo "cli-pipe: $asset has no attestation signed by $(signer "$repo"); refusing it"; return 1; }
     pkg="$dir/pkg/$prefix"
     mkdir -p "$pkg" && tar -xzf "$dir/dl/$asset" -C "$pkg" || { echo "cli-pipe: $asset did not unpack"; return 1; }
     for tool in $tools; do
