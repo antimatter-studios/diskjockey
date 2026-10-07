@@ -32,10 +32,10 @@ final class DiskArbitrationService {
     /// Live `DADisk` refs keyed by BSD name. Populated from the
     /// appearance callback, dropped from disappearance. Held so a
     /// later `mount(bsd:)` call can hand the SAME `DADisk` to
-    /// `DADiskMount` — going through DA reaches our FSKit extension
-    /// reliably, whereas `diskutil mount` falls into the
-    /// LaunchServices fstype-routing cache that often forgets the
-    /// extension's claim after first unmount.
+    /// `DADiskMount` — going through DA reaches our FSKit extension,
+    /// whereas `diskutil mount` goes through storagekitd, which does
+    /// not recognise FSKit volumes and refuses them ("Disk is not
+    /// mountable", StorageKit 124) without asking DA (#166).
     private var disksByBSD: [String: DADisk] = [:]
 
     init(attachedDisks: AttachedDisksModel) {
@@ -173,11 +173,11 @@ final class DiskArbitrationService {
 
     /// Request macOS to mount the volume currently identified by `bsd`.
     /// Routes through `DADiskMount`, which goes through the same DA
-    /// path that the on-physical-insert flow uses — that's the only
-    /// path that reliably reaches FSKit extensions for non-native
-    /// filesystems on macOS 26 (`diskutil mount` falls into a stale
-    /// LaunchServices fstype-routing cache and silently bypasses the
-    /// extension).
+    /// path that the on-physical-insert flow uses. `diskutil mount`
+    /// cannot be used for FSKit volumes on macOS 26: it goes through
+    /// storagekitd, which lists them as "File System: None" and fails
+    /// with StorageKit 124 before DA is asked (measured 2026-10-07,
+    /// #166). `mount -F -t <fs> diskNsM <dir>` also works.
     ///
     /// `reply` is invoked on the main actor with nil on success or an
     /// `NSError` whose `localizedDescription` is the dissenter status

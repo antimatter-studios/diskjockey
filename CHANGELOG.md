@@ -11,6 +11,16 @@ sections below carry the detail; these say what shipped and from where.
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- **The Unmount button and the stale-mount cleanup work on FSKit volumes.** Both ran `diskutil unmount`, which storagekitd refuses for every FSKit volume ("The volume needs to be mounted"); they now unmount through DiskArbitration, and refuse any path that is not itself a mount point (#166).
+
+### Changed
+
+- **`diskutil mount` is documented as unusable for FSKit volumes.** StorageKit lists them as "File System: None" and fails with "Disk is not mountable" without asking DiskArbitration, which mounts the same volume; a guard keeps the app from mounting or unmounting through diskutil (#166).
+
 ## v1.2.0
 
 **2026-06-22 · build 4 · `e9fb77d`**

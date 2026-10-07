@@ -363,46 +363,21 @@ struct AttachedDiskDetailView: View {
 
     // MARK: - Unmount
 
-    /// Unmount via `diskutil unmount <mountPath>`. For FSKit-mounted
-    /// volumes (ext4 / ntfs via our extensions) this routes through
-    /// the fskitd / extension unloadResource path cleanly. No sudo
-    /// needed — unmount of a user-mounted volume is a user-privileged
-    /// operation. Errors (e.g. EBUSY when a shell has `cd`'d into the
-    /// volume) surface via the `unmountError` banner.
+    /// Unmount through DiskArbitration (`VolumeUnmounter`). Not
+    /// `diskutil unmount`: diskutil goes through storagekitd, which does
+    /// not recognise FSKit volumes and fails with "The volume needs to be
+    /// mounted" on every one of them (#166). No sudo needed — unmount of
+    /// a user-mounted volume is a user-privileged operation. Errors (e.g.
+    /// EBUSY when a shell has `cd`'d into the volume) surface via the
+    /// `unmountError` banner.
     private func unmount(_ disk: AttachedDisk) {
         unmounting = true
         unmountError = nil
-        Task.detached {
-            let task = Process()
-            task.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
-            task.arguments = ["unmount", disk.mountPath]
-            do {
-                // Both pipes are drained before the wait, and drained
-                // concurrently. Waiting first deadlocks once the child
-                // fills a ~64 KiB pipe buffer nobody is reading; draining
-                // one and then the other deadlocks once the child fills
-                // the second while this side is blocked on the first.
-                let result = try ProcessRunner.run(task)
-                let rc = result.status
-                let err: String?
-                if rc == 0 {
-                    err = nil
-                } else {
-                    // diskutil writes its failure reason to stdout, not
-                    // stderr (see "Unmount failed ..." lines), so merge
-                    // both streams and surface whatever came out.
-                    let combined = result.combinedText
-                    err = combined.isEmpty ? "diskutil unmount failed (rc=\(rc))" : combined
-                }
-                await MainActor.run {
-                    self.unmounting = false
-                    self.unmountError = err
-                }
-            } catch {
-                await MainActor.run {
-                    self.unmounting = false
-                    self.unmountError = "Could not run diskutil: \(error.localizedDescription)"
-                }
+        VolumeUnmounter.unmount(mountPath: disk.mountPath) { error in
+            let message = error.map { "Unmount failed: \($0.localizedDescription)" }
+            Task { @MainActor in
+                self.unmounting = false
+                self.unmountError = message
             }
         }
     }
