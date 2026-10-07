@@ -149,6 +149,9 @@ Releases first, then the last ten dated sections. Full history in [`CHANGELOG.md
 ### v1.0.1
 2026-04-22 · build 2 — vendor refresh and extension version alignment.
 
+### Unreleased
+- **XFS v5 release validation.** A [dedicated signed macOS runner](docs/xfs-v5-release-validation.md) checks FSKit mount/read/write/check/repair, remount persistence, read-only/refusal byte preservation and driver/build provenance against independent Linux oracle evidence (#325). Bundle pins and support claims advance only after the release gates pass.
+
 ### 2026-06-22
 - **Home and About pages (v1.2.0).** The app opens on a new Home landing page — welcome header, live counts (local volumes / network drives / empty drives), a supported-filesystem showcase (ext4·rw, NTFS·rw, EROFS·ro, SquashFS·ro, qcow2/VHD/VHDX/VMDK, and the eight network/cloud schemes), and Add Disk Image / Add Network Drive quick actions. A new About page carries the project description, architecture summary, the full vendored-library version table, and licence/source links; the menu-bar About window is now a compact about box that points to it.
 
