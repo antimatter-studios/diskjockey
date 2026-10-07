@@ -26,7 +26,9 @@
 # dirent-names-by-length.sh joined (#244), floor 27. 31 ran when
 # dev-registry.sh joined (#167, 2026-09-30), floor 29 — the same
 # room to retire a couple deliberately, and none for a glob that quietly
-# stopped matching. It moves up with the suite; it never moves down.
+# stopped matching. The XFS callback wiring guard brings the measured suite
+# to 43 files on 2026-10-07 (#320), floor 43.
+# It moves up with the suite; it never moves down.
 #
 # `rc`, not `status`: `status` is READ-ONLY in zsh, so a loop written with it
 # works under bash and dies with "read-only variable" anywhere else.
@@ -36,7 +38,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
-FLOOR=29
+FLOOR=43
 
 # The raw loop, whose whole output is the tier's log. Failure lines carry a
 # TIER-FAIL prefix so the quiet verdict below can name them without a tail.

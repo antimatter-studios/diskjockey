@@ -4,9 +4,9 @@
  * Mirrors DiskJockeySQUASHFS (and the proven EXT4/NTFS shape on macOS 26):
  *   - probeResource / loadResource / unloadResource use replyHandler.
  *   - loadResource sets `containerStatus = .ready` before returning.
- *   - All reads go through a C callback over FSBlockDeviceResource.
+ *   - Device reads, writes and flushes use bounded FSBlockDeviceResource callbacks.
  *
- * XFS is an inherently READ-ONLY filesystem: no write/format path.
+ * Volume operations remain read-only; writable mount policy is a separate step.
  * am-fs-xfs itself doesn't use the am-img-* container readers; the
  * dj-xfs-bundle Cargo.toml links them only to prevent duplicate-symbol
  * linker errors (not to expose container-format mounting). This extension
@@ -117,55 +117,39 @@ final class XfsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         let stats = IOStatsRecorder(label: bsdName, emit: { fields in
             dlog.event(kind: "io.stats", fields: fields, scope: AppLogScope.stats)
         })
-        let context = BlockDeviceContext(
-            resource: blockDevice,
-            log: dlog,
-            stats: stats,
-            readCache: BlockReadCache(maxEntries: 512),
-            alignToPhysicalBlockSize: false
-        )
+        let context: XfsBlockDeviceContext
+        do {
+            let partition = try XfsBlockDeviceContext.partitionOptions(options.taskOptions)
+            context = try XfsBlockDeviceContext(
+                device: blockDevice,
+                partitionOffset: partition.offset,
+                partitionLength: partition.length,
+                cache: BlockReadCache(maxEntries: 512),
+                stats: stats,
+                logger: dlog
+            )
+        } catch {
+            replyHandler(nil, error)
+            return
+        }
         let contextPtr = Unmanaged.passRetained(context).toOpaque()
-        let cfgSizeBytes = blockDevice.blockCount * blockDevice.blockSize
-
-        let argv = options.taskOptions
-        let partitionOffset = Self.taskOption("partition_offset", from: argv) { UInt64($0) }
-        let partitionLength = Self.taskOption("partition_length", from: argv) { UInt64($0) }
 
         let bridgeFS: OpaquePointer?
-        if partitionOffset != nil || partitionLength != nil {
-            dlog.info("fs_core mount path: partition_offset=\(partitionOffset ?? 0) partition_length=\(partitionLength ?? 0)")
-            do {
-                let handle = try Self.buildFsCoreHandle(
-                    contextPtr: contextPtr,
-                    sizeBytes: cfgSizeBytes,
-                    partitionOffset: partitionOffset,
-                    partitionLength: partitionLength,
-                    dlog: dlog
-                )
-                bridgeFS = fs_xfs_mount_with_fs_core_device(handle)
-                fs_core_device_close(handle)
-            } catch {
-                Unmanaged<BlockDeviceContext>.fromOpaque(contextPtr).release()
-                replyHandler(nil, error)
-                return
-            }
-        } else {
-            var cfg = fs_xfs_blockdev_cfg_t()
-            cfg.read = { ctx, buf, offset, length in
-                guard let ctx = ctx, let buf = buf else { return EIO }
-                let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
-                return context.read(into: buf, offset: off_t(offset), length: Int(length))
-            }
-            cfg.context = contextPtr
-            cfg.size_bytes = cfgSizeBytes
-            dlog.info("calling fs_xfs_mount_with_callbacks (ro) size=\(cfg.size_bytes)")
-            bridgeFS = fs_xfs_mount_with_callbacks(&cfg)
+        do {
+            let handle = try XfsBlockDeviceBridge.makeHandle(contextPtr: contextPtr, logger: dlog)
+            dlog.info("calling fs_xfs_mount_with_fs_core_device (ro) size=\(context.sizeBytes)")
+            bridgeFS = fs_xfs_mount_with_fs_core_device(handle)
+            fs_core_device_close(handle)
+        } catch {
+            Unmanaged<XfsBlockDeviceContext>.fromOpaque(contextPtr).release()
+            replyHandler(nil, error)
+            return
         }
 
         guard let bridgeFS = bridgeFS else {
             let err = fs_xfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
             dlog.error("fs_xfs mount failed (ro): \(err)")
-            Unmanaged<BlockDeviceContext>.fromOpaque(contextPtr).release()
+            Unmanaged<XfsBlockDeviceContext>.fromOpaque(contextPtr).release()
             replyHandler(nil, POSIXError(.EIO))
             return
         }
@@ -218,56 +202,6 @@ final class XfsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
 
     func didFinishLoading() {}
 
-    // MARK: - Helpers
-
-    static func taskOption<T>(_ name: String,
-                              from argv: [String],
-                              parser: (String) -> T?) -> T? {
-        for raw in argv {
-            for pair in raw.split(separator: ",") {
-                let kv = pair.split(separator: "=", maxSplits: 1).map(String.init)
-                if kv.count == 2 && kv[0] == name, let v = parser(kv[1]) { return v }
-            }
-        }
-        return nil
-    }
-
-    static func buildFsCoreHandle(
-        contextPtr: UnsafeMutableRawPointer,
-        sizeBytes: UInt64,
-        partitionOffset: UInt64?,
-        partitionLength: UInt64?,
-        dlog: TaggedLogger
-    ) throws -> OpaquePointer {
-        var coreCfg = FsCoreCallbackCfg()
-        coreCfg.read = { ctx, offset, buf, len in
-            guard let ctx = ctx, let buf = buf else { return EIO }
-            return Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
-                .read(into: UnsafeMutableRawPointer(buf), offset: off_t(offset), length: Int(len))
-        }
-        coreCfg.write = nil
-        coreCfg.flush = nil
-        coreCfg.ctx = contextPtr
-        coreCfg.size = sizeBytes
-
-        guard let handle = withUnsafePointer(to: &coreCfg, { fs_core_device_from_callbacks($0) }) else {
-            let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
-            dlog.error("fs_core_device_from_callbacks failed: \(err)")
-            throw POSIXError(.EIO)
-        }
-
-        if let offset = partitionOffset, let length = partitionLength, offset > 0 || length > 0 {
-            guard let slice = fs_core_device_slice_ro(handle, offset, length) else {
-                let err = fs_core_last_error_message().flatMap { String(cString: $0) } ?? "(no error set)"
-                dlog.error("fs_core_device_slice_ro failed: \(err)")
-                fs_core_device_close(handle)
-                throw POSIXError(.EIO)
-            }
-            fs_core_device_close(handle) // the slice keeps its own Arc
-            return slice
-        }
-        return handle
-    }
 }
 
 // fskitd calls `_checkResource:` on every mount; without this conformance

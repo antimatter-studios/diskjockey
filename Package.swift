@@ -143,6 +143,7 @@ let package = Package(
             path: "DiskJockeyXFS",
             exclude: [
                 "XfsDriver.swift",
+                "XfsBlockDeviceBridge.swift",
                 "XfsFileSystem.swift",
                 "DiskJockeyXFS-Bridging-Header.h",
                 "DiskJockeyXFS.entitlements",
@@ -151,6 +152,7 @@ let package = Package(
             sources: [
                 "XfsVolume.swift",
                 "XfsLog.swift",
+                "XfsBlockDeviceContext.swift",
             ],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),

@@ -118,7 +118,7 @@ final class XfsVolume: FSVolume,
         driver?.unmount()
         driver = nil
         if let ctx = contextPtr {
-            Unmanaged<BlockDeviceContext>.fromOpaque(ctx).release()
+            Unmanaged<XfsBlockDeviceContext>.fromOpaque(ctx).release()
             contextPtr = nil
         }
     }
