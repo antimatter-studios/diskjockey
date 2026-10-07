@@ -6,7 +6,9 @@
  *   - loadResource sets `containerStatus = .ready` before returning.
  *   - Device reads, writes and flushes use bounded FSBlockDeviceResource callbacks.
  *
- * Volume operations remain read-only; writable mount policy is a separate step.
+ * Writes require explicit policy, writable hardware and mounted-driver approval.
+ * The published callback mount is still read-only, so an explicit rw request
+ * fails closed rather than presenting that handle as writable.
  * am-fs-xfs itself doesn't use the am-img-* container readers; the
  * dj-xfs-bundle Cargo.toml links them only to prevent duplicate-symbol
  * linker errors (not to expose container-format mounting). This extension
@@ -117,8 +119,10 @@ final class XfsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         let stats = IOStatsRecorder(label: bsdName, emit: { fields in
             dlog.event(kind: "io.stats", fields: fields, scope: AppLogScope.stats)
         })
+        let policy = XfsMountPolicy(options: options.taskOptions)
         let context: XfsBlockDeviceContext
         do {
+            try policy.checkHardware(isWritable: blockDevice.isWritable)
             let partition = try XfsBlockDeviceContext.partitionOptions(options.taskOptions)
             context = try XfsBlockDeviceContext(
                 device: blockDevice,
@@ -147,10 +151,28 @@ final class XfsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         }
 
         guard let bridgeFS = bridgeFS else {
+            let code = POSIXErrorCode(rawValue: Int32(fs_xfs_last_errno())) ?? .EIO
             let err = fs_xfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
             dlog.error("fs_xfs mount failed (ro): \(err)")
             Unmanaged<XfsBlockDeviceContext>.fromOpaque(contextPtr).release()
-            replyHandler(nil, POSIXError(.EIO))
+            replyHandler(nil, POSIXError(code))
+            return
+        }
+
+        let driver = XfsDriver(fs: bridgeFS)
+        let mountAccess: XfsMountAccess
+        do {
+            mountAccess = try policy.authorize(
+                deviceIsWritable: blockDevice.isWritable,
+                mountedDriver: .success(driver.isWritable))
+        } catch {
+            // Refusal never downgrades an explicit rw request or leaves a
+            // mounted driver holding callbacks into a released Swift context.
+            driver.unmount()
+            stats.stop()
+            Unmanaged<XfsBlockDeviceContext>.fromOpaque(contextPtr).release()
+            dlog.error("mount policy refused: \(error.localizedDescription)")
+            replyHandler(nil, error)
             return
         }
 
@@ -168,10 +190,11 @@ final class XfsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         let volume = XfsVolume(
             volumeID: volID,
             volumeName: FSFileName(string: resolvedName),
-            driver: XfsDriver(fs: bridgeFS),
+            driver: driver,
             contextPtr: contextPtr,
             bsdName: bsdName,
-            stats: stats
+            stats: stats,
+            mountAccess: mountAccess
         )
         Self.mountedResources.register(resource, MountedResource(
             bsdName: bsdName, volume: volume, opLock: OperationLock()))

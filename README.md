@@ -60,6 +60,7 @@ Concrete, observable on a current build:
 
 - **ext4 FSKit extension** mounts ext2/3/4 images as Finder volumes, lists directories, opens files, accepts writes, and reports superblock metadata (UUID, label, last-mount time, dirty flag) into the host app's detail view.
 - **NTFS FSKit extension** mounts NTFS images, accepts writes, and exposes a verify (`startCheck`) flow with a confirmation dialog and read-only lock indicator. Volumes round-trip with the canonical Windows verify tooling.
+- **XFS mount policy** defaults to read-only. Only an explicit `rw` option, writable hardware and approval from the mounted driver can authorize writes; `ro` and FSKit's `--rdonly` veto them. The pinned callback driver currently reports read-only, so explicit `rw` requests fail with `EROFS`. Supported read-only volumes continue to mount; driver refusals are returned without retrying weaker options.
 - **All eight network drivers** verified end-to-end against their respective servers; writes flow through Finder for every scheme.
 - **Sidebar surfaces unformatted disks** discovered via DiskArbitration, with cold-start persistence and stable identity across sessions.
 - **Format actions** for raw disks route through FSKit `startFormat`, chained under a single admin auth prompt.
