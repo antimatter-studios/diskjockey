@@ -15,8 +15,8 @@
 #   2. a run with the tools missing FAILS, before any leg, naming every one of
 #      ours with its install line: nothing skips;
 #   3. the installer, run for real against a stub `gh` and `uname`, verifies
-#      each tarball's attestation against its own repository's release
-#      workflow, and refuses — linking nothing — a tarball whose attestation
+#      each tarball's attestation against the workflow that signs it
+#      (rust-fs-core's release-cli.yml, or the repository's own release.yml), and refuses — linking nothing — a tarball whose attestation
 #      does not verify, whose .sha256 disagrees, or that lacks a tool, and
 #      names the issue tracking every release it is still waiting for;
 #   4. the pairs #296 asks for are in the script's tables — ext4 both ways,
@@ -50,6 +50,13 @@ table() {
 tools_on() { table TOOLS | awk -v p="$1" '$3 == "all" || $3 == p { for (i = 4; i <= NF; i++) print $i }' | sort -u; }
 repos_on() { table TOOLS | awk -v p="$1" '$3 == "all" || $3 == p { print $1 }'; }
 repo_of()  { table TOOLS | awk -v t="$1" '{ for (i = 4; i <= NF; i++) if ($i == t) { print $1; exit } }'; }
+# signer_of REPO — the workflow whose attestation a release of REPO carries:
+# rust-fs-core's shared release-cli.yml, unless the script's OWN_ATTESTED
+# table lists REPO as attesting its tarballs from its own release.yml.
+signer_of() {
+    if table OWN_ATTESTED | grep -qx "$1"; then echo "$1/.github/workflows/release.yml"
+    else echo "antimatter-studios/rust-fs-core/.github/workflows/release-cli.yml"; fi
+}
 
 case "$(uname -s)" in Darwin) here=darwin ;; *) here=linux ;; esac
 
@@ -58,6 +65,19 @@ ours="$(tools_on "$here")"
 n_ours="$(printf '%s\n' "$ours" | grep -c .)"
 [ "$n_ours" -ge 8 ] && ok "the script names $n_ours released tools for $here" \
     || fail "could not read the released tools from $SCRIPT's TOOLS table (got $n_ours)"
+
+# ------------------------------------------------- 0. the repositories' names
+# Every repository is antimatter-studios', and a release names its tarballs
+# after the repository: the am-* prefixes and christhomas/ paths of before the
+# rename find no asset at all (the CLI pipe run of 2026-10-06).
+renamed=0
+while read -r repo prefix _; do
+    [ -n "$repo" ] || continue
+    if [ "${repo%%/*}" = antimatter-studios ] && [ "$prefix" = "${repo#*/}" ]; then renamed=$((renamed + 1))
+    else fail "TOOLS row $repo $prefix: the repository must be antimatter-studios', and its tarballs are named after it"; fi
+done < <(table TOOLS)
+[ "$renamed" -gt 0 ] && [ "$renamed" = "$(table TOOLS | grep -c .)" ] \
+    && ok "all $renamed TOOLS rows are antimatter-studios repositories whose tarballs carry the repository's name"
 
 # --------------------------------------------------------------- 1. wiring
 ruby -ryaml -e '
@@ -219,10 +239,11 @@ for plat in darwin:Darwin:arm64 linux:Linux:x86_64; do
         || fail "$p: the installer asked for another platform's tarball: $other"
     signed=0
     while read -r repo; do
-        grep "attestation verify" "$sandbox/gh-good-$p.log" | grep -F -- "--repo $repo " | grep -qF -- "--signer-workflow $repo/.github/workflows/release.yml" \
-            && signed=$((signed + 1)) || fail "$p: $repo's tarball was not verified against $repo's own release workflow"
+        signer="$(signer_of "$repo")"
+        grep "attestation verify" "$sandbox/gh-good-$p.log" | grep -F -- "--repo $repo " | grep -qF -- "--signer-workflow $signer" \
+            && signed=$((signed + 1)) || fail "$p: $repo's tarball was not verified against $signer, the workflow that signs it"
     done < <(repos_on "$p")
-    [ "$signed" = "$want_repos" ] && ok "$p: each tarball's attestation is checked against its own repository's release workflow"
+    [ "$signed" = "$want_repos" ] && ok "$p: each tarball's attestation is checked against the workflow that signs it"
 done
 
 install unattested STUB_ATTEST=1
@@ -250,20 +271,25 @@ esac
 
 # A release that is still to come is named with the issue tracking it, and
 # every one of them in the same run, not only the first the loop met.
-install awaited STUB_OS=Linux STUB_ARCH=x86_64 STUB_DROP=fs.ext4 STUB_NOASSET=antimatter-studios/rust-fs-btrfs
+# The rows are given to the script here, because no release is outstanding
+# when every one the script needs has landed.
+awaiting_rows='antimatter-studios/rust-fs-ext4     all    a release with fs.ext4, antimatter-studios/rust-fs-ext4#9001
+antimatter-studios/rust-fs-btrfs    all    a release with tarballs, antimatter-studios/rust-fs-btrfs#9002'
+install awaited STUB_OS=Linux STUB_ARCH=x86_64 STUB_DROP=fs.ext4 STUB_NOASSET=antimatter-studios/rust-fs-btrfs \
+    CLI_PIPE_AWAITING="$awaiting_rows"
 case "$RC:$OUT" in
     0:*) fail "a run with fs.ext4 and the Btrfs tarball missing passed" ;;
-    *"has no bin/fs.ext4"*"christhomas/rust-fs-ext4#480"*)
+    *"has no bin/fs.ext4"*"antimatter-studios/rust-fs-ext4#9001"*)
         case "$OUT" in
-            *"rust-fs-btrfs"*"antimatter-studios/rust-fs-btrfs#250"*)
+            *"rust-fs-btrfs"*"antimatter-studios/rust-fs-btrfs#9002"*)
                 ok "each release still to come is refused, every one in the same run, naming the issue that tracks it" ;;
-            *) fail "the missing fs.ext4 was named, but the missing Btrfs tarball was not, with antimatter-studios/rust-fs-btrfs#250: $OUT" ;;
+            *) fail "the missing fs.ext4 was named, but the missing Btrfs tarball was not, with antimatter-studios/rust-fs-btrfs#9002: $OUT" ;;
         esac ;;
-    *) fail "the missing fs.ext4 was not named with christhomas/rust-fs-ext4#480: $OUT" ;;
+    *) fail "the missing fs.ext4 was not named with antimatter-studios/rust-fs-ext4#9001: $OUT" ;;
 esac
 
 # ------------------------------------------ 4. the pairs #296 asks for
-for want in christhomas/rust-fs-ext4:fs.ext4 christhomas/rust-fs-ext4:fsck.ext4 \
+for want in antimatter-studios/rust-fs-ext4:fs.ext4 antimatter-studios/rust-fs-ext4:fsck.ext4 \
             antimatter-studios/rust-fs-xfs:fs.xfs antimatter-studios/rust-fs-btrfs:fs.btrfs; do
     [ "$(repo_of "${want#*:}")" = "${want%%:*}" ] \
         && ok "${want#*:} is installed from ${want%%:*}'s release" \
