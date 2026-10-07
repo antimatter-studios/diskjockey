@@ -13,6 +13,10 @@ sections below carry the detail; these say what shipped and from where.
 
 ## [Unreleased]
 
+### Added
+
+- **btrfs-win-driver is in the constellation list.** The overview, the ledger and the worktree tools now cover the Btrfs Windows driver beside the ext4, xfs and erofs ones, and the product-scope test expects all 24 repositories (#302).
+
 ### Fixed
 
 - **The Unmount button and the stale-mount cleanup work on FSKit volumes.** Both ran `diskutil unmount`, which storagekitd refuses for every FSKit volume ("The volume needs to be mounted"); they now unmount through DiskArbitration, and refuse any path that is not itself a mount point (#166).

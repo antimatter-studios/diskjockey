@@ -54,7 +54,8 @@ Read from each repository's `Cargo.toml` on `main`, 2026-10-05.
 Not in scope, and why:
 
 - **The Windows drivers** (`ext4-win-driver`, `xfs-win-driver`,
-  `erofs-win-driver`) are applications shipped as installers, not crates.
+  `erofs-win-driver`, `btrfs-win-driver`) are applications shipped as
+  installers, not crates.
 - **`winfsp-fs-skeleton`** is a building block for those applications.
 - **The two test harnesses** (`fs-windows-test-harness`,
   `fs-linux-test-harness`) are language-agnostic: they run the driver under
