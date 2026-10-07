@@ -2,9 +2,10 @@
  * XfsVolume.swift — FSKit volume for XFS (read-only).
  *
  * Implements FSVolume.Operations + FSVolume.ReadWriteOperations +
- * FSVolume.PathConfOperations. This extension is read-only, so every
- * mutating op returns EROFS — the errno for a read-only filesystem, not
- * the filesystem of that name; reads/lookups/enumeration dispatch to the
+ * FSVolume.PathConfOperations. Mutating operations require explicit mount
+ * policy and mounted-driver approval; read-only mounts return EROFS.
+ * Unmapped operations on an approved handle return ENOTSUP.
+ * Reads/lookups/enumeration dispatch to the
  * driver. XFS inode numbers are 64-bit, so item identity is UInt64
  * (XfsItem / XfsTag).
  *
@@ -27,6 +28,7 @@ final class XfsVolume: FSVolume,
                          FSVolume.PathConfOperations {
 
     private var driver: ReadOnlyVolumeDriver?
+    private var mountAccess: XfsMountAccess
     private var contextPtr: UnsafeMutableRawPointer?
     private let bsdName: String
     private let stats: IOStatsCollector
@@ -37,8 +39,10 @@ final class XfsVolume: FSVolume,
          driver: ReadOnlyVolumeDriver,
          contextPtr: UnsafeMutableRawPointer?,
          bsdName: String,
-         stats: IOStatsCollector) {
+         stats: IOStatsCollector,
+         mountAccess: XfsMountAccess = .readOnly) {
         self.driver = driver
+        self.mountAccess = mountAccess
         self.contextPtr = contextPtr
         self.bsdName = bsdName
         self.stats = stats
@@ -75,7 +79,19 @@ final class XfsVolume: FSVolume,
     static let readOnlyCapabilities = ReadOnlyVolumeCapabilities(hasJournal: true)
 
     var supportedVolumeCapabilities: FSVolume.SupportedCapabilities {
-        Self.readOnlyCapabilities.fsCapabilities
+        let caps = Self.readOnlyCapabilities.fsCapabilities
+        caps.doesNotSupportSettingFilePermissions = !allowsWrites
+        return caps
+    }
+
+    var allowsWrites: Bool {
+        mountAccess.allowsWrites && (driver as? XfsMountedVolumeDriver)?.isWritable == true
+    }
+
+    /// Mutating operation adapters use this same gate. Their implementation
+    /// is separate from mount authorization; unsupported operations stay so.
+    func requireWritableMount() throws {
+        guard allowsWrites else { throw POSIXError(.EROFS) }
     }
 
     var volumeStatistics: FSStatFSResult {
@@ -88,7 +104,19 @@ final class XfsVolume: FSVolume,
     // MARK: - Lifecycle
 
     func mount(options: FSTaskOptions) async throws {
+        try applyMountOptions(options.taskOptions)
         log.info("volume: mount", scope: AppLogScope.lifecycle)
+    }
+
+    /// FSKit can deliver mount options after load. Never upgrade a loaded
+    /// read-only handle; an explicit read-only request permanently vetoes it.
+    func applyMountOptions(_ options: [String]) throws {
+        let flags = options.flatMap { $0.split(separator: ",").map(String.init) }
+        if flags.contains("ro") || flags.contains("--rdonly") {
+            mountAccess = .readOnly
+        } else if XfsMountPolicy(options: options) == .readWrite {
+            try requireWritableMount()
+        }
     }
 
     func unmount() async {
@@ -144,7 +172,8 @@ final class XfsVolume: FSVolume,
         _ newAttributes: FSItem.SetAttributesRequest,
         on item: FSItem
     ) async throws -> FSItem.Attributes {
-        throw POSIXError(.EROFS)
+        try requireWritableMount()
+        throw POSIXError(.ENOTSUP)
     }
 
     // MARK: - Lookup / enumeration
@@ -259,39 +288,44 @@ final class XfsVolume: FSVolume,
         return FSFileName(data: Data(target))
     }
 
-    // MARK: - Mutating ops (all rejected — read-only)
+    // MARK: - Mutating ops (mount gate, then operation support)
 
     func createItem(
         named name: FSFileName, type: FSItem.ItemType,
         inDirectory directory: FSItem, attributes: FSItem.SetAttributesRequest
     ) async throws -> (FSItem, FSFileName) {
-        throw POSIXError(.EROFS)
+        try requireWritableMount()
+        throw POSIXError(.ENOTSUP)
     }
 
     func createSymbolicLink(
         named name: FSFileName, inDirectory directory: FSItem,
         attributes: FSItem.SetAttributesRequest, linkContents contents: FSFileName
     ) async throws -> (FSItem, FSFileName) {
-        throw POSIXError(.EROFS)
+        try requireWritableMount()
+        throw POSIXError(.ENOTSUP)
     }
 
     func createLink(
         to item: FSItem, named name: FSFileName, inDirectory directory: FSItem
     ) async throws -> FSFileName {
-        throw POSIXError(.EROFS)
+        try requireWritableMount()
+        throw POSIXError(.ENOTSUP)
     }
 
     func removeItem(
         _ item: FSItem, named name: FSFileName, fromDirectory directory: FSItem
     ) async throws {
-        throw POSIXError(.EROFS)
+        try requireWritableMount()
+        throw POSIXError(.ENOTSUP)
     }
 
     func renameItem(
         _ item: FSItem, inDirectory sourceDirectory: FSItem, named sourceName: FSFileName,
         to destinationName: FSFileName, inDirectory destinationDirectory: FSItem, overItem: FSItem?
     ) async throws -> FSFileName {
-        throw POSIXError(.EROFS)
+        try requireWritableMount()
+        throw POSIXError(.ENOTSUP)
     }
 
     func synchronize(flags: FSSyncFlags) async throws {
@@ -338,7 +372,8 @@ final class XfsVolume: FSVolume,
     func write(
         contents data: Data, to item: FSItem, at offset: off_t
     ) async throws -> Int {
-        throw POSIXError(.EROFS)
+        try requireWritableMount()
+        throw POSIXError(.ENOTSUP)
     }
 
     // MARK: - PathConfOperations

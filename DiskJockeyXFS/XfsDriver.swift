@@ -13,12 +13,17 @@
 import Foundation
 import DiskJockeyLibrary
 
-final class XfsDriver: ReadOnlyVolumeDriver {
+final class XfsDriver: XfsMountedVolumeDriver {
 
     private var fs: OpaquePointer?
 
     init(fs: OpaquePointer) {
         self.fs = fs
+    }
+
+    var isWritable: Bool {
+        guard let fs else { return false }
+        return fs_xfs_is_writable(fs) > 0
     }
 
     func volumeInfo() -> ReadOnlyVolumeInfo? {

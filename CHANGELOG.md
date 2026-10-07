@@ -15,6 +15,7 @@ sections below carry the detail; these say what shipped and from where.
 
 ### Added
 
+- **XFS mount access is explicitly gated.** Read-only is the default; `rw` requires writable hardware and approval from the mounted driver. `ro` and FSKit's `--rdonly` veto writes, driver refusal errors are preserved, and read-only volumes no longer advertise permission changes. The currently pinned callback mount remains read-only and refuses explicit writable requests (#321).
 - **XFS v5 releases have a dedicated macOS validation job.** The signed FSKit runner requires a complete feature/corruption matrix, verifies write persistence across remount and byte preservation for read-only/refused operations, compares check/repair results with the driver's independent Linux oracle, and retains the exact driver/build provenance (#325). The existing bundle pin and support claims remain unchanged until release validation passes.
 - **The XFS device bridge supports bounded writes and flushes.** Partition-relative callbacks preserve partial blocks, reject overflow and writes outside the mounted slice, report short transfers and device errors, and refuse read-only resources. Native ABI and POSIX byte-oracle checks gate the app tier; XFS volume operations remain read-only pending the later integration steps (#320).
 - **btrfs-win-driver is in the constellation list.** The overview, the ledger and the worktree tools now cover the Btrfs Windows driver beside the ext4, xfs and erofs ones, and the product-scope test expects all 24 repositories (#302).

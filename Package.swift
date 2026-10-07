@@ -151,6 +151,7 @@ let package = Package(
             ],
             sources: [
                 "XfsVolume.swift",
+                "XfsMountPolicy.swift",
                 "XfsLog.swift",
                 "XfsBlockDeviceContext.swift",
             ],

@@ -290,6 +290,7 @@
 		B0CF83A054D7856DB6C90BDF /* XfsLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE02443D6BF4EA6A10271DB2 /* XfsLog.swift */; };
 		320000000000000000000001 /* XfsBlockDeviceContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 320000000000000000000003 /* XfsBlockDeviceContext.swift */; };
 		320000000000000000000002 /* XfsBlockDeviceBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 320000000000000000000004 /* XfsBlockDeviceBridge.swift */; };
+		321000000000000000000001 /* XfsMountPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 321000000000000000000002 /* XfsMountPolicy.swift */; };
 		027139E38C99564FE69885EA /* NTFSVolume.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FAA4308D6EB33A49E406790 /* NTFSVolume.swift */; };
 		02A5ECFB350AC0A504E975EB /* FSKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EA52B7280D02F6F8D737A4DF /* FSKit.framework */; };
 		05A11A3D8A16DAA84A31911B /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 429A2D79E6781D9640B98F5E /* Cocoa.framework */; };
@@ -948,6 +949,7 @@
 		DE02443D6BF4EA6A10271DB2 /* XfsLog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = XfsLog.swift; sourceTree = "<group>"; };
 		320000000000000000000003 /* XfsBlockDeviceContext.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = XfsBlockDeviceContext.swift; sourceTree = "<group>"; };
 		320000000000000000000004 /* XfsBlockDeviceBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = XfsBlockDeviceBridge.swift; sourceTree = "<group>"; };
+		321000000000000000000002 /* XfsMountPolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = XfsMountPolicy.swift; sourceTree = "<group>"; };
 		429A2D79E6781D9640B98F5E /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
 		45CFCF77C56D3305934A9BE2 /* EXT4FileSystem.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EXT4FileSystem.swift; sourceTree = "<group>"; };
 		501F02432E058BAF009EBB59 /* DiskJockeyFileProvider.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = DiskJockeyFileProvider.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -1587,6 +1589,7 @@
 				DE02443D6BF4EA6A10271DB2 /* XfsLog.swift */,
 				320000000000000000000003 /* XfsBlockDeviceContext.swift */,
 				320000000000000000000004 /* XfsBlockDeviceBridge.swift */,
+				321000000000000000000002 /* XfsMountPolicy.swift */,
 				4BF770FFFCBF77732E2D1C97 /* Info.plist */,
 				D514C685BD717CA79A70A798 /* DiskJockeyXFS.entitlements */,
 				1FC306AFB72E0BFDB7161F46 /* DiskJockeyXFS-Bridging-Header.h */,
@@ -2156,6 +2159,7 @@
 				B0CF83A054D7856DB6C90BDF /* XfsLog.swift in Sources */,
 				320000000000000000000001 /* XfsBlockDeviceContext.swift in Sources */,
 				320000000000000000000002 /* XfsBlockDeviceBridge.swift in Sources */,
+				321000000000000000000001 /* XfsMountPolicy.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -183,6 +183,10 @@ struct XfsVolumeTests {
 
     // MARK: what the volume declares
 
+    @Test func defaultVolumeDoesNotAdvertisePermissionWrites() {
+        #expect(makeVolume(seededDriver()).supportedVolumeCapabilities.doesNotSupportSettingFilePermissions)
+    }
+
     /// The defect this style of test could not see when it was a mirror:
     /// XFS is journalled, and the volume once said otherwise.
     @Test func declaresAJournalButNeverAnActiveOne() {
