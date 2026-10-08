@@ -96,6 +96,22 @@ final class XfsDriver: XfsMountedVolumeDriver {
         }
     }
 
+    func write(_ path: VolumePath, at offset: UInt64,
+               from buffer: UnsafeRawBufferPointer) -> Int64 {
+        guard let fs else { return -1 }
+        return path.withCString {
+            fs_xfs_write_file(fs, $0, buffer.baseAddress, offset, UInt64(buffer.count))
+        }
+    }
+
+    func truncate(_ path: VolumePath, to size: UInt64, modified: timespec?) -> Int32 {
+        guard let fs else { return -1 }
+        // FS_XFS_LEAVE_TIME is INT64_MIN; the macro is not imported.
+        let sec = modified.map { Int64($0.tv_sec) } ?? Int64.min
+        let nsec = modified.map { UInt32($0.tv_nsec) } ?? 0
+        return path.withCString { fs_xfs_truncate(fs, $0, size, sec, nsec) }
+    }
+
     func readlink(_ path: VolumePath, _ buffer: UnsafeMutablePointer<CChar>,
                   _ size: Int) -> Int32 {
         guard let fs else { return -1 }

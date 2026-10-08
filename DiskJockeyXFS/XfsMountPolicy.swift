@@ -39,4 +39,13 @@ struct XfsMountAccess {
 /// The capability belongs to this mounted handle, not the driver in general.
 protocol XfsMountedVolumeDriver: ReadOnlyVolumeDriver {
     var isWritable: Bool { get }
+
+    /// fs_xfs_write_file: overwrite bytes the file already holds. The
+    /// count written, or negative with the reason in `lastErrno()`.
+    func write(_ path: VolumePath, at offset: UInt64,
+               from buffer: UnsafeRawBufferPointer) -> Int64
+
+    /// fs_xfs_truncate: shorten the file. A nil `modified` stamps nothing.
+    /// Zero, or negative with the reason in `lastErrno()`.
+    func truncate(_ path: VolumePath, to size: UInt64, modified: timespec?) -> Int32
 }
