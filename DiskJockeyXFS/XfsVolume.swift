@@ -1,10 +1,12 @@
 /*
- * XfsVolume.swift — FSKit volume for XFS (read-only).
+ * XfsVolume.swift — FSKit volume for XFS.
  *
  * Implements FSVolume.Operations + FSVolume.ReadWriteOperations +
  * FSVolume.PathConfOperations. Mutating operations require explicit mount
  * policy and mounted-driver approval; read-only mounts return EROFS.
- * Unmapped operations on an approved handle return ENOTSUP.
+ * Writes rewrite existing bytes and set-attributes shortens a file, as far
+ * as the published driver goes (diskjockey#322); unmapped operations on an
+ * approved handle return ENOTSUP.
  * Reads/lookups/enumeration dispatch to the
  * driver. XFS inode numbers are 64-bit, so item identity is UInt64
  * (XfsItem / XfsTag).
@@ -173,7 +175,43 @@ final class XfsVolume: FSVolume,
         on item: FSItem
     ) async throws -> FSItem.Attributes {
         try requireWritableMount()
-        throw POSIXError(.ENOTSUP)
+        guard let driver = driver as? XfsMountedVolumeDriver,
+              let eItem = item as? XfsItem else {
+            throw POSIXError(.EBADF)
+        }
+        // Only a size change is mapped; mode, ownership and times are
+        // #323's. A request carrying one is refused whole, before the size
+        // moves, rather than half applied and reported as a failure.
+        guard newAttributes.isValid(.size),
+              !newAttributes.isValid(.mode), !newAttributes.isValid(.uid),
+              !newAttributes.isValid(.gid), !newAttributes.isValid(.accessTime) else {
+            throw POSIXError(.ENOTSUP)
+        }
+        // A size change moves mtime. fs_xfs_truncate stamps it in the same
+        // transaction, so a requested time rides along and is consumed.
+        var consumed: FSItem.Attribute = [.size]
+        var modified = Self.now()
+        if newAttributes.isValid(.modifyTime) {
+            modified = newAttributes.modifyTime
+            consumed.insert(.modifyTime)
+        }
+        // Growing needs allocation the published driver refuses with
+        // ENOTSUP; that errno is the answer, not an approximation.
+        guard driver.truncate(eItem.volumePath, to: newAttributes.size,
+                              modified: modified) == 0 else {
+            throw driver.lastPOSIXError()
+        }
+        newAttributes.consumedAttributes = consumed
+        guard let attr = driver.stat(eItem.volumePath) else {
+            throw driver.lastPOSIXError()
+        }
+        return Self.attributes(from: attr, parentInode: eItem.parentInode)
+    }
+
+    private static func now() -> timespec {
+        var ts = timespec()
+        clock_gettime(CLOCK_REALTIME, &ts)
+        return ts
     }
 
     // MARK: - Lookup / enumeration
@@ -373,7 +411,34 @@ final class XfsVolume: FSVolume,
         contents data: Data, to item: FSItem, at offset: off_t
     ) async throws -> Int {
         try requireWritableMount()
-        throw POSIXError(.ENOTSUP)
+        let t0 = monotonicNanos()
+        do {
+            let n = try writeBytes(data, to: item, at: offset)
+            stats.recordWrite(bytes: n, latencyNs: monotonicNanos() &- t0, error: false)
+            return n
+        } catch {
+            stats.recordWrite(bytes: 0, latencyNs: monotonicNanos() &- t0, error: true)
+            throw error
+        }
+    }
+
+    /// The body of `write`. fs_xfs_write_file rewrites bytes the file
+    /// already holds, the whole range or none of it; writing past the end
+    /// needs allocation and the driver refuses it with ENOTSUP, which is
+    /// what FSKit is told.
+    private func writeBytes(_ data: Data, to item: FSItem, at offset: off_t) throws -> Int {
+        guard let driver = driver as? XfsMountedVolumeDriver,
+              let eItem = item as? XfsItem else {
+            throw POSIXError(.EBADF)
+        }
+        guard offset >= 0 else { throw POSIXError(.EINVAL) }
+        // Nothing to write, and no base address to hand the C call.
+        if data.isEmpty { return 0 }
+        let n = data.withUnsafeBytes {
+            driver.write(eItem.volumePath, at: UInt64(offset), from: $0)
+        }
+        guard n >= 0 else { throw driver.lastPOSIXError() }
+        return Int(n)
     }
 
     // MARK: - PathConfOperations
