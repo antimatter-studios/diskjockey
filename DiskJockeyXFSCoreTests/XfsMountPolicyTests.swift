@@ -13,6 +13,9 @@ private final class PolicyDriver: XfsMountedVolumeDriver {
     func read(_ path: VolumePath, at offset: UInt64,
               into buffer: UnsafeMutableRawBufferPointer) -> Int64 { -1 }
     func readlink(_ path: VolumePath, _ buffer: UnsafeMutablePointer<CChar>, _ size: Int) -> Int32 { -1 }
+    func write(_ path: VolumePath, at offset: UInt64,
+               from buffer: UnsafeRawBufferPointer) -> Int64 { -1 }
+    func truncate(_ path: VolumePath, to size: UInt64, modified: timespec?) -> Int32 { -1 }
     func lastErrno() -> Int32 { EIO }
     func unmount() { isWritable = false }
 }
@@ -142,6 +145,7 @@ struct XfsMountPolicyTests {
         #expect(throws: POSIXError(.EROFS)) { try volume.requireWritableMount() }
     }
 
+    /// Writes and size changes are mapped; XfsWriteTests holds them.
     @Test func approvedMountDoesNotPretendUnmappedOperationsSucceeded() async throws {
         let access = try XfsMountPolicy.readWrite.authorize(
             deviceIsWritable: true, mountedDriver: .success(true))
@@ -149,7 +153,6 @@ struct XfsMountPolicyTests {
         let item = volume.item(forInode: 1, path: .root, parentInode: nil)
         let name = FSFileName(string: "child")
         let attributes = FSItem.SetAttributesRequest()
-        await #expect(throws: POSIXError(.ENOTSUP)) { try await volume.setAttributes(attributes, on: item) }
         await #expect(throws: POSIXError(.ENOTSUP)) {
             try await volume.createItem(named: name, type: .file, inDirectory: item, attributes: attributes)
         }
@@ -163,6 +166,5 @@ struct XfsMountPolicyTests {
             try await volume.renameItem(item, inDirectory: item, named: name, to: name,
                                         inDirectory: item, overItem: nil)
         }
-        await #expect(throws: POSIXError(.ENOTSUP)) { try await volume.write(contents: Data(), to: item, at: 0) }
     }
 }
