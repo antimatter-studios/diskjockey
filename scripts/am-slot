@@ -264,11 +264,19 @@ take_slot() {
 
 SLOT_TOKEN="$(date +%s)-$$-$RANDOM$RANDOM"
 MY_RECORD=""
+# The record being replaced while the slot file is rewritten, empty
+# otherwise. A signal can land after the rename and before the wrapper's
+# memory catches up, so for that window the slot is ours under either
+# record (#330).
+PREV_RECORD=""
 CHILD_PGID=""
 
 release_slot() {
     if [ -n "$MY_SLOT" ]; then
-        remove_slot_record "$MY_SLOT" "$MY_RECORD" || true
+        remove_slot_record "$MY_SLOT" "$MY_RECORD" \
+            || { [ -n "$PREV_RECORD" ] && remove_slot_record "$MY_SLOT" "$PREV_RECORD"; } \
+            || true
+        rm -f "$MY_SLOT.new.$$"
     fi
     MY_SLOT=""
 }
@@ -348,7 +356,15 @@ CHILD_PGID=$!
 set +m
 record="$NAME|$$|$SLOT_TOKEN|$CHILD_PGID"
 if [ "$(head -n 1 "$MY_SLOT" 2>/dev/null || true)" = "$MY_RECORD" ]; then
-    printf '%s\n' "$record" > "$MY_SLOT.new.$$" && mv "$MY_SLOT.new.$$" "$MY_SLOT" && MY_RECORD="$record"
+    # Both records are ours until the rename settles: bash runs a trap only
+    # after the external `mv` returns, which can be before the line ends.
+    PREV_RECORD="$MY_RECORD"
+    MY_RECORD="$record"
+    if ! { printf '%s\n' "$record" > "$MY_SLOT.new.$$" && mv "$MY_SLOT.new.$$" "$MY_SLOT"; }; then
+        rm -f "$MY_SLOT.new.$$"
+        MY_RECORD="$PREV_RECORD"
+    fi
+    PREV_RECORD=""
 fi
 wait "$CHILD_PGID"
 rc=$?

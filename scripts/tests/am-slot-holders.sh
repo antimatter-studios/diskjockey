@@ -121,6 +121,35 @@ else
     pkill -9 -f '^sleep 31$' 2>/dev/null
 fi
 
+# 6. #330, SIGTERM DURING THE RECORD REWRITE. The wrapper rewrites its slot
+#    record to add the command's process group with an external `mv`. Bash
+#    defers a trap until that `mv` returns, so a SIGTERM arriving inside it
+#    runs the handler after the file holds the new record but before the
+#    wrapper's memory does. The release must still recognise its own slot.
+#    A `mv` stub on PATH makes the crossing deterministic: it completes the
+#    rename, then signals the wrapper before returning.
+fresh
+REAL_MV="$(command -v mv)"
+cat > "$sandbox/bin/mv" <<STUB
+#!/bin/sh
+"$REAL_MV" "\$@" || exit \$?
+case "\$1" in
+    *.slot.new.*) : > "$sandbox/crossed"; kill -TERM "\$PPID"; sleep 0.3 ;;
+esac
+STUB
+chmod +x "$sandbox/bin/mv"
+PATH="$sandbox/bin:$PATH" AM_SLOT_LIMIT=1 AM_SLOT_NAME=rewriting "$SLOT" p sh -c 'sleep 32' >/dev/null 2>&1 & wrapper=$!; pids+=("$wrapper")
+wait "$wrapper" 2>/dev/null
+if [ ! -f "$sandbox/crossed" ]; then
+    fail "harness: the rewrite was never interrupted, so this check measured nothing"
+elif wait_for '! pgrep -f "^sleep 32$" >/dev/null' && [ -z "$(ls -A "$P" 2>/dev/null)" ]; then
+    ok "SIGTERM during the record rewrite stops the command and releases the slot"
+else
+    fail "after SIGTERM mid-rewrite: command alive=$(pgrep -f '^sleep 32$' >/dev/null && echo yes || echo no), slot files: $(ls -A "$P" | tr '\n' ' ')"
+    pkill -9 -f '^sleep 32$' 2>/dev/null
+fi
+rm -f "$sandbox/bin/mv" "$sandbox/crossed"
+
 echo
 if [ "$fails" = 0 ]; then
     echo "am-slot-holders: all checks passed"
