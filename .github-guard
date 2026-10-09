@@ -63,6 +63,9 @@
 	advisory = CLI pipe
 	# Its Linux leg, for the same reason (#296).
 	advisory = CLI pipe (Linux)
+	# Gates only through ci-ok, which reads its `code` output and accepts
+	# the macOS legs' skip only for a change to documentation alone.
+	advisory = changes (does this need the full pipeline?)
 
 # Scratch output must stay local even if it is force-added past .gitignore.
 [paths]

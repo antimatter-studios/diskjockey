@@ -9,33 +9,38 @@ fails=0
 ok() { printf 'ok    %s\n' "$1"; }
 fail() { printf 'FAIL  %s\n' "$1"; fails=$((fails + 1)); }
 
-check_result() { # label, expected exit, joined results
-    local label="$1" expected="$2" results="$3" output rc
-    output="$(bash "$checker" "$results" 2>&1)"; rc=$?
+check_result() { # label, expected exit, joined results, code output
+    local label="$1" expected="$2" results="$3" code="${4:-true}" output rc
+    output="$(bash "$checker" "$results" "$code" 2>&1)"; rc=$?
     if [ "$rc" -eq "$expected" ]; then ok "$label"; else fail "$label: exit $rc, wanted $expected: $output"; fi
 }
 
-check_result 'three successes pass' 0 'success success success'
-check_result 'a failed leg fails' 1 'success failure success'
-check_result 'a cancelled leg fails' 1 'cancelled success success'
-check_result 'a skipped leg fails' 1 'success success skipped'
+check_result 'four successes pass' 0 'success success success success'
+check_result 'a failed leg fails' 1 'success success failure success'
+check_result 'a cancelled leg fails' 1 'success cancelled success success'
+check_result 'a skipped leg fails' 1 'success success success skipped'
 check_result 'an empty result fails' 1 ''
-check_result 'a missing leg fails' 1 'success success'
-check_result 'an extra leg needs review' 1 'success success success success'
+check_result 'a missing leg fails' 1 'success success success'
+check_result 'an extra leg needs review' 1 'success success success success success'
+check_result 'documentation alone may skip the macOS legs' 0 'success success skipped skipped' false
+check_result 'a skip with code changed fails' 1 'success success skipped skipped' true
+check_result 'a skip with no code output fails' 1 'success success skipped skipped' ''
+check_result 'documentation alone still fails a failed leg' 1 'success failure skipped skipped' false
 
 # Parse job structure rather than accepting an `always()` in a comment or
 # a needs list attached to a different job.
 if ruby -ryaml -e '
     doc = YAML.safe_load(File.read(ARGV[0]), aliases: true)
     job = doc.fetch("jobs").fetch("ci-ok")
-    abort "wrong dependencies" unless job.fetch("needs").sort == %w[library-tests scripts test].sort
+    abort "wrong dependencies" unless job.fetch("needs").sort == %w[changes library-tests scripts test].sort
     abort "job must run after failed/skipped needs" unless job.fetch("if") == "always()"
     abort "wrong job name" unless job.fetch("name") == "ci-ok"
     step = job.fetch("steps").find { |candidate| candidate.fetch("run", "").include?("check-ci-results.sh") }
     abort "missing gate step" unless step
     abort "missing joined results" unless step.fetch("env").fetch("NEEDED_RESULTS").include?("join(needs.*.result")
+    abort "missing code output" unless step.fetch("env").fetch("CODE") == "${{ needs.changes.outputs.code }}"
 ' "$workflow" 2>/dev/null; then
-    ok 'ci-ok always runs after all three gating jobs'
+    ok 'ci-ok always runs after the changes job and all three gating jobs'
 else
     fail 'ci-ok workflow wiring is missing or incomplete'
 fi
