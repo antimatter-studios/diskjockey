@@ -46,6 +46,13 @@ begin
                    else false
                    end
     next unless pull_request
+    # A workflow that runs only when a pull request closes (branch-reap.yml)
+    # reports nothing on an open one, so it is no part of the gate and
+    # declares nothing here.
+    if events.is_a?(Hash) && events['pull_request'].is_a?(Hash) &&
+       Array(events['pull_request']['types']) == ['closed']
+      next
+    end
 
     jobs = workflow['jobs']
     raise ProfileError, "#{path}: pull_request workflow has no jobs mapping" unless jobs.is_a?(Hash)

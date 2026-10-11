@@ -72,6 +72,41 @@ else
     fail "advisory job refused: $OUT"
 fi
 
+case_dir closed_only
+cat > "$CASE_DIR/.github/workflows/branch-reap.yml" <<'WORKFLOW'
+on:
+  pull_request:
+    types: [closed]
+jobs:
+  reap:
+    uses: example/core/.github/workflows/branch-reap.yml@0123456789012345678901234567890123456789
+WORKFLOW
+run_case
+if [ "$RC" -eq 0 ]; then
+    ok 'a workflow that runs only when a pull request closes is no part of the gate'
+else
+    fail "a closed-only workflow was counted as a pull-request job: $OUT"
+fi
+
+case_dir closed_and_opened
+cat > "$CASE_DIR/.github/workflows/late.yml" <<'WORKFLOW'
+on:
+  pull_request:
+    types: [opened, closed]
+jobs:
+  late:
+    name: Late
+    runs-on: ubuntu-latest
+    steps:
+      - run: 'true'
+WORKFLOW
+run_case
+if [ "$RC" -ne 0 ] && [[ "$OUT" == *'Late'* ]]; then
+    ok 'a workflow that also runs on an open pull request still has to be declared'
+else
+    fail "an opened-and-closed workflow escaped the declaration: $OUT"
+fi
+
 case_dir phantom_advisory
 git -C "$repo" config -f "$CASE_DIR/.github-guard" --add checks.advisory Missing
 run_case
