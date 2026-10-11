@@ -112,6 +112,12 @@ tasks:
     cmds:
       - scripts/am-prs --external {{.CLI_ARGS}}
 
+  branch:reap:
+    desc: The branches of merged pull requests nothing needs, across the constellation (add -- --apply to delete)
+    # No `sources`: the answer is on GitHub, and moves with every merge.
+    cmds:
+      - scripts/am-branch-reap {{.CLI_ARGS}}
+
   check:scripts:
     desc: The scripts tier — every scripts/tests/*.sh guard, quietly (-- --verbose to stream)
     # The same script the `Shell scripts` CI job runs, so a guard that passes
