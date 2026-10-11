@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+#
+# am-branch-reap — delete the branches of merged pull requests that nothing
+# needs any more.
+#
+#   am-branch-reap                 report what it would delete, change nothing
+#   am-branch-reap --apply         delete the ones it can prove are finished
+#   am-branch-reap --repo <name>   restrict to one repository
+#
+#   AM_BRANCH_REAP_GRACE_MINS  how long ago the pull request must have
+#                              merged before its branch goes (default 60)
+#   AM_BRANCH_REAP_LOG         every deletion is written here first, with
+#                              the commit it pointed at, so it can be put
+#                              back (default ~/.local/share/am-branch-reap/
+#                              deleted.tsv)
+#   AM_BRANCH_REAP_GH          the gh command; the tests replace it
+#
+# WHY THIS EXISTS. GitHub's "automatically delete head branches" stays OFF
+# in this family on purpose: it deletes the branch the moment the pull
+# request merges, and a stacked pull request still based on that branch is
+# caught mid-flight -- a race the pipeline has already lost. With it off,
+# branches pile up: rust-fs-btrfs reached 60, of which 54 were finished.
+# Each repository's branch-reap workflow deletes a merged pull request's
+# branch when it merges (rust-fs-core's branch-reap.yml); this sweeps what
+# that left behind -- branches kept because a stacked pull request was
+# still based on them, merges from before the workflow existed, and runs
+# that failed.
+#
+# A BRANCH GOES ONLY WHEN ALL OF THESE HOLD, checked again just before the
+# delete:
+#   - a pull request from this repository with this branch as its head is
+#     MERGED, and the branch still points at the commit that merged -- a
+#     branch that moved after its merge carries work nobody has seen;
+#   - that merge is older than the grace period;
+#   - no open pull request has it as its head or as its base;
+#   - it is not the default branch, not protected, not a merge-queue
+#     branch (gh-readonly-queue/), and not a wip/ rescue snapshot.
+# Everything else is kept and, where a person has to decide, reported with
+# the reason. A closed pull request's branch, or one with no pull request
+# at all, is never deleted here: whether its work landed some other way is
+# a judgement, not a fact this tool can read.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=constellation-repositories.sh
+. "$HERE/constellation-repositories.sh"
+
+GH="${AM_BRANCH_REAP_GH:-gh}"
+GRACE_MINS="${AM_BRANCH_REAP_GRACE_MINS:-60}"
+LOG="${AM_BRANCH_REAP_LOG:-$HOME/.local/share/am-branch-reap/deleted.tsv}"
+APPLY=0
+ONLY_REPO=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --apply) APPLY=1; shift ;;
+        --repo)  ONLY_REPO="${2:?--repo needs a name}"; shift 2 ;;
+        --help|-h) sed -n '2,46p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "am-branch-reap: unknown argument '$1'" >&2; exit 2 ;;
+    esac
+done
+case "$GRACE_MINS" in
+    ''|*[!0-9]*) echo "am-branch-reap: AM_BRANCH_REAP_GRACE_MINS must be whole minutes, not '$GRACE_MINS'" >&2; exit 2 ;;
+esac
+
+# The newest merge time that is old enough, as GitHub writes it, so a plain
+# string comparison orders them. GNU date first, then BSD's.
+cutoff="${AM_BRANCH_REAP_CUTOFF:-}"
+if [ -z "$cutoff" ]; then
+    cutoff="$(date -u -d "-$GRACE_MINS minutes" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+        || date -u -v-"$GRACE_MINS"M +%Y-%m-%dT%H:%M:%SZ)"
+fi
+
+slugs=()
+for entry in "${CONSTELLATION_REPOSITORIES[@]}"; do
+    name="${entry%%:*}"
+    [ -n "$ONLY_REPO" ] && [ "$name" != "$ONLY_REPO" ] && continue
+    slugs+=("${entry#*:}")
+done
+if [ "${#slugs[@]}" -eq 0 ]; then
+    echo "am-branch-reap: '$ONLY_REPO' is not a constellation repository" >&2
+    exit 2
+fi
+
+verb="would delete"
+[ "$APPLY" -eq 1 ] && verb="deleted"
+total_deleted=0
+total_human=0
+unread=0
+
+for slug in "${slugs[@]}"; do
+    # A FAILED READ IS NOT "NOTHING TO DO". Each fetch is checked, and a
+    # repository that could not be read is named and fails the run.
+    if ! default="$("$GH" api "repos/$slug" --jq .default_branch 2>/dev/null)" || [ -z "$default" ]; then
+        echo "$slug: could not be read" >&2; unread=$((unread + 1)); continue
+    fi
+    if ! branches="$("$GH" api --paginate "repos/$slug/branches?per_page=100" \
+        --jq '.[] | [.name, .commit.sha, (.protected | tostring)] | @tsv' 2>/dev/null)"; then
+        echo "$slug: its branches could not be read" >&2; unread=$((unread + 1)); continue
+    fi
+    if ! prs="$("$GH" pr list -R "$slug" --state all --limit 5000 \
+        --json number,state,headRefName,headRefOid,baseRefName,mergedAt,isCrossRepository \
+        --jq '.[] | [(.number | tostring), .state, .headRefName, .headRefOid, .baseRefName, (.mergedAt // "-"), (.isCrossRepository | tostring)] | @tsv' 2>/dev/null)"; then
+        echo "$slug: its pull requests could not be read" >&2; unread=$((unread + 1)); continue
+    fi
+
+    deleted=0; kept=0; human=0
+    while IFS=$'\t' read -r branch tip protected; do
+        [ -n "$branch" ] || continue
+        if [ "$branch" = "$default" ] || [ "$protected" = true ]; then kept=$((kept + 1)); continue; fi
+        case "$branch" in
+            gh-readonly-queue/*|wip/*) kept=$((kept + 1)); continue ;;
+        esac
+        if ! printf '%s' "$branch" | grep -Eq '^[A-Za-z0-9._/-]+$'; then
+            echo "$slug	keep	$branch	a name this tool does not put in a URL"; kept=$((kept + 1)); human=$((human + 1)); continue
+        fi
+
+        open_head=0; open_base=0; merged_pr=""; merged_at=""; any_pr=0
+        while IFS=$'\t' read -r num state head oid base at cross; do
+            [ -n "$num" ] || continue
+            if [ "$state" = OPEN ] && [ "$base" = "$branch" ]; then open_base=1; fi
+            [ "$cross" = true ] && continue
+            [ "$head" = "$branch" ] || continue
+            any_pr=1
+            if [ "$state" = OPEN ]; then open_head=1; fi
+            if [ "$state" = MERGED ] && [ "$oid" = "$tip" ] && { [ -z "$merged_at" ] || [[ "$at" > "$merged_at" ]]; }; then
+                merged_pr="$num"; merged_at="$at"
+            fi
+        done <<< "$prs"
+
+        if [ "$open_head" -eq 1 ] || [ "$open_base" -eq 1 ]; then kept=$((kept + 1)); continue; fi
+        if [ -z "$merged_pr" ]; then
+            kept=$((kept + 1)); human=$((human + 1))
+            if [ "$any_pr" -eq 1 ]; then
+                echo "$slug	keep	$branch	not at the commit any of its pull requests merged"
+            else
+                echo "$slug	keep	$branch	no pull request merged it"
+            fi
+            continue
+        fi
+        if [[ "$merged_at" > "$cutoff" ]]; then kept=$((kept + 1)); continue; fi
+
+        if [ "$APPLY" -eq 1 ]; then
+            # CHECKED AGAIN AT THE LAST MOMENT. Between the listing and
+            # now, a commit may have been pushed or a pull request opened on
+            # this branch; either one means it is in use.
+            now_tip="$("$GH" api "repos/$slug/git/ref/heads/$branch" --jq .object.sha 2>/dev/null || true)"
+            children="$("$GH" pr list -R "$slug" --state open --base "$branch" --json number --jq length 2>/dev/null || echo error)"
+            if [ "$now_tip" != "$tip" ] || [ "$children" != 0 ]; then
+                echo "$slug	keep	$branch	changed while this ran"; kept=$((kept + 1)); continue
+            fi
+            mkdir -p "$(dirname "$LOG")"
+            printf '%s\t%s\t%s\t%s\t#%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$slug" "$branch" "$tip" "$merged_pr" >> "$LOG"
+            if ! "$GH" api -X DELETE "repos/$slug/git/refs/heads/$branch" >/dev/null 2>&1; then
+                echo "$slug	keep	$branch	the delete was refused"; kept=$((kept + 1)); human=$((human + 1)); continue
+            fi
+        fi
+        echo "$slug	$verb	$branch	merged as #$merged_pr"
+        deleted=$((deleted + 1))
+    done <<< "$branches"
+    echo "$slug: $verb $deleted, kept $kept ($human for a person)" >&2
+    total_deleted=$((total_deleted + deleted)); total_human=$((total_human + human))
+done
+
+echo "am-branch-reap: $verb $total_deleted branch(es); $total_human kept for a person to decide" >&2
+if [ "$APPLY" -eq 1 ] && [ "$total_deleted" -gt 0 ]; then
+    echo "am-branch-reap: each one is recorded in $LOG" >&2
+fi
+if [ "$unread" -gt 0 ]; then
+    echo "am-branch-reap: $unread repository(ies) could not be read" >&2
+    exit 1
+fi
