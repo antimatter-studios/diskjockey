@@ -175,3 +175,4 @@ tasks:
     # -- a gate that cannot fail is indistinguishable from no gate.
     cmds:
       - bash ../rust-fs-core/scripts/agents-core-check.sh
+      - bash ../rust-fs-core/scripts/changelog-check.sh
