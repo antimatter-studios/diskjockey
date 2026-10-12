@@ -34,6 +34,17 @@ enum SwiftPartitionProbe {
         static let erofsSuperblockOffset = 1024
         static let erofsBytes: [UInt8] = [0xE2, 0xE1, 0xF5, 0xE0]
 
+        // XFS: "XFSB" at byte 0 (sb_magicnum, big-endian), and sb_blocksize
+        // beside it a power of two from 512 to 64 KiB -- the rule blk.probe
+        // applies, which keeps a stray "XFSB" from naming a filesystem.
+        static let xfsBytes: [UInt8] = Array("XFSB".utf8)
+
+        // Btrfs: the primary superblock is at 64 KiB, its magic "_BHRfS_M"
+        // 64 bytes in, and `bytenr` 48 bytes in names the superblock's own
+        // offset, so a mirror copy or a stray magic is not taken for it.
+        static let btrfsSuperblockOffset = 0x10000
+        static let btrfsBytes: [UInt8] = Array("_BHRfS_M".utf8)
+
         // QCOW2: "QFI\xfb" at offset 0 (magic + version marker).
         static let qcow2Bytes: [UInt8] = [0x51, 0x46, 0x49, 0xFB]
 
@@ -125,7 +136,7 @@ enum SwiftPartitionProbe {
         }
 
         // No partition table — sniff the whole device.
-        let fsKind = sniffFS(handle: handle, at: 0, maxBytes: min(fileSize, 0x9000))
+        let fsKind = sniffFS(handle: handle, at: 0, maxBytes: min(fileSize, sniffWindow))
         return DiskProbeResult(
             path: url.path,
             container: "raw",
@@ -168,7 +179,7 @@ enum SwiftPartitionProbe {
             let byteStart  = lbaStart * 512
             let byteLength = lbaCount * 512
 
-            let fsKind = sniffFS(handle: handle, at: byteStart, maxBytes: min(byteLength, 0x9000))
+            let fsKind = sniffFS(handle: handle, at: byteStart, maxBytes: min(byteLength, sniffWindow))
             let resolved = resolveTypeCode(typeCode, sniffed: fsKind)
 
             parts.append(DiskProbeResult.Partition(
@@ -229,7 +240,7 @@ enum SwiftPartitionProbe {
                 .trimmingCharacters(in: .init(charactersIn: "\0"))
                 .trimmingCharacters(in: .whitespaces)
 
-            let fsKind = sniffFS(handle: handle, at: partStart, maxBytes: min(partLength, 0x9000))
+            let fsKind = sniffFS(handle: handle, at: partStart, maxBytes: min(partLength, sniffWindow))
             let resolved = resolveGPTType(typeGuid, sniffed: fsKind)
 
             parts.append(DiskProbeResult.Partition(
@@ -247,9 +258,14 @@ enum SwiftPartitionProbe {
 
     // MARK: - Filesystem sniffing
 
+    /// How much of a filesystem is read to name it: past the Btrfs
+    /// superblock at 64 KiB, the deepest one classify reads. It was 36 KiB,
+    /// which no Btrfs filesystem could be named from (diskjockey#351).
+    static let sniffWindow: UInt64 = UInt64(FSMagic.btrfsSuperblockOffset + 0x100)
+
     // Internal for unit testing with pre-built Data buffers.
     static func sniffFS(handle: FileHandle, at offset: UInt64, maxBytes: UInt64) -> String {
-        guard let buf = try? readBytes(handle: handle, at: offset, count: Int(min(maxBytes, 0x9000))),
+        guard let buf = try? readBytes(handle: handle, at: offset, count: Int(min(maxBytes, sniffWindow))),
               !buf.isEmpty else { return "unknown" }
         return classify(buf)
     }
@@ -259,6 +275,18 @@ enum SwiftPartitionProbe {
         let b = Array(buf)
 
         if b.count >= 4 && b[0..<4].elementsEqual(FSMagic.squashfsBytes) { return "squashfs" }
+
+        if b.count >= 8 && b[0..<4].elementsEqual(FSMagic.xfsBytes) {
+            let blockSize = UInt32(b[4]) << 24 | UInt32(b[5]) << 16 | UInt32(b[6]) << 8 | UInt32(b[7])
+            if blockSize >= 512, blockSize <= 65536, blockSize & (blockSize - 1) == 0 { return "xfs" }
+        }
+
+        let btrfs = FSMagic.btrfsSuperblockOffset
+        if b.count >= btrfs + 0x48,
+           b[(btrfs + 0x40)..<(btrfs + 0x48)].elementsEqual(FSMagic.btrfsBytes) {
+            let bytenr = (0..<8).reduce(UInt64(0)) { $0 | UInt64(b[btrfs + 0x30 + $1]) << (8 * $1) }
+            if bytenr == UInt64(btrfs) { return "btrfs" }
+        }
 
         // EROFS: superblock magic 0xE0F5E1E2 (LE) at byte 1024.
         let erofsOff = FSMagic.erofsSuperblockOffset

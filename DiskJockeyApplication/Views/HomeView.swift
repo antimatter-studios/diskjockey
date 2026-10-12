@@ -9,9 +9,9 @@
 //
 // The capability showcase is honest about what macOS actually lets the
 // user toggle:
-//   - Filesystems (ext4/NTFS/EROFS/SquashFS) are four separate FSKit
-//     extensions, each with its own on/off switch → real Enabled vs
-//     Disabled columns, read live from ExtensionStateService.
+//   - Filesystems are separate FSKit extensions, one per entry in
+//     ShippedFilesystems, each with its own on/off switch → real Enabled
+//     vs Disabled columns, read live from ExtensionStateService.
 //   - Disk-image containers (qcow2/VHD/VHDX/VMDK) have no switch — they
 //     are compiled into every filesystem extension → "always available".
 //   - Network & cloud schemes are all served by ONE File Provider
@@ -226,12 +226,10 @@ struct HomeView: View {
         let key: String    // ExtensionStateService key / bundle suffix
     }
 
-    private let filesystems = [
-        FilesystemDef(name: "ext4", key: "ext4"),
-        FilesystemDef(name: "NTFS", key: "ntfs"),
-        FilesystemDef(name: "EROFS", key: "erofs"),
-        FilesystemDef(name: "SquashFS", key: "squashfs"),
-    ]
+    /// Every filesystem the app ships, from the one list (diskjockey#346).
+    private let filesystems = ShippedFilesystems.all.map {
+        FilesystemDef(name: $0.displayName, key: $0.key)
+    }
 
     private var enabledFilesystems: [String] {
         filesystems
@@ -264,7 +262,7 @@ struct HomeView: View {
         var keys = Set<String>()
         for disk in attachedDisks.disks {
             let fs = disk.fsType.lowercased()
-            for key in ["ext4", "ntfs", "erofs", "squashfs"] where fs.contains(key) {
+            for key in ShippedFilesystems.keys where fs.contains(key) {
                 keys.insert(key)
             }
         }
