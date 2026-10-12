@@ -16,6 +16,7 @@ private final class PolicyDriver: XfsMountedVolumeDriver {
     func write(_ path: VolumePath, at offset: UInt64,
                from buffer: UnsafeRawBufferPointer) -> Int64 { -1 }
     func truncate(_ path: VolumePath, to size: UInt64, modified: timespec?) -> Int32 { -1 }
+    func flush() -> Int32 { -1 }
     func lastErrno() -> Int32 { EIO }
     func unmount() { isWritable = false }
 }

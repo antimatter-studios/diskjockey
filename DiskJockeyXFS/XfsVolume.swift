@@ -101,7 +101,13 @@ final class XfsVolume: FSVolume,
         guard let info = driver?.volumeInfo() else {
             return FSStatFSResult(fileSystemTypeName: Self.fsTypeName)
         }
-        return ReadOnlyVolumeSupport.statFS(info, fileSystemTypeName: Self.fsTypeName)
+        let result = ReadOnlyVolumeSupport.statFS(info, fileSystemTypeName: Self.fsTypeName)
+        // What Finder checks before it copies: a writable mount offers the
+        // blocks that are free, a read-only one none of them.
+        if allowsWrites {
+            result.availableBlocks = result.freeBlocks
+        }
+        return result
     }
 
     // MARK: - Lifecycle
@@ -366,8 +372,14 @@ final class XfsVolume: FSVolume,
         throw POSIXError(.ENOTSUP)
     }
 
+    /// FSKit's fsync for the volume: what the handle has logged goes home,
+    /// and a failure is the driver's errno. A read-only mount has nothing
+    /// to flush.
     func synchronize(flags: FSSyncFlags) async throws {
-        // Nothing to flush on a read-only volume.
+        guard allowsWrites, let driver = driver as? XfsMountedVolumeDriver else { return }
+        if driver.flush() != 0 {
+            throw POSIXError(POSIXErrorCode(rawValue: driver.lastErrno()) ?? .EIO)
+        }
     }
 
     // MARK: - ReadWriteOperations

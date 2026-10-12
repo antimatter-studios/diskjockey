@@ -30,16 +30,16 @@ final class XfsDriver: XfsMountedVolumeDriver {
         guard let fs else { return nil }
         var info = fs_xfs_volume_info_t()
         guard fs_xfs_get_volume_info(fs, &info) == 0 else { return nil }
-        // XFS counts blocks, so the figures pass straight through. The
-        // free counts are not reported through this path; zero is what
-        // the field means when it is unknown.
+        // XFS counts blocks, so the figures pass straight through, the
+        // free counts included (the superblock's, as the driver keeps them
+        // current).
         return ReadOnlyVolumeInfo(
             capacity: .blocks(blockSize: UInt64(info.block_size),
                               total: UInt64(info.total_blocks),
-                              free: 0),
+                              free: UInt64(info.free_blocks)),
             ioSize: UInt64(info.block_size),
             totalInodes: info.inode_count,
-            freeInodes: nil)
+            freeInodes: info.free_inodes)
     }
 
     func stat(_ path: VolumePath) -> ReadOnlyFileAttributes? {
@@ -110,6 +110,11 @@ final class XfsDriver: XfsMountedVolumeDriver {
         let sec = modified.map { Int64($0.tv_sec) } ?? Int64.min
         let nsec = modified.map { UInt32($0.tv_nsec) } ?? 0
         return path.withCString { fs_xfs_truncate(fs, $0, size, sec, nsec) }
+    }
+
+    func flush() -> Int32 {
+        guard let fs else { return -1 }
+        return fs_xfs_flush(fs)
     }
 
     func readlink(_ path: VolumePath, _ buffer: UnsafeMutablePointer<CChar>,
