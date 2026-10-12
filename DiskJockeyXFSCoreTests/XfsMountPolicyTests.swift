@@ -145,6 +145,16 @@ struct XfsMountPolicyTests {
         #expect(volume.allowsWrites)
     }
 
+    /// Load asks the driver for a writable mount only when one could be
+    /// granted: a read-only request or read-only hardware never reaches
+    /// the writable mount at all.
+    @Test func onlyAWritableRequestOnWritableHardwareAsksForAWritableMount() {
+        #expect(XfsMountPolicy.readWrite.requestsWritableMount(deviceIsWritable: true))
+        #expect(!XfsMountPolicy.readWrite.requestsWritableMount(deviceIsWritable: false))
+        #expect(!XfsMountPolicy.readOnly.requestsWritableMount(deviceIsWritable: true))
+        #expect(!XfsMountPolicy.readOnly.requestsWritableMount(deviceIsWritable: false))
+    }
+
     @Test func staleDriverApprovalCannotExposeWrites() throws {
         let access = try XfsMountPolicy.readWrite.authorize(
             deviceIsWritable: true, mountedDriver: .success(true))
