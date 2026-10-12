@@ -97,6 +97,14 @@ final class XfsVolume: FSVolume,
         guard allowsWrites else { throw POSIXError(.EROFS) }
     }
 
+    /// The mounted driver, when this mount may write through it; EROFS
+    /// when it may not.
+    private func writableDriver() throws -> XfsMountedVolumeDriver {
+        try requireWritableMount()
+        guard let driver = driver as? XfsMountedVolumeDriver else { throw POSIXError(.EROFS) }
+        return driver
+    }
+
     var volumeStatistics: FSStatFSResult {
         guard let info = driver?.volumeInfo() else {
             return FSStatFSResult(fileSystemTypeName: Self.fsTypeName)
@@ -332,44 +340,105 @@ final class XfsVolume: FSVolume,
         return FSFileName(data: Data(target))
     }
 
-    // MARK: - Mutating ops (mount gate, then operation support)
+    // MARK: - Mutating ops (mount gate, then the driver's logged record)
 
+    /// fs_xfs_create or fs_xfs_mkdir (diskjockey#326). The C ABI makes
+    /// regular files and directories; a device, fifo or socket has no call
+    /// to make it, and a symlink has its own entry point.
     func createItem(
         named name: FSFileName, type: FSItem.ItemType,
         inDirectory directory: FSItem, attributes: FSItem.SetAttributesRequest
     ) async throws -> (FSItem, FSFileName) {
-        try requireWritableMount()
-        throw POSIXError(.ENOTSUP)
+        let driver = try writableDriver()
+        guard let dirItem = directory as? XfsItem else { throw POSIXError(.EBADF) }
+        let isDirectory: Bool
+        switch type {
+        case .file: isDirectory = false
+        case .directory: isDirectory = true
+        default: throw POSIXError(.ENOTSUP)
+        }
+        let childPath = try dirItem.volumePath.child(name, for: Self.pathEncoding)
+        let requested = attributes.isValid(.mode) ? attributes.mode & 0o7777 : nil
+        let mode = UInt16(requested ?? (isDirectory ? 0o755 : 0o644))
+        let inode = isDirectory ? driver.mkdir(childPath, mode: mode)
+                                : driver.create(childPath, mode: mode)
+        guard inode != 0 else { throw driver.lastPOSIXError() }
+
+        var consumed: FSItem.Attribute = []
+        if requested != nil { consumed.insert(.mode) }
+        // The new inode belongs to uid 0 and gid 0 (fs_xfs.h). An owner asked
+        // for is set right after, and a refusal leaves it unconsumed rather
+        // than failing a create that happened.
+        if attributes.isValid(.uid) || attributes.isValid(.gid) {
+            let uid = attributes.isValid(.uid) ? attributes.uid : nil
+            let gid = attributes.isValid(.gid) ? attributes.gid : nil
+            if driver.setAttributes(childPath, mode: nil, uid: uid, gid: gid,
+                                    accessed: nil, modified: nil) == 0 {
+                if uid != nil { consumed.insert(.uid) }
+                if gid != nil { consumed.insert(.gid) }
+            }
+        }
+        attributes.consumedAttributes = consumed
+        return (item(forInode: inode, path: childPath, parentInode: dirItem.inode), name)
     }
 
+    /// rust-fs-xfs makes no symlink: its features page lists "Create a
+    /// symlink" as not supported, and the C ABI has no call for one. Nothing
+    /// is written (diskjockey#327).
     func createSymbolicLink(
         named name: FSFileName, inDirectory directory: FSItem,
         attributes: FSItem.SetAttributesRequest, linkContents contents: FSFileName
     ) async throws -> (FSItem, FSFileName) {
-        try requireWritableMount()
+        _ = try writableDriver()
         throw POSIXError(.ENOTSUP)
     }
 
+    /// fs_xfs_link (diskjockey#327). A directory is the driver's EPERM.
     func createLink(
         to item: FSItem, named name: FSFileName, inDirectory directory: FSItem
     ) async throws -> FSFileName {
-        try requireWritableMount()
-        throw POSIXError(.ENOTSUP)
+        let driver = try writableDriver()
+        guard let dirItem = directory as? XfsItem,
+              let target = item as? XfsItem else { throw POSIXError(.EBADF) }
+        let linkPath = try dirItem.volumePath.child(name, for: Self.pathEncoding)
+        guard driver.link(target.volumePath, to: linkPath) == 0 else {
+            throw driver.lastPOSIXError()
+        }
+        return name
     }
 
+    /// fs_xfs_unlink, or fs_xfs_rmdir for a directory (diskjockey#326),
+    /// chosen by what the name is now rather than what the item was.
     func removeItem(
         _ item: FSItem, named name: FSFileName, fromDirectory directory: FSItem
     ) async throws {
-        try requireWritableMount()
-        throw POSIXError(.ENOTSUP)
+        let driver = try writableDriver()
+        guard let dirItem = directory as? XfsItem else { throw POSIXError(.EBADF) }
+        let childPath = try dirItem.volumePath.child(name, for: Self.pathEncoding)
+        guard let attr = driver.stat(childPath) else { throw driver.lastPOSIXError() }
+        let rc = attr.fileType == .directory ? driver.rmdir(childPath) : driver.unlink(childPath)
+        guard rc == 0 else { throw driver.lastPOSIXError() }
     }
 
+    /// fs_xfs_rename2 with FS_XFS_RENAME_REPLACE (diskjockey#327): a name
+    /// at the destination is replaced as rename(2) replaces it, in the
+    /// same record. FSKit passes `overItem` only when the kernel had
+    /// already resolved the destination, so the replace is always asked
+    /// for, and nothing is unlinked here first: a refused rename loses
+    /// nothing.
     func renameItem(
         _ item: FSItem, inDirectory sourceDirectory: FSItem, named sourceName: FSFileName,
         to destinationName: FSFileName, inDirectory destinationDirectory: FSItem, overItem: FSItem?
     ) async throws -> FSFileName {
-        try requireWritableMount()
-        throw POSIXError(.ENOTSUP)
+        let driver = try writableDriver()
+        guard let srcDir = sourceDirectory as? XfsItem,
+              let dstDir = destinationDirectory as? XfsItem else { throw POSIXError(.EBADF) }
+        let from = try srcDir.volumePath.child(sourceName, for: Self.pathEncoding)
+        let to = try dstDir.volumePath.child(destinationName, for: Self.pathEncoding)
+        guard driver.rename(from, to: to, replace: true) == 0 else {
+            throw driver.lastPOSIXError()
+        }
+        return destinationName
     }
 
     /// FSKit's fsync for the volume: what the handle has logged goes home,

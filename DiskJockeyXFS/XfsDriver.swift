@@ -117,6 +117,60 @@ final class XfsDriver: XfsMountedVolumeDriver {
         return fs_xfs_flush(fs)
     }
 
+    func create(_ path: VolumePath, mode: UInt16) -> UInt64 {
+        guard let fs else { return 0 }
+        return path.withCString { fs_xfs_create(fs, $0, mode) }
+    }
+
+    func mkdir(_ path: VolumePath, mode: UInt16) -> UInt64 {
+        guard let fs else { return 0 }
+        return path.withCString { fs_xfs_mkdir(fs, $0, mode) }
+    }
+
+    func unlink(_ path: VolumePath) -> Int32 {
+        guard let fs else { return -1 }
+        return path.withCString { fs_xfs_unlink(fs, $0) }
+    }
+
+    func rmdir(_ path: VolumePath) -> Int32 {
+        guard let fs else { return -1 }
+        return path.withCString { fs_xfs_rmdir(fs, $0) }
+    }
+
+    func link(_ source: VolumePath, to destination: VolumePath) -> Int32 {
+        guard let fs else { return -1 }
+        return source.withCString { src in
+            destination.withCString { dst in fs_xfs_link(fs, src, dst) }
+        }
+    }
+
+    func rename(_ source: VolumePath, to destination: VolumePath, replace: Bool) -> Int32 {
+        guard let fs else { return -1 }
+        let flags: Int32 = replace ? Int32(FS_XFS_RENAME_REPLACE) : 0
+        return source.withCString { src in
+            destination.withCString { dst in fs_xfs_rename2(fs, src, dst, flags) }
+        }
+    }
+
+    func setAttributes(_ path: VolumePath, mode: UInt32?, uid: UInt32?, gid: UInt32?,
+                       accessed: timespec?, modified: timespec?) -> Int32 {
+        guard let fs else { return -1 }
+        // FS_XFS_LEAVE is -1 and FS_XFS_LEAVE_TIME INT64_MIN; neither macro
+        // is imported, being casts.
+        let leave: Int64 = -1
+        return path.withCString {
+            fs_xfs_set_attributes(
+                fs, $0,
+                mode.map { Int64($0) } ?? leave,
+                uid.map { Int64($0) } ?? leave,
+                gid.map { Int64($0) } ?? leave,
+                accessed.map { Int64($0.tv_sec) } ?? Int64.min,
+                accessed.map { UInt32($0.tv_nsec) } ?? 0,
+                modified.map { Int64($0.tv_sec) } ?? Int64.min,
+                modified.map { UInt32($0.tv_nsec) } ?? 0)
+        }
+    }
+
     func readlink(_ path: VolumePath, _ buffer: UnsafeMutablePointer<CChar>,
                   _ size: Int) -> Int32 {
         guard let fs else { return -1 }

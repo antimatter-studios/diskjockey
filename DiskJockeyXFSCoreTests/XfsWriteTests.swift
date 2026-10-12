@@ -91,6 +91,14 @@ private final class FileDriver: XfsMountedVolumeDriver {
     }
 
     func readlink(_ path: VolumePath, _ buffer: UnsafeMutablePointer<CChar>, _ size: Int) -> Int32 { -1 }
+    func create(_ path: VolumePath, mode: UInt16) -> UInt64 { errno = ENOTSUP; return 0 }
+    func mkdir(_ path: VolumePath, mode: UInt16) -> UInt64 { errno = ENOTSUP; return 0 }
+    func unlink(_ path: VolumePath) -> Int32 { errno = ENOTSUP; return -1 }
+    func rmdir(_ path: VolumePath) -> Int32 { errno = ENOTSUP; return -1 }
+    func link(_ source: VolumePath, to destination: VolumePath) -> Int32 { errno = ENOTSUP; return -1 }
+    func rename(_ source: VolumePath, to destination: VolumePath, replace: Bool) -> Int32 { errno = ENOTSUP; return -1 }
+    func setAttributes(_ path: VolumePath, mode: UInt32?, uid: UInt32?, gid: UInt32?,
+                       accessed: timespec?, modified: timespec?) -> Int32 { errno = ENOTSUP; return -1 }
     func lastErrno() -> Int32 { errno }
     func unmount() { isWritable = false }
 }

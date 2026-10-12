@@ -17,6 +17,14 @@ private final class PolicyDriver: XfsMountedVolumeDriver {
                from buffer: UnsafeRawBufferPointer) -> Int64 { -1 }
     func truncate(_ path: VolumePath, to size: UInt64, modified: timespec?) -> Int32 { -1 }
     func flush() -> Int32 { -1 }
+    func create(_ path: VolumePath, mode: UInt16) -> UInt64 { 0 }
+    func mkdir(_ path: VolumePath, mode: UInt16) -> UInt64 { 0 }
+    func unlink(_ path: VolumePath) -> Int32 { -1 }
+    func rmdir(_ path: VolumePath) -> Int32 { -1 }
+    func link(_ source: VolumePath, to destination: VolumePath) -> Int32 { -1 }
+    func rename(_ source: VolumePath, to destination: VolumePath, replace: Bool) -> Int32 { -1 }
+    func setAttributes(_ path: VolumePath, mode: UInt32?, uid: UInt32?, gid: UInt32?,
+                       accessed: timespec?, modified: timespec?) -> Int32 { -1 }
     func lastErrno() -> Int32 { EIO }
     func unmount() { isWritable = false }
 }
@@ -176,24 +184,27 @@ struct XfsMountPolicyTests {
         #expect(throws: POSIXError(.EROFS)) { try volume.requireWritableMount() }
     }
 
-    /// Writes and size changes are mapped; XfsWriteTests holds them.
-    @Test func approvedMountDoesNotPretendUnmappedOperationsSucceeded() async throws {
+    /// Every namespace change is mapped (XfsNamespaceTests holds them), so
+    /// over a driver that refuses each call the volume answers the driver's
+    /// errno, never success; a symlink, which rust-fs-xfs makes none of,
+    /// stays ENOTSUP.
+    @Test func approvedMountAnswersARefusingDriversErrnoNotSuccess() async throws {
         let access = try XfsMountPolicy.readWrite.authorize(
             deviceIsWritable: true, mountedDriver: .success(true))
         let volume = policyVolume(PolicyDriver(), access: access)
         let item = volume.item(forInode: 1, path: .root, parentInode: nil)
         let name = FSFileName(string: "child")
         let attributes = FSItem.SetAttributesRequest()
-        await #expect(throws: POSIXError(.ENOTSUP)) {
+        await #expect(throws: POSIXError(.EIO)) {
             try await volume.createItem(named: name, type: .file, inDirectory: item, attributes: attributes)
         }
         await #expect(throws: POSIXError(.ENOTSUP)) {
             try await volume.createSymbolicLink(named: name, inDirectory: item,
                                                attributes: attributes, linkContents: name)
         }
-        await #expect(throws: POSIXError(.ENOTSUP)) { try await volume.createLink(to: item, named: name, inDirectory: item) }
-        await #expect(throws: POSIXError(.ENOTSUP)) { try await volume.removeItem(item, named: name, fromDirectory: item) }
-        await #expect(throws: POSIXError(.ENOTSUP)) {
+        await #expect(throws: POSIXError(.EIO)) { try await volume.createLink(to: item, named: name, inDirectory: item) }
+        await #expect(throws: POSIXError(.EIO)) { try await volume.removeItem(item, named: name, fromDirectory: item) }
+        await #expect(throws: POSIXError(.EIO)) {
             try await volume.renameItem(item, inDirectory: item, named: name, to: name,
                                         inDirectory: item, overItem: nil)
         }
