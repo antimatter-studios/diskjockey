@@ -26,17 +26,23 @@ private func policyVolume(_ driver: PolicyDriver, access: XfsMountAccess = .read
               stats: IOStatsCollector(label: "policy-test", emit: { _ in }), mountAccess: access)
 }
 
+/// The rule: an XFS volume mounts read-write whenever the device can be
+/// written and the mounted driver reports it can write. It is read-only
+/// only when the device is read-only, the driver cannot write, or the
+/// mount asks for `ro` or FSKit's `--rdonly`. A driver that cannot write
+/// still gives a read-only mount, whose mutations answer EROFS.
 @Suite("XFS writable mount policy")
 struct XfsMountPolicyTests {
-    @Test(arguments: [[], ["ro"], ["--rdonly"], ["partition_offset=4096"], ["rw=1"],
-                      ["-f"], ["ro", "rw"], ["rw", "ro"], ["rw,ro"], ["ro,rw"],
-                      ["rw", "--rdonly"], ["--rdonly", "rw"]])
-    func defaultAndReadOnlyOptionsVetoWrites(_ options: [String]) {
+    @Test(arguments: [["ro"], ["--rdonly"], ["ro", "rw"], ["rw", "ro"], ["rw,ro"], ["ro,rw"],
+                      ["rw", "--rdonly"], ["--rdonly", "rw"], ["partition_offset=4096,ro"]])
+    func readOnlyOptionsVetoWrites(_ options: [String]) {
         #expect(XfsMountPolicy(options: options) == .readOnly)
     }
 
-    @Test(arguments: [["rw"], ["-o", "rw"], ["partition_offset=4096,rw"], ["rw", "rw"]])
-    func explicitWritableOptions(_ options: [String]) {
+    /// No option is needed to ask for writes: read-write is the default.
+    @Test(arguments: [[], ["rw"], ["-o", "rw"], ["partition_offset=4096"], ["rw=1"], ["-f"],
+                      ["partition_offset=4096,rw"], ["rw", "rw"]])
+    func everyOtherOptionSetAsksForWrites(_ options: [String]) {
         #expect(XfsMountPolicy(options: options) == .readWrite)
     }
 
@@ -55,18 +61,27 @@ struct XfsMountPolicyTests {
         #expect(!access.allowsWrites)
     }
 
-    @Test func readOnlyHardwareRefusesExplicitWrites() {
-        #expect(throws: POSIXError(.EROFS)) {
-            try XfsMountPolicy.readWrite.authorize(
-                deviceIsWritable: false, mountedDriver: .success(true))
-        }
+    /// Read-only hardware is a read-only mount, not a refused one.
+    @Test(arguments: [[String](), ["rw"]])
+    func readOnlyHardwareMountsReadOnly(_ options: [String]) throws {
+        let access = try XfsMountPolicy(options: options).authorize(
+            deviceIsWritable: false, mountedDriver: .success(true))
+        #expect(!access.allowsWrites)
+        let volume = policyVolume(PolicyDriver(), access: access)
+        #expect(throws: POSIXError(.EROFS)) { try volume.requireWritableMount() }
     }
 
-    @Test func mountedDriverCanRefuseWritablePolicy() {
-        #expect(throws: POSIXError(.EROFS)) {
-            try XfsMountPolicy.readWrite.authorize(
-                deviceIsWritable: true, mountedDriver: .success(false))
-        }
+    /// Fail closed: a driver that cannot write still mounts, read-only,
+    /// and every mutation answers EROFS.
+    @Test(arguments: [[String](), ["rw"]])
+    func aDriverThatCannotWriteMountsReadOnly(_ options: [String]) throws {
+        let access = try XfsMountPolicy(options: options).authorize(
+            deviceIsWritable: true, mountedDriver: .success(false))
+        #expect(!access.allowsWrites)
+        let volume = policyVolume(PolicyDriver(), access: access)
+        #expect(!volume.allowsWrites)
+        #expect(throws: POSIXError(.EROFS)) { try volume.requireWritableMount() }
+        #expect(volume.supportedVolumeCapabilities.doesNotSupportSettingFilePermissions)
     }
 
     @Test(arguments: [XfsMountPolicy.readOnly, .readWrite])
@@ -85,8 +100,9 @@ struct XfsMountPolicyTests {
         }
     }
 
-    @Test func onlyExplicitHardwareAndMountedDriverApprovalExposePermissionWrites() throws {
-        let access = try XfsMountPolicy.readWrite.authorize(
+    /// Writable hardware and a writable driver are enough: no `rw`.
+    @Test func writableHardwareAndDriverAuthorizeWritesByDefault() throws {
+        let access = try XfsMountPolicy(options: []).authorize(
             deviceIsWritable: true, mountedDriver: .success(true))
         let volume = policyVolume(PolicyDriver(), access: access)
         #expect(volume.allowsWrites)
@@ -98,11 +114,14 @@ struct XfsMountPolicyTests {
         #expect(!capabilities.supportsActiveJournal)
     }
 
-    @Test func writableDriverAloneDoesNotEnableMutations() {
+    /// A read-only volume stays read-only whatever options arrive later,
+    /// and asking for `rw` then does not fail the mount.
+    @Test(arguments: [[String](), ["rw"]])
+    func laterOptionsNeverUpgradeAReadOnlyVolume(_ options: [String]) throws {
         let volume = policyVolume(PolicyDriver())
+        try volume.applyMountOptions(options)
         #expect(!volume.allowsWrites)
         #expect(throws: POSIXError(.EROFS)) { try volume.requireWritableMount() }
-        #expect(throws: POSIXError(.EROFS)) { try volume.applyMountOptions(["rw"]) }
     }
 
     @Test(arguments: [["ro"], ["--rdonly"], ["ro,rw"]])
@@ -113,10 +132,11 @@ struct XfsMountPolicyTests {
         try volume.applyMountOptions(options)
         #expect(!volume.allowsWrites)
         #expect(volume.supportedVolumeCapabilities.doesNotSupportSettingFilePermissions)
-        #expect(throws: POSIXError(.EROFS)) { try volume.applyMountOptions(["rw"]) }
+        try volume.applyMountOptions(["rw"])
+        #expect(!volume.allowsWrites, "a revoked volume was upgraded again")
     }
 
-    @Test func laterDefaultOptionsPreserveExplicitLoadPolicy() throws {
+    @Test func laterDefaultOptionsKeepALoadedWritableVolumeWritable() throws {
         let access = try XfsMountPolicy.readWrite.authorize(
             deviceIsWritable: true, mountedDriver: .success(true))
         let volume = policyVolume(PolicyDriver(), access: access)
