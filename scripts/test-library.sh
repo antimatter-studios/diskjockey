@@ -42,7 +42,8 @@
 # then 65 + 528 = 593 with the XFS writable-policy gate (#321), measured
 # locally 2026-10-07 (all passed; tmp/logs/library.log), then 65 + 598 = 663
 # with the bcachefs volume's 59 cases, over a stand-in and over the driver on
-# the reference tools' images (diskjockey#342), measured locally 2026-10-12.
+# the reference tools' images (diskjockey#342), measured locally 2026-10-12,
+# then 65 + 603 = 668 on CI over main with #344 and #356 (run 38300220670).
 # The floor moves up with the suite; it never moves down.
 #
 #   scripts/test-library.sh [--verbose]
@@ -63,15 +64,15 @@ for need in lib/bundle_bcachefs/libdj_bcachefs_bundle.a lib/bundle_bcachefs/incl
 done
 
 rc=0
-scripts/quiet-run.sh "$@" library 2750 212000 -- swift test || rc=$?
+scripts/quiet-run.sh "$@" library 3530 272200 -- swift test || rc=$?
 log="${QUIET_LOG_DIR:-$ROOT/tmp/logs}/library.log"
 
 xct=$(grep -aoE 'Executed [0-9]+ tests' "$log" 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
 swt=$(grep -aoE 'Test run with [0-9]+ tests' "$log" 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
 total=$(( ${xct:-0} + ${swt:-0} ))
-echo "library cases executed: $total = ${xct:-0} XCTest + ${swt:-0} swift-testing (floor 663)"
-if [ "$total" -lt 663 ]; then
-    echo "::error::only $total library cases executed, floor is 663 — 663 ran on 2026-10-12, and a run that executes less than that has stopped early rather than passed (diskjockey#139)"
+echo "library cases executed: $total = ${xct:-0} XCTest + ${swt:-0} swift-testing (floor 668)"
+if [ "$total" -lt 668 ]; then
+    echo "::error::only $total library cases executed, floor is 668 — 668 ran on 2026-10-12, and a run that executes less than that has stopped early rather than passed (diskjockey#139)"
     exit 1
 fi
 exit "$rc"
