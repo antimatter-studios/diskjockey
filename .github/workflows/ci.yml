@@ -78,7 +78,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: rust-fs-core at the pinned tag, for code-changed.sh
-        run: git clone --quiet --depth 1 --branch v0.3.8 https://github.com/antimatter-studios/rust-fs-core.git ../rust-fs-core
+        run: git clone --quiet --depth 1 --branch v0.3.11 https://github.com/antimatter-studios/rust-fs-core.git ../rust-fs-core
       - name: Classify the change
         id: c
         env:
@@ -141,7 +141,7 @@ jobs:
       # The tag is the release whose check reads the guide of the repository
       # it is run for.
       - name: rust-fs-core, beside this checkout
-        run: git clone --quiet --depth 1 --branch v0.3.8 https://github.com/antimatter-studios/rust-fs-core.git ../rust-fs-core
+        run: git clone --quiet --depth 1 --branch v0.3.11 https://github.com/antimatter-studios/rust-fs-core.git ../rust-fs-core
       - name: Semantics the Xcode job cannot reach
         # The loop, the `<name>: all checks passed` contract and the floor
         # live in scripts/test-scripts.sh, which `chore check:scripts` runs
