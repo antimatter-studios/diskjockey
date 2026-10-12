@@ -49,7 +49,12 @@ protocol XfsMountedVolumeDriver: ReadOnlyVolumeDriver {
     func write(_ path: VolumePath, at offset: UInt64,
                from buffer: UnsafeRawBufferPointer) -> Int64
 
-    /// fs_xfs_truncate: shorten the file. A nil `modified` stamps nothing.
-    /// Zero, or negative with the reason in `lastErrno()`.
+    /// fs_xfs_truncate: set the file's size, zero-filling a longer one. A
+    /// nil `modified` stamps nothing. Zero, or negative with the reason in
+    /// `lastErrno()`.
     func truncate(_ path: VolumePath, to size: UInt64, modified: timespec?) -> Int32
+
+    /// fs_xfs_flush: write everything the handle has logged to its home on
+    /// the device. Zero, or negative with the reason in `lastErrno()`.
+    func flush() -> Int32
 }

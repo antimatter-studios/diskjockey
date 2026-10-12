@@ -139,11 +139,29 @@ final class XfsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         }
         let contextPtr = Unmanaged.passRetained(context).toOpaque()
 
+        // A writable mount is asked for whenever the policy and the
+        // hardware allow one. The driver refuses it -- a v4 volume, a log
+        // holding unapplied records -- by returning NULL, and that volume
+        // is then mounted read-only: the driver cannot write it, which is
+        // a read-only mount whose mutations answer EROFS, not a refused
+        // one (diskjockey#343).
         let bridgeFS: OpaquePointer?
         do {
             let handle = try XfsBlockDeviceBridge.makeHandle(contextPtr: contextPtr, logger: dlog)
-            dlog.info("calling fs_xfs_mount_with_fs_core_device (ro) size=\(context.sizeBytes)")
-            bridgeFS = fs_xfs_mount_with_fs_core_device(handle)
+            var mounted: OpaquePointer?
+            if policy.requestsWritableMount(deviceIsWritable: blockDevice.isWritable) {
+                dlog.info("calling fs_xfs_mount_rw_with_fs_core_device size=\(context.sizeBytes)")
+                mounted = fs_xfs_mount_rw_with_fs_core_device(handle)
+                if mounted == nil {
+                    let err = fs_xfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
+                    dlog.info("the driver cannot mount this volume for writing (errno \(fs_xfs_last_errno()): \(err)); mounting it read-only")
+                }
+            }
+            if mounted == nil {
+                dlog.info("calling fs_xfs_mount_with_fs_core_device (ro) size=\(context.sizeBytes)")
+                mounted = fs_xfs_mount_with_fs_core_device(handle)
+            }
+            bridgeFS = mounted
             fs_core_device_close(handle)
         } catch {
             Unmanaged<XfsBlockDeviceContext>.fromOpaque(contextPtr).release()

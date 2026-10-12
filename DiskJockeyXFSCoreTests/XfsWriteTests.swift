@@ -1,14 +1,17 @@
 //
-//  XfsWriteTests.swift — FSKit file writes and size changes on the real
-//  XfsVolume, over a driver that keeps file bytes in memory.
+//  XfsWriteTests.swift — FSKit file writes, size changes and flushes on
+//  the real XfsVolume, over a driver that keeps file bytes in memory.
 //
-//  The stand-in answers the way fs_xfs.h says the published driver does:
-//  fs_xfs_write_file rewrites bytes the file already holds and refuses
-//  anything past its end with ENOTSUP, all of the range or none of it;
-//  fs_xfs_truncate shortens and refuses to grow with ENOTSUP. Expected
-//  values come from that header and from FSKit's contract — a write
-//  answers its byte count, a failure answers the driver's errno, and a
-//  set-attributes request names what it consumed (diskjockey#322).
+//  The stand-in answers the way fs_xfs.h says rust-fs-xfs 0.13 does:
+//  fs_xfs_write_file writes the whole range or none of it, filling holes
+//  and growing the file, with zeros wherever the range does not reach;
+//  fs_xfs_truncate goes to any length, and what it adds reads as zeros;
+//  fs_xfs_flush writes what the handle logged home. `allocates = false`
+//  models a driver that refuses to allocate, so a refusal is still seen
+//  reaching FSKit as its errno. Expected values come from that header and
+//  from FSKit's contract — a write answers its byte count, a failure
+//  answers the driver's errno, and a set-attributes request names what it
+//  consumed (diskjockey#322).
 //
 
 import Foundation
@@ -21,11 +24,20 @@ private final class FileDriver: XfsMountedVolumeDriver {
     var isWritable = true
     var files: [VolumePath: [UInt8]] = [:]
     var errno: Int32 = 0
+    /// False models a driver that refuses anything needing allocation.
+    var allocates = true
+    /// Every flush the volume asked for, and the errno one should fail with.
+    private(set) var flushes = 0
+    var flushErrno: Int32 = 0
     /// Every write and truncate the volume made, in order.
     private(set) var writes: [(VolumePath, UInt64, [UInt8])] = []
     private(set) var truncates: [(VolumePath, UInt64, timespec?)] = []
 
-    func volumeInfo() -> ReadOnlyVolumeInfo? { nil }
+    /// 1000 blocks of 4 KiB, 600 of them free; 64 inodes, 60 free.
+    func volumeInfo() -> ReadOnlyVolumeInfo? {
+        ReadOnlyVolumeInfo(capacity: .blocks(blockSize: 4096, total: 1000, free: 600),
+                           ioSize: 4096, totalInodes: 64, freeInodes: 60)
+    }
 
     func stat(_ path: VolumePath) -> ReadOnlyFileAttributes? {
         guard let bytes = files[path] else { errno = ENOENT; return nil }
@@ -50,11 +62,12 @@ private final class FileDriver: XfsMountedVolumeDriver {
                from buffer: UnsafeRawBufferPointer) -> Int64 {
         writes.append((path, offset, Array(buffer)))
         guard var bytes = files[path] else { errno = ENOENT; return -1 }
-        guard offset + UInt64(buffer.count) <= UInt64(bytes.count) else {
-            errno = ENOTSUP
-            return -1
+        let end = Int(offset) + buffer.count
+        if end > bytes.count {
+            guard allocates else { errno = ENOTSUP; return -1 }
+            bytes.append(contentsOf: [UInt8](repeating: 0, count: end - bytes.count))
         }
-        bytes.replaceSubrange(Int(offset)..<Int(offset) + buffer.count, with: buffer)
+        bytes.replaceSubrange(Int(offset)..<end, with: buffer)
         files[path] = bytes
         return Int64(buffer.count)
     }
@@ -62,8 +75,18 @@ private final class FileDriver: XfsMountedVolumeDriver {
     func truncate(_ path: VolumePath, to size: UInt64, modified: timespec?) -> Int32 {
         truncates.append((path, size, modified))
         guard let bytes = files[path] else { errno = ENOENT; return -1 }
-        guard size <= UInt64(bytes.count) else { errno = ENOTSUP; return -1 }
-        files[path] = Array(bytes.prefix(Int(size)))
+        if size > UInt64(bytes.count) {
+            guard allocates else { errno = ENOTSUP; return -1 }
+            files[path] = bytes + [UInt8](repeating: 0, count: Int(size) - bytes.count)
+        } else {
+            files[path] = Array(bytes.prefix(Int(size)))
+        }
+        return 0
+    }
+
+    func flush() -> Int32 {
+        flushes += 1
+        guard flushErrno == 0 else { errno = flushErrno; return -1 }
         return 0
     }
 
@@ -90,7 +113,7 @@ private func fixture(_ contents: String = "hello world",
 }
 
 private func readBack(_ volume: XfsVolume, _ item: XfsItem) throws -> String {
-    var buffer = [UInt8](repeating: 0, count: 64)
+    var buffer = [UInt8](repeating: 0, count: 8192)
     let n = try buffer.withUnsafeMutableBytes {
         try volume.readBytes(from: item, at: 0, into: $0)
     }
@@ -117,10 +140,21 @@ struct XfsWriteTests {
         #expect(try readBack(volume, item) == "hello WORLD")
     }
 
-    /// The published driver cannot allocate. Its refusal reaches FSKit as
-    /// itself, never as a zero-byte success that a copy would treat as done.
-    @Test func extendingWriteAnswersTheDriversENOTSUP() async throws {
+    /// A write past the end grows the file, and the gap reads as zeros.
+    @Test func extendingWriteGrowsTheFileWithZerosBetween() async throws {
         let (volume, _, item) = try fixture()
+        let n = try await volume.write(contents: Data("!!".utf8), to: item, at: 13)
+        #expect(n == 2)
+        #expect(try readBack(volume, item) == "hello world\0\0!!")
+        let attributes = try await volume.attributes(FSItem.GetAttributesRequest(), of: item)
+        #expect(attributes.size == 15)
+    }
+
+    /// A driver that refuses to allocate is answered as itself, never as a
+    /// zero-byte success that a copy would treat as done.
+    @Test func aDriverRefusingToAllocateIsAnsweredWithItsErrno() async throws {
+        let (volume, driver, item) = try fixture()
+        driver.allocates = false
         await #expect(throws: POSIXError(.ENOTSUP)) {
             try await volume.write(contents: Data("!!".utf8), to: item, at: 10)
         }
@@ -181,8 +215,19 @@ struct XfsWriteTests {
         #expect(driver.truncates.first?.2?.tv_nsec == 7)
     }
 
-    @Test func growingTruncateAnswersTheDriversENOTSUP() async throws {
+    @Test func growingTruncateReadsAsZeros() async throws {
         let (volume, _, item) = try fixture()
+        let request = FSItem.SetAttributesRequest()
+        request.size = 16
+        let attributes = try await volume.setAttributes(request, on: item)
+        #expect(attributes.size == 16)
+        #expect(request.wasAttributeConsumed(.size))
+        #expect(try readBack(volume, item) == "hello world\0\0\0\0\0")
+    }
+
+    @Test func aGrowingTruncateTheDriverRefusesAnswersItsErrno() async throws {
+        let (volume, driver, item) = try fixture()
+        driver.allocates = false
         let request = FSItem.SetAttributesRequest()
         request.size = 4096
         await #expect(throws: POSIXError(.ENOTSUP)) {
@@ -221,5 +266,39 @@ struct XfsWriteTests {
             try await volume.setAttributes(request, on: item)
         }
         #expect(driver.truncates.isEmpty)
+    }
+
+    /// synchronize is FSKit's fsync for the volume: what the handle has
+    /// logged goes home, through the driver's flush.
+    @Test func synchronizeFlushesTheDriver() async throws {
+        let (volume, driver, _) = try fixture()
+        try await volume.synchronize(flags: .wait)
+        #expect(driver.flushes == 1)
+    }
+
+    @Test func aFailedFlushAnswersTheDriversErrno() async throws {
+        let (volume, driver, _) = try fixture()
+        driver.flushErrno = EIO
+        await #expect(throws: POSIXError(.EIO)) {
+            try await volume.synchronize(flags: .wait)
+        }
+    }
+
+    /// statfs's f_bavail is what Finder asks before a copy. A writable
+    /// volume offers its free blocks; a read-only one offers none, whatever
+    /// is free on it.
+    @Test(arguments: [true, false])
+    func onlyAWritableVolumeOffersItsFreeBlocks(_ writable: Bool) throws {
+        let (volume, _, _) = try fixture(writable: writable)
+        let statfs = volume.volumeStatistics
+        #expect(statfs.freeBlocks == 600)
+        #expect(statfs.availableBlocks == (writable ? 600 : 0))
+    }
+
+    /// A read-only mount has nothing to flush, and asks for nothing.
+    @Test func synchronizeOnAReadOnlyMountFlushesNothing() async throws {
+        let (volume, driver, _) = try fixture(writable: false)
+        try await volume.synchronize(flags: .wait)
+        #expect(driver.flushes == 0)
     }
 }
