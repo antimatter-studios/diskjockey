@@ -124,6 +124,10 @@ private final class NamespaceDriver: XfsMountedVolumeDriver {
     func truncate(_ path: VolumePath, to size: UInt64, modified: timespec?) -> Int32 { -1 }
     func flush() -> Int32 { 0 }
     func readlink(_ path: VolumePath, _ buffer: UnsafeMutablePointer<CChar>, _ size: Int) -> Int32 { -1 }
+    func getXattr(_ path: VolumePath, name: [UInt8]) -> [UInt8]? { errno = ENOTSUP; return nil }
+    func listXattrs(_ path: VolumePath) -> [[UInt8]]? { errno = ENOTSUP; return nil }
+    func setXattr(_ path: VolumePath, name: [UInt8], value: [UInt8], flags: Int32) -> Int32 { errno = ENOTSUP; return -1 }
+    func removeXattr(_ path: VolumePath, name: [UInt8]) -> Int32 { errno = ENOTSUP; return -1 }
     func lastErrno() -> Int32 { errno }
     func unmount() { isWritable = false }
 }

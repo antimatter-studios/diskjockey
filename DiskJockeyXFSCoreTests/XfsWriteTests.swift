@@ -97,8 +97,18 @@ private final class FileDriver: XfsMountedVolumeDriver {
     func rmdir(_ path: VolumePath) -> Int32 { errno = ENOTSUP; return -1 }
     func link(_ source: VolumePath, to destination: VolumePath) -> Int32 { errno = ENOTSUP; return -1 }
     func rename(_ source: VolumePath, to destination: VolumePath, replace: Bool) -> Int32 { errno = ENOTSUP; return -1 }
+    /// Every set_attributes call: mode, uid, gid, access and modify time.
+    private(set) var attributeCalls: [(UInt32?, UInt32?, UInt32?, timespec?, timespec?)] = []
     func setAttributes(_ path: VolumePath, mode: UInt32?, uid: UInt32?, gid: UInt32?,
-                       accessed: timespec?, modified: timespec?) -> Int32 { errno = ENOTSUP; return -1 }
+                       accessed: timespec?, modified: timespec?) -> Int32 {
+        attributeCalls.append((mode, uid, gid, accessed, modified))
+        guard files[path] != nil else { errno = ENOENT; return -1 }
+        return 0
+    }
+    func getXattr(_ path: VolumePath, name: [UInt8]) -> [UInt8]? { errno = ENOTSUP; return nil }
+    func listXattrs(_ path: VolumePath) -> [[UInt8]]? { errno = ENOTSUP; return nil }
+    func setXattr(_ path: VolumePath, name: [UInt8], value: [UInt8], flags: Int32) -> Int32 { errno = ENOTSUP; return -1 }
+    func removeXattr(_ path: VolumePath, name: [UInt8]) -> Int32 { errno = ENOTSUP; return -1 }
     func lastErrno() -> Int32 { errno }
     func unmount() { isWritable = false }
 }
@@ -245,11 +255,10 @@ struct XfsWriteTests {
         #expect(try readBack(volume, item) == "hello world")
     }
 
-    /// Mode, ownership and access times belong to #323. A request that
-    /// carries one is refused whole, before the size is touched, so no
-    /// half-applied request is reported as a failure.
+    /// Mode, ownership and access times are set beside a size change
+    /// (diskjockey#328), in fs_xfs_set_attributes after the truncate.
     @Test(arguments: [FSItem.Attribute.mode, .uid, .gid, .accessTime])
-    func unmappedAttributeRefusesTheWholeRequest(_ attribute: FSItem.Attribute) async throws {
+    func anotherAttributeIsSetBesideTheSize(_ attribute: FSItem.Attribute) async throws {
         let (volume, driver, item) = try fixture()
         let request = FSItem.SetAttributesRequest()
         request.size = 1
@@ -259,21 +268,22 @@ struct XfsWriteTests {
         case .gid: request.gid = 20
         default: request.accessTime = timespec(tv_sec: 1, tv_nsec: 0)
         }
-        await #expect(throws: POSIXError(.ENOTSUP)) {
-            try await volume.setAttributes(request, on: item)
-        }
-        #expect(driver.truncates.isEmpty)
-        #expect(try readBack(volume, item) == "hello world")
+        _ = try await volume.setAttributes(request, on: item)
+        #expect(driver.truncates.map(\.1) == [1])
+        #expect(driver.attributeCalls.count == 1)
+        #expect(request.wasAttributeConsumed(attribute))
+        #expect(try readBack(volume, item) == "h")
     }
 
-    @Test func modifyTimeAloneIsNotYetMapped() async throws {
+    /// A modification time alone is set without touching the size.
+    @Test func modifyTimeAloneIsSet() async throws {
         let (volume, driver, item) = try fixture()
         let request = FSItem.SetAttributesRequest()
         request.modifyTime = timespec(tv_sec: 1, tv_nsec: 0)
-        await #expect(throws: POSIXError(.ENOTSUP)) {
-            try await volume.setAttributes(request, on: item)
-        }
+        _ = try await volume.setAttributes(request, on: item)
         #expect(driver.truncates.isEmpty)
+        #expect(driver.attributeCalls.first?.4?.tv_sec == 1)
+        #expect(request.wasAttributeConsumed(.modifyTime))
     }
 
     /// synchronize is FSKit's fsync for the volume: what the handle has

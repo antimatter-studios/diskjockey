@@ -82,4 +82,14 @@ protocol XfsMountedVolumeDriver: ReadOnlyVolumeDriver {
     /// negative with the reason in `lastErrno()`.
     func setAttributes(_ path: VolumePath, mode: UInt32?, uid: UInt32?, gid: UInt32?,
                        accessed: timespec?, modified: timespec?) -> Int32
+
+    /// fs_xfs_getxattr: an extended attribute's value by its XFS name
+    /// (namespace included), or nil with the reason in `lastErrno()`.
+    func getXattr(_ path: VolumePath, name: [UInt8]) -> [UInt8]?
+    /// fs_xfs_listxattr: every attribute's XFS name, or nil.
+    func listXattrs(_ path: VolumePath) -> [[UInt8]]?
+    /// fs_xfs_setxattr with its flags (0, CREATE or REPLACE), and
+    /// fs_xfs_removexattr. Zero, or negative with the reason in `lastErrno()`.
+    func setXattr(_ path: VolumePath, name: [UInt8], value: [UInt8], flags: Int32) -> Int32
+    func removeXattr(_ path: VolumePath, name: [UInt8]) -> Int32
 }
