@@ -77,9 +77,9 @@ dependencies = [
 
 [[package]]
 name = "rust-fs-core"
-version = "0.3.3"
+version = "0.3.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b365cc6907eae316a8315540ec91f2a88a0822134b6036300c3b821aed59091f"
+checksum = "3b367b3bdf7ef90b9701edc9aa9cb9e67817e07c56a9ad88509367eebae74675"
 
 [[package]]
 name = "rust-fs-ntfs"
@@ -94,9 +94,9 @@ dependencies = [
 
 [[package]]
 name = "rust-img-qcow2"
-version = "0.6.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e8b56bc4a5f4a0254b46e866cbfee054dca958b29555f2516786a839451dffd"
+checksum = "4f270cd662d4963790f51a014dc9cd976b069e7f4745f6cc6cce835b66963408"
 dependencies = [
  "flate2",
  "rust-fs-core",
@@ -105,18 +105,18 @@ dependencies = [
 
 [[package]]
 name = "rust-img-vhd"
-version = "0.6.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa1be828fa0fbf78f44d4b9fa8f8f7792a9f309ec32b65da94171fe3cc58e2cf"
+checksum = "3892b4d3bd16dfa6e04bab1daecfc0ecae257335a6f8d8deb1d63e1ca6457806"
 dependencies = [
  "rust-fs-core",
 ]
 
 [[package]]
 name = "rust-img-vhdx"
-version = "0.6.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5830ad76d562c2ba843af8daa3662979bc34a86608e25f9120b4a58176407884"
+checksum = "0a5ea444fc6eaad5b6bdae2c823b7a1d1a546ef6ed3ee82696b544f8a586938c"
 dependencies = [
  "crc32c",
  "rust-fs-core",
@@ -124,9 +124,9 @@ dependencies = [
 
 [[package]]
 name = "rust-img-vmdk"
-version = "0.5.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "598013721283ad0a431d9eeb152d472353dc3974e7822c7ab8b8ba7e3ae03eca"
+checksum = "6104807c477d30292ba610c209b4f2d3f12a823cbf45eace5ff61567e3bf9b28"
 dependencies = [
  "flate2",
  "rust-fs-core",

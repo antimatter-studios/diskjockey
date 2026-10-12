@@ -28,6 +28,7 @@ sections below carry the detail; these say what shipped and from where.
 
 ### Changed
 
+- **Every bundle links the latest rust-fs and rust-img releases.** The lockfiles still resolved the first release of each new crate name; they now take rust-fs-core 0.3.11, rust-fs-btrfs 0.10.2, rust-fs-erofs 0.4.1, rust-fs-xfs 0.12.1, rust-img-qcow2/-vhd/-vhdx 0.6.1 and rust-img-vmdk 0.5.1. rust-fs-ext4 0.8.0, rust-fs-ntfs 0.9.0 and rust-fs-squashfs 0.4.0 were already current (#340).
 - **`diskutil mount` is documented as unusable for FSKit volumes.** StorageKit lists them as "File System: None" and fails with "Disk is not mountable" without asking DiskArbitration, which mounts the same volume; a guard keeps the app from mounting or unmounting through diskutil (#166).
 
 ## v1.2.0
