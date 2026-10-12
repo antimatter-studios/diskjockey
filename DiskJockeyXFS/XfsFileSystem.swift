@@ -6,9 +6,11 @@
  *   - loadResource sets `containerStatus = .ready` before returning.
  *   - Device reads, writes and flushes use bounded FSBlockDeviceResource callbacks.
  *
- * Writes require explicit policy, writable hardware and mounted-driver approval.
- * The published callback mount is still read-only, so an explicit rw request
- * fails closed rather than presenting that handle as writable.
+ * Volumes mount read-write whenever the hardware is writable, the mounted
+ * driver can write, and the mount did not ask for ro or --rdonly
+ * (diskjockey#343). Otherwise they mount read-only and mutations answer
+ * EROFS. The published callback mount is read-only, so until the driver
+ * offers a writable device mount every volume takes the read-only path.
  * am-fs-xfs itself doesn't use the am-img-* container readers; the
  * dj-xfs-bundle Cargo.toml links them only to prevent duplicate-symbol
  * linker errors (not to expose container-format mounting). This extension
@@ -122,7 +124,6 @@ final class XfsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         let policy = XfsMountPolicy(options: options.taskOptions)
         let context: XfsBlockDeviceContext
         do {
-            try policy.checkHardware(isWritable: blockDevice.isWritable)
             let partition = try XfsBlockDeviceContext.partitionOptions(options.taskOptions)
             context = try XfsBlockDeviceContext(
                 device: blockDevice,
@@ -166,8 +167,9 @@ final class XfsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
                 deviceIsWritable: blockDevice.isWritable,
                 mountedDriver: .success(driver.isWritable))
         } catch {
-            // Refusal never downgrades an explicit rw request or leaves a
-            // mounted driver holding callbacks into a released Swift context.
+            // A refused mount is never retried with weaker options, and never
+            // leaves a mounted driver holding callbacks into a released
+            // Swift context.
             driver.unmount()
             stats.stop()
             Unmanaged<XfsBlockDeviceContext>.fromOpaque(contextPtr).release()
@@ -175,6 +177,8 @@ final class XfsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             replyHandler(nil, error)
             return
         }
+
+        dlog.info("mount access: \(mountAccess.allowsWrites ? "read-write" : "read-only") (policy \(policy), device writable \(blockDevice.isWritable), driver writable \(driver.isWritable))")
 
         var volInfo = fs_xfs_volume_info_t()
         fs_xfs_get_volume_info(bridgeFS, &volInfo)

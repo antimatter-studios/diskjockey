@@ -1,30 +1,34 @@
 import Foundation
 import DiskJockeyLibrary
 
-/// Hardware capability is not permission to write. FSKit's --rdonly and
-/// POSIX ro always veto rw, including contradictory or repeated options.
+/// XFS mounts read-write by default (diskjockey#343): no option is needed
+/// to ask for writes. FSKit's --rdonly and POSIX ro always veto them,
+/// including contradictory or repeated options. Read-only hardware and a
+/// mounted driver that cannot write give a read-only mount, never a
+/// refused one, and that mount's mutations answer EROFS.
 enum XfsMountPolicy: Equatable {
     case readOnly
     case readWrite
 
     init(options: [String]) {
         let flags = Set(options.flatMap { $0.split(separator: ",").map(String.init) })
-        self = flags.contains("rw") && !flags.contains("ro") && !flags.contains("--rdonly")
-            ? .readWrite : .readOnly
+        self = flags.contains("ro") || flags.contains("--rdonly") ? .readOnly : .readWrite
     }
 
-    func checkHardware(isWritable: Bool) throws {
-        if self == .readWrite && !isWritable { throw POSIXError(.EROFS) }
+    /// Whether to ask the driver for a writable mount at all: not for a
+    /// read-only request, and not on hardware that cannot be written.
+    func requestsWritableMount(deviceIsWritable: Bool) -> Bool {
+        self == .readWrite && deviceIsWritable
     }
 
     /// Consume the mounted driver's result, not superblock feature guesses.
-    /// A refused mount is never retried with weaker options here.
+    /// A refused mount is never retried with weaker options here; a mounted
+    /// driver that cannot write is a read-only mount.
     func authorize(deviceIsWritable: Bool,
                    mountedDriver: Result<Bool, POSIXError>) throws -> XfsMountAccess {
-        try checkHardware(isWritable: deviceIsWritable)
         let driverIsWritable = try mountedDriver.get()
-        guard self == .readWrite else { return .readOnly }
-        guard driverIsWritable else { throw POSIXError(.EROFS) }
+        guard requestsWritableMount(deviceIsWritable: deviceIsWritable),
+              driverIsWritable else { return .readOnly }
         return XfsMountAccess(allowsWrites: true)
     }
 }

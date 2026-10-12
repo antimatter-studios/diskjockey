@@ -2,8 +2,9 @@
  * XfsVolume.swift — FSKit volume for XFS.
  *
  * Implements FSVolume.Operations + FSVolume.ReadWriteOperations +
- * FSVolume.PathConfOperations. Mutating operations require explicit mount
- * policy and mounted-driver approval; read-only mounts return EROFS.
+ * FSVolume.PathConfOperations. Mutating operations require a writable
+ * mount: writable hardware, a mounted driver that can write, and no ro or
+ * --rdonly (diskjockey#343); read-only mounts return EROFS.
  * Writes rewrite existing bytes and set-attributes shortens a file, as far
  * as the published driver goes (diskjockey#322); unmapped operations on an
  * approved handle return ENOTSUP.
@@ -110,14 +111,13 @@ final class XfsVolume: FSVolume,
         log.info("volume: mount", scope: AppLogScope.lifecycle)
     }
 
-    /// FSKit can deliver mount options after load. Never upgrade a loaded
-    /// read-only handle; an explicit read-only request permanently vetoes it.
+    /// FSKit can deliver mount options after load. They can revoke writes
+    /// (`ro`, `--rdonly`) but never grant them: a loaded read-only handle
+    /// stays read-only, and asking for `rw` then is not an error, because
+    /// read-write is only ever the default (diskjockey#343).
     func applyMountOptions(_ options: [String]) throws {
-        let flags = options.flatMap { $0.split(separator: ",").map(String.init) }
-        if flags.contains("ro") || flags.contains("--rdonly") {
+        if XfsMountPolicy(options: options) == .readOnly {
             mountAccess = .readOnly
-        } else if XfsMountPolicy(options: options) == .readWrite {
-            try requireWritableMount()
         }
     }
 
