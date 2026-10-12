@@ -58,6 +58,16 @@
 		F6FF4AC950047E0FD59AE139 /* EXT4Volume.swift in Sources */ = {isa = PBXBuildFile; fileRef = F01E35D6B49C797E269EAC45 /* EXT4Volume.swift */; };
 		D0E1C0CCAAAA00000000000B /* EXT4Log.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E1C0CCAAAA00000000000A /* EXT4Log.swift */; };
 		D0E1C0CCAAAA00000000000D /* EXT4Watchdog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E1C0CCAAAA00000000000C /* EXT4Watchdog.swift */; };
+		BCAC5F50000000000000001B /* BcachefsFileSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCAC5F500000000000000014 /* BcachefsFileSystem.swift */; };
+		BCAC5F50000000000000001C /* BcachefsVolume.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCAC5F500000000000000015 /* BcachefsVolume.swift */; };
+		BCAC5F50000000000000001D /* BcachefsDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCAC5F500000000000000016 /* BcachefsDriver.swift */; };
+		BCAC5F50000000000000001E /* BcachefsBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCAC5F500000000000000017 /* BcachefsBackend.swift */; };
+		BCAC5F50000000000000001F /* BcachefsMountPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCAC5F500000000000000018 /* BcachefsMountPolicy.swift */; };
+		BCAC5F500000000000000020 /* BcachefsSuperblock.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCAC5F500000000000000019 /* BcachefsSuperblock.swift */; };
+		BCAC5F500000000000000021 /* BcachefsLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCAC5F50000000000000001A /* BcachefsLog.swift */; };
+		BCAC5F50000000000000000A /* FSKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EA52B7280D02F6F8D737A4DF /* FSKit.framework */; };
+		BCAC5F50000000000000000B /* DiskJockeyLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */; };
+		BCAC5F50000000000000000C /* DiskJockeyBCACHEFS.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = BCAC5F500000000000000002 /* DiskJockeyBCACHEFS.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -508,6 +518,20 @@
 			remoteGlobalIDString = 9C017035D21778726F5E1DF0;
 			remoteInfo = DiskJockeyEXT4;
 		};
+		BCAC5F50000000000000000D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 50A51F8A2E05892200AC6D10 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BCAC5F500000000000000001;
+			remoteInfo = DiskJockeyBCACHEFS;
+		};
+		BCAC5F50000000000000000F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 50A51F8A2E05892200AC6D10 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 501F025C2E058C51009EBB59;
+			remoteInfo = DiskJockeyLibrary;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -567,6 +591,7 @@
 				E0B3ADF25784830874A634EA /* DiskJockeyEROFS.appex in Embed ExtensionKit Extensions */,
 				14A5FF998DEA0C5C31F66794 /* DiskJockeyBTRFS.appex in Embed ExtensionKit Extensions */,
 				A3272F73945F05BF40E3FCDF /* DiskJockeyXFS.appex in Embed ExtensionKit Extensions */,
+				BCAC5F50000000000000000C /* DiskJockeyBCACHEFS.appex in Embed ExtensionKit Extensions */,
 			);
 			name = "Embed ExtensionKit Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -635,6 +660,17 @@
 		F8545E3C164E31A018E781C7 /* DiskJockeyNTFS.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; path = DiskJockeyNTFS.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		FB028A4796ABC3388189B043 /* FileSystemBackend.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileSystemBackend.swift; sourceTree = "<group>"; };
 		FDE7234E054C739FC42CCB24 /* RepairXPCService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RepairXPCService.swift; sourceTree = "<group>"; };
+		BCAC5F500000000000000014 /* BcachefsFileSystem.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BcachefsFileSystem.swift; sourceTree = "<group>"; };
+		BCAC5F500000000000000015 /* BcachefsVolume.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BcachefsVolume.swift; sourceTree = "<group>"; };
+		BCAC5F500000000000000016 /* BcachefsDriver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BcachefsDriver.swift; sourceTree = "<group>"; };
+		BCAC5F500000000000000017 /* BcachefsBackend.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BcachefsBackend.swift; sourceTree = "<group>"; };
+		BCAC5F500000000000000018 /* BcachefsMountPolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BcachefsMountPolicy.swift; sourceTree = "<group>"; };
+		BCAC5F500000000000000019 /* BcachefsSuperblock.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BcachefsSuperblock.swift; sourceTree = "<group>"; };
+		BCAC5F50000000000000001A /* BcachefsLog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BcachefsLog.swift; sourceTree = "<group>"; };
+		BCAC5F500000000000000004 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		BCAC5F500000000000000005 /* DiskJockeyBCACHEFS.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = DiskJockeyBCACHEFS.entitlements; sourceTree = "<group>"; };
+		BCAC5F500000000000000006 /* DiskJockeyBCACHEFS-Bridging-Header.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = "DiskJockeyBCACHEFS-Bridging-Header.h"; sourceTree = "<group>"; };
+		BCAC5F500000000000000002 /* DiskJockeyBCACHEFS.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = DiskJockeyBCACHEFS.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -1398,6 +1434,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BCAC5F500000000000000008 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BCAC5F50000000000000000A /* FSKit.framework in Frameworks */,
+				BCAC5F50000000000000000B /* DiskJockeyLibrary.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -1520,6 +1565,7 @@
 				5855AD4E73D0F6E40A57D53F /* DiskJockeyEROFS */,
 				9DFB5358C058B255853B0F95 /* DiskJockeyBTRFS */,
 				4F5621A298CDBDD304305E39 /* DiskJockeyXFS */,
+				BCAC5F500000000000000003 /* DiskJockeyBCACHEFS */,
 				19150E0A63FF8D677B3E7C39 /* DiskJockeySQUASHFS */,
 							DA9E17A00000000000000006 /* DiskJockeyAgent */,
 );
@@ -1543,6 +1589,7 @@
 				0FC57EEA658C5ABB35712078 /* DiskJockeyEROFS.appex */,
 				8C5B7CF534C315C2E9041E92 /* DiskJockeyBTRFS.appex */,
 				F9237570A5F61E8E2766A574 /* DiskJockeyXFS.appex */,
+				BCAC5F500000000000000002 /* DiskJockeyBCACHEFS.appex */,
 							DA9E17A00000000000000005 /* DiskJockeyAgent */,
 );
 			name = Products;
@@ -1614,6 +1661,24 @@
 			);
 			path = fs_ext4;
 			sourceTree = "<group>";
+		};
+		BCAC5F500000000000000003 /* DiskJockeyBCACHEFS */ = {
+			isa = PBXGroup;
+			children = (
+				BCAC5F500000000000000014 /* BcachefsFileSystem.swift */,
+				BCAC5F500000000000000015 /* BcachefsVolume.swift */,
+				BCAC5F500000000000000016 /* BcachefsDriver.swift */,
+				BCAC5F500000000000000017 /* BcachefsBackend.swift */,
+				BCAC5F500000000000000018 /* BcachefsMountPolicy.swift */,
+				BCAC5F500000000000000019 /* BcachefsSuperblock.swift */,
+				BCAC5F50000000000000001A /* BcachefsLog.swift */,
+				BCAC5F500000000000000004 /* Info.plist */,
+				BCAC5F500000000000000005 /* DiskJockeyBCACHEFS.entitlements */,
+				BCAC5F500000000000000006 /* DiskJockeyBCACHEFS-Bridging-Header.h */,
+			);
+			name = DiskJockeyBCACHEFS;
+			path = DiskJockeyBCACHEFS;
+			sourceTree = SOURCE_ROOT;
 		};
 /* End PBXGroup section */
 
@@ -1751,6 +1816,7 @@
 				56FD87773864447044F56701 /* PBXTargetDependency */,
 				4E23DDB0581672220281A2AC /* PBXTargetDependency */,
 				12E218A9352001743993B7B7 /* PBXTargetDependency */,
+				BCAC5F50000000000000000E /* PBXTargetDependency */,
 				DA9E17A00000000000000013 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
@@ -1895,6 +1961,24 @@
 			productReference = F8545E3C164E31A018E781C7 /* DiskJockeyNTFS.appex */;
 			productType = "com.apple.product-type.extensionkit-extension";
 		};
+		BCAC5F500000000000000001 /* DiskJockeyBCACHEFS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BCAC5F500000000000000011 /* Build configuration list for PBXNativeTarget "DiskJockeyBCACHEFS" */;
+			buildPhases = (
+				BCAC5F500000000000000007 /* Sources */,
+				BCAC5F500000000000000008 /* Frameworks */,
+				BCAC5F500000000000000009 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				BCAC5F500000000000000010 /* PBXTargetDependency */,
+			);
+			name = DiskJockeyBCACHEFS;
+			productName = DiskJockeyBCACHEFS;
+			productReference = BCAC5F500000000000000002 /* DiskJockeyBCACHEFS.appex */;
+			productType = "com.apple.product-type.extensionkit-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -1954,6 +2038,7 @@
 				8E3B20692D9B65313AFCAF97 /* DiskJockeyEROFS */,
 				CFF7FB1DEDE80CE41AB38F50 /* DiskJockeyBTRFS */,
 				B08D898525E61171F97416A2 /* DiskJockeyXFS */,
+				BCAC5F500000000000000001 /* DiskJockeyBCACHEFS */,
 							DA9E17A00000000000000012 /* DiskJockeyAgent */,
 );
 		};
@@ -2040,6 +2125,13 @@
 		};
 
 		0B7F6462770476A212907393 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BCAC5F500000000000000009 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -2204,6 +2296,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BCAC5F500000000000000007 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BCAC5F50000000000000001B /* BcachefsFileSystem.swift in Sources */,
+				BCAC5F50000000000000001C /* BcachefsVolume.swift in Sources */,
+				BCAC5F50000000000000001D /* BcachefsDriver.swift in Sources */,
+				BCAC5F50000000000000001E /* BcachefsBackend.swift in Sources */,
+				BCAC5F50000000000000001F /* BcachefsMountPolicy.swift in Sources */,
+				BCAC5F500000000000000020 /* BcachefsSuperblock.swift in Sources */,
+				BCAC5F500000000000000021 /* BcachefsLog.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -2308,6 +2414,18 @@
 			name = DiskJockeyLibrary;
 			target = 501F025C2E058C51009EBB59 /* DiskJockeyLibrary */;
 			targetProxy = DF4AD425F59758749E8E370B /* PBXContainerItemProxy */;
+		};
+		BCAC5F50000000000000000E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = DiskJockeyBCACHEFS;
+			target = BCAC5F500000000000000001 /* DiskJockeyBCACHEFS */;
+			targetProxy = BCAC5F50000000000000000D /* PBXContainerItemProxy */;
+		};
+		BCAC5F500000000000000010 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = DiskJockeyLibrary;
+			target = 501F025C2E058C51009EBB59 /* DiskJockeyLibrary */;
+			targetProxy = BCAC5F50000000000000000F /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -3390,6 +3508,100 @@
 			};
 			name = Release;
 		};
+		BCAC5F500000000000000012 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_CXX_LIBRARY = "libc++";
+				CODE_SIGN_ENTITLEMENTS = DiskJockeyBCACHEFS/DiskJockeyBCACHEFS.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 4;
+				DEAD_CODE_STRIPPING = NO;
+				DEVELOPMENT_TEAM = 43UMKXZ8P4;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/lib/bundle_bcachefs/include",
+				);
+				INFOPLIST_FILE = DiskJockeyBCACHEFS/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = DiskJockeyBCACHEFS;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/lib/bundle_bcachefs",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.2.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-ldj_bcachefs_bundle",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.bcachefs;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = NO;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "DiskJockeyBCACHEFS/DiskJockeyBCACHEFS-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		BCAC5F500000000000000013 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_CXX_LIBRARY = "libc++";
+				CODE_SIGN_ENTITLEMENTS = DiskJockeyBCACHEFS/DiskJockeyBCACHEFS.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 4;
+				DEAD_CODE_STRIPPING = NO;
+				DEVELOPMENT_TEAM = 43UMKXZ8P4;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/lib/bundle_bcachefs/include",
+				);
+				INFOPLIST_FILE = DiskJockeyBCACHEFS/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = DiskJockeyBCACHEFS;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/lib/bundle_bcachefs",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.2.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-ldj_bcachefs_bundle",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.bcachefs;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = NO;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "DiskJockeyBCACHEFS/DiskJockeyBCACHEFS-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -3517,6 +3729,15 @@
 			buildConfigurations = (
 				9EC1235E7180305320B57FF5 /* Release */,
 				C6958506389B6C8F5A326998 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BCAC5F500000000000000011 /* Build configuration list for PBXNativeTarget "DiskJockeyBCACHEFS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BCAC5F500000000000000013 /* Release */,
+				BCAC5F500000000000000012 /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

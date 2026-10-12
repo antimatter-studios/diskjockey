@@ -16,6 +16,7 @@ Because DiskJockey installs a File Provider extension and FSKit extensions, macO
 
 - **Native Finder volumes for ext2 / ext3 / ext4 disk images.** Pure-Rust driver, FSKit extension, read + write.
 - **Native Finder volumes for NTFS disk images.** Pure-Rust driver, FSKit extension, mount + read + write.
+- **Native Finder volumes for bcachefs disks and images.** Clean-room pure-Rust driver, FSKit extension, read + write by default (`ro` / `--rdonly` for read-only).
 - **Eight network / cloud filesystems** through a File Provider extension: FTP, SFTP, SMB, WebDAV, S3, Dropbox, Google Drive, OneDrive.
 - **Local-directory passthrough** disk type for end-to-end testing of the File Provider stack.
 - **Per-mount tagged logging** with live in-app log views and per-partition log strips.
@@ -46,6 +47,7 @@ Because DiskJockey installs a File Provider extension and FSKit extensions, macO
 |------------|-------------------|--------|
 | ext2 / ext3 / ext4 | `DiskJockeyEXT4/` | Mount + read + write; clean unmount; fsck via callback ABI |
 | NTFS               | `DiskJockeyNTFS/` | Mount + read + write; verify via `startCheck`; volumes round-trip with the canonical Windows tooling |
+| bcachefs           | `DiskJockeyBCACHEFS/` | Mount + read + write by default: create, mkdir, remove, rename, symlink, hard link, write, truncate, mode, owner, extended attributes (`user.` namespace). Single-device, unencrypted filesystems; the root subvolume only; times are read but not set; no checker or format |
 
 OAuth app-registration instructions for the cloud drivers are in [`docs/`](docs/):
 - [Dropbox](docs/dropbox-registration.md)
@@ -61,6 +63,7 @@ Concrete, observable on a current build:
 - **ext4 FSKit extension** mounts ext2/3/4 images as Finder volumes, lists directories, opens files, accepts writes, and reports superblock metadata (UUID, label, last-mount time, dirty flag) into the host app's detail view.
 - **NTFS FSKit extension** mounts NTFS images, accepts writes, and exposes a verify (`startCheck`) flow with a confirmation dialog and read-only lock indicator. Volumes round-trip with the canonical Windows verify tooling.
 - **XFS mount policy** is read-write by default. A volume mounts writable whenever the hardware can be written and the mounted driver reports it can write; it is read-only only on read-only hardware, under a driver that cannot write, or when mounted with `ro` or FSKit's `--rdonly`. A read-only mount answers every mutation with `EROFS`, and driver refusals are returned without retrying weaker options. The pinned callback driver reports read-only, so XFS volumes mount read-only until the bundle moves to a release with a writable device mount.
+- **bcachefs FSKit extension** mounts single-device, unencrypted bcachefs disks and images read-write whenever the device is writable, and read-only for `ro` / `--rdonly`. Every write the driver's C ABI has is mapped onto FSKit; a write at an offset rewrites the file whole, as the C ABI replaces contents. What the driver refuses (another subvolume, a casefolded directory, a filesystem it will not write) comes back as its errno.
 - **All eight network drivers** verified end-to-end against their respective servers; writes flow through Finder for every scheme.
 - **Sidebar surfaces unformatted disks** discovered via DiskArbitration, with cold-start persistence and stable identity across sessions.
 - **Format actions** for raw disks route through FSKit `startFormat`, chained under a single admin auth prompt.
@@ -80,7 +83,7 @@ Honest list of known gaps as of 2026-05-09:
 - **No installer / notarised release.** Building from source with an Apple Developer account is the only path today.
 - **UI redesign** — a full SwiftUI redesign of the desktop app is on the backlog; current UI is functional but unpolished in places.
 - **Linux drive icon** uses a Tabler placeholder until a permissively-licensed Tux glyph is sourced.
-- **`diskutil mount` / `diskutil unmount` do not work on FSKit volumes** (ext4, NTFS, XFS, Btrfs, EROFS, SquashFS). diskutil goes through storagekitd, which does not recognise third-party FSKit file systems and fails before asking DiskArbitration. The app mounts and unmounts through DiskArbitration instead; from a shell, use `mount -F -t ext4 diskNsM <dir>` and `umount <dir>`.
+- **`diskutil mount` / `diskutil unmount` do not work on FSKit volumes** (ext4, NTFS, XFS, Btrfs, bcachefs, EROFS, SquashFS). diskutil goes through storagekitd, which does not recognise third-party FSKit file systems and fails before asking DiskArbitration. The app mounts and unmounts through DiskArbitration instead; from a shell, use `mount -F -t ext4 diskNsM <dir>` and `umount <dir>`.
 
 ---
 

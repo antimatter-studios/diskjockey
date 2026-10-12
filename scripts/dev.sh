@@ -109,6 +109,7 @@ readonly FSKIT_EXTENSIONS=(
     "Contents/Extensions/DiskJockeySQUASHFS.appex|com.antimatterstudios.diskjockey.squashfs"
     "Contents/Extensions/DiskJockeyXFS.appex|com.antimatterstudios.diskjockey.xfs"
     "Contents/Extensions/DiskJockeyBTRFS.appex|com.antimatterstudios.diskjockey.btrfs"
+    "Contents/Extensions/DiskJockeyBCACHEFS.appex|com.antimatterstudios.diskjockey.bcachefs"
 )
 # Overridable so scripts/tests/dev-registry.sh can put a recording stub here
 # rather than edit the real LaunchServices database.
@@ -178,6 +179,7 @@ cmd_kill() {
         DiskJockeyNTFS
         DiskJockeyEROFS
         DiskJockeySQUASHFS
+        DiskJockeyBCACHEFS
         DiskJockeyFileProvider
     )
     local killed=0

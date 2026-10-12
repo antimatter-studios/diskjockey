@@ -45,6 +45,15 @@ enum SwiftPartitionProbe {
         static let btrfsSuperblockOffset = 0x10000
         static let btrfsBytes: [UInt8] = Array("_BHRfS_M".utf8)
 
+        // bcachefs: a 16-byte magic at offset 0x18 of the superblock, which
+        // starts at byte 4096 (sector 8). Matches the authoritative probe
+        // in DiskJockeyBCACHEFS (BcachefsSuperblock).
+        static let bcachefsMagicOffset = 4096 + 0x18
+        static let bcachefsMagic: [UInt8] = [
+            0xc6, 0x85, 0x73, 0xf6, 0x66, 0xce, 0x90, 0xa9,
+            0xd9, 0x6a, 0x60, 0xcf, 0x80, 0x3d, 0xf7, 0xef,
+        ]
+
         // QCOW2: "QFI\xfb" at offset 0 (magic + version marker).
         static let qcow2Bytes: [UInt8] = [0x51, 0x46, 0x49, 0xFB]
 
@@ -292,6 +301,11 @@ enum SwiftPartitionProbe {
         let erofsOff = FSMagic.erofsSuperblockOffset
         if b.count >= erofsOff + 4 &&
            b[erofsOff..<erofsOff+4].elementsEqual(FSMagic.erofsBytes) { return "erofs" }
+
+        // bcachefs: the superblock magic at byte 4096 + 0x18.
+        let bchOff = FSMagic.bcachefsMagicOffset
+        if b.count >= bchOff + 16 &&
+           b[bchOff..<bchOff+16].elementsEqual(FSMagic.bcachefsMagic) { return "bcachefs" }
 
         // FAT / NTFS / exFAT: all start with a boot sector ending in 0x55 0xAA.
         let sigOff = FSMagic.bootSectorSignatureOffset

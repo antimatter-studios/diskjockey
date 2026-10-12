@@ -186,9 +186,11 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: macos-26
     # Measured locally on 2026-09-10: 11 seconds cold from an empty build
-    # directory, of which 0.4s is the testing. 10 minutes is a hang, not a
-    # slow runner, and the step bound below is what says which step it was.
-    timeout-minutes: 10
+    # directory, of which 0.4s is the testing. The bcachefs bundle the
+    # DiskJockeyBCACHEFSCore tests link adds a Rust build (38 seconds cold,
+    # locally, 2026-10-12) on a cache miss. 20 minutes is a hang, not a slow
+    # runner, and the step bounds below say which step it was.
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -203,8 +205,29 @@ jobs:
           sudo xcode-select -s "$XCODE/Contents/Developer"
           swift --version
 
-      # NO RUST, NO GO, NO SIBLINGS, NO CACHES, NOTHING TO SIGN AND NOTHING
-      # TO LAUNCH.
+      # ONE RUST LIBRARY: the bcachefs bundle. DiskJockeyBCACHEFSCore links
+      # the driver itself, so its tests run the adapter over the real C ABI
+      # on images the reference tools made (Package.swift). Built from the
+      # bundle's own lockfile, cached on it, and nothing else of the vendor
+      # tree: no Go, no siblings, no other bundle.
+      - name: Set up Rust (aarch64)
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Restore the bcachefs bundle
+        id: bcachefs-bundle
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: lib/bundle_bcachefs
+          key: bundle-bcachefs-${{ runner.os }}-${{ hashFiles('rust-bundles/dj-bcachefs-bundle/Cargo.toml', 'rust-bundles/dj-bcachefs-bundle/Cargo.lock', 'scripts/build-bundles.sh') }}
+
+      - name: Build the bcachefs bundle
+        if: steps.bcachefs-bundle.outputs.cache-hit != 'true'
+        timeout-minutes: 10
+        run: bash scripts/build-bundles.sh bcachefs
+
+      # NO GO, NO SIBLINGS, NOTHING TO SIGN AND NOTHING TO LAUNCH.
       #
       # This job was first written as `xcodebuild test -scheme
       # DiskJockeyLibraryOnly`, on the theory that a scheme with no app in it

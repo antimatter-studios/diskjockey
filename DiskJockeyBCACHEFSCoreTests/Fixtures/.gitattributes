@@ -1,0 +1,5 @@
+# The reference bcachefs tools' own output, kept byte for byte: what they
+# printed, trailing blanks included, is the record the tests compare with.
+*.txt -whitespace
+*.json -whitespace
+*.img.gz binary

@@ -125,7 +125,7 @@ public struct AttachedDisk: Identifiable, Equatable, Hashable, Sendable {
     /// identify an OS of origin.
     public var icon: PersonalityIcon {
         switch fsType.lowercased() {
-        case "ext2", "ext3", "ext4":
+        case "ext2", "ext3", "ext4", "bcachefs", "fsbcachefs":
             return .asset("tabler-linux-drive")
         case "ntfs", "fsntfs", "ntfs-fskit":
             return .asset("tabler-windows-drive")
@@ -257,6 +257,8 @@ public final class AttachedDisksModel: ObservableObject {
         "ext4",              // DiskJockeyEXT4 / fs-ext4
         "ntfs",              // Apple legacy ntfs.fs
         "fsntfs",            // DiskJockeyNTFS (our FSShortName)
+        "bcachefs",          // DiskJockeyBCACHEFS (FSPersonalities name)
+        "fsbcachefs",        // DiskJockeyBCACHEFS FSShortName
         "ntfs-fskit",        // ext4-fskit project's old ntfsfskitd
         "squashfs",          // DiskJockeySQUASHFS (FSPersonalities name)
         "fssquashfs",        // DiskJockeySQUASHFS FSShortName

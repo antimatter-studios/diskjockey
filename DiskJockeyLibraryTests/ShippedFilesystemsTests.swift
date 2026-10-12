@@ -42,7 +42,8 @@ struct ShippedFilesystemsTests {
 
     /// blk.probe and the app's own probe name XFS and Btrfs `xfs` and
     /// `btrfs`; a partition either names is mounted, not skipped (#351).
-    @Test(arguments: [("xfs", "xfs"), ("btrfs", "btrfs"), ("ext3", "ext4"), ("ext2", "ext4"),
+    @Test(arguments: [("xfs", "xfs"), ("btrfs", "btrfs"), ("bcachefs", "bcachefs"),
+                      ("ext3", "ext4"), ("ext2", "ext4"),
                       ("ntfs", "ntfs"), ("erofs", "erofs"), ("squashfs", "squashfs")])
     func aProbeNameIsMountedByItsExtension(_ kind: String, _ key: String) {
         #expect(ShippedFilesystems.extensionKey(forProbeKind: kind) == key)
@@ -55,6 +56,6 @@ struct ShippedFilesystemsTests {
 
     /// The Home page's card lists them by name (#346).
     @Test func everyFilesystemHasAName() {
-        #expect(ShippedFilesystems.all.map(\.displayName) == ["ext4", "NTFS", "XFS", "Btrfs", "EROFS", "SquashFS"])
+        #expect(ShippedFilesystems.all.map(\.displayName) == ["ext4", "NTFS", "XFS", "Btrfs", "bcachefs", "EROFS", "SquashFS"])
     }
 }

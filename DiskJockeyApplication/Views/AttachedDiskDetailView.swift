@@ -443,6 +443,7 @@ struct AttachedDiskDetailView: View {
         case "fsntfs":   return "fsntfs"
         case "erofs":    return "erofs"
         case "squashfs": return "squashfs"
+        case "bcachefs": return "bcachefs"
         default:         return nil
         }
     }

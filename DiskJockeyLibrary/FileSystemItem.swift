@@ -269,3 +269,31 @@ public extension FileSystemItem where Tag == ErofsTag {
         self.init(id: inode, volumePath: volumePath, parentID: parentInode)
     }
 }
+
+// MARK: - bcachefs specialisation
+
+/// Phantom tag selecting `UInt64` identity for bcachefs inode numbers,
+/// which reach past 2^31 (a fresh filesystem's first files are
+/// 2147483648 and up).
+public enum BcachefsTag: FileSystemTag {
+    public typealias ID = UInt64
+}
+
+/// Per-FS item type for the bcachefs extension.
+public typealias BcachefsItem = FileSystemItem<BcachefsTag>
+
+public extension FileSystemItem where Tag == BcachefsTag {
+    /// bcachefs inode number — friendly spelling for `id`.
+    var inode: UInt64 { id }
+
+    /// Parent directory's inode — friendly spelling for `parentID`.
+    var parentInode: UInt64? { parentID }
+
+    convenience init(inode: UInt64, path: String, parentInode: UInt64?) {
+        self.init(id: inode, path: path, parentID: parentInode)
+    }
+
+    convenience init(inode: UInt64, volumePath: VolumePath, parentInode: UInt64?) {
+        self.init(id: inode, volumePath: volumePath, parentID: parentInode)
+    }
+}

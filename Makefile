@@ -52,7 +52,7 @@ vendor-bundles:
 	@scripts/build-bundles.sh
 
 vendor-bundles-clean:
-	rm -rf lib/bundle_ext4 lib/bundle_ntfs lib/bundle_erofs lib/bundle_squashfs lib/bundle_xfs lib/bundle_btrfs
+	rm -rf lib/bundle_ext4 lib/bundle_ntfs lib/bundle_erofs lib/bundle_squashfs lib/bundle_xfs lib/bundle_btrfs lib/bundle_bcachefs
 
 # go-networkfs builds each driver from NETWORKFS_DRIVERS plus a combined libnetworkfs.a
 # dispatcher. Xcode build phases may override DRIVERS via env var to trim the
@@ -108,15 +108,15 @@ install-agent:
 # local-dev mode — it overrides the driver + the shared am-fs-core to the
 # sibling checkout beside this repository — then restore the crates.io-clean
 # state before you commit or build for distribution. See scripts/dev-link.sh.
-#   make dev-link   FS=ext4               # ext4 | ntfs | erofs | squashfs | xfs | btrfs
+#   make dev-link   FS=ext4               # ext4 | ntfs | erofs | squashfs | xfs | btrfs | bcachefs
 #   make dev-link   FS=ext4 EXTRA=am-img-qcow2   # also co-develop a reader
 #   make dev-unlink FS=ext4
 dev-link:
-	@test -n "$(FS)" || { echo "usage: make dev-link FS=<ext4|ntfs|erofs|squashfs|xfs|btrfs> [EXTRA='rust-img-qcow2 ...']"; exit 2; }
+	@test -n "$(FS)" || { echo "usage: make dev-link FS=<ext4|ntfs|erofs|squashfs|xfs|btrfs|bcachefs> [EXTRA='rust-img-qcow2 ...']"; exit 2; }
 	@scripts/dev-link.sh $(FS) $(EXTRA)
 
 dev-unlink:
-	@test -n "$(FS)" || { echo "usage: make dev-unlink FS=<ext4|ntfs|erofs|squashfs|xfs|btrfs>"; exit 2; }
+	@test -n "$(FS)" || { echo "usage: make dev-unlink FS=<ext4|ntfs|erofs|squashfs|xfs|btrfs|bcachefs>"; exit 2; }
 	@scripts/dev-unlink.sh $(FS)
 
 # ---------------------------------------------------------------------------

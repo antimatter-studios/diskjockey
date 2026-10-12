@@ -20,6 +20,7 @@ that bundle's `Cargo.toml` pins.
 | `am-fs-btrfs` | MIT | github.com/antimatter-studios/rust-fs-btrfs |
 | `am-fs-erofs` | MIT | github.com/antimatter-studios/rust-fs-erofs |
 | `am-fs-squashfs` | MIT | github.com/antimatter-studios/rust-fs-squashfs |
+| `rust-fs-bcachefs` | MIT | github.com/antimatter-studios/rust-fs-bcachefs |
 | `am-img-qcow2` | MIT | github.com/antimatter-studios/rust-img-qcow2 |
 | `am-img-vhd` | MIT | github.com/antimatter-studios/rust-img-vhd |
 | `am-img-vhdx` | MIT | github.com/antimatter-studios/rust-img-vhdx |

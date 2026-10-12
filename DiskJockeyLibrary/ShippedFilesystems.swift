@@ -38,6 +38,7 @@ public enum ShippedFilesystems {
         ShippedFilesystem(key: "ntfs", displayName: "NTFS", probeKinds: ["ntfs"]),
         ShippedFilesystem(key: "xfs", displayName: "XFS", probeKinds: ["xfs"]),
         ShippedFilesystem(key: "btrfs", displayName: "Btrfs", probeKinds: ["btrfs"]),
+        ShippedFilesystem(key: "bcachefs", displayName: "bcachefs", probeKinds: ["bcachefs"]),
         ShippedFilesystem(key: "erofs", displayName: "EROFS", probeKinds: ["erofs"]),
         ShippedFilesystem(key: "squashfs", displayName: "SquashFS", probeKinds: ["squashfs"]),
     ]

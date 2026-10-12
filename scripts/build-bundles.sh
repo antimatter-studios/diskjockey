@@ -14,13 +14,29 @@
 # scripts/dev-link.sh / `make dev-link FS=<fs>`.
 #
 # Output per fs: lib/bundle_<fs>/{libdj_<fs>_bundle.a, include/*.h, VERSION.txt}
+#
+# Usage: scripts/build-bundles.sh [fs ...]   (default: every bundle)
+#   e.g. scripts/build-bundles.sh bcachefs  — the one the library tier links
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 target="aarch64-apple-darwin"
 GREEN='\033[0;32m'; NC='\033[0m'
 
-for fs in ext4 ntfs erofs squashfs xfs btrfs; do
+all_fs=(ext4 ntfs erofs squashfs xfs btrfs bcachefs)
+if [ "$#" -gt 0 ]; then
+    for fs in "$@"; do
+        case " ${all_fs[*]} " in
+            *" $fs "*) ;;
+            *) echo "build-bundles: no bundle named '$fs' (one of: ${all_fs[*]})" >&2; exit 2 ;;
+        esac
+    done
+    selected=("$@")
+else
+    selected=("${all_fs[@]}")
+fi
+
+for fs in "${selected[@]}"; do
     bundle="$root/rust-bundles/dj-${fs}-bundle"
     out="$root/lib/bundle_${fs}"
     [ -d "$bundle" ] || { echo "missing bundle crate: $bundle" >&2; exit 1; }
