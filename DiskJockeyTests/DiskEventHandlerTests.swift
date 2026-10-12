@@ -34,6 +34,12 @@ struct DiskEventHandlerTests {
         #expect(DiskEventHandler.fsTypeFromEventKind("ntfs.probe") == "ntfs")
     }
 
+    @Test func testFsTypeFromBcachefsKinds() {
+        // DiskJockeyBCACHEFS tags its probe and load events "bcachefs.*".
+        #expect(DiskEventHandler.fsTypeFromEventKind("bcachefs.probe") == "bcachefs")
+        #expect(DiskEventHandler.fsTypeFromEventKind("bcachefs.load") == "bcachefs")
+    }
+
     @Test func testFsTypeForUnrelatedKindsIsNil() {
         #expect(DiskEventHandler.fsTypeFromEventKind("fsck.progress") == nil)
         #expect(DiskEventHandler.fsTypeFromEventKind("io.stats") == nil)
@@ -193,6 +199,13 @@ struct DiskEventHandlerTests {
         #expect(DiskEventHandler.materializeTotalSize(
             from: ["fs": "ntfs", "total_size": "12345"]
         ) == 12_345)
+    }
+
+    @Test func testMaterializeTotalSizeBcachefs() {
+        // The bcachefs volume.info event carries its byte total itself.
+        #expect(DiskEventHandler.materializeTotalSize(
+            from: ["fs": "bcachefs", "total_size": "67108864", "free_size": "63045632"]
+        ) == 67_108_864)
     }
 
     @Test func testMaterializeTotalSizeUnknownFsReturnsNil() {

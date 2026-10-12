@@ -1,0 +1,40 @@
+Using encoding defined by superblock: utf8-12.1.0
+starting version per_dev_fragmentation_lru (1.39)
+  with options: errors=continue,degraded=very,nochanges,norecovery,recovery_pass_last=snapshots_read,noexcl,nodirect_io,read_only
+recovering from clean shutdown, journal seq 20512
+Journal keys: 0 read, 0 after sorting and compacting
+accounting_read... done (0 seconds)
+alloc_read... done (0 seconds)
+snapshots_read... done (0 seconds)
+u64s 8 type xattr 2147483649:7464273446409976714:U32_MAX len 0 ver 0  : user.on-a-directory:dir
+u64s 8 type xattr 2147483650:1990862711646685603:U32_MAX len 0 ver 0  : user.greeting:hello
+u64s 7 type xattr 2147483651:6744168806118017170:U32_MAX len 0 ver 0  : user.attr00:
+u64s 8 type xattr 2147483652:1016305927288258112:U32_MAX len 0 ver 0  : user.on-a-directory:dir
+u64s 8 type xattr 2147483653:6801644722681209193:U32_MAX len 0 ver 0  : user.greeting:hello
+u64s 7 type xattr 2147483654:1341978950753490838:U32_MAX len 0 ver 0  : user.attr02:v
+u64s 7 type xattr 2147483654:5583279808471342197:U32_MAX len 0 ver 0  : user.attr01:v
+u64s 7 type xattr 2147483654:6313577128075988769:U32_MAX len 0 ver 0  : user.attr00:v
+u64s 7 type xattr 2147483655:156750809430582787:U32_MAX len 0 ver 0  : user.kkkkk:v
+u64s 8 type xattr 2147483655:688499651443062988:U32_MAX len 0 ver 0  : user.kkkkkkkkkkkkkkkkk:v
+u64s 9 type xattr 2147483655:1290787655849899971:U32_MAX len 0 ver 0  : user.kkkkkkkkkkkkkkkkkkkkkkkk:v
+u64s 7 type xattr 2147483655:1955065053803567775:U32_MAX len 0 ver 0  : user.kkkk:v
+u64s 8 type xattr 2147483655:2344032552850811357:U32_MAX len 0 ver 0  : user.kkkkkkkkkkkkkk:v
+u64s 9 type xattr 2147483655:2538718679380114647:U32_MAX len 0 ver 0  : user.kkkkkkkkkkkkkkkkkkkkk:v
+u64s 7 type xattr 2147483655:2974176027375053336:U32_MAX len 0 ver 0  : user.kkkkkkk:v
+u64s 9 type xattr 2147483655:3078620724382275625:U32_MAX len 0 ver 0  : user.kkkkkkkkkkkkkkkkkkkk:v
+u64s 7 type xattr 2147483655:4035027069388382697:U32_MAX len 0 ver 0  : user.kkkkkkkk:v
+u64s 8 type xattr 2147483655:4062471749875151768:U32_MAX len 0 ver 0  : user.kkkkkkkkkkkkkkkkkkk:v
+u64s 7 type xattr 2147483655:4343735801245537120:U32_MAX len 0 ver 0  : user.kkkkkkkkkk:v
+u64s 8 type xattr 2147483655:4399528430511137348:U32_MAX len 0 ver 0  : user.kkkkkkkkkkkkkkkkkk:v
+u64s 8 type xattr 2147483655:4602864277199722671:U32_MAX len 0 ver 0  : user.kkkkkkkkkkkkkkkk:v
+u64s 7 type xattr 2147483655:4861372989188460419:U32_MAX len 0 ver 0  : user.kkkkkk:v
+u64s 9 type xattr 2147483655:4970966556015252799:U32_MAX len 0 ver 0  : user.kkkkkkkkkkkkkkkkkkkkkkk:v
+u64s 6 type xattr 2147483655:5529632080565147364:U32_MAX len 0 ver 0  : user.kkk:v
+u64s 8 type xattr 2147483655:5938929652827849346:U32_MAX len 0 ver 0  : user.kkkkkkkkkkkk:v
+u64s 9 type xattr 2147483655:6514410635549692265:U32_MAX len 0 ver 0  : user.kkkkkkkkkkkkkkkkkkkkkk:v
+u64s 6 type xattr 2147483655:7148105806490643267:U32_MAX len 0 ver 0  : user.k:v
+u64s 8 type xattr 2147483655:7187559771342188175:U32_MAX len 0 ver 0  : user.kkkkkkkkkkkkk:v
+u64s 8 type xattr 2147483655:7519034605653312957:U32_MAX len 0 ver 0  : user.kkkkkkkkkkkkkkk:v
+u64s 6 type xattr 2147483655:7855246488356078462:U32_MAX len 0 ver 0  : user.kk:v
+u64s 7 type xattr 2147483655:7982763777736771998:U32_MAX len 0 ver 0  : user.kkkkkkkkk:v
+u64s 7 type xattr 2147483655:9035156168090468675:U32_MAX len 0 ver 0  : user.kkkkkkkkkkk:v

@@ -14,7 +14,7 @@
 # Run scripts/dev-unlink.sh <fs> (or `make dev-unlink FS=<fs>`) to restore.
 #
 # Usage:
-#   scripts/dev-link.sh <ext4|ntfs|erofs|squashfs> [extra-crate ...]
+#   scripts/dev-link.sh <ext4|ntfs|erofs|squashfs|bcachefs> [extra-crate ...]
 #     extra-crate: also redirect another crate to its sibling checkout, e.g.
 #                  `rust-img-qcow2` to co-develop the qcow2 reader. (See the
 #                  ntfs caveat in the memory: ntfs + a local img reader can
@@ -23,8 +23,8 @@ set -euo pipefail
 
 fs="${1:-}"
 case "$fs" in
-    ext4|ntfs|erofs|squashfs) ;;
-    *) echo "usage: $0 <ext4|ntfs|erofs|squashfs> [extra-crate ...]" >&2; exit 2 ;;
+    ext4|ntfs|erofs|squashfs|bcachefs) ;;
+    *) echo "usage: $0 <ext4|ntfs|erofs|squashfs|bcachefs> [extra-crate ...]" >&2; exit 2 ;;
 esac
 shift
 

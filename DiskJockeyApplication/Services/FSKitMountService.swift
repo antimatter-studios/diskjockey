@@ -21,7 +21,7 @@ struct DiskProbeResult: Decodable {
         let index: Int
         let start: UInt64
         let length: UInt64
-        let fsKind: String  // "ext4" | "ntfs" | "fat32" | "exfat" | "fat16" | "hfs_plus" | "apfs" | "linux_swap" | "iso9660" | "squashfs" | "unknown"
+        let fsKind: String  // "ext4" | "ntfs" | "bcachefs" | "fat32" | "exfat" | "fat16" | "hfs_plus" | "apfs" | "linux_swap" | "iso9660" | "squashfs" | "unknown"
         let typeByte: Int
         let typeGuid: String
         let label: String?

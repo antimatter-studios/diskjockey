@@ -1,0 +1,16 @@
+Using encoding defined by superblock: utf8-12.1.0
+starting version per_dev_fragmentation_lru (1.39)
+  with options: errors=continue,degraded=very,nochanges,norecovery,recovery_pass_last=snapshots_read,noexcl,nodirect_io,read_only
+recovering from clean shutdown, journal seq 20512
+Journal keys: 0 read, 0 after sorting and compacting
+accounting_read... done (0 seconds)
+alloc_read... done (0 seconds)
+snapshots_read... done (0 seconds)
+u64s 8 type dirent 4096:247942926975343619:U32_MAX len 0 ver 0  : lost+found -> 2147483648 type dir
+u64s 7 type dirent 4096:2050508439912816611:U32_MAX len 0 ver 0  : x -> 2147483649 type dir
+u64s 7 type dirent 4096:7313226409236129999:U32_MAX len 0 ver 0  : y -> 2147483652 type dir
+u64s 7 type dirent 2147483649:544600054751453899:U32_MAX len 0 ver 0  : one.txt -> 2147483650 type reg
+u64s 8 type dirent 2147483649:4875128559677610175:U32_MAX len 0 ver 0  : lengths.txt -> 2147483655 type reg
+u64s 8 type dirent 2147483649:5894840139934254404:U32_MAX len 0 ver 0  : many.txt -> 2147483651 type reg
+u64s 7 type dirent 2147483652:483400107627422726:U32_MAX len 0 ver 0  : one.txt -> 2147483653 type reg
+u64s 8 type dirent 2147483652:3593816025608339005:U32_MAX len 0 ver 0  : many.txt -> 2147483654 type reg

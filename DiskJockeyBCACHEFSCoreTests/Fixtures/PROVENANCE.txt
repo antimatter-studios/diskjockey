@@ -1,0 +1,13 @@
+Made by the reference bcachefs tools in rust-fs-bcachefs's CI, fixtures job.
+run:       https://github.com/antimatter-studios/rust-fs-bcachefs/actions/runs/38162167866
+commit:    5340e791fa64d125aaba7247a0f5eaa3960ed334
+reference: metadata version per_dev_fragmentation_lru (1.39)
+files:
+  a9fbfd6768c34ffb4e100ed09fc5a16ebe93268f6f96ba97c7c5e0a2063c4ed4  kernel.img.gz
+  324403a4490daedb3faa42c9caacb2b0c819449e31f2d9715477cf4c809c937f  kernel.json
+  a2d52326b5de28efa574b971a39a6619d110335a2babeb26d620844dd5478e31  kernel.dirents.txt
+  b3a03ace59a7e9fdfc2b0809e0b9310b6131e3cd8d867a6e713a12b509b9a5b6  xattr-lengths.img.gz
+  23ef105afc1f8073ae79a78df76c755528739cb918692ed13099bbdce9b325cc  xattr-lengths.xattrs.txt
+  d85920967b2d3dd493a841d9af668ce1a4cae96455f2dd42ff72ac6fae3632ed  xattr-lengths.dirents.txt
+  410b85ce4a13643b3fa13c9542af92e7c85f783e7339f5cd3d2a81998dd6ca74  base.img.gz
+  491966d9744db95b64714e50a22357d4fcde65a2aa3bb2ececc125a136c93be1  base.super.txt

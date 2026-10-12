@@ -48,6 +48,32 @@ struct ClassifyTests {
         #expect(SwiftPartitionProbe.classify(d) == "squashfs")
     }
 
+    // MARK: bcachefs
+
+    /// The superblock magic, 16 bytes at byte 4096 + 0x18 (sector 8).
+    private let bcachefsMagic: [UInt8] = [
+        0xc6, 0x85, 0x73, 0xf6, 0x66, 0xce, 0x90, 0xa9,
+        0xd9, 0x6a, 0x60, 0xcf, 0x80, 0x3d, 0xf7, 0xef,
+    ]
+
+    @Test func bcachefsMagicInItsSuperblock() {
+        let d = buf(size: 8192, bytes: bcachefsMagic, at: 4096 + 0x18)
+        #expect(SwiftPartitionProbe.classify(d) == "bcachefs")
+    }
+
+    @Test func bcachefsMagicAnywhereElseIsNotBcachefs() {
+        #expect(SwiftPartitionProbe.classify(buf(size: 8192, bytes: bcachefsMagic, at: 4096)) == "unknown")
+        #expect(SwiftPartitionProbe.classify(buf(size: 8192, bytes: bcachefsMagic, at: 0x18)) == "unknown")
+        var almost = bcachefsMagic
+        almost[15] ^= 0x01
+        #expect(SwiftPartitionProbe.classify(buf(size: 8192, bytes: almost, at: 4096 + 0x18)) == "unknown")
+    }
+
+    @Test func aBufferEndingInsideTheBcachefsMagicIsNotBcachefs() {
+        let d = buf(size: 4096 + 0x20, bytes: Array(bcachefsMagic.prefix(8)), at: 4096 + 0x18)
+        #expect(SwiftPartitionProbe.classify(d) == "unknown")
+    }
+
     // MARK: NTFS / FAT / exFAT (boot sector family)
 
     private func bootSector(oem: String) -> Data {
@@ -425,5 +451,39 @@ struct GPTOverflowTests {
         #expect(r?.partitions.count == 1)
         #expect(r?.partitions.first?.start == Self.goodEntryStart)
         #expect(r?.partitions.first?.length == Self.goodEntryLength)
+    }
+}
+
+// MARK: - The single-image attach path
+
+/// `FSKitAttachController.detectFSType` names a raw bcachefs image, so a
+/// picked image with no partition table mounts through DiskJockeyBCACHEFS.
+@MainActor
+struct DetectFSTypeBcachefsTests {
+
+    private func image(_ bytes: [UInt8], at offset: Int, size: Int = 16384) throws -> URL {
+        var d = Data(count: size)
+        d.replaceSubrange(offset..<offset + bytes.count, with: bytes)
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("detect-\(UUID().uuidString).img")
+        try d.write(to: url)
+        return url
+    }
+
+    private let magic: [UInt8] = [
+        0xc6, 0x85, 0x73, 0xf6, 0x66, 0xce, 0x90, 0xa9,
+        0xd9, 0x6a, 0x60, 0xcf, 0x80, 0x3d, 0xf7, 0xef,
+    ]
+
+    @Test func aRawBcachefsImageIsDetected() throws {
+        let url = try image(magic, at: 4096 + 0x18)
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect(FSKitAttachController.detectFSType(at: url).fsType == "bcachefs")
+    }
+
+    @Test func theMagicAnywhereElseIsNotBcachefs() throws {
+        let url = try image(magic, at: 4096)
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect(FSKitAttachController.detectFSType(at: url).fsType == nil)
     }
 }

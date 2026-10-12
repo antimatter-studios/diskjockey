@@ -49,6 +49,7 @@ public enum DiskEventHandler {
         if kind.hasPrefix("ntfs.") { return "ntfs" }
         if kind.hasPrefix("erofs.") { return "erofs" }
         if kind.hasPrefix("squashfs.") { return "squashfs" }
+        if kind.hasPrefix("bcachefs.") { return "bcachefs" }
         return nil
     }
 
@@ -139,7 +140,9 @@ public enum DiskEventHandler {
             let blockSize = UInt64(fields["block_size"] ?? "") ?? 0
             let (product, overflow) = blocks.multipliedReportingOverflow(by: blockSize)
             return overflow ? nil : product
-        case "ntfs":
+        case "ntfs", "bcachefs":
+            // Both emit the byte total themselves (bcachefs: the device's
+            // buckets, from fs_bcachefs_statfs).
             return UInt64(fields["total_size"] ?? "")
         case "squashfs":
             // SquashFS is compressed + read-only: `bytes_used` is the

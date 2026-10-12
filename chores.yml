@@ -24,14 +24,22 @@ chore_min_version: 0.6.0
 #
 #   tier      lines    bytes   measured (lines / bytes)     headroom   floor
 #   scripts     810    42600   649 / 34,084 (40 files)      25% / 25%  44 files
-#   library    2750   212000   2,168 / 166,527              27% / 27%  593 cases
-#   app        5200   950000   4,119 / 750,848 (raw)        26% / 27%  85 cases
+#   library    3530   272200   2,779 / 214,287              27% / 27%  668 cases
+#   app        5200   950000   4,119 / 750,848 (raw)        26% / 27%  90 cases
 #   cli-pipe    270    16200   213 / 12,909 (Linux)         27% / 25%  25 macOS, 37 Linux
 # Floors measured locally 2026-10-07 for #320: 43 script files and
 # 577 library cases (65 XCTest + 512 swift-testing). Budgets are unchanged.
 # The XFS v5 release-runner contract raises the scripts floor to 44 (#325).
 # The XFS writable-policy gate raises the library floor to 593 (#321),
 # measured locally 2026-10-07: 65 XCTest + 528 swift-testing, all passed.
+# The bcachefs volume raises the library floor to 663 (#342), measured
+# locally 2026-10-12: 65 XCTest + 598 swift-testing, all passed, in 1,656
+# lines / 124,829 bytes, and the app floor to 90 with its five bcachefs probe
+# and event cases (1,586 lines / 210,280 bytes). The library row is then
+# measured again on CI with the bcachefs suites (run 38300220670, 2026-10-12):
+# 2,779 lines / 214,287 bytes, over the 2,750 / 212,000 budget, and 668 cases
+# (65 XCTest + 603 swift-testing), so its budget rises to 3,530 / 272,200 and
+# its floor to 668.
 #
 # cli-pipe is not a fourth tier: it installs other repositories' releases and
 # runs in its own scheduled workflow, not in `chore test` (#292). Its row is
@@ -131,6 +139,13 @@ tasks:
     # The same script the `Library tests` CI job runs, floor included.
     cmds:
       - scripts/test-library.sh {{.CLI_ARGS}}
+
+  fixtures:bcachefs:
+    desc: Refresh the bcachefs images the library tier reads, from rust-fs-bcachefs CI's reference-tool fixtures (-- RUN_ID)
+    # The images are committed under DiskJockeyBCACHEFSCoreTests/Fixtures with
+    # their provenance; this is the task a test that cannot find one names.
+    cmds:
+      - scripts/bcachefs-fixtures.sh {{.CLI_ARGS}}
 
   test:app:
     desc: The app tier — DiskJockeyTests through xcodebuild, quietly (needs make vendor-all and a GUI session)

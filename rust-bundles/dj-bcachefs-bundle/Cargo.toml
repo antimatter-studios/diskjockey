@@ -1,0 +1,30 @@
+# Consumer-side aggregator for the DiskJockeyBCACHEFS FSKit extension.
+# Depends on the PUBLISHED, proven crates.io releases (not local paths), so
+# every crate's rust-fs-core resolves to one published rust-fs-core and cargo
+# links a single std. Not published itself.
+#
+# The `write` feature is on: the extension mounts read-write whenever the
+# device is writable, through the driver's C ABI writes
+# (fs_bcachefs_mount_rw_with_fs_core_device and the calls after it).
+[package]
+name = "dj-bcachefs-bundle"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "dj_bcachefs_bundle"
+crate-type = ["staticlib"]
+
+[dependencies]
+rust-fs-bcachefs = { version = "0.4.0", features = ["write"] }
+rust-img-qcow2 = "0.6.0"
+rust-img-vhd = "0.6.0"
+rust-img-vhdx = "0.6.0"
+rust-img-vmdk = "0.5.0"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+panic = "unwind"

@@ -1,0 +1,107 @@
+External UUID:                             3c6bb673-dca8-4ea1-8b07-7cf77c968dfb
+Internal UUID:                             4258f555-4989-4456-8a47-d20771f6bd22
+Magic number:                              c68573f6-66ce-90a9-d96a-60cf803df7ef
+Device index:                              0
+Label:                                     (none)
+Version:                                   per_dev_fragmentation_lru (1.39)
+Incompatible features allowed:             per_dev_fragmentation_lru (1.39)
+Incompatible features in use:              no_sb_user_data_replicas (1.36)
+Version upgrade complete:                  per_dev_fragmentation_lru (1.39)
+Oldest version on disk:                    per_dev_fragmentation_lru (1.39)
+Created:                                   Sun Oct 11 18:20:11 2026
+Sequence number:                           82
+Time of last write:                        Sun Oct 11 18:20:15 2026
+Superblock size:                           8.08k/1.00M
+Clean:                                     1
+Devices:                                   1
+Sections:                                  replicas_v0,clean,journal_seq_blacklist,journal_v2,counters,members_v2,ext,downgrade,recovery_passes,extent_type_u64s,errors_v2
+Features:                                  journal_seq_blacklist_v3,new_siphash,inline_data,new_extent_overwrite,btree_ptr_v2,extents_above_btree_updates,btree_updates_journalled,new_varint,journal_no_flush,alloc_v2,extents_across_btree_nodes,incompat_version_field
+Compat features:                           alloc_info,alloc_metadata,extents_above_btree_updates_done,bformat_overflow_done,no_stale_ptrs,stripe_frag_accounting,inode_opts_propagated
+
+Options:
+  block_size:                              512
+  btree_node_size:                         32.0k
+  errors:                                  continue [fix_safe] panic ro 
+  write_error_timeout:                     30
+  metadata_replicas:                       1
+  data_replicas:                           1
+  encoded_extent_max:                      256k
+  metadata_checksum:                       none [crc32c] crc64 xxhash 
+  data_checksum:                           none [crc32c] crc64 xxhash 
+  checksum_err_retry_nr:                   3
+  compression:                             none
+  background_compression:                  none
+  str_hash:                                crc32c crc64 [siphash] 
+  metadata_target:                         none
+  foreground_target:                       none
+  background_target:                       none
+  promote_target:                          none
+  erasure_code:                            0
+  ec_max_data_blocks:                      0
+  casefold:                                0
+  inodes_32bit:                            0
+  shard_inode_numbers_bits:                0
+  gc_reserve_percent:                      8
+  gc_reserve_bytes:                        0
+  root_reserve_percent:                    0
+  wide_macs:                               0
+  promote_whole_extents:                   1
+  acl:                                     1
+  usrquota:                                0
+  grpquota:                                0
+  prjquota:                                0
+  degraded:                                [ask] yes very no 
+  write_degraded:                          [degraded] yes no 
+  missing_dev_timeout:                     0
+  journal_flush_delay:                     1000
+  journal_flush_disabled:                  0
+  move_writes_fua:                         0
+  journal_reclaim_delay:                   100
+  writeback_timeout:                       0
+  journal_rewind_discard_buffer_percent:   4
+  scrub_recent_journal_entries:            [unclean] no always 
+  scrub_journal_max_rewind_secs:           10
+  journal_transaction_names:               1
+  allocator_stuck_timeout:                 30
+  version_upgrade:                         [compatible] incompatible none 
+  nocow:                                   0
+  reconcile_on_ac_only:                    0
+  btree_cache_shrinker_seeks:              2
+  dev_readahead:                           2.00M
+  ec_stripe_buf_limit:                     5
+
+ext (size 120):
+Recovery passes required:                  
+Errors to silently fix:                    
+Btrees with missing data:                  
+Btrees that have ever lost data:           
+Btrees validated clean:                    subvolumes,snapshots
+Device 0:                                  (not found)	
+  Label:                                   (none)
+  UUID:                                    eb221a34-7e4b-4972-aca5-3133867bd6e8
+  Size:                                    64.0M
+  read errors:                             0
+  write errors:                            0
+  checksum errors:                         0
+  seqread iops:                            0
+  seqwrite iops:                           0
+  randread iops:                           0
+  randwrite iops:                          0
+  Bucket size:                             32.0k
+  First bucket:                            0
+  Buckets:                                 2048
+  Last mount:                              Sun Oct 11 18:20:15 2026
+  Last superblock write:                   82
+  State:                                   rw
+  Data allowed:                            journal,btree,user
+  Has data:                                btree
+  Rotational:                              1
+  Btree allocated bitmap blocksize:        128
+  Btree allocated bitmap:                  0000000000000000001111110000000000000000000000000000000000000000
+  Durability:                              1
+  Discard:                                 1
+  Freespace initialized:                   1
+  Resize on mount:                         0
+  Last device name:                        base.img
+  Last device model:                       
+  Last device serial:                      

@@ -37,7 +37,11 @@
 //   language   — SWIFT_VERSION = 5.0. swift-tools-version 6.0 would otherwise
 //                default to Swift 6 language mode and reject library code
 //                that the project accepts (FileIDCache's non-Sendable Item).
+import Foundation
 import PackageDescription
+
+/// This checkout's root: the bcachefs bundle's library is found from here.
+let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
 
 let package = Package(
     name: "DiskJockeyLibraryOnly",
@@ -242,6 +246,50 @@ let package = Package(
             name: "DiskJockeySQUASHFSCoreTests",
             dependencies: ["DiskJockeySQUASHFSCore", "DiskJockeyLibrary"],
             path: "DiskJockeySQUASHFSCoreTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+
+        // THE BCACHEFS VOLUME, AND THE DRIVER UNDER IT.
+        //
+        // Unlike the targets above, this one links the Rust driver: the
+        // bundle library `make vendor-bundles` builds into
+        // lib/bundle_bcachefs, through CBcachefsBundle. BcachefsVolume.swift
+        // still makes no C call — BcachefsDriver.swift makes them all, behind
+        // BcachefsBackend — so the volume's decisions are tested over a
+        // stand-in, and the driver's wiring is tested against bcachefs images
+        // the reference tools made (DiskJockeyBCACHEFSCoreTests/Fixtures).
+        // scripts/test-library.sh refuses to run without the library, naming
+        // the task that builds it.
+        .systemLibrary(
+            name: "CBcachefsBundle",
+            path: "rust-bundles/dj-bcachefs-bundle/swift-module"
+        ),
+        .target(
+            name: "DiskJockeyBCACHEFSCore",
+            dependencies: ["DiskJockeyLibrary", "CBcachefsBundle"],
+            path: "DiskJockeyBCACHEFS",
+            exclude: [
+                "BcachefsFileSystem.swift",
+                "DiskJockeyBCACHEFS-Bridging-Header.h",
+                "DiskJockeyBCACHEFS.entitlements",
+                "Info.plist",
+            ],
+            sources: [
+                "BcachefsVolume.swift",
+                "BcachefsBackend.swift",
+                "BcachefsDriver.swift",
+                "BcachefsMountPolicy.swift",
+                "BcachefsSuperblock.swift",
+                "BcachefsLog.swift",
+            ],
+            swiftSettings: [.swiftLanguageMode(.v5)],
+            linkerSettings: [.unsafeFlags(["-L\(packageRoot)/lib/bundle_bcachefs"])]
+        ),
+        .testTarget(
+            name: "DiskJockeyBCACHEFSCoreTests",
+            dependencies: ["DiskJockeyBCACHEFSCore", "DiskJockeyLibrary", "CBcachefsBundle"],
+            path: "DiskJockeyBCACHEFSCoreTests",
+            exclude: ["Fixtures"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
 

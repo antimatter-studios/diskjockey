@@ -142,6 +142,10 @@ public enum DiskJockeyRepairFiles {
             return "ext4"
         case "ntfs", "fsntfs", "ntfs-fskit":
             return "ntfs"
+        case "bcachefs", "fsbcachefs":
+            // No checker in the driver's C ABI: `startCheck` reports clean
+            // without reading, so there is no repair traffic to carry.
+            return nil
         case "erofs", "fserofs", "squashfs", "fssquashfs":
             // Read-only, immutable filesystems. There is no in-process
             // repair pass to coordinate with — `startCheck` in their

@@ -84,7 +84,7 @@ if grep -qE '^pluginkit -r|^pluginkit -a|^pluginkit -e|^lsregister' "$calls"; th
 else
     ok "the listing makes no registry edit"
 fi
-for fs in ext4 ntfs xfs btrfs erofs squashfs; do
+for fs in ext4 ntfs xfs btrfs erofs squashfs bcachefs; do
     grep -qx "pluginkit -mAvvv -i com.antimatterstudios.diskjockey.$fs" "$calls" \
         && ok "the listing reads $fs" || fail "the listing never asked about $fs"
 done
@@ -114,7 +114,7 @@ out="$(run --keep)"; rc=$?
 [ "$rc" -ne 0 ] && ok "--keep without a path is refused" || fail "--keep without a path was accepted"
 
 # --- The extension list covers every FSKit extension. -----------------------
-for pair in EXT4:ext4 NTFS:ntfs XFS:xfs BTRFS:btrfs EROFS:erofs SQUASHFS:squashfs; do
+for pair in EXT4:ext4 NTFS:ntfs XFS:xfs BTRFS:btrfs EROFS:erofs SQUASHFS:squashfs BCACHEFS:bcachefs; do
     dir="${pair%%:*}"; id="${pair##*:}"
     grep -qF "\"Contents/Extensions/DiskJockey$dir.appex|com.antimatterstudios.diskjockey.$id\"" "$DEV" \
         && ok "FSKIT_EXTENSIONS lists $id" || fail "FSKIT_EXTENSIONS in scripts/dev.sh does not list $id"

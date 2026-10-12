@@ -6,15 +6,15 @@
 # Removes the `[patch.crates-io]` block that dev-link.sh appended to the
 # bundle's Cargo.toml and regenerates its Cargo.lock from crates.io.
 #
-# Usage: scripts/dev-unlink.sh <ext4|ntfs|erofs|squashfs> [--quiet]
+# Usage: scripts/dev-unlink.sh <ext4|ntfs|erofs|squashfs|bcachefs> [--quiet]
 # See also: scripts/dev-link.sh, and the "Local co-development" memory.
 set -euo pipefail
 
 fs="${1:-}"
 quiet=0; [ "${2:-}" = "--quiet" ] && quiet=1
 case "$fs" in
-    ext4|ntfs|erofs|squashfs) ;;
-    *) echo "usage: $0 <ext4|ntfs|erofs|squashfs> [--quiet]" >&2; exit 2 ;;
+    ext4|ntfs|erofs|squashfs|bcachefs) ;;
+    *) echo "usage: $0 <ext4|ntfs|erofs|squashfs|bcachefs> [--quiet]" >&2; exit 2 ;;
 esac
 
 root="$(cd "$(dirname "$0")/.." && pwd)"

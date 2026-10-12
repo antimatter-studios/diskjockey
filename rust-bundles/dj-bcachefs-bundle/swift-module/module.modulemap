@@ -1,0 +1,9 @@
+// The bundle's C ABI as a Swift module, for `swift test` (Package.swift,
+// CBcachefsBundle). The extension reaches the same header through its
+// bridging header instead. The header and the library are built by
+// `make vendor-bundles` (scripts/build-bundles.sh) into lib/bundle_bcachefs.
+module CBcachefsBundle [system] {
+    header "../../../lib/bundle_bcachefs/include/fs_bcachefs.h"
+    link "dj_bcachefs_bundle"
+    export *
+}
