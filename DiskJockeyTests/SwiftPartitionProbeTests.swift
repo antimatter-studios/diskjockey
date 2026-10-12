@@ -60,6 +60,48 @@ struct ClassifyTests {
         return d
     }
 
+    /// XFS: "XFSB" at byte 0, with a power-of-two block size beside it,
+    /// the rule blk.probe applies (#351).
+    @Test func xfsSuperblockDetected() {
+        var d = buf(bytes: Array("XFSB".utf8), at: 0)
+        d.replaceSubrange(4..<8, with: [0x00, 0x00, 0x10, 0x00])  // 4096, big-endian
+        #expect(SwiftPartitionProbe.classify(d) == "xfs")
+    }
+
+    @Test func xfsMagicWithANonsenseBlockSizeIsNotXfs() {
+        var d = buf(bytes: Array("XFSB".utf8), at: 0)
+        d.replaceSubrange(4..<8, with: [0x00, 0x00, 0x10, 0x01])
+        #expect(SwiftPartitionProbe.classify(d) != "xfs")
+    }
+
+    /// Btrfs: "_BHRfS_M" 64 bytes into the superblock at 64 KiB, which
+    /// names its own offset in `bytenr` (#351).
+    @Test func btrfsSuperblockDetected() {
+        var d = buf(size: 0x10100, bytes: Array("_BHRfS_M".utf8), at: 0x10040)
+        d.replaceSubrange(0x10030..<0x10038, with: [0x00, 0x00, 0x01, 0, 0, 0, 0, 0])  // 0x10000 LE
+        #expect(SwiftPartitionProbe.classify(d) == "btrfs")
+    }
+
+    @Test func btrfsMagicAtAnotherOffsetIsNotBtrfs() {
+        var d = buf(size: 0x10100, bytes: Array("_BHRfS_M".utf8), at: 0x10040)
+        d.replaceSubrange(0x10030..<0x10038, with: [0x00, 0x00, 0x02, 0, 0, 0, 0, 0])
+        #expect(SwiftPartitionProbe.classify(d) != "btrfs")
+    }
+
+    /// The window read from a partition reaches Btrfs's superblock: it was
+    /// 36 KiB, short of 64 KiB.
+    @Test func aBtrfsPartitionIsSniffedThroughItsHandle() throws {
+        var d = Data(count: 0x20000)
+        d.replaceSubrange(0x10040..<0x10048, with: Array("_BHRfS_M".utf8))
+        d.replaceSubrange(0x10030..<0x10038, with: [0x00, 0x00, 0x01, 0, 0, 0, 0, 0])
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("btrfs-\(UUID().uuidString).img")
+        try d.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        #expect(SwiftPartitionProbe.sniffFS(handle: handle, at: 0, maxBytes: UInt64(d.count)) == "btrfs")
+    }
+
     @Test func ntfsOEMStringDetected() {
         #expect(SwiftPartitionProbe.classify(bootSector(oem: "NTFS    ")) == "ntfs")
     }
