@@ -173,15 +173,14 @@ final class FSKitMountService {
         }
         var c = Classified()
         for part in partitions {
+            // DiskJockey's own filesystems, through their FSKit extensions:
+            // every one the app ships, from the one list (diskjockey#351).
+            // The extension key doubles as the mount fsType.
+            if let key = ShippedFilesystems.extensionKey(forProbeKind: part.fsKind) {
+                c.supported.append((part, key))
+                continue
+            }
             switch part.fsKind {
-            case "ext4", "ext3", "ext2": c.supported.append((part, "ext4"))
-            case "ntfs":                  c.supported.append((part, "ntfs"))
-            // Read-only DiskJockey filesystems. Mounted via our own FSKit
-            // extensions (the FSPersonalities name doubles as the mount
-            // fsType). No write/repair path; they only support the raw /
-            // fs_core-slice mount path the hdiutil flow provides.
-            case "squashfs":              c.supported.append((part, "squashfs"))
-            case "erofs":                 c.supported.append((part, "erofs"))
             case "fat32", "fat16":
                 if hdiutilCompatible { c.supported.append((part, "msdos")) }
                 else { c.skipped.append(part) }
@@ -505,6 +504,19 @@ enum FSKitAttachController {
             } catch { /* fall through to ext4 probe */ }
         }
 
+        // Any filesystem the app ships an extension for, by the classifier
+        // the partition probe uses (diskjockey#351).
+        do {
+            try handle.seek(toOffset: 0)
+            if let head = try handle.read(upToCount: Int(SwiftPartitionProbe.sniffWindow)),
+               let key = ShippedFilesystems.extensionKey(
+                   forProbeKind: SwiftPartitionProbe.classify(head)) {
+                return (key, nil)
+            }
+        } catch {
+            return (nil, nil)
+        }
+
         // ext4: superblock magic 0xEF53 at byte offset 1080 (0x438),
         // little-endian.
         do {
@@ -548,12 +560,9 @@ enum FSKitAttachController {
         // container formats) then fall back to direct magic-byte detection.
         let detected = detectFSType(at: url)
         let resolvedFsType: String? = {
-            if let kind = probe?.deviceFsKind, kind != "unknown" {
-                switch kind {
-                case "ext4", "ext3", "ext2": return "ext4"
-                case "ntfs": return "ntfs"
-                default: break
-                }
+            if let kind = probe?.deviceFsKind,
+               let key = ShippedFilesystems.extensionKey(forProbeKind: kind) {
+                return key
             }
             return detected.fsType
         }()
@@ -601,14 +610,14 @@ enum FSKitAttachController {
     private static func attachMultiPartition(url: URL,
                                              probe: DiskProbeResult,
                                              logRepository: LogRepository?) {
-        // DiskJockey-shipped drivers: ext4 + NTFS via the FSKit
-        // extensions. Apple-shipped drivers reachable via hdiutil:
+        // DiskJockey-shipped drivers: every FSKit extension the app ships
+        // (ShippedFilesystems). Apple-shipped drivers reachable via hdiutil:
         // FAT16/FAT32 (mount_msdos), exFAT (mount_exfat), HFS+
         // (mount_hfs), APFS (mount_apfs). Apple drivers ONLY work
         // when the source is raw — hdiutil doesn't understand
         // qcow2/vhd/vhdx/vmdk so partitions inside containers route
         // only to our extensions.
-        let ourKinds: Set<String> = ["ext4", "ext3", "ext2", "ntfs", "squashfs", "erofs"]
+        let ourKinds = ShippedFilesystems.probeKinds
         let appleKinds: Set<String> = ["fat32", "fat16", "exfat", "hfs_plus", "apfs"]
         let containerSupportsApple = ["raw", "vhd", "vmdk"].contains(probe.container)
         func isSupported(_ p: DiskProbeResult.Partition) -> Bool {

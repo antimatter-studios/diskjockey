@@ -22,19 +22,20 @@ import Combine
 import AppKit
 import FSKit
 import OSLog
+import DiskJockeyLibrary
 
 @MainActor
 public final class ExtensionStateService: ObservableObject {
 
     private static let log = Logger(subsystem: "com.antimatterstudios.diskjockey", category: "ExtensionState")
-    /// Short fs key ("ext4", "ntfs", "erofs", "squashfs") → whether its
+    /// Short fs key (ShippedFilesystems, and "fileprovider") → whether its
     /// FSKit extension is enabled. A key is ABSENT when it couldn't be
     /// determined (treat as unknown; the UI falls back to mounted-volume
     /// evidence).
     @Published public private(set) var enabled: [String: Bool] = [:]
 
     private static let bundlePrefix = "com.antimatterstudios.diskjockey"
-    private static let keys = ["ext4", "ntfs", "erofs", "squashfs", "fileprovider"]
+    private static let keys = ShippedFilesystems.keys + ["fileprovider"]
 
     /// Re-poll cadence while the app is open, so a toggle flipped in System
     /// Settings shows up without the user re-navigating.
