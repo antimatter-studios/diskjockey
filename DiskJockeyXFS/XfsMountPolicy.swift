@@ -57,4 +57,29 @@ protocol XfsMountedVolumeDriver: ReadOnlyVolumeDriver {
     /// fs_xfs_flush: write everything the handle has logged to its home on
     /// the device. Zero, or negative with the reason in `lastErrno()`.
     func flush() -> Int32
+
+    /// fs_xfs_create and fs_xfs_mkdir: a new empty regular file, or
+    /// directory, with permission bits `mode`, owned by uid 0 and gid 0.
+    /// Its inode number, or 0 with the reason in `lastErrno()`.
+    func create(_ path: VolumePath, mode: UInt16) -> UInt64
+    func mkdir(_ path: VolumePath, mode: UInt16) -> UInt64
+
+    /// fs_xfs_unlink (a file or symlink) and fs_xfs_rmdir (an empty
+    /// directory). Zero, or negative with the reason in `lastErrno()`.
+    func unlink(_ path: VolumePath) -> Int32
+    func rmdir(_ path: VolumePath) -> Int32
+
+    /// fs_xfs_link: a second name, `destination`, for the file at `source`.
+    /// Zero, or negative with the reason in `lastErrno()`.
+    func link(_ source: VolumePath, to destination: VolumePath) -> Int32
+
+    /// fs_xfs_rename2: move `source` to `destination` in one record,
+    /// replacing a name there when `replace` (FS_XFS_RENAME_REPLACE), as
+    /// rename(2) does. Zero, or negative with the reason in `lastErrno()`.
+    func rename(_ source: VolumePath, to destination: VolumePath, replace: Bool) -> Int32
+
+    /// fs_xfs_set_attributes: each field nil is left as it is. Zero, or
+    /// negative with the reason in `lastErrno()`.
+    func setAttributes(_ path: VolumePath, mode: UInt32?, uid: UInt32?, gid: UInt32?,
+                       accessed: timespec?, modified: timespec?) -> Int32
 }
