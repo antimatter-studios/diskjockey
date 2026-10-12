@@ -1,8 +1,10 @@
 # DiskJockey
 
-![mainwindow](media/diskjockey-ext4.png)
+![DiskJockey showing a mounted ext4 volume: its mode and status, drive usage, file and block-device activity, and the volume's superblock](media/screenshot-volume.png)
 
-DiskJockey is a macOS application for mounting remote storage and disk images as native Finder volumes. It unifies three categories of filesystems — **network/cloud storage**, **block-device disk images**, and **local passthrough** — behind a consistent Finder experience. The block-device side is built on **FSKit** (macOS 15+) with pure-Rust filesystem drivers linked directly into per-filesystem extensions; the network side uses a **File Provider** extension backed by a Go networking library. Use it when you want ext4 / NTFS images and FTP / SFTP / SMB / WebDAV / S3 / Dropbox / Google Drive / OneDrive endpoints to look and behave like ordinary Finder volumes, without kernel extensions and without bundling third-party userspace tooling.
+DiskJockey mounts Linux and Windows filesystems, disk images, and network and cloud storage as native Finder volumes on macOS. Block-device filesystems run in **FSKit** extensions, one per filesystem, each linking a pure-Rust driver; network and cloud storage runs in a **File Provider** extension backed by Go drivers. There are no kernel extensions and no FUSE. The host app configures volumes and talks to its own extensions through Apple's frameworks; the one helper, `DiskJockeyAgent`, is started by launchd on demand to attach and probe disk images, which the sandboxed app cannot do itself.
+
+The screenshots in this README were taken on 2026-10-12, before the bcachefs extension was added. The sidebar's `disk0s1` row stuck at "Mounting" is a bug fixed since ([#349](https://github.com/antimatter-studios/diskjockey/issues/349)).
 
 ---
 
@@ -12,28 +14,48 @@ Because DiskJockey installs a File Provider extension and FSKit extensions, macO
 
 ---
 
-## Features
+## What works
 
-- **Native Finder volumes for ext2 / ext3 / ext4 disk images.** Pure-Rust driver, FSKit extension, read + write.
-- **Native Finder volumes for NTFS disk images.** Pure-Rust driver, FSKit extension, mount + read + write.
-- **Native Finder volumes for bcachefs disks and images.** Clean-room pure-Rust driver, FSKit extension, read + write by default (`ro` / `--rdonly` for read-only).
-- **Eight network / cloud filesystems** through a File Provider extension: FTP, SFTP, SMB, WebDAV, S3, Dropbox, Google Drive, OneDrive.
-- **Local-directory passthrough** disk type for end-to-end testing of the File Provider stack.
-- **Per-mount tagged logging** with live in-app log views and per-partition log strips.
-- **Per-mount I/O counters and throughput sparklines for every network driver** — HTTP-based drivers (Dropbox / Google Drive / OneDrive / WebDAV / S3) wrap their `http.Client`; socket-based drivers (FTP / SFTP / SMB) wrap the underlying `net.Conn`. FTPS counts ciphertext bytes (what the wire sees, not the plaintext). One unified `MountStats` snapshot shape across all eight.
-- **Provider-native thumbnails for Dropbox, Google Drive, and OneDrive** — each driver hits the provider's thumbnail endpoint directly (Dropbox `get_thumbnail_v2`, GDrive `thumbnailLink` CDN, OneDrive `/items/{id}/thumbnails`); the source file is never downloaded. Thumbnails go through a SQLite cache so Finder's repeated asks for the same icon never re-fetch.
-- **Browser-based OAuth sign-in** for Dropbox, Google Drive, and OneDrive — refresh tokens stored in Keychain.
-- **Automatic re-authorisation when an OAuth refresh token dies.** All three providers (Dropbox / Google Drive / OneDrive) self-recover from `invalid_grant` failures: the supervisor opens the browser, runs the consent flow, writes the new tokens, and cycles the mount — no "Sign in again" button to find.
-- **Tabler icon set** wired through the sidebar and detail views; OS-flavoured glyphs for ext / NTFS attached disks.
+### Filesystems as Finder volumes
 
-## Supported filesystems at a glance
+| Filesystem | Extension | In Finder | Also |
+|---|---|---|---|
+| ext2 / ext3 / ext4 | `DiskJockeyEXT4` | read-write | journal replay, verify, repair, format |
+| NTFS | `DiskJockeyNTFS` | read-write | verify, format |
+| XFS | `DiskJockeyXFS` | read-write on v5 when the device and the driver can write; otherwise read-only | check |
+| bcachefs | `DiskJockeyBCACHEFS` | read-write; single-device, unencrypted, root subvolume only | |
+| Btrfs | `DiskJockeyBTRFS` | read-only | |
+| EROFS | `DiskJockeyEROFS` | read-only | |
+| SquashFS | `DiskJockeySQUASHFS` | read-only | |
 
-### Network / Cloud (via File Provider extension)
+A writable volume can be mounted read-only with `ro`, or FSKit's `--rdonly`, and a read-only mount answers every change with `EROFS`. XFS mounts read-only on v4, on read-only hardware, and when the log holds records the driver has not applied. A bcachefs write at an offset rewrites the whole file, because the driver's C ABI replaces a file's contents.
+
+Each extension links one static library built from published crates: the filesystem's driver ([rust-fs-ext4](https://github.com/antimatter-studios/rust-fs-ext4), [rust-fs-ntfs](https://github.com/antimatter-studios/rust-fs-ntfs), [rust-fs-xfs](https://github.com/antimatter-studios/rust-fs-xfs), [rust-fs-bcachefs](https://github.com/antimatter-studios/rust-fs-bcachefs), [rust-fs-btrfs](https://github.com/antimatter-studios/rust-fs-btrfs), [rust-fs-erofs](https://github.com/antimatter-studios/rust-fs-erofs), [rust-fs-squashfs](https://github.com/antimatter-studios/rust-fs-squashfs)), [rust-fs-core](https://github.com/antimatter-studios/rust-fs-core), and the disk-image readers. A disk or partition that appears on the system, such as a USB stick, an SD card or an `hdiutil attach`, is offered to every extension by DiskArbitration and mounts through the one whose driver recognises it.
+
+### Disk images
+
+**Add Disk Image** probes an image with `blk.probe`, shows its container and partition table, and mounts each partition DiskJockey has a driver for.
+
+| Container | Opened | Mounted |
+|---|:---:|:---:|
+| raw | ✅ | ✅ |
+| VHD | ✅ | ✅ |
+| VMDK | ✅ | ✅ |
+| qcow2 | ✅ | not yet |
+| VHDX | ✅ | not yet |
+
+Raw, VHD and VMDK images become block devices through `hdiutil attach`, which the unsandboxed `DiskJockeyAgent` runs on the app's behalf; each slice then mounts through DiskArbitration like any other disk. qcow2 and VHDX are read and their partitions listed, but mounting them needs a block-device driver that is not built yet ([`docs/driverkit-qcow2-architecture.md`](docs/driverkit-qcow2-architecture.md)).
+
+![The New Mount sheet for an SFTP drive: type, name, host, port, remote path, SSH agent, credentials, and background fetching](media/screenshot-new-mount.png)
+
+### Network and cloud drives
+
+Eight protocols through one File Provider extension, each a driver from [go-networkfs](https://github.com/antimatter-studios/go-networkfs):
 
 | Driver        | Auth                          | List | Read | Write | Delete | Rename |
 |---------------|-------------------------------|:----:|:----:|:-----:|:------:|:------:|
 | FTP           | username / password           | ✅   | ✅   | ✅    | ✅     | ✅     |
-| SFTP          | password / SSH key            | ✅   | ✅   | ✅    | ✅     | ✅     |
+| SFTP          | password / SSH key / SSH agent | ✅   | ✅   | ✅    | ✅     | ✅     |
 | SMB           | username / password           | ✅   | ✅   | ✅    | ✅     | ✅     |
 | WebDAV        | basic auth                    | ✅   | ✅   | ✅    | ✅     | ✅     |
 | S3            | access key / secret           | ✅   | ✅   | ✅    | ✅     | ✅     |
@@ -41,101 +63,74 @@ Because DiskJockey installs a File Provider extension and FSKit extensions, macO
 | Google Drive  | OAuth2 (browser sign-in)      | ✅   | ✅   | ✅    | ✅     | ✅     |
 | OneDrive      | OAuth2 PKCE (browser sign-in) | ✅   | ✅   | ✅    | ✅     | ✅     |
 
-### Block-device disk images (via FSKit)
+- **Browser sign-in** for Dropbox, Google Drive and OneDrive, with refresh tokens in the Keychain. When a refresh token dies, the app runs the consent flow again and remounts the drive by itself.
+- **Provider-native thumbnails** for Dropbox, Google Drive and OneDrive: each driver asks the provider's thumbnail endpoint, so the file itself is never downloaded, and a SQLite cache stops Finder's repeated requests from fetching again.
+- **Background fetching** of thumbnails and metadata, switchable per drive.
 
-| Filesystem | Target            | Status |
-|------------|-------------------|--------|
-| ext2 / ext3 / ext4 | `DiskJockeyEXT4/` | Mount + read + write; clean unmount; fsck via callback ABI |
-| NTFS               | `DiskJockeyNTFS/` | Mount + read + write; verify via `startCheck`; volumes round-trip with the canonical Windows tooling |
-| bcachefs           | `DiskJockeyBCACHEFS/` | Mount + read + write by default: create, mkdir, remove, rename, symlink, hard link, write, truncate, mode, owner, extended attributes (`user.` namespace). Single-device, unencrypted filesystems; the root subvolume only; times are read but not set; no checker or format |
+OAuth app-registration instructions: [Dropbox](docs/dropbox-registration.md), [Google Drive](docs/google-drive-registration.md), [Microsoft OneDrive](docs/microsoft-onedrive-registration.md).
 
-OAuth app-registration instructions for the cloud drivers are in [`docs/`](docs/):
-- [Dropbox](docs/dropbox-registration.md)
-- [Google Drive](docs/google-drive-registration.md)
-- [Microsoft OneDrive](docs/microsoft-onedrive-registration.md)
+### Watching and fixing a volume
+
+- **Per-volume detail.** Mode (read-write or read-only), clean or dirty, drive usage, and everything the driver reads from the superblock: UUID, label, features, block and inode counts, mount history.
+- **Live I/O.** Read and write throughput, operation counts and latency, both at the file level and on the block device underneath, with a 60-second sparkline. Network drives get the same panel, counted at the HTTP transport or at the socket.
+- **Verify and repair.** An ext4 volume page offers Verify and Repair Filesystem, and an NTFS volume page offers Verify. Each runs inside the volume's own extension, with normal file access held off for the duration; see [Verify and repair](#verify--repair-in-extension-by-toggling-the-drives-mode). An XFS check runs the driver's checker through FSKit's check task and reports what it finds.
+- **Format.** An empty disk can be formatted as ext4 or NTFS through FSKit, under one administrator prompt.
+- **Logs.** Every mount tags its own log lines; the Logs page filters them by scope and text and exports them, and each volume's page shows its own.
+- **Home and About.** Home counts local volumes, network drives and empty drives and shows which of the seven filesystem extensions are enabled. About shows the build, each filesystem bundle with the crate versions it resolved, and go-networkfs.
+
+![The Logs page: tagged lines from the ext4 and NTFS extensions as they probe, mount and replay their volumes](media/screenshot-logs.png)
 
 ---
 
-## What works
-
-Concrete, observable on a current build:
-
-- **ext4 FSKit extension** mounts ext2/3/4 images as Finder volumes, lists directories, opens files, accepts writes, and reports superblock metadata (UUID, label, last-mount time, dirty flag) into the host app's detail view.
-- **NTFS FSKit extension** mounts NTFS images, accepts writes, and exposes a verify (`startCheck`) flow with a confirmation dialog and read-only lock indicator. Volumes round-trip with the canonical Windows verify tooling.
-- **XFS mount policy** is read-write by default. A volume mounts writable whenever the hardware can be written and the mounted driver reports it can write; it is read-only only on read-only hardware, under a driver that cannot write, or when mounted with `ro` or FSKit's `--rdonly`. A read-only mount answers every mutation with `EROFS`, and driver refusals are returned without retrying weaker options. The bundle is on rust-fs-xfs 0.14, whose writable device mount carries writes, truncation and flushes to the disk through the log, and whose checker the check task runs; a volume the driver cannot write (v4, or a log holding unapplied records) mounts read-only.
-- **bcachefs FSKit extension** mounts single-device, unencrypted bcachefs disks and images read-write whenever the device is writable, and read-only for `ro` / `--rdonly`. Every write the driver's C ABI has is mapped onto FSKit; a write at an offset rewrites the file whole, as the C ABI replaces contents. What the driver refuses (another subvolume, a casefolded directory, a filesystem it will not write) comes back as its errno.
-- **All eight network drivers** verified end-to-end against their respective servers; writes flow through Finder for every scheme.
-- **Sidebar surfaces unformatted disks** discovered via DiskArbitration, with cold-start persistence and stable identity across sessions.
-- **Format actions** for raw disks route through FSKit `startFormat`, chained under a single admin auth prompt.
-- **Per-mount I/O counters and sparklines** in the detail view for every one of the eight network drivers — HTTP transports counted via `CountingTransport`, socket transports via `CountingConn` at the dial layer.
-- **Browser-based OAuth sign-in** for Dropbox, Google Drive, OneDrive — refresh tokens stored in Keychain.
-- **Auto re-authorise on dead OAuth refresh tokens** — supervisor watches FileProvider mount errors for the `oauth_reauth_required` marker, runs the consent flow in the browser, persists the new tokens, and remounts. No manual "Sign in again" step.
-- **Per-mount thumbnail cache** (SQLite) with a cellular-data gate and enumerator pre-warm.
-- **Local-directory passthrough** for exercising the File Provider pipeline without a real network round trip.
-
 ## What doesn't work
 
-Honest list of known gaps as of 2026-05-09:
+As of 2026-10-14:
 
-- **No batch / multi-select operations** through Finder yet for network mounts; single-item flows only.
-- **No write-back conflict resolution UI** for cloud drivers — last-writer-wins, no merge prompts.
-- **No background sync / offline file pinning** — items are streamed on demand.
-- **No installer / notarised release.** Building from source with an Apple Developer account is the only path today.
-- **UI redesign** — a full SwiftUI redesign of the desktop app is on the backlog; current UI is functional but unpolished in places.
-- **Linux drive icon** uses a Tabler placeholder until a permissively-licensed Tux glyph is sourced.
-- **`diskutil mount` / `diskutil unmount` do not work on FSKit volumes** (ext4, NTFS, XFS, Btrfs, bcachefs, EROFS, SquashFS). diskutil goes through storagekitd, which does not recognise third-party FSKit file systems and fails before asking DiskArbitration. The app mounts and unmounts through DiskArbitration instead; from a shell, use `mount -F -t ext4 diskNsM <dir>` and `umount <dir>`.
+- **qcow2 and VHDX images open but do not mount** yet (see [Disk images](#disk-images)).
+- **Btrfs is read-only.** The driver reads everything, subvolumes and snapshots included; its copy-on-write write path is not built. EROFS and SquashFS are read-only formats.
+- **XFS has no repair.** The check task reports the driver's findings, but the driver's repair is not reachable through its C ABI yet, so a repair request is refused. XFS work is tracked in [#319](https://github.com/antimatter-studios/diskjockey/issues/319).
+- **bcachefs is limited to single-device, unencrypted filesystems and the root subvolume.** Other subvolumes are listed but cannot be entered, times are read but not set, and there is no check or format.
+- **Verify on a mounted ext4 volume fails with "Resource busy"** ([#348](https://github.com/antimatter-studios/diskjockey/issues/348)).
+- **`diskutil mount` / `diskutil unmount` do not work on FSKit volumes.** diskutil goes through storagekitd, which does not recognise third-party FSKit file systems and fails before asking DiskArbitration. The app mounts and unmounts through DiskArbitration instead; from a shell, use `mount -F -t ext4 diskNsM <dir>` and `umount <dir>`.
+- **Network drives:** no batch or multi-select operations through Finder yet, no conflict-resolution UI (last writer wins), and no offline pinning (items stream on demand).
+- **Distribution:** releases go to the Mac App Store; otherwise build from source with an Apple Developer account.
 
 ---
 
 ## Tested
 
-Test surface across the project:
+- **The drivers** are tested in their own repositories, each against independent oracles for its format rather than against itself. For ext4 that means e2fsprogs and the Linux kernel in a test VM, plus lwext4 as a third implementation; for NTFS, the canonical Windows tooling on Windows CI.
+- **XFS v5 releases** are gated by a [signed macOS validation job](docs/xfs-v5-release-validation.md) that mounts, writes, remounts, checks and repairs through the FSKit extension and compares the results with Linux oracle evidence.
+- **The app** is built and tested on macOS for every pull request:
+  - `Build & Test` builds the app and runs `DiskJockeyTests` with `xcodebuild`.
+  - `Library tests` runs `DiskJockeyLibraryTests` with `swift test`.
+  - `Shell scripts` runs every guard under `scripts/tests/`.
 
-- **[`rust-fs-ext4`](https://github.com/christhomas/rust-fs-ext4)** (sibling repository) — ~444 Rust test cases across the integration suite (`tests/*.rs`), including write-path crash-safety, sequence-advance, orphan recovery, ext3 RW, journal replay, and CI validation that round-trips formatted images through the Linux-side reference validator on every push.
-- **[`rust-fs-ntfs`](https://github.com/christhomas/rust-fs-ntfs)** (sibling repository) — ~395 Rust test cases, plus a data-driven matrix runner (`tests/matrix.rs` + `test-matrix.json`) that emits one trial per scenario and shells out to the platform's canonical validator on Windows runners. Mac-side mount + write smoke is the contract that gates the matrix.
-- **[`go-networkfs`](https://github.com/christhomas/go-networkfs)** (sibling repository) — per-driver Go test suites and a Docker Compose stack (`test-server/`) with FTP / SFTP / WebDAV / SMB endpoints for end-to-end driver tests.
-- **DiskJockey host app** — Swift model + extension unit tests under `DiskJockey*Tests/` (mount config, log routing, FSKit shim translation).
+  Each tier has a floor on the number of tests it executes, so a suite that silently stops running fails.
+- **The network drivers** have per-driver Go test suites in go-networkfs, and a Docker Compose stack with FTP, SFTP, WebDAV and SMB endpoints for end-to-end runs (see [Build](#test-stack-for-network-drivers)).
 
-The two Rust libraries together publish a stable C ABI (`fs_ext4_*`, `fs_ntfs_*`) and the FSKit extensions are thin Swift shims over those entry points; the test investment is concentrated in the libraries where the format complexity lives.
-
-## Not tested
-
-Gaps to know about before trusting this with real data:
-
-- **No fuzzing of the FSKit shim layer** — only the underlying Rust libraries have fuzz harnesses.
-- **No automated end-to-end test** that drives the full GUI → File Provider → network driver path; integration coverage stops at the protobuf boundary on each side.
-- **No CI for the macOS app bundle itself** — only the vendored Rust + Go libraries have hosted CI. Xcode builds are local-only.
-- **NTFS write coverage** is comprehensive at the format layer but light on adversarial cases (concurrent multi-writer, partial-power-loss simulation beyond what the matrix scenarios cover).
-- **OAuth refresh-token auto-recovery** has been exercised manually (revoke access in Google's account settings → next Finder op pops the browser → re-consent → mount returns) but not soak-tested against month-long-stale tokens or cross-provider rotation edge cases.
-- **Cloud driver rate-limit handling** — no soak tests against Dropbox / Google Drive / OneDrive API throttling.
+Not covered yet: fuzzing of the Swift FSKit layer (the Rust drivers have fuzz harnesses), an automated end-to-end run from the GUI through File Provider to a network server, and soak tests against cloud API rate limits or month-old OAuth tokens.
 
 ---
 
 ## Roadmap
 
-### Mounting + lifecycle
+### Filesystems and images
+- [ ] XFS repair, and the rest of the XFS v5 work ([#319](https://github.com/antimatter-studios/diskjockey/issues/319))
+- [ ] bcachefs subvolumes, multiple devices and encryption
+- [ ] Mount qcow2 and VHDX images
+- [ ] Btrfs read-write
+
+### Network drives
 - [ ] Auto-mount network volumes at login
-- [ ] Background sync + offline pinning for cloud drivers
-
-### Filesystem coverage
-- [ ] ext3 journal coverage parity with ext4 write path
-- [ ] NTFS adversarial / power-loss test scenarios in the matrix runner
-- [ ] APFS read-only image support (FSKit extension)
-- [ ] FAT32 / exFAT image support
-
-### Network drivers
-- [ ] Additional cloud providers (Box, pCloud, iCloud Drive)
+- [ ] Background sync and offline pinning for cloud drives
 - [ ] Conflict-resolution UI for write-back races
-- [ ] Per-driver rate-limit + retry policy surfaces in the GUI
+- [ ] Additional cloud providers (Box, pCloud, iCloud Drive)
+- [ ] Per-driver rate-limit and retry policy in the GUI
 
-### App polish
-- [ ] Full SwiftUI redesign of the desktop app
-- [ ] Installer / notarised release pipeline
-- [ ] Permissively-licensed Linux/Tux glyph in the sidebar
+### App
+- [ ] Permissively licensed Linux/Tux glyph in the sidebar
 - [ ] Localisation beyond the current strings table
-
-### Tooling
-- [ ] CI for the macOS app bundle (Xcode build + extension smoke)
 - [ ] `THIRD_PARTY_LICENSES.md` generated from `cargo about` + `go-licenses`
 
 ---
@@ -154,7 +149,7 @@ Releases first, then the last ten dated sections. Full history in [`CHANGELOG.md
 2026-04-22 · build 2 — vendor refresh and extension version alignment.
 
 ### Unreleased
-- **XFS v5 release validation.** A [dedicated signed macOS runner](docs/xfs-v5-release-validation.md) checks FSKit mount/read/write/check/repair, remount persistence, read-only/refusal byte preservation and driver/build provenance against independent Linux oracle evidence (#325). Bundle pins and support claims advance only after the release gates pass.
+Changes since v1.2.0 are listed in [`CHANGELOG.md`](CHANGELOG.md).
 
 ### 2026-06-22
 - **Home and About pages (v1.2.0).** The app opens on a new Home landing page — welcome header, live counts (local volumes / network drives / empty drives), a supported-filesystem showcase (ext4·rw, NTFS·rw, EROFS·ro, SquashFS·ro, qcow2/VHD/VHDX/VMDK, and the eight network/cloud schemes), and Add Disk Image / Add Network Drive quick actions. A new About page carries the project description, architecture summary, the full vendored-library version table, and licence/source links; the menu-bar About window is now a compact about box that points to it.
@@ -228,49 +223,28 @@ Releases first, then the last ten dated sections. Full history in [`CHANGELOG.md
 
 ## Architecture
 
-DiskJockey is a host SwiftUI app plus three macOS extensions. Each extension owns one trust / lifecycle boundary; the host app is optional at runtime once a mount is configured. There is **no** Go backend daemon, **no** central XPC bridge, and **no** privileged helper — all three were tried, none survived contact with macOS's extension model, and the current shape is "host app talks to its own extensions through Apple framework APIs, period."
+![DiskJockey architecture: disks and images reach the FSKit extensions through fskitd, each extension links one Rust bundle, and network drives reach Finder through fileproviderd, the File Provider extension and go-networkfs](media/architecture.svg)
 
-```
-                  ┌──────────────────────────┐
-                  │      DiskJockey.app      │   SwiftUI host: configure
-                  │       (host app)         │   mounts, surface logs,
-                  └─────┬──────┬──────┬──────┘   drive OAuth + verify/
-                        │      │      │           repair UI.
-              FSKit / NSFileProvider framework APIs only
-                        │      │      │
-                        ▼      ▼      ▼
-   ┌────────────────┐ ┌───────────────┐ ┌──────────────────────┐
-   │ DiskJockeyEXT4 │ │ DiskJockeyNTFS│ │ DiskJockey           │
-   │ (FSKit appex)  │ │ (FSKit appex) │ │ FileProvider         │
-   │ links fs_ext4 +│ │ links fs_ntfs │ │ (NSFileProvider      │
-   │ img-* + parts  │ │ + img-* +     │ │  appex)              │
-   │ XCFrameworks   │ │ partitions    │ │ links libnetworkfs.a │
-   │                │ │ XCFrameworks  │ │ via cgo + per-driver │
-   │                │ │               │ │ static libs          │
-   └────────┬───────┘ └───────┬───────┘ └──────────────────────┘
-            │                 │
-            └────────┬────────┘
-                     ▼
-        ┌───────────────────────────────────┐
-        │ group.com.antimatterstudios.disk- │
-        │ jockey  (shared App Group)        │
-        │ • verify / repair request +       │
-        │   response JSON                   │
-        │ • cross-process state, log files  │
-        └───────────────────────────────────┘
-```
+DiskJockey is a host SwiftUI app, an unsandboxed helper, seven FSKit extensions and one File Provider extension. Each extension owns one trust and lifecycle boundary, and the host app is optional at runtime once a volume or drive is configured. There is **no** Go backend daemon, **no** central XPC bridge and **no** privileged helper. All three were tried, none survived contact with macOS's extension model, and the current shape is "the host app talks to its own extensions through Apple framework APIs, period."
 
 ### Components
 
-- **DiskJockeyApplication** — SwiftUI macOS host. Configures mounts, hosts the OAuth coordinator + refresh supervisor, surfaces logs, drives the verify/repair UI, persists disk history. Talks to FSKit and File Provider extensions via Apple framework APIs only.
-- **DiskJockeyFileProvider** — File Provider extension. Statically links the Go network library (`libnetworkfs.a`) via cgo plus per-driver static libs (`libftp.a`, `libsftp.a`, `libsmb.a`, `libwebdav.a`, `libs3.a`, `libdropbox.a`, `libgdrive.a`, `libonedrive.a`); dispatches by driver type at the protobuf boundary.
-- **DiskJockeyEXT4 / DiskJockeyNTFS** — FSKit extensions (macOS 15+). Each links a Rust filesystem driver (`fs_ext4.xcframework` / `fs_ntfs.xcframework`) plus the disk-image and partition crates as XCFrameworks through bridging headers, and serves block-device reads + writes directly. No daemon mediation.
-- **DiskJockeyLibrary** — Swift framework shared by the host app and every extension. Holds generated protobuf types, mount-config value types, keychain helpers, the `MountStats` shape, scoped logging, and the verify/repair protocol (`OperationLock`, `RepairRequest`, `RepairResult`).
-- **`OAuthRefreshSupervisor` (host app)** — watches FileProvider `mount.error` events for the `oauth_reauth_required:` marker the Go drivers prefix on dead-refresh failures; opens the browser to the provider's consent screen, persists fresh tokens to Keychain (and through the mount-config plist for Google Drive / OneDrive), then cycles the FileProvider domain so the extension respawns. Per-mount dedupe stops parallel Finder ops opening multiple browser tabs.
+- **DiskJockeyApplication**: the SwiftUI host. Home, per-volume and per-drive pages, Add Disk Image, network drive setup, the OAuth coordinator and refresh supervisor, verify and repair, logs, and the disk history.
+- **DiskJockeyAgent**: an unsandboxed XPC helper, registered as a launch-on-demand agent, that attaches and detaches disk images with `hdiutil` and probes them with `blk.probe` on the app's behalf. It acts only for the signed app, and only on a file the app proves it could open, by passing the open file over XPC.
+- **DiskJockeyEXT4, NTFS, XFS, BCACHEFS, BTRFS, EROFS, SQUASHFS**: FSKit extensions, one per filesystem. Each links `lib/bundle_<fs>/libdj_<fs>_bundle.a`, one Rust staticlib holding the driver, rust-fs-core and the qcow2/VHD/VHDX/VMDK readers, and serves block-device reads and writes directly, with no daemon in between.
+- **DiskJockeyFileProvider**: the File Provider extension. Statically links the Go network library (`libnetworkfs.a`) through cgo, plus one static library per driver, and dispatches by driver type at the protobuf boundary.
+- **DiskJockeyLibrary**: the Swift framework shared by the app and every extension: generated protobuf types, mount configuration, Keychain helpers, the `MountStats` shape, scoped logging, and the verify/repair protocol (`OperationLock`, `RepairRequest`, `RepairResult`).
+- **`OAuthRefreshSupervisor`** (host app) watches File Provider `mount.error` events for the `oauth_reauth_required:` marker the Go drivers prefix on dead-refresh failures. It opens the browser to the provider's consent screen, stores the fresh tokens, and cycles the File Provider domain so the extension respawns. Per-mount dedupe stops parallel Finder operations from opening several browser tabs.
+
+### How a disk image becomes a volume
+
+![Sequence: you pick an image; the app has DiskJockeyAgent run hdiutil attach; the app asks DiskArbitration to mount each slice; fskitd probes the FSKit extensions, whose Rust driver reads the superblock; the extension loads the volume with journal replay deferred and replays it at activate; DiskArbitration reports the mount point](media/mount-sequence.svg)
+
+DiskArbitration, not the app, chooses the extension: fskitd asks each FSKit module whether it recognises the slice, and the module's Rust driver answers from the superblock. A writable volume is loaded with journal replay deferred, because FSKit only hands over a writable device after `loadResource` returns; replay runs at `activate`, and the ext4 driver refuses writes until it has.
 
 ### Verify + repair: in-extension, by toggling the drive's mode
 
-macOS Disk Utility's First Aid has no entry point for driving repair on volumes hosted by a third-party FSKit extension, so DiskJockey hosts its own UI for it. The mechanism is conceptually simple: every mounted volume sits in one of three modes — **online** (the default — normal Finder operations flow through), **verify** (a read-only audit pass is in progress), or **repair** (the driver is scanning the on-disk data structures and fixing them directly). When the volume is in `verify` or `repair`, the FSKit shim **refuses to process file requests** for that volume; nothing else upstairs can race with what the driver is doing on disk.
+macOS Disk Utility's First Aid has no entry point for driving repair on volumes hosted by a third-party FSKit extension, so DiskJockey hosts its own UI for it, for ext4 and NTFS. The mechanism is conceptually simple: every mounted volume sits in one of three modes — **online** (the default — normal Finder operations flow through), **verify** (a read-only audit pass is in progress), or **repair** (the driver is scanning the on-disk data structures and fixing them directly). When the volume is in `verify` or `repair`, the FSKit shim **refuses to process file requests** for that volume; nothing else upstairs can race with what the driver is doing on disk.
 
 End-to-end:
 
@@ -289,9 +263,9 @@ Why files instead of XPC for the request handoff: ExtensionKit appex bundles sil
 - **`diskjockey-cli` (`djctl`)**. Existed only to exercise the Go backend's protobuf API. Removed when the backend was.
 - **`MachServices`-registered XPC for verify/repair coordination.** ExtensionKit ignores those declarations from inside an extension. Replaced by the App Group file-watcher described above.
 
-### Why a separate FSKit path for ext4 / NTFS?
+### Why FSKit for block devices?
 
-Block-device filesystems don't benefit from a server-in-the-middle: all bytes come from a local file or local block device. Sending those bytes across a socket to a separate process and back is pure overhead. FSKit is Apple's sanctioned way to implement a filesystem in user space and link native parsing code directly. The Rust libraries do the format work; the Swift FSKit target is a thin shim over `FSVolume` / `FSItem`.
+Block-device filesystems don't benefit from a server in the middle: every byte comes from a local file or block device, and sending it across a socket to another process and back is pure overhead. FSKit is Apple's sanctioned way to implement a filesystem in user space and link native parsing code directly. The Rust libraries do the format work; each Swift FSKit target is a thin layer over `FSVolume` / `FSItem`.
 
 ---
 
@@ -301,24 +275,32 @@ Block-device filesystems don't benefit from a server-in-the-middle: all bytes co
 .
 ├── DiskJockey.xcodeproj/
 ├── DiskJockeyApplication/        # SwiftUI host app
+├── DiskJockeyAgent/              # unsandboxed XPC helper: hdiutil attach / detach
+├── DiskJockeyEXT4/               # FSKit extension: ext2/3/4
+├── DiskJockeyNTFS/               # FSKit extension: NTFS
+├── DiskJockeyXFS/                # FSKit extension: XFS
+├── DiskJockeyBCACHEFS/           # FSKit extension: bcachefs
+├── DiskJockeyBTRFS/              # FSKit extension: Btrfs
+├── DiskJockeyEROFS/              # FSKit extension: EROFS
+├── DiskJockeySQUASHFS/           # FSKit extension: SquashFS
 ├── DiskJockeyFileProvider/       # File Provider extension (network mounts)
-├── DiskJockeyEXT4/               # FSKit extension for ext2/3/4 images
-├── DiskJockeyNTFS/               # FSKit extension for NTFS
 ├── DiskJockeyLibrary/            # Shared Swift framework
-│   ├── Models/
-│   ├── NetworkFS/                # Per-driver MountConfig structs + keychain
-│   ├── FileProvider/             # FileProvider XPC protocol + repair types
-│   └── Protobuf/                 # .proto sources + generated Swift
+├── DiskJockey*Tests/             # app, library and per-extension core tests
 ├── docs/                         # End-user + developer docs
-├── scripts/                      # Build helpers
+│   └── diagrams/                 # archify sources for the README diagrams
+├── media/                        # README screenshots and rendered diagrams
+├── scripts/                      # Build helpers and their tests
 ├── lib/                          # Build outputs (not committed)
 │   ├── bundle_<fs>/              # one Rust staticlib + headers per filesystem
+│   ├── blk.probe/                # the image and partition probe
 │   └── go-networkfs/             # libnetworkfs.a + per-driver static libs
 └── rust-bundles/                 # dj-<fs>-bundle crates, resolved from crates.io
 
 # Beside this repository, not inside it:
 ../go-networkfs/                  # Go network drivers, pinned in SIBLING_PINS.txt
 ```
+
+The diagrams are rendered from `docs/diagrams/*.json` with [archify](https://github.com/tt-a1i/archify). Change the JSON, validate it with `archify validate <type> <file> --quality showcase`, render it, and export the SVG from the viewer's Export menu into `media/`.
 
 ---
 
@@ -350,9 +332,10 @@ For a full audit of every dependency licence and the verdict that the MIT licenc
 
 Sibling projects and published crates — all permissively licensed, see [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) and [`docs/intellectual-property-review.md`](docs/intellectual-property-review.md) for the per-crate verdict:
 
-- `rust-fs-core`, `rust-fs-ext4`, `rust-fs-ntfs` (filesystem drivers)
+- `rust-fs-core`, `rust-fs-ext4`, `rust-fs-ntfs`, `rust-fs-xfs`, `rust-fs-bcachefs`, `rust-fs-btrfs`, `rust-fs-erofs`, `rust-fs-squashfs` (filesystem drivers)
 - `rust-img-qcow2`, `rust-img-vhd`, `rust-img-vhdx`, `rust-img-vmdk` (disk-image readers)
-- `rust-partitions` (MBR / GPT probe)
+- `rust-lzo1x` (LZO decompression for Btrfs and SquashFS)
+- `rust-blk-probe` (`blk.probe`, the image and partition probe)
 - `go-networkfs` (Go network FS drivers — MIT)
 - `tabler-icons` (MIT — Paweł Kuna; icons fetched by `scripts/sync-tabler-icons.rb`, not vendored)
 
@@ -362,9 +345,9 @@ Sibling projects and published crates — all permissively licensed, see [`THIRD
 
 ### Prerequisites
 
-- **macOS 15 (Sequoia) or later** — FSKit requires it
-- **Xcode 16+**
-- **Go 1.25+**
+- **macOS 26 or later**: the app and its extensions are built for macOS 26
+- **Xcode 26+**
+- **Go 1.26+**, the version go-networkfs declares
 - **Rust toolchain** (current stable; the Rust crates pin via `rust-toolchain.toml`)
 - **`protoc`** with `protoc-gen-go` and `protoc-gen-swift`
 - **Apple Developer account** (for code signing — required to run the File Provider and FSKit extensions)
@@ -377,7 +360,7 @@ git clone https://github.com/antimatter-studios/diskjockey.git
 # go-networkfs is a sibling checkout, not a submodule: clone it beside this
 # repository at the ref SIBLING_PINS.txt names (this is what CI does).
 ref=$(awk '$1=="go-networkfs"{print $2}' diskjockey/SIBLING_PINS.txt)
-git clone --branch "$ref" https://github.com/christhomas/go-networkfs.git go-networkfs
+git clone --branch "$ref" https://github.com/antimatter-studios/go-networkfs.git go-networkfs
 cd diskjockey
 ```
 
@@ -392,7 +375,7 @@ make vendor-all
 This runs:
 
 1. `vendor-bundles` — `scripts/build-bundles.sh` builds one Rust static library per filesystem from `rust-bundles/dj-<fs>-bundle` into `lib/bundle_<fs>/`.
-2. `vendor-gonetworkfs` — builds per-driver Go static libs (`libftp.a`, `libsftp.a`, …) plus the combined `libnetworkfs.a` dispatcher into `lib/go-networkfs/`.
+2. `vendor-gonetworkfs` — builds per-driver Go static libs (`libftp.a`, `libsftp.a`, …) plus the combined `libnetworkfs.a` dispatcher into `lib/go-networkfs/`. It expects go-networkfs at `../go-networkfs`; from a worktree elsewhere, set `NETWORKFS_SRC=/path/to/go-networkfs`.
 
 `make vendor-probe` stages `blk.probe`, the image and partition probe the app runs, into `lib/blk.probe/`. It is not built: `scripts/build-blk.probe.sh` downloads the darwin-arm64 tarball from the release of the `rust-blk-probe` tag pinned in `SIBLING_PINS.txt`, checks its sha256 and its build-provenance attestation with `gh`, and refuses to stage anything that fails either.
 
@@ -410,7 +393,15 @@ make proto
 xcodebuild -scheme DiskJockey -allowProvisioningUpdates build
 ```
 
-A Run Script phase invokes `bash -lc "which go"` and rebuilds the network library on each Xcode build. **User Script Sandboxing must be off** for the target — the script needs Keychain access during signing.
+The Xcode build does not rebuild the vendored libraries: run `make vendor-all` again after a pin or a bundle changes. The app target's one Run Script phase copies each `lib/*/VERSION*.txt` into the bundle for the About page, and User Script Sandboxing is off for that target because a sandboxed script may read only the input files its phase declares, and a glob cannot be declared.
+
+### Install a local build
+
+```bash
+scripts/build-installable.sh --install   # or: make installable-install
+```
+
+Builds a Release-configured `DiskJockey.app` signed with your team's Apple Development certificate and installs it into `/Applications`, after asking before it replaces an existing copy. Other `DiskJockey.app` copies on the machine, such as Xcode's DerivedData builds, register the same extension identifiers, and macOS may pick one of them; after a development build, run `/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f -R /Applications/DiskJockey.app` to make the installed copy the one in use.
 
 ### Test stack for network drivers
 
