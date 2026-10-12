@@ -171,6 +171,61 @@ final class XfsDriver: XfsMountedVolumeDriver {
         }
     }
 
+    func getXattr(_ path: VolumePath, name: [UInt8]) -> [UInt8]? {
+        guard let fs else { return nil }
+        return path.withCString { p in
+            Self.withCName(name) { n in
+                Self.sized { buf, size in fs_xfs_getxattr(fs, p, n, buf, size) }
+            }
+        }
+    }
+
+    func listXattrs(_ path: VolumePath) -> [[UInt8]]? {
+        guard let fs else { return nil }
+        let names = path.withCString { p in
+            Self.sized { buf, size in fs_xfs_listxattr(fs, p, buf, size) }
+        }
+        return names.map { $0.split(separator: 0).map(Array.init) }
+    }
+
+    func setXattr(_ path: VolumePath, name: [UInt8], value: [UInt8], flags: Int32) -> Int32 {
+        guard let fs else { return -1 }
+        return path.withCString { p in
+            Self.withCName(name) { n in
+                value.withUnsafeBytes { fs_xfs_setxattr(fs, p, n, $0.baseAddress, $0.count, flags) }
+            }
+        }
+    }
+
+    func removeXattr(_ path: VolumePath, name: [UInt8]) -> Int32 {
+        guard let fs else { return -1 }
+        return path.withCString { p in
+            Self.withCName(name) { n in fs_xfs_removexattr(fs, p, n) }
+        }
+    }
+
+    /// The size first, then the bytes into a buffer of it. A value that
+    /// grew in between is ERANGE, and is asked for again.
+    private static func sized(_ call: (UnsafeMutableRawPointer?, Int) -> Int64) -> [UInt8]? {
+        for _ in 0..<4 {
+            let size = call(nil, 0)
+            guard size >= 0 else { return nil }
+            if size == 0 { return [] }
+            var buffer = [UInt8](repeating: 0, count: Int(size))
+            let got = buffer.withUnsafeMutableBytes { call($0.baseAddress, $0.count) }
+            if got >= 0 { return Array(buffer.prefix(Int(got))) }
+            guard fs_xfs_last_errno() == ERANGE else { return nil }
+        }
+        return nil
+    }
+
+    /// An attribute name as the C string the ABI takes.
+    private static func withCName<R>(_ name: [UInt8], _ body: (UnsafePointer<CChar>) -> R) -> R {
+        (name + [0]).withUnsafeBufferPointer {
+            $0.withMemoryRebound(to: CChar.self) { body($0.baseAddress!) }
+        }
+    }
+
     func readlink(_ path: VolumePath, _ buffer: UnsafeMutablePointer<CChar>,
                   _ size: Int) -> Int32 {
         guard let fs else { return -1 }

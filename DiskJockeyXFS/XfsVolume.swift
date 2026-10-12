@@ -2,12 +2,13 @@
  * XfsVolume.swift — FSKit volume for XFS.
  *
  * Implements FSVolume.Operations + FSVolume.ReadWriteOperations +
- * FSVolume.PathConfOperations. Mutating operations require a writable
- * mount: writable hardware, a mounted driver that can write, and no ro or
- * --rdonly (diskjockey#343); read-only mounts return EROFS.
- * Writes rewrite existing bytes and set-attributes shortens a file, as far
- * as the published driver goes (diskjockey#322); unmapped operations on an
- * approved handle return ENOTSUP.
+ * FSVolume.PathConfOperations + FSVolume.XattrOperations. Mutating
+ * operations require a writable mount: writable hardware, a mounted driver
+ * that can write, and no ro or --rdonly (diskjockey#343); read-only mounts
+ * return EROFS. Writes, size, mode, owner and time changes, creates,
+ * removals, renames, hard links and extended attributes each reach the
+ * driver's logged record (diskjockey#322, #326, #327, #328); what the
+ * driver cannot make (a symlink, a device) returns ENOTSUP.
  * Reads/lookups/enumeration dispatch to the
  * driver. XFS inode numbers are 64-bit, so item identity is UInt64
  * (XfsItem / XfsTag).
@@ -28,7 +29,8 @@ import DiskJockeyLibrary
 final class XfsVolume: FSVolume,
                          FSVolume.Operations,
                          FSVolume.ReadWriteOperations,
-                         FSVolume.PathConfOperations {
+                         FSVolume.PathConfOperations,
+                         FSVolume.XattrOperations {
 
     private var driver: ReadOnlyVolumeDriver?
     private var mountAccess: XfsMountAccess
@@ -184,38 +186,53 @@ final class XfsVolume: FSVolume,
         return Self.attributes(from: attr, parentInode: eItem.parentInode)
     }
 
+    /// Size through fs_xfs_truncate, which stamps the modification time in
+    /// the same record; mode, owner and the access and modification times
+    /// through one fs_xfs_set_attributes (diskjockey#328). A field the ABI
+    /// cannot set refuses the whole request before anything is written.
     func setAttributes(
         _ newAttributes: FSItem.SetAttributesRequest,
         on item: FSItem
     ) async throws -> FSItem.Attributes {
-        try requireWritableMount()
-        guard let driver = driver as? XfsMountedVolumeDriver,
-              let eItem = item as? XfsItem else {
-            throw POSIXError(.EBADF)
-        }
-        // Only a size change is mapped; mode, ownership and times are
-        // #323's. A request carrying one is refused whole, before the size
-        // moves, rather than half applied and reported as a failure.
-        guard newAttributes.isValid(.size),
-              !newAttributes.isValid(.mode), !newAttributes.isValid(.uid),
-              !newAttributes.isValid(.gid), !newAttributes.isValid(.accessTime) else {
+        let driver = try writableDriver()
+        guard let eItem = item as? XfsItem else { throw POSIXError(.EBADF) }
+        let unsettable: [FSItem.Attribute] = [
+            .type, .linkCount, .flags, .allocSize, .fileID, .parentID,
+            .changeTime, .birthTime, .backupTime, .addedTime,
+        ]
+        guard !unsettable.contains(where: { newAttributes.isValid($0) }) else {
             throw POSIXError(.ENOTSUP)
         }
-        // A size change moves mtime. fs_xfs_truncate stamps it in the same
-        // transaction, so a requested time rides along and is consumed.
-        var consumed: FSItem.Attribute = [.size]
-        var modified = Self.now()
-        if newAttributes.isValid(.modifyTime) {
-            modified = newAttributes.modifyTime
-            consumed.insert(.modifyTime)
+
+        var consumed: FSItem.Attribute = []
+        defer { newAttributes.consumedAttributes = consumed }
+        var modified: timespec? = newAttributes.isValid(.modifyTime) ? newAttributes.modifyTime : nil
+        if newAttributes.isValid(.size) {
+            // A size change moves mtime; a requested time rides along.
+            guard driver.truncate(eItem.volumePath, to: newAttributes.size,
+                                  modified: modified ?? Self.now()) == 0 else {
+                throw driver.lastPOSIXError()
+            }
+            consumed.insert(.size)
+            if modified != nil { consumed.insert(.modifyTime) }
+            modified = nil
         }
-        // Growing needs allocation the published driver refuses with
-        // ENOTSUP; that errno is the answer, not an approximation.
-        guard driver.truncate(eItem.volumePath, to: newAttributes.size,
-                              modified: modified) == 0 else {
-            throw driver.lastPOSIXError()
+        // chmod changes permission bits; the type bits are not an attribute.
+        let mode = newAttributes.isValid(.mode) ? newAttributes.mode & 0o7777 : nil
+        let uid = newAttributes.isValid(.uid) ? newAttributes.uid : nil
+        let gid = newAttributes.isValid(.gid) ? newAttributes.gid : nil
+        let accessed = newAttributes.isValid(.accessTime) ? newAttributes.accessTime : nil
+        if mode != nil || uid != nil || gid != nil || accessed != nil || modified != nil {
+            guard driver.setAttributes(eItem.volumePath, mode: mode, uid: uid, gid: gid,
+                                       accessed: accessed, modified: modified) == 0 else {
+                throw driver.lastPOSIXError()
+            }
+            if mode != nil { consumed.insert(.mode) }
+            if uid != nil { consumed.insert(.uid) }
+            if gid != nil { consumed.insert(.gid) }
+            if accessed != nil { consumed.insert(.accessTime) }
+            if modified != nil { consumed.insert(.modifyTime) }
         }
-        newAttributes.consumedAttributes = consumed
         guard let attr = driver.stat(eItem.volumePath) else {
             throw driver.lastPOSIXError()
         }
@@ -522,12 +539,82 @@ final class XfsVolume: FSVolume,
         return Int(n)
     }
 
+    // MARK: - XattrOperations
+
+    /// fs_xfs_setxattr's flags (FS_XFS_XATTR_CREATE, FS_XFS_XATTR_REPLACE).
+    static let xattrMustCreate: Int32 = 1
+    static let xattrMustReplace: Int32 = 2
+
+    /// macOS hands an ACL over as this attribute, an NFSv4-style ACL.
+    /// Stored as a POSIX ACL or as plain bytes it would change meaning.
+    static let macACLName = Array("com.apple.system.Security".utf8)
+
+    /// The XFS name for a macOS attribute name: in the user namespace.
+    static func driverXattrName(_ name: FSFileName) throws -> [UInt8] {
+        let bytes = [UInt8](name.data)
+        guard !bytes.isEmpty, !bytes.contains(0) else { throw POSIXError(.EINVAL) }
+        return Array("user.".utf8) + bytes
+    }
+
+    /// The macOS name for an XFS one: the user namespace's names without
+    /// the prefix; nil for the trusted, security and system namespaces,
+    /// which are not a macOS caller's.
+    static func macXattrName(_ driverName: [UInt8]) -> [UInt8]? {
+        let prefix = Array("user.".utf8)
+        guard driverName.count > prefix.count, driverName.starts(with: prefix) else { return nil }
+        return Array(driverName.dropFirst(prefix.count))
+    }
+
+    func xattr(named name: FSFileName, of item: FSItem) async throws -> Data {
+        guard let driver = driver as? XfsMountedVolumeDriver,
+              let eItem = item as? XfsItem else { throw POSIXError(.EBADF) }
+        guard let value = driver.getXattr(eItem.volumePath, name: try Self.driverXattrName(name)) else {
+            throw driver.lastPOSIXError()
+        }
+        return Data(value)
+    }
+
+    /// FSKit's set policies are the driver's own flags, so whether the
+    /// attribute is there is decided in the same record that writes it.
+    func setXattr(named name: FSFileName, to value: Data?, on item: FSItem,
+                  policy: FSVolume.SetXattrPolicy) async throws {
+        let driver = try writableDriver()
+        guard let eItem = item as? XfsItem else { throw POSIXError(.EBADF) }
+        guard [UInt8](name.data) != Self.macACLName else { throw POSIXError(.ENOTSUP) }
+        let driverName = try Self.driverXattrName(name)
+        let rc: Int32
+        switch policy {
+        case .delete:
+            rc = driver.removeXattr(eItem.volumePath, name: driverName)
+        case .alwaysSet, .mustCreate, .mustReplace:
+            guard let value else { throw POSIXError(.EINVAL) }
+            let flags = policy == .mustCreate ? Self.xattrMustCreate
+                : policy == .mustReplace ? Self.xattrMustReplace : 0
+            rc = driver.setXattr(eItem.volumePath, name: driverName, value: [UInt8](value),
+                                 flags: flags)
+        @unknown default:
+            throw POSIXError(.EINVAL)
+        }
+        guard rc == 0 else { throw driver.lastPOSIXError() }
+    }
+
+    func xattrs(of item: FSItem) async throws -> [FSFileName] {
+        guard let driver = driver as? XfsMountedVolumeDriver,
+              let eItem = item as? XfsItem else { throw POSIXError(.EBADF) }
+        guard let names = driver.listXattrs(eItem.volumePath) else {
+            throw driver.lastPOSIXError()
+        }
+        return names.compactMap(Self.macXattrName).map { FSFileName(data: Data($0)) }
+    }
+
     // MARK: - PathConfOperations
 
     var maximumLinkCount: Int { -1 }
     var maximumNameLength: Int { 255 }
     var restrictsOwnershipChanges: Bool { true }
     var truncatesLongNames: Bool { false }
+    /// The driver stores a value of up to 65536 bytes.
+    var maximumXattrSize: Int { 65_536 }
 
     // MARK: - Helpers
 
