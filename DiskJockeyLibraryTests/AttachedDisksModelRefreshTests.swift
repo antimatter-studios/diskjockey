@@ -29,7 +29,11 @@ private final class FakeMountTable: @unchecked Sendable {
     private var finished = 0
 
     init(gated: Bool) {
-        gateTimeout = gated ? .seconds(1) : .never
+        // Long enough that a loaded runner scheduling the main actor late
+        // cannot open the gate before the test does (diskjockey#360): at one
+        // second, every call finished first and `completed == 0` failed. A
+        // model that blocks the main actor still fails, ten seconds later.
+        gateTimeout = gated ? .seconds(10) : .never
         if !gated { open() }
     }
 
