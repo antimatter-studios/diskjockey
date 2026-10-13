@@ -158,8 +158,10 @@ protocol NTFSBackend: AnyObject {
 
     /// Unmounts, checks the dirty bit, runs fsck when it is set, and
     /// remounts (read-write preferred, read-only fallback) on every path.
-    /// `onProgress` fires on the driver's thread.
-    func fsck(onProgress: @escaping (_ phase: String, _ done: UInt64, _ total: UInt64) -> Void)
+    /// `flags` is one of `NTFSFsckFlags`' sets: only Verify's clears the
+    /// dirty flag. `onProgress` fires on the driver's thread.
+    func fsck(flags: UInt32,
+              onProgress: @escaping (_ phase: String, _ done: UInt64, _ total: UInt64) -> Void)
         -> Result<NTFSVolume.FsckReport, Error>
 
     /// The device-chain counterpart of `fsck` for the deferred read-write
@@ -182,4 +184,23 @@ extension NTFSBackend {
         let err = lastErrno()
         return fs_errorForPOSIXError(err != 0 ? err : fallback)
     }
+}
+
+/// The `flags` each fsck call passes to `fs_ntfs_fsck_with_fs_core_device`
+/// (diskjockey#367).
+///
+/// rust-fs-ntfs leaves the dirty flag set unless asked to clear it
+/// (rust-fs-ntfs#519): the flag asks Windows for a check of the whole
+/// volume, which chkdsk makes and this driver does not. Only a check a
+/// person asked for, through Verify and its confirmation, clears it; the
+/// check a read-write remount runs on its own replays the log and leaves
+/// the flag, so a volume still dirty is mounted read-only.
+enum NTFSFsckFlags {
+    /// `FS_NTFS_FSCK_CLEAR_DIRTY` in `fs_ntfs.h`.
+    static let clearDirty: UInt32 = 0x01
+    /// Verify, which the person confirmed: replay the log and clear the
+    /// flag.
+    static let userVerify: UInt32 = clearDirty
+    /// A read-write remount's own check: replay the log, leave the flag.
+    static let automaticRemount: UInt32 = 0
 }

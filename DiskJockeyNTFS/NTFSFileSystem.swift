@@ -518,7 +518,7 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
 // refuses to mount.
 extension NTFSFileSystem: FSManageableResourceMaintenanceOperations {
     /// Run an NTFS fsck pass driven by the rust crate's
-    /// `fs_ntfs_fsck_with_callbacks`. Emits NDJSON events the host app's
+    /// `fs_ntfs_fsck_with_fs_core_device`. Emits NDJSON events the host app's
     /// `AttachedDisksModel` consumes: `fsck.start`, `fsck.progress`,
     /// `fsck.done`, `fsck.failed`.
     ///
@@ -589,7 +589,9 @@ extension NTFSFileSystem: FSManageableResourceMaintenanceOperations {
         // before `task.didComplete` tells FSKit it may mount
         // (diskjockey#166).
         Task.detached {
+            // Verify, which a person asked for: it clears the dirty flag.
             let result = volume.runFsck(
+                flags: NTFSFsckFlags.userVerify,
                 onProgress: { phase, done, total in
                     let now = monotonicNanos()
                     let phaseChanged = phase != lastPhase

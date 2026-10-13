@@ -263,7 +263,8 @@ final class NTFSDriver: NTFSBackend {
     /// conflict with the in-memory view held by a live mount). Even on
     /// already-clean volumes we still do the cycle because we don't know
     /// the volume is clean until after the dirty check.
-    func fsck(onProgress: @escaping (_ phase: String, _ done: UInt64, _ total: UInt64) -> Void)
+    func fsck(flags: UInt32,
+              onProgress: @escaping (_ phase: String, _ done: UInt64, _ total: UInt64) -> Void)
         -> Result<NTFSVolume.FsckReport, Error> {
         // Drop any current handle before fsck. Safe to call when
         // fs is already nil — we just skip the umount.
@@ -294,7 +295,22 @@ final class NTFSDriver: NTFSBackend {
             }
         }
 
-        let dirtyResult = fs_ntfs_is_dirty_with_callbacks(&cfg)
+        // The check and its repair run through an fs_core device with a
+        // flush callback: a $LogFile replay and a dirty-flag repair need
+        // their writes to reach the disk in order, and rust-fs-ntfs refuses
+        // both through the read/write callback pair, which cannot flush
+        // (rust-fs-ntfs#518).
+        let dlog = TaggedLogger(log, fields: ["bsd": bsdName], kind: "ntfs.fsck",
+                                scope: AppLogScope.fsck)
+        guard let handle = buildContainerHandle(rw: true, allowPlain: true, dlog: dlog) else {
+            remount()
+            return .failure(NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(POSIXErrorCode.EIO.rawValue),
+                userInfo: [NSLocalizedDescriptionKey: "could not open the device for the check"]
+            ))
+        }
+        let dirtyResult = fs_ntfs_is_dirty_with_fs_core_device(handle)
         switch dirtyResult {
         case 1:
             // Dirty — actually run fsck.
@@ -303,8 +319,8 @@ final class NTFSDriver: NTFSBackend {
             defer { Unmanaged<FsckProgressBox>.fromOpaque(boxPtr).release() }
 
             var dirtyCleared: UInt8 = 0
-            let rc = fs_ntfs_fsck_with_callbacks(
-                &cfg,
+            let rc = fs_ntfs_fsck_with_fs_core_device(
+                handle,
                 { ctx, phase, done, total in
                     guard let ctx = ctx, let phase = phase else { return 0 }
                     let box = Unmanaged<FsckProgressBox>.fromOpaque(ctx).takeUnretainedValue()
@@ -312,8 +328,10 @@ final class NTFSDriver: NTFSBackend {
                     return 0
                 },
                 boxPtr,
-                &dirtyCleared
+                &dirtyCleared,
+                flags
             )
+            fs_core_device_close(handle)
             remount()
             if rc == 0 {
                 return .success(NTFSVolume.FsckReport(
@@ -321,7 +339,7 @@ final class NTFSDriver: NTFSBackend {
                     dirtyCleared: dirtyCleared == 1
                 ))
             }
-            let msg = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "fs_ntfs_fsck_with_callbacks failed (rc=\(rc))"
+            let msg = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "fs_ntfs_fsck_with_fs_core_device failed (rc=\(rc))"
             return .failure(NSError(
                 domain: NSPOSIXErrorDomain,
                 code: Int(POSIXErrorCode.EIO.rawValue),
@@ -330,13 +348,15 @@ final class NTFSDriver: NTFSBackend {
 
         case 0:
             // Clean — nothing to do, just remount and report.
+            fs_core_device_close(handle)
             remount()
             return .success(NTFSVolume.FsckReport(wasDirty: false, dirtyCleared: false))
 
         default:
             // Dirty check itself failed.
+            fs_core_device_close(handle)
             remount()
-            let msg = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "fs_ntfs_is_dirty_with_callbacks failed"
+            let msg = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "fs_ntfs_is_dirty_with_fs_core_device failed"
             return .failure(NSError(
                 domain: NSPOSIXErrorDomain,
                 code: Int(POSIXErrorCode.EIO.rawValue),
@@ -390,8 +410,12 @@ final class NTFSDriver: NTFSBackend {
         if wasDirty {
             dlog.event(kind: "fsck.start", scope: AppLogScope.fsck)
             var dirtyCleared: UInt8 = 0
+            // The mount's own check replays a log holding work but leaves
+            // the dirty flag for Windows' chkdsk (rust-fs-ntfs#519): a
+            // volume still dirty after it is refused a read-write mount
+            // below and stays read-only until a person runs Verify.
             let rc = fs_ntfs_fsck_with_fs_core_device(
-                containerHandle, nil, nil, &dirtyCleared
+                containerHandle, nil, nil, &dirtyCleared, NTFSFsckFlags.automaticRemount
             )
             if rc != 0 {
                 let err = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
@@ -423,7 +447,8 @@ final class NTFSDriver: NTFSBackend {
     /// callback-backed device. Caller owns + closes the returned
     /// handle. Returns nil on failure (logged + the inner devices
     /// released by the C ABI's ownership-transfer rules).
-    private func buildContainerHandle(rw: Bool, dlog: TaggedLogger) -> OpaquePointer? {
+    private func buildContainerHandle(rw: Bool, allowPlain: Bool = false,
+                                      dlog: TaggedLogger) -> OpaquePointer? {
         var coreCfg = FsCoreCallbackCfg()
         coreCfg.read = { ctx, offset, buf, len in
             guard let ctx = ctx, let buf = buf else { return EIO }
@@ -476,6 +501,10 @@ final class NTFSDriver: NTFSBackend {
             return s
         }
 
+        if containerKind == nil && allowPlain {
+            // The whole device, as the check runs it.
+            return stacked
+        }
         if containerKind == nil {
             // No container, no partition slice — the deferred-remount path
             // shouldn't have been called. Free + return nil so the caller
