@@ -8,6 +8,7 @@
 // the lines to update — and the parser has to follow.
 //
 
+import DiskJockeyLibrary
 import Foundation
 import Testing
 @testable import DiskJockey
@@ -89,6 +90,59 @@ struct VendoredLibraryInfoTests {
         let info = try #require(VendoredLibraryInfo.parse(text))
         #expect(info.commit == Self.commit)
         #expect(info.isDirty)
+    }
+
+    /// scripts/build-bundles.sh, for the ext4 bundle: a header, then each
+    /// resolved crate as `name version` (diskjockey#347). The build copies
+    /// it into vendor-versions/ as `bundle_ext4-VERSION.txt`, and the name
+    /// is only in that file name.
+    private static let ext4Bundle = """
+        bundle resolved crates (crates.io unless dev-linked):
+          rust-fs-core 0.3.11
+          rust-fs-ext4 0.9.0
+          rust-img-qcow2 0.5.0
+        """
+
+    @Test func aBundleManifestNamesTheBundleAndEveryCrateItResolved() throws {
+        let info = try #require(VendoredLibraryInfo.parse(
+            Self.ext4Bundle, fileName: "bundle_ext4-VERSION.txt"))
+        #expect(info.name == "dj-ext4-bundle")
+        #expect(info.crates.map(\.name) == ["rust-fs-core", "rust-fs-ext4", "rust-img-qcow2"])
+        #expect(info.crates.map(\.version) == ["0.3.11", "0.9.0", "0.5.0"])
+        // The version shown for the bundle is its driver's.
+        #expect(info.describe == "0.9.0")
+    }
+
+    /// Every filesystem the app ships has a bundle, and each one's manifest
+    /// reaches the About page under its own name.
+    @Test func everyShippedFilesystemsBundleManifestIsRead() throws {
+        for key in ShippedFilesystems.keys {
+            let text = """
+                bundle resolved crates (crates.io unless dev-linked):
+                  rust-fs-core 0.3.11
+                  rust-fs-\(key) 1.2.3
+                """
+            let info = try #require(
+                VendoredLibraryInfo.parse(text, fileName: "bundle_\(key)-VERSION.txt"),
+                "the \(key) bundle's manifest")
+            #expect(info.name == "dj-\(key)-bundle")
+            #expect(info.describe == "1.2.3")
+        }
+    }
+
+    /// go-networkfs's key=value manifest reads the same with its file name.
+    @Test func aSiblingManifestReadsTheSameWithItsFileName() throws {
+        let info = try #require(VendoredLibraryInfo.parse(
+            Self.fromWorktree, fileName: "go-networkfs-VERSION-go-networkfs.txt"))
+        #expect(info.name == "go-networkfs")
+        #expect(info.crates.isEmpty)
+    }
+
+    /// A bundle manifest with no crates under its header is not one.
+    @Test func aBundleHeaderWithNoCratesIsRefused() {
+        #expect(VendoredLibraryInfo.parse(
+            "bundle resolved crates (crates.io unless dev-linked):\n",
+            fileName: "bundle_ext4-VERSION.txt") == nil)
     }
 
     /// Older manifests carried the date as `built_at`; they still show one.
