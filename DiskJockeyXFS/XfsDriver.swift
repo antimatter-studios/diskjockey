@@ -13,7 +13,7 @@
 import Foundation
 import DiskJockeyLibrary
 
-final class XfsDriver: XfsMountedVolumeDriver {
+final class XfsDriver: XfsMountedVolumeDriver, XfsCheckingDriver {
 
     private var fs: OpaquePointer?
 
@@ -234,6 +234,45 @@ final class XfsDriver: XfsMountedVolumeDriver {
 
     func lastErrno() -> Int32 {
         Int32(fs_xfs_last_errno())
+    }
+
+    func lastErrorMessage() -> String? {
+        fs_xfs_last_error().map { String(cString: $0) }
+    }
+
+    /// fs_xfs_check: each finding through `onFinding`, the totals as the
+    /// report. The finding's strings are the library's for the length of
+    /// the callback, so each is copied before the callback returns.
+    func check(onFinding: @escaping (XfsCheckFinding) -> Void) -> XfsCheckReport? {
+        guard let fs else { return nil }
+        let sink = FindingSink(onFinding)
+        var out = fs_xfs_check_report_t()
+        let rc = withExtendedLifetime(sink) {
+            fs_xfs_check(fs, { context, finding in
+                guard let context, let f = finding?.pointee else { return 0 }
+                let sink = Unmanaged<FindingSink>.fromOpaque(context).takeUnretainedValue()
+                sink.visit(XfsCheckFinding(
+                    code: f.code.map { String(cString: $0) } ?? "",
+                    severity: f.severity.map { String(cString: $0) } ?? "",
+                    ag: f.ag < 0 ? nil : f.ag,
+                    agbno: f.agbno < 0 ? nil : f.agbno,
+                    ino: f.ino < 0 ? nil : f.ino,
+                    field: f.field.map { String(cString: $0) },
+                    what: f.what.map { String(cString: $0) } ?? ""))
+                return 0
+            }, Unmanaged.passUnretained(sink).toOpaque(), &out)
+        }
+        guard rc == 0 else { return nil }
+        return XfsCheckReport(
+            findings: out.findings, errors: out.errors, suppressed: out.suppressed,
+            inodes: out.inodes, directories: out.directories, freeBlocks: out.free_blocks,
+            complete: out.complete != 0, dirty: out.dirty != 0, clean: out.clean != 0)
+    }
+
+    /// The finding callback, as the context pointer the C callback gets.
+    private final class FindingSink {
+        let visit: (XfsCheckFinding) -> Void
+        init(_ visit: @escaping (XfsCheckFinding) -> Void) { self.visit = visit }
     }
 
     func unmount() {

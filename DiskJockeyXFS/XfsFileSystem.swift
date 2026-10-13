@@ -29,6 +29,8 @@ final class XfsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         let bsdName: String
         let volume: XfsVolume
         let opLock: OperationLock
+        /// What a check task runs (#324): the volume's own driver.
+        let checker: XfsCheckingDriver
     }
     static let mountedResources = MountedResourceRegistry<MountedResource>()
 
@@ -209,6 +211,7 @@ final class XfsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         let resolvedName = volumeName.isEmpty ? "XFS" : volumeName
 
         let volID = FSVolume.Identifier()
+        let opLock = OperationLock()
         let volume = XfsVolume(
             volumeID: volID,
             volumeName: FSFileName(string: resolvedName),
@@ -216,10 +219,11 @@ final class XfsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             contextPtr: contextPtr,
             bsdName: bsdName,
             stats: stats,
-            mountAccess: mountAccess
+            mountAccess: mountAccess,
+            opLock: opLock
         )
         Self.mountedResources.register(resource, MountedResource(
-            bsdName: bsdName, volume: volume, opLock: OperationLock()))
+            bsdName: bsdName, volume: volume, opLock: opLock, checker: driver))
         stats.start()
 
         containerStatus = .ready
@@ -250,15 +254,58 @@ final class XfsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
 }
 
 // fskitd calls `_checkResource:` on every mount; without this conformance
-// the call returns ENOTSUP and the system refuses to mount. XFS is
-// read-only/immutable, so check is an always-clean success, format is
+// the call returns ENOTSUP and the system refuses to mount. A check runs
+// the driver's checker over the mounted volume and writes nothing; what
+// the task reports is decided in XfsCheck.swift (#324). Format is
 // unsupported.
 extension XfsFileSystem: FSManageableResourceMaintenanceOperations {
     func startCheck(task: FSTask, options: FSTaskOptions) throws -> Progress {
-        log.info("startCheck: XFS is read-only/immutable — reporting clean", scope: AppLogScope.fsck)
+        guard let resolved = Self.mountedResources.resolveSingle() else {
+            log.error("startCheck: no (or ambiguous) mounted resource registered — refusing", scope: AppLogScope.fsck)
+            throw POSIXError(.EBADF)
+        }
+        let dlog = TaggedLogger(
+            log, fields: ["bsd": resolved.bsdName], kind: "xfs.fsck",
+            scope: AppLogScope.fsck
+        )
+        // -y asks for a repair, -q is the check the system runs while
+        // mounting, anything else is a verify (FsckOperation).
+        let argv = options.taskOptions
+        let operation = FsckOperation(checkOptions: argv)
+        if let refused = XfsCheck.refusal(for: operation) {
+            dlog.warn("startCheck refused: taskOptions=\(argv): \(refused.localizedDescription)")
+            throw refused
+        }
+        let opLock = resolved.opLock
+        if let busy = opLock.tryAcquire(operation) {
+            dlog.warn("startCheck rejected: volume busy with \(busy.displayName)")
+            throw POSIXError(.EBUSY)
+        }
+        dlog.info("startCheck: taskOptions=\(argv) operation=\(operation.rawValue)")
+        dlog.event(kind: "fsck.start", fields: ["repair": "false"])
+
+        // The checker reports no progress of its own: one unit, done when
+        // it returns.
         let progress = Progress(totalUnitCount: 1)
-        progress.completedUnitCount = 1
-        task.didComplete(error: nil)
+        let checker = resolved.checker
+        // The lock is released before the task reports, because FSKit goes
+        // on to mount from there and a lock still held refuses the mount's
+        // first operations (diskjockey#166).
+        Task.detached {
+            let outcome: (any Error)?
+            switch XfsCheck.run(checker, onFinding: { dlog.warn("fsck finding: \($0.logLine)") }) {
+            case .success(let report):
+                dlog.event(kind: "fsck.done", fields: XfsCheck.eventFields(report))
+                progress.completedUnitCount = 1
+                outcome = nil
+            case .failure(let error):
+                dlog.event(kind: "fsck.failed", fields: ["error": error.localizedDescription])
+                outcome = error
+            }
+            opLock.finish {
+                task.didComplete(error: outcome)
+            }
+        }
         return progress
     }
 

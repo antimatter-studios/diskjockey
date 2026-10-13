@@ -39,19 +39,38 @@ final class XfsVolume: FSVolume,
     private let stats: IOStatsCollector
     private let items = FileIDCache<XfsItem>()
 
+    /// The lock a check task holds while it reads the volume (#324), the
+    /// same instance the extension's `MountedResource` holds. Every
+    /// operation here asks it first: while a verify holds it, the volume
+    /// answers EBUSY rather than change, or read, what is being checked.
+    private let opLock: OperationLock
+
     init(volumeID: FSVolume.Identifier,
          volumeName: FSFileName,
          driver: ReadOnlyVolumeDriver,
          contextPtr: UnsafeMutableRawPointer?,
          bsdName: String,
          stats: IOStatsCollector,
-         mountAccess: XfsMountAccess = .readOnly) {
+         mountAccess: XfsMountAccess = .readOnly,
+         opLock: OperationLock = OperationLock()) {
         self.driver = driver
         self.mountAccess = mountAccess
         self.contextPtr = contextPtr
         self.bsdName = bsdName
         self.stats = stats
+        self.opLock = opLock
         super.init(volumeID: volumeID, volumeName: volumeName)
+    }
+
+    /// EBUSY while a check that quiesces the volume holds the lock. The
+    /// quick check the system runs while mounting does not quiesce it:
+    /// the operations that arrive during it are the mount's own, and
+    /// refusing them fails the mount (diskjockey#166).
+    func ensureIdle() throws {
+        if let current = opLock.current, current.quiescesVolume {
+            log.info("EBUSY: refusing op — \(current.displayName) in progress", scope: AppLogScope.io)
+            throw POSIXError(.EBUSY)
+        }
     }
 
     // MARK: - Item cache
@@ -185,6 +204,7 @@ final class XfsVolume: FSVolume,
         _ desiredAttributes: FSItem.GetAttributesRequest,
         of item: FSItem
     ) async throws -> FSItem.Attributes {
+        try ensureIdle()
         guard let driver, let eItem = item as? XfsItem else {
             throw POSIXError(.EBADF)
         }
@@ -204,6 +224,7 @@ final class XfsVolume: FSVolume,
         _ newAttributes: FSItem.SetAttributesRequest,
         on item: FSItem
     ) async throws -> FSItem.Attributes {
+        try ensureIdle()
         let driver = try writableDriver()
         guard let eItem = item as? XfsItem else { throw POSIXError(.EBADF) }
         let unsettable: [FSItem.Attribute] = [
@@ -261,6 +282,7 @@ final class XfsVolume: FSVolume,
         named name: FSFileName,
         inDirectory directory: FSItem
     ) async throws -> (FSItem, FSFileName) {
+        try ensureIdle()
         guard let driver, let dirItem = directory as? XfsItem else {
             throw POSIXError(.EBADF)
         }
@@ -283,6 +305,7 @@ final class XfsVolume: FSVolume,
         attributes: FSItem.GetAttributesRequest?,
         packer: FSDirectoryEntryPacker
     ) async throws -> FSDirectoryVerifier {
+        try ensureIdle()
         guard let dirItem = directory as? XfsItem else {
             throw POSIXError(.EBADF)
         }
@@ -346,6 +369,7 @@ final class XfsVolume: FSVolume,
     }
 
     func reclaimItem(_ item: FSItem) async throws {
+        try ensureIdle()
         if let eItem = item as? XfsItem {
             items.remove(id: eItem.inode)
         }
@@ -354,6 +378,7 @@ final class XfsVolume: FSVolume,
     // MARK: - Symlink
 
     func readSymbolicLink(_ item: FSItem) async throws -> FSFileName {
+        try ensureIdle()
         guard let driver, let eItem = item as? XfsItem else {
             throw POSIXError(.EBADF)
         }
@@ -376,6 +401,7 @@ final class XfsVolume: FSVolume,
         named name: FSFileName, type: FSItem.ItemType,
         inDirectory directory: FSItem, attributes: FSItem.SetAttributesRequest
     ) async throws -> (FSItem, FSFileName) {
+        try ensureIdle()
         let driver = try writableDriver()
         guard let dirItem = directory as? XfsItem else { throw POSIXError(.EBADF) }
         let isDirectory: Bool
@@ -416,6 +442,7 @@ final class XfsVolume: FSVolume,
         named name: FSFileName, inDirectory directory: FSItem,
         attributes: FSItem.SetAttributesRequest, linkContents contents: FSFileName
     ) async throws -> (FSItem, FSFileName) {
+        try ensureIdle()
         _ = try writableDriver()
         throw POSIXError(.ENOTSUP)
     }
@@ -424,6 +451,7 @@ final class XfsVolume: FSVolume,
     func createLink(
         to item: FSItem, named name: FSFileName, inDirectory directory: FSItem
     ) async throws -> FSFileName {
+        try ensureIdle()
         let driver = try writableDriver()
         guard let dirItem = directory as? XfsItem,
               let target = item as? XfsItem else { throw POSIXError(.EBADF) }
@@ -439,6 +467,7 @@ final class XfsVolume: FSVolume,
     func removeItem(
         _ item: FSItem, named name: FSFileName, fromDirectory directory: FSItem
     ) async throws {
+        try ensureIdle()
         let driver = try writableDriver()
         guard let dirItem = directory as? XfsItem else { throw POSIXError(.EBADF) }
         let childPath = try dirItem.volumePath.child(name, for: Self.pathEncoding)
@@ -457,6 +486,7 @@ final class XfsVolume: FSVolume,
         _ item: FSItem, inDirectory sourceDirectory: FSItem, named sourceName: FSFileName,
         to destinationName: FSFileName, inDirectory destinationDirectory: FSItem, overItem: FSItem?
     ) async throws -> FSFileName {
+        try ensureIdle()
         let driver = try writableDriver()
         guard let srcDir = sourceDirectory as? XfsItem,
               let dstDir = destinationDirectory as? XfsItem else { throw POSIXError(.EBADF) }
@@ -475,6 +505,7 @@ final class XfsVolume: FSVolume,
     /// and a failure is the driver's errno. A read-only mount has nothing
     /// to flush.
     func synchronize(flags: FSSyncFlags) async throws {
+        try ensureIdle()
         guard allowsWrites, let driver = driver as? XfsMountedVolumeDriver else { return }
         if driver.flush() != 0 {
             throw POSIXError(POSIXErrorCode(rawValue: driver.lastErrno()) ?? .EIO)
@@ -487,6 +518,7 @@ final class XfsVolume: FSVolume,
         from item: FSItem, at offset: off_t, length: Int,
         into buffer: FSMutableFileDataBuffer
     ) async throws -> Int {
+        try ensureIdle()
         let t0 = monotonicNanos()
         do {
             let n = try buffer.withUnsafeMutableBytes { rawBuf in
@@ -521,6 +553,7 @@ final class XfsVolume: FSVolume,
     func write(
         contents data: Data, to item: FSItem, at offset: off_t
     ) async throws -> Int {
+        try ensureIdle()
         try requireWritableMount()
         let t0 = monotonicNanos()
         do {
@@ -579,6 +612,7 @@ final class XfsVolume: FSVolume,
     }
 
     func xattr(named name: FSFileName, of item: FSItem) async throws -> Data {
+        try ensureIdle()
         guard let driver = driver as? XfsMountedVolumeDriver,
               let eItem = item as? XfsItem else { throw POSIXError(.EBADF) }
         guard let value = driver.getXattr(eItem.volumePath, name: try Self.driverXattrName(name)) else {
@@ -591,6 +625,7 @@ final class XfsVolume: FSVolume,
     /// attribute is there is decided in the same record that writes it.
     func setXattr(named name: FSFileName, to value: Data?, on item: FSItem,
                   policy: FSVolume.SetXattrPolicy) async throws {
+        try ensureIdle()
         let driver = try writableDriver()
         guard let eItem = item as? XfsItem else { throw POSIXError(.EBADF) }
         guard [UInt8](name.data) != Self.macACLName else { throw POSIXError(.ENOTSUP) }
@@ -612,6 +647,7 @@ final class XfsVolume: FSVolume,
     }
 
     func xattrs(of item: FSItem) async throws -> [FSFileName] {
+        try ensureIdle()
         guard let driver = driver as? XfsMountedVolumeDriver,
               let eItem = item as? XfsItem else { throw POSIXError(.EBADF) }
         guard let names = driver.listXattrs(eItem.volumePath) else {
