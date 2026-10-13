@@ -89,6 +89,16 @@ final class XfsVolume: FSVolume,
         return caps
     }
 
+    /// FSKit keeps a file unlinked while open alive for its open handles
+    /// (diskjockey#354): rust-fs-xfs frees an inode with its last name, so
+    /// without this a handle on an unlinked file reads nothing. FSKit reads
+    /// it once, after the resource loads, whatever the mount's access.
+    @available(macOS 26.0, *)
+    var enableOpenUnlinkEmulation: Bool {
+        get { true }
+        set {}
+    }
+
     var allowsWrites: Bool {
         mountAccess.allowsWrites && (driver as? XfsMountedVolumeDriver)?.isWritable == true
     }
