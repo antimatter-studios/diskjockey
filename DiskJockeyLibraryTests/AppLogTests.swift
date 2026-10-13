@@ -462,3 +462,61 @@ struct NDJSONFileSinkTests {
         #expect(Set(decoded.map(\.message)).count == 120, "records were lost or duplicated")
     }
 }
+
+// MARK: - A test process stays out of the app's log
+
+/// The host app tails `<group-container>/Logs/*.ndjson` and builds Local
+/// Drives rows from the events in it. The volume tests drive the real
+/// extension code over a fake block device named `disk0s1`, and their
+/// events landed in that same file: the app read an `ntfs.activate` for
+/// `disk0s1` and showed a row "disk0s1 · ntfs · mounting…" that never
+/// resolved, on a Mac with no NTFS partition at all (diskjockey#349).
+///
+/// A process the tests run in is not the app or one of its extensions, so
+/// the default sinks must not write into the app's shared log.
+@Suite("a test process and the shared log")
+struct AppLogTestProcessTests {
+    @Test func theDefaultSinksOfATestProcessDoNotWriteTheAppsSharedLog() throws {
+        let source = "dj349-\(UUID().uuidString.prefix(8))"
+        let fm = FileManager.default
+        let container = fm.containerURL(forSecurityApplicationGroupIdentifier: AppLog.groupIdentifier)
+            ?? fm.temporaryDirectory
+        let shared = container
+            .appendingPathComponent(AppLog.logDirName, isDirectory: true)
+            .appendingPathComponent("\(source).ndjson")
+        defer { try? fm.removeItem(at: shared) }
+
+        let log = AppLog(source: source, sinks: AppLog.defaultSinks(source: source))
+        log.event(kind: "ntfs.activate", fields: ["bsd": "disk0s1"])
+
+        #expect(
+            !fm.fileExists(atPath: shared.path),
+            "a test process wrote \(shared.path), which the app tails for its Local Drives rows"
+        )
+    }
+}
+
+/// Which processes write the shared log: the app and its extensions, and
+/// nothing a test runs in (diskjockey#349).
+@Suite("which processes write the shared log")
+struct AppLogSharedLogProcessTests {
+    @Test func theAppAndItsExtensionsDo() {
+        #expect(AppLog.writesSharedLog(environment: [:], mainBundleIdentifier: "com.antimatterstudios.diskjockey"))
+        #expect(AppLog.writesSharedLog(environment: [:], mainBundleIdentifier: "com.antimatterstudios.diskjockey.ntfs"))
+    }
+
+    @Test func aTestHostedInsideTheAppDoesNot() {
+        for key in ["XCTestConfigurationFilePath", "XCTestBundlePath", "XCTestSessionIdentifier"] {
+            #expect(
+                !AppLog.writesSharedLog(environment: [key: "x"], mainBundleIdentifier: "com.antimatterstudios.diskjockey"),
+                "\(key)"
+            )
+        }
+    }
+
+    @Test func anotherProcessDoesNot() {
+        #expect(!AppLog.writesSharedLog(environment: [:], mainBundleIdentifier: nil))
+        #expect(!AppLog.writesSharedLog(environment: [:], mainBundleIdentifier: "com.apple.dt.xctest.tool"))
+        #expect(!AppLog.writesSharedLog(environment: [:], mainBundleIdentifier: "com.antimatterstudios.diskjockeyx"))
+    }
+}

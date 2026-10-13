@@ -179,6 +179,12 @@ struct AttachedDiskDetailView: View {
                     repairFailedBanner(message: msg)
                 }
 
+                // A preview no mount followed (diskjockey#349): say so,
+                // rather than "mounting" for as long as the app runs.
+                if case .mountStalled(let reason) = disk.status {
+                    repairFailedBanner(title: "Not mounted", message: reason)
+                }
+
                 // "Repair recommended" hint. Surfaces whenever the
                 // last verify left the volume with un-repaired
                 // anomalies. Hides itself once a repair pass clears
@@ -1246,13 +1252,13 @@ struct AttachedDiskDetailView: View {
     /// is replaced (replug, or a successful next mount surfaces a
     /// fresh row).
     @ViewBuilder
-    private func repairFailedBanner(message: String) -> some View {
+    private func repairFailedBanner(title: String = "Repair failed", message: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image("tabler-alert-octagon-filled")
                 .foregroundStyle(.red)
                 .padding(.top, 2)
             VStack(alignment: .leading, spacing: 4) {
-                Text("Repair failed")
+                Text(title)
                     .font(.callout.weight(.semibold))
                 Text(message)
                     .font(.callout)

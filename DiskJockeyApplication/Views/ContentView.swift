@@ -425,6 +425,8 @@ private struct AttachedDiskSidebarRow: View {
         switch disk.status {
         case .mounting:
             return "\(disk.fsType) · mounting…"
+        case .mountStalled:
+            return "\(disk.fsType) · not mounted"
         case .live:
             return "\(disk.fsType) · \(disk.devicePath)"
         case .repairing:
@@ -450,6 +452,9 @@ private struct AttachedDiskSidebarRow: View {
         if case .mounting = disk.status {
             return "Mounting · waiting for system to attach"
         }
+        if case .mountStalled = disk.status {
+            return "Not mounted · the system never attached it"
+        }
         return nil
     }
 
@@ -473,6 +478,8 @@ private struct AttachedDiskSidebarRow: View {
         switch disk.status {
         case .mounting:
             return "Mounting at \(disk.mountPath)…"
+        case .mountStalled(let reason):
+            return reason
         case .repairing:
             return "Repairing \(disk.mountPath) — volume is temporarily offline"
         case .repairFailed(let msg):

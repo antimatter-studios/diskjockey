@@ -36,6 +36,10 @@ public enum FsckStatus: Equatable, Hashable, Sendable {
 ///     "disappeared" event so the user keeps seeing the row (with a
 ///     "Repairing…" badge + live fsck progress) instead of having
 ///     the disk silently vanish mid-operation.
+///   - `.mountStalled(reason)` — a `.mounting` preview that no mount
+///     followed within `AttachedDisksModel.mountingTimeout`. The row
+///     says why in words and stays until Forget, a mount or the disk
+///     going away (diskjockey#349).
 ///   - `.repairFailed(message)` — terminal state when the unmount /
 ///     fsck / remount pipeline couldn't finish. Tells the user "the
 ///     in-app repair couldn't complete; reattach the disk to start
@@ -47,6 +51,7 @@ public enum FsckStatus: Equatable, Hashable, Sendable {
 /// the next refresh().
 public enum AttachedDiskStatus: Equatable, Hashable, Sendable {
     case mounting
+    case mountStalled(String)
     case live
     case repairing
     case repairFailed(String)
@@ -86,6 +91,10 @@ public struct AttachedDisk: Identifiable, Equatable, Hashable, Sendable {
     public var isWritable: Bool
     /// Lifecycle state. See `AttachedDiskStatus`.
     public var status: AttachedDiskStatus = .live
+    /// When a `.mounting` preview row was made, so one no mount follows
+    /// can be told apart from one still in its fsck window. nil for every
+    /// row the mount table made.
+    public var mountingSince: Date? = nil
     /// Latest dirty/fsck status for this volume. Keyed into the model
     /// by correlating `fields["bsd"]` (e.g. "disk5") with this disk's
     /// devicePath tail.
@@ -289,6 +298,14 @@ public final class AttachedDisksModel: ObservableObject {
     private var pendingLogs: [String: [AttachedDiskLogLine]] = [:]
     private static let logCap = 500
 
+    /// How long a `.mounting` preview waits for the mount table before it
+    /// becomes `.mountStalled`. Long enough for an fsck before a mount,
+    /// which is the window the preview exists to show.
+    public static let mountingTimeout: TimeInterval = 10 * 60
+
+    /// The clock the stalled-mount check reads. A test sets it.
+    public var now: () -> Date = Date.init
+
     public init(
         pollInterval: TimeInterval = 3.0,
         readMountTable: @escaping MountTableReader = { MountTableParser.enumerate(fsTypesOfInterest: $0) }
@@ -364,6 +381,7 @@ public final class AttachedDisksModel: ObservableObject {
                 copy.name = f.name
                 copy.isWritable = f.isWritable
                 copy.status = .live
+                copy.mountingSince = nil
                 // Overlay statvfs-baseline info onto whatever the
                 // extension previously published — extension keys win
                 // on conflicts (their values are more authoritative).
@@ -386,12 +404,13 @@ public final class AttachedDisksModel: ObservableObject {
         // longer in `/sbin/mount`) is dropped: the disk is unplugged.
         for (i, prior) in disks.enumerated() where !consumedIndices.contains(i) {
             switch prior.status {
-            case .mounting, .repairing, .repairFailed:
+            case .mounting, .mountStalled, .repairing, .repairFailed:
                 merged.append(prior)
             case .live:
                 continue
             }
         }
+        Self.markStalledMounts(in: &merged, now: now())
 
         // Replay queued events / log lines for any row whose bsd is now
         // present. `pendingEvents`/`pendingLogs` cover the launch-time
@@ -460,7 +479,7 @@ public final class AttachedDisksModel: ObservableObject {
             case .repairing, .repairFailed:
                 AppLog.shared.info("DA disappearance ignored — bsd=\(bsd) is in \(stale.status) (repair pipeline owns this row)")
                 return
-            case .live, .mounting:
+            case .live, .mounting, .mountStalled:
                 break
             }
         }
@@ -486,6 +505,34 @@ public final class AttachedDisksModel: ObservableObject {
     public func setStatus(_ status: AttachedDiskStatus, forID id: String) {
         guard let idx = disks.firstIndex(where: { $0.id == id }) else { return }
         disks[idx].status = status
+    }
+
+    /// Turn every `.mounting` preview older than `mountingTimeout` into
+    /// `.mountStalled`, with a reason a person can act on. Run on every
+    /// mount-table pass; public so a caller can apply it between passes.
+    public func expireStalledMounts() {
+        var copy = disks
+        Self.markStalledMounts(in: &copy, now: now())
+        if copy != disks { disks = copy }
+    }
+
+    /// The pure half of `expireStalledMounts`. A preview row is made from
+    /// an extension's events before the mount table lists the volume; when
+    /// no mount follows, it said "mounting" forever (diskjockey#349). Now
+    /// it says what happened instead.
+    static func markStalledMounts(in disks: inout [AttachedDisk], now: Date) {
+        for i in disks.indices {
+            guard case .mounting = disks[i].status,
+                  let since = disks[i].mountingSince,
+                  now.timeIntervalSince(since) >= mountingTimeout else { continue }
+            let minutes = Int(mountingTimeout / 60)
+            let what = disks[i].bsd ?? disks[i].name
+            disks[i].status = .mountStalled(
+                "Not mounted: the \(disks[i].fsType) extension reported \(what), and the system "
+                + "did not attach it within \(minutes) minutes. Forget it to remove this row."
+            )
+            AppLog.shared.info("mount stalled: \(what) (\(disks[i].fsType)) — no mount after \(minutes) min")
+        }
     }
 
     /// Find the strongest match for a fresh mount(8) row in the existing
@@ -587,7 +634,7 @@ public final class AttachedDisksModel: ObservableObject {
             return
         }
 
-        let preview = AttachedDisk(
+        var preview = AttachedDisk(
             bsd: bsd,
             mountPath: "",
             devicePath: "/dev/\(bsd)",
@@ -596,6 +643,7 @@ public final class AttachedDisksModel: ObservableObject {
             isWritable: true,  // assumed writable; corrected on first refresh()
             status: .mounting
         )
+        preview.mountingSince = now()
         disks.append(preview)
         AppLog.shared.info("preview row added for \(bsd) (\(fsType))")
         DiskEventHandler.applyEventInPlace(kind: kind, fields: fields, to: &disks[disks.count - 1])

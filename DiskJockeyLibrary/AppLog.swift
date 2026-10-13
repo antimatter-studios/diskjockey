@@ -129,6 +129,41 @@ public final class AppLog: @unchecked Sendable {
         self.sinks = sinks
     }
 
+    /// Whether a process writes the app group container's `Logs/`, the
+    /// files the host app tails and builds its Local Drives rows from.
+    ///
+    /// Only the app and its extensions do. A test runs the extension code
+    /// over fake block devices, and its events read there as real disks:
+    /// `NTFSVolumeTests`' `disk0s1` showed in Local Drives as an NTFS
+    /// volume mounting forever (diskjockey#349). A test process is
+    /// recognised two ways, since either alone misses one kind: by the
+    /// variables XCTest sets, which an app-hosted test bundle runs under
+    /// inside the app's own bundle, and by a main bundle that is not ours,
+    /// which is what `swift test`'s runners are.
+    public static func writesSharedLog(environment: [String: String],
+                                       mainBundleIdentifier: String?) -> Bool {
+        let underXCTest = ["XCTestConfigurationFilePath", "XCTestBundlePath", "XCTestSessionIdentifier"]
+            .contains { environment[$0] != nil }
+        guard !underXCTest, let id = mainBundleIdentifier else { return false }
+        return id == subsystem || id.hasPrefix(subsystem + ".")
+    }
+
+    /// Where the default NDJSON sink writes: the shared container's
+    /// `Logs/` for the app and its extensions, and a directory in the
+    /// temporary directory for any other process (see `writesSharedLog`).
+    public static func defaultLogDirectory(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        mainBundleIdentifier: String? = Bundle.main.bundleIdentifier
+    ) -> URL {
+        let fm = FileManager.default
+        guard writesSharedLog(environment: environment, mainBundleIdentifier: mainBundleIdentifier),
+              let base = fm.containerURL(forSecurityApplicationGroupIdentifier: groupIdentifier)
+        else {
+            return fm.temporaryDirectory.appendingPathComponent("diskjockey-logs", isDirectory: true)
+        }
+        return base.appendingPathComponent(logDirName, isDirectory: true)
+    }
+
     /// Convenience: the sink stack used by default — NDJSON file in the
     /// shared container + os_log mirror. Most sources want this.
     public static func defaultSinks(source: String) -> [AppLogSink] {
@@ -269,9 +304,11 @@ public final class NDJSONFileSink: AppLogSink {
 
     /// - Parameters:
     ///   - source: names the file, one per emitting process.
-    ///   - directory: where to write. Defaults to the shared container's
-    ///     `Logs/`, which is what every real call site wants and none of
-    ///     them pass.
+    ///   - directory: where to write. Defaults to
+    ///     `AppLog.defaultLogDirectory()`: the shared container's `Logs/`
+    ///     in the app and its extensions, which is what every real call
+    ///     site wants and none of them pass, and a temporary directory in
+    ///     a test process (diskjockey#349).
     ///
     ///     IT EXISTS FOR THE TESTS, and the alternative was worse. The
     ///     default resolves through
@@ -286,14 +323,7 @@ public final class NDJSONFileSink: AppLogSink {
     public init(source: String, directory: URL? = nil) {
         self.queue = DispatchQueue(label: "com.antimatterstudios.diskjockey.applog.file.\(source)")
         let fm = FileManager.default
-        let dir: URL
-        if let directory {
-            dir = directory
-        } else {
-            let base = fm.containerURL(forSecurityApplicationGroupIdentifier: AppLog.groupIdentifier)
-                ?? fm.temporaryDirectory
-            dir = base.appendingPathComponent(AppLog.logDirName, isDirectory: true)
-        }
+        let dir = directory ?? AppLog.defaultLogDirectory()
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         self.fileURL = dir.appendingPathComponent("\(source).ndjson")
         if !fm.fileExists(atPath: fileURL.path) {
