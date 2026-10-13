@@ -163,7 +163,7 @@ final class NTFSVolume: FSVolume,
         caps.supportsSymbolicLinks = true
         caps.supportsHardLinks = true
         // NTFS keeps a $LogFile transactional journal; the Rust layer replays
-        // / resets it on mount via fs_ntfs_fsck_with_callbacks.
+        // / resets it on mount via fs_ntfs_fsck_with_fs_core_device.
         caps.supportsJournal = true
         caps.supportsActiveJournal = true
         // NTFS supports sparse files and very large files.
@@ -278,12 +278,17 @@ final class NTFSVolume: FSVolume,
     /// The backend unmounts, checks, and remounts (RW preferred, RO
     /// fallback) on every path, so subsequent FSKit ops work. Concurrent
     /// reads/writes during the call will fail.
+    ///
+    /// `flags` is the caller's choice of `NTFSFsckFlags`: Verify clears
+    /// the dirty flag, and the check an activate runs on its own leaves it
+    /// for Windows' chkdsk (diskjockey#367).
     func runFsck(
+        flags: UInt32,
         onProgress: @escaping (_ phase: String, _ done: UInt64, _ total: UInt64) -> Void,
         onFinding: @escaping (FsckFinding) -> Void
     ) -> Result<FsckReport, Error> {
         _ = onFinding  // NTFS has no per-finding callback; param is for shape parity with EXT4.
-        return backend.fsck(onProgress: onProgress)
+        return backend.fsck(flags: flags, onProgress: onProgress)
     }
 
     /// Lazy-activation entry point. Calls `runFsck` and emits the
@@ -306,7 +311,10 @@ final class NTFSVolume: FSVolume,
         var lastEmitMonotonic: UInt64 = 0
         var lastPhase: String = ""
 
+        // The mount's own check: it replays the log and leaves the dirty
+        // flag, so a volume still dirty stays read-only until Verify.
         let result = runFsck(
+            flags: NTFSFsckFlags.automaticRemount,
             onProgress: { phase, done, total in
                 let now = monotonicNanos()
                 let phaseChanged = phase != lastPhase

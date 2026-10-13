@@ -14,7 +14,7 @@ name = "dj_ntfs_bundle"
 crate-type = ["staticlib"]
 
 [dependencies]
-rust-fs-ntfs = "0.9.0"
+rust-fs-ntfs = "0.10.1"
 rust-img-qcow2 = "0.6.0"
 rust-img-vhd = "0.6.0"
 rust-img-vhdx = "0.6.0"

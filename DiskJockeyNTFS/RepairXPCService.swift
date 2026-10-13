@@ -2,8 +2,9 @@
  * RepairXPCService.swift — NTFS-side adapter around the shared
  * `RepairWatcher` in DiskJockeyLibrary. Mirror of the EXT4 sibling.
  *
- * The driver's repair pass isn't wired yet — `fs_ntfs_fsck_with_callbacks`
- * does dirty-bit/$LogFile work but not metadata repair. Until that
+ * The driver's repair pass isn't wired yet —
+ * `fs_ntfs_fsck_with_fs_core_device` does dirty-bit/$LogFile work but not
+ * metadata repair. Until that
  * lands, every request gets a truthful "not implemented" response so
  * the host app surfaces an honest error rather than faking success.
  */
