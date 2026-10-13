@@ -1,8 +1,20 @@
 import Foundation
 
-/// Metadata for a single vendored library, parsed from a key=value VERSION manifest
-/// that ships in the app bundle under `Resources/vendor-versions/`.
+/// Metadata for a single vendored library, parsed from a VERSION manifest that
+/// ships in the app bundle under `Resources/vendor-versions/`: a sibling's
+/// key=value manifest, or a filesystem bundle's list of resolved crates.
 public struct VendoredLibraryInfo: Identifiable, Hashable {
+    /// One crate a filesystem bundle resolved, as `build-bundles.sh` lists it.
+    public struct ResolvedCrate: Hashable {
+        public let name: String
+        public let version: String
+
+        public init(name: String, version: String) {
+            self.name = name
+            self.version = version
+        }
+    }
+
     public enum RefType: String {
         case branch
         case tag
@@ -20,6 +32,8 @@ public struct VendoredLibraryInfo: Identifiable, Hashable {
     public let describe: String
     public let isDirty: Bool
     public let commitDate: Date?    // parsed ISO8601 — when the commit was made upstream
+    /// The crates a filesystem bundle resolved; empty for a sibling.
+    public let crates: [ResolvedCrate]
 
     public init(
         id: String,
@@ -31,7 +45,8 @@ public struct VendoredLibraryInfo: Identifiable, Hashable {
         shortCommit: String,
         describe: String,
         isDirty: Bool,
-        commitDate: Date?
+        commitDate: Date?,
+        crates: [ResolvedCrate] = []
     ) {
         self.id = id
         self.name = name
@@ -43,9 +58,54 @@ public struct VendoredLibraryInfo: Identifiable, Hashable {
         self.describe = describe
         self.isDirty = isDirty
         self.commitDate = commitDate
+        self.crates = crates
     }
 
     // MARK: - Parsing
+
+    /// Parse the manifest `text` the build copied in as `fileName`: a
+    /// key=value manifest (``parse(_:)``), or else a filesystem bundle's.
+    public static func parse(_ text: String, fileName: String) -> VendoredLibraryInfo? {
+        parse(text) ?? parseBundle(text, fileName: fileName)
+    }
+
+    /// The header `scripts/build-bundles.sh` writes above a bundle's crates.
+    static let bundleHeader = "bundle resolved crates"
+
+    /// A filesystem bundle's manifest (diskjockey#347): the header, then one
+    /// `name version` line per crate the bundle resolved. The bundle's name
+    /// is only in the file name the build gives it, `bundle_<fs>-VERSION.txt`,
+    /// and it is shown as its crate is named, `dj-<fs>-bundle`, with its
+    /// driver's version. Nil when the header or every crate is missing.
+    static func parseBundle(_ text: String, fileName: String) -> VendoredLibraryInfo? {
+        let lines = text.split(whereSeparator: { $0 == "\n" || $0 == "\r\n" || $0 == "\r" })
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
+        guard let header = lines.first, header.hasPrefix(bundleHeader) else { return nil }
+        let crates: [ResolvedCrate] = lines.dropFirst().compactMap { line in
+            let parts = line.split(separator: " ", omittingEmptySubsequences: true)
+            guard parts.count == 2 else { return nil }
+            return ResolvedCrate(name: String(parts[0]), version: String(parts[1]))
+        }
+        guard !crates.isEmpty else { return nil }
+        let stem = fileName.components(separatedBy: "-VERSION").first ?? fileName
+        let fs = stem.hasPrefix("bundle_") ? String(stem.dropFirst("bundle_".count)) : stem
+        let name = "dj-\(fs)-bundle"
+        let driver = crates.first { $0.name.hasSuffix("-\(fs)") }
+        return VendoredLibraryInfo(
+            id: name,
+            name: name,
+            source: "crates.io",
+            ref: "",
+            refType: .unknown,
+            commit: "",
+            shortCommit: "—",
+            describe: driver?.version ?? "\(crates.count) crates",
+            isDirty: false,
+            commitDate: nil,
+            crates: crates
+        )
+    }
 
     /// Parse a key=value manifest. Blank lines and `#` comments are ignored.
     /// Returns `nil` if required keys (`lib`, `commit`) are missing.
@@ -144,10 +204,10 @@ public struct VendoredLibraryInfo: Identifiable, Hashable {
         for url in urls {
             do {
                 let text = try String(contentsOf: url, encoding: .utf8)
-                if let info = parse(text) {
+                if let info = parse(text, fileName: url.lastPathComponent) {
                     infos.append(info)
                 } else {
-                    print("[VendoredLibraryInfo] skipping \(url.lastPathComponent): missing required keys")
+                    print("[VendoredLibraryInfo] skipping \(url.lastPathComponent): neither a key=value nor a bundle manifest")
                 }
             } catch {
                 print("[VendoredLibraryInfo] skipping \(url.lastPathComponent): \(error)")

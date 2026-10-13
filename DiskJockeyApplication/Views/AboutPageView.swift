@@ -116,6 +116,9 @@ struct AboutPageView: View {
                     Divider().gridCellColumns(4)
                     ForEach(libraries) { lib in
                         libraryRow(lib)
+                        ForEach(lib.crates, id: \.self) { crate in
+                            crateRow(crate)
+                        }
                         if lib.id != libraries.last?.id {
                             Divider().gridCellColumns(4).opacity(0.4)
                         }
@@ -151,6 +154,23 @@ struct AboutPageView: View {
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 7)
+    }
+
+    /// One crate a bundle resolved, under the bundle's row.
+    @ViewBuilder
+    private func crateRow(_ crate: VendoredLibraryInfo.ResolvedCrate) -> some View {
+        GridRow {
+            Text(crate.name)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .padding(.leading, 14)
+            Text(crate.version)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            Text("")
+            Text("")
+        }
+        .padding(.vertical, 2)
     }
 
     // MARK: - Footer
