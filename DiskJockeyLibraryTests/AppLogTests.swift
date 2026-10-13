@@ -495,3 +495,28 @@ struct AppLogTestProcessTests {
         )
     }
 }
+
+/// Which processes write the shared log: the app and its extensions, and
+/// nothing a test runs in (diskjockey#349).
+@Suite("which processes write the shared log")
+struct AppLogSharedLogProcessTests {
+    @Test func theAppAndItsExtensionsDo() {
+        #expect(AppLog.writesSharedLog(environment: [:], mainBundleIdentifier: "com.antimatterstudios.diskjockey"))
+        #expect(AppLog.writesSharedLog(environment: [:], mainBundleIdentifier: "com.antimatterstudios.diskjockey.ntfs"))
+    }
+
+    @Test func aTestHostedInsideTheAppDoesNot() {
+        for key in ["XCTestConfigurationFilePath", "XCTestBundlePath", "XCTestSessionIdentifier"] {
+            #expect(
+                !AppLog.writesSharedLog(environment: [key: "x"], mainBundleIdentifier: "com.antimatterstudios.diskjockey"),
+                "\(key)"
+            )
+        }
+    }
+
+    @Test func anotherProcessDoesNot() {
+        #expect(!AppLog.writesSharedLog(environment: [:], mainBundleIdentifier: nil))
+        #expect(!AppLog.writesSharedLog(environment: [:], mainBundleIdentifier: "com.apple.dt.xctest.tool"))
+        #expect(!AppLog.writesSharedLog(environment: [:], mainBundleIdentifier: "com.antimatterstudios.diskjockeyx"))
+    }
+}
