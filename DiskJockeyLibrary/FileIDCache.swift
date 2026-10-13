@@ -93,6 +93,13 @@ public final class FileIDCache<Item: AnyObject>: @unchecked Sendable {
         }
     }
 
+    /// Visit every cached item: a snapshot taken under the lock, visited
+    /// outside it, so `body` may call back into the cache.
+    public func forEach(_ body: (Item) -> Void) {
+        let snapshot = storage.withLock { Array($0.values) }
+        snapshot.forEach(body)
+    }
+
     /// Number of currently-cached items. Intended for tests and
     /// diagnostics — the volume code never branches on this.
     public var count: Int {
