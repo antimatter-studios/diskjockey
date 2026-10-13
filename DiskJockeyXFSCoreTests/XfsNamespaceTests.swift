@@ -96,6 +96,12 @@ private final class NamespaceDriver: XfsMountedVolumeDriver {
         }
         nodes[source] = nil
         nodes[destination] = n
+        // A directory takes everything under it along, as the driver does.
+        let prefix = source.bytes + [UInt8(ascii: "/")]
+        for key in nodes.keys where key.bytes.starts(with: prefix) {
+            let moved = VolumePath(bytes: destination.bytes + key.bytes.dropFirst(source.bytes.count))
+            nodes[moved] = nodes.removeValue(forKey: key)
+        }
         return 0
     }
 
@@ -270,6 +276,40 @@ struct XfsNamespaceTests {
         _ = try await volume.renameItem(a, inDirectory: root, named: name("a"),
                                         to: name("z"), inDirectory: d, overItem: nil)
         #expect(driver.calls.last == "rename /a /d/z replace")
+    }
+
+    /// A rename moves the items FSKit already holds, in place
+    /// (diskjockey#352): the renamed directory, and a file inside it
+    /// obtained before the rename, which reads through its new path rather
+    /// than answering ENOENT until FSKit looks its name up again.
+    @Test func aRenamedDirectoryMovesTheItemsHeldUnderIt() async throws {
+        let (volume, driver, root) = try fixture()
+        _ = driver.mkdir(p("/d"), mode: 0o755)
+        _ = driver.create(p("/d/f"), mode: 0o644)
+        let d = volume.item(forInode: driver.nodes[p("/d")]!.inode, path: p("/d"), parentInode: 64)
+        let f = volume.item(forInode: driver.nodes[p("/d/f")]!.inode, path: p("/d/f"),
+                            parentInode: d.inode)
+        _ = try await volume.renameItem(d, inDirectory: root, named: name("d"),
+                                        to: name("e"), inDirectory: root, overItem: nil)
+        #expect(d.volumePath == p("/e"))
+        #expect(f.volumePath == p("/e/f"))
+        #expect(f.parentInode == d.inode)
+        let attributes = try await volume.attributes(FSItem.GetAttributesRequest(), of: f)
+        #expect(attributes.fileID.rawValue == f.inode)
+    }
+
+    /// A file moved to another directory carries its new path and parent.
+    @Test func aFileRenamedIntoAnotherDirectoryCarriesItsNewParent() async throws {
+        let (volume, driver, root) = try fixture()
+        _ = driver.mkdir(p("/d"), mode: 0o755)
+        _ = driver.create(p("/a"), mode: 0o644)
+        let a = volume.item(forInode: driver.nodes[p("/a")]!.inode, path: p("/a"), parentInode: 64)
+        let d = volume.item(forInode: driver.nodes[p("/d")]!.inode, path: p("/d"), parentInode: 64)
+        _ = try await volume.renameItem(a, inDirectory: root, named: name("a"),
+                                        to: name("z"), inDirectory: d, overItem: nil)
+        #expect(a.volumePath == p("/d/z"))
+        #expect(a.parentInode == d.inode)
+        _ = try await volume.attributes(FSItem.GetAttributesRequest(), of: a)
     }
 
     @Test func aFileOverADirectoryIsTheDriversEISDIR() async throws {
