@@ -47,7 +47,7 @@ private final class TableBackend: NTFSBackend {
         case rmdir(String)
         case rename(String, toBasename: String)
         case setTimes(String, NTFSFileTimes)
-        case fsck
+        case fsck(flags: UInt32)
         case remountThroughDeviceChain
         case unmount
         case releaseDevice
@@ -206,9 +206,9 @@ private final class TableBackend: NTFSBackend {
         return 0
     }
 
-    func fsck(onProgress: @escaping (String, UInt64, UInt64) -> Void)
+    func fsck(flags: UInt32, onProgress: @escaping (String, UInt64, UInt64) -> Void)
         -> Result<NTFSVolume.FsckReport, Error> {
-        calls.append(.fsck)
+        calls.append(.fsck(flags: flags))
         return fsckResult
     }
 
@@ -790,14 +790,14 @@ struct NTFSVolumeTests {
     // MARK: activation, fsck and deactivation
 
     /// A read-write mount defers the dirty check and fsck to the first
-    /// activate, where the device is writable; a plain device goes through
-    /// the callback fsck.
+    /// activate, where the device is writable. That check is the mount's
+    /// own, so it leaves the dirty flag for Windows' chkdsk (#367).
     @Test func activatingAWritableMountRunsFsckOnceOnly() {
         let b = seededBackend()
         let v = makeVolume(b, requiresFsckRemount: true)
         let root = v.activatedRoot()
         _ = v.activatedRoot()
-        #expect(b.calls == [.fsck])
+        #expect(b.calls == [.fsck(flags: NTFSFsckFlags.automaticRemount)])
         #expect(root.fileRecordNumber == rootRecord)
         #expect(root.path == "/")
     }
@@ -821,7 +821,7 @@ struct NTFSVolumeTests {
         let b = seededBackend()
         b.fsckResult = .failure(POSIXError(.EIO))
         let root = makeVolume(b, requiresFsckRemount: true).activatedRoot()
-        #expect(b.calls == [.fsck])
+        #expect(b.calls == [.fsck(flags: NTFSFsckFlags.automaticRemount)])
         #expect(root.fileRecordNumber == rootRecord)
     }
 
@@ -829,9 +829,19 @@ struct NTFSVolumeTests {
         let b = seededBackend()
         let report = NTFSVolume.FsckReport(wasDirty: true, dirtyCleared: true)
         b.fsckResult = .success(report)
-        let result = makeVolume(b).runFsck(onProgress: { _, _, _ in }, onFinding: { _ in })
+        let result = makeVolume(b).runFsck(flags: NTFSFsckFlags.userVerify,
+                                           onProgress: { _, _, _ in }, onFinding: { _ in })
         #expect(try result.get() == report)
         #expect(report.toEventFields() == ["dirty_cleared": "true"])
+    }
+
+    /// The flags a caller of runFsck chooses are the ones the driver gets:
+    /// Verify's clear the dirty flag, and nothing else asks for that (#367).
+    @Test(arguments: [NTFSFsckFlags.userVerify, NTFSFsckFlags.automaticRemount])
+    func runFsckPassesTheCallersFlags(_ flags: UInt32) {
+        let b = seededBackend()
+        _ = makeVolume(b).runFsck(flags: flags, onProgress: { _, _, _ in }, onFinding: { _ in })
+        #expect(b.calls == [.fsck(flags: flags)])
     }
 
     /// The device context the C callbacks read through must outlive the
