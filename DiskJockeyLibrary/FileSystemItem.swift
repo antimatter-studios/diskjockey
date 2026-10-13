@@ -26,6 +26,7 @@
 
 import FSKit
 import Foundation
+import os
 
 // MARK: - Generic
 
@@ -55,30 +56,40 @@ public final class FileSystemItem<Tag: FileSystemTag>: FSItem {
     /// the lifetime of the mount.
     public let id: Tag.ID
 
+    /// Where the item is: its path and its parent. A rename moves them
+    /// (diskjockey#352), and FSKit calls in from several threads, so they
+    /// are held under a lock rather than fixed at construction.
+    private struct Location: Sendable {
+        var path: String
+        var volumePath: VolumePath
+        var parentID: Tag.ID?
+    }
+
+    private let location: OSAllocatedUnfairLock<Location>
+
     /// Absolute path within the volume (e.g. `/etc/passwd`). Used by
     /// every backend op — the FSKit-side identity is a `UInt64`
     /// fileID that the volume translates back to this path via its
     /// item cache, but the backend itself is always path-driven.
-    public let path: String
+    public var path: String { location.withLock { $0.path } }
 
     /// The same path as the bytes the driver uses. For an item made from
     /// a `String` path the two agree; for one made from a `VolumePath`,
     /// `path` is only a readable rendering and this is the path
     /// (diskjockey#219).
-    public let volumePath: VolumePath
+    public var volumePath: VolumePath { location.withLock { $0.volumePath } }
 
     /// Parent directory's identity. `nil` only for the root item,
     /// whose parent FSKit defines as the sentinel `FSItemIDParentOfRoot`
-    /// (1). Stored at construction time so the FSKit attribute-fetch
-    /// path doesn't need a second stat just to fill in `parentID`
-    /// (bit 9 of the standard attribute set).
-    public let parentID: Tag.ID?
+    /// (1). Kept with the item so the FSKit attribute-fetch path doesn't
+    /// need a second stat just to fill in `parentID` (bit 9 of the
+    /// standard attribute set).
+    public var parentID: Tag.ID? { location.withLock { $0.parentID } }
 
     public init(id: Tag.ID, path: String, parentID: Tag.ID?) {
         self.id = id
-        self.path = path
-        self.volumePath = VolumePath(path)
-        self.parentID = parentID
+        self.location = OSAllocatedUnfairLock(initialState: Location(
+            path: path, volumePath: VolumePath(path), parentID: parentID))
         super.init()
     }
 
@@ -86,10 +97,51 @@ public final class FileSystemItem<Tag: FileSystemTag>: FSItem {
     /// not.
     public init(id: Tag.ID, volumePath: VolumePath, parentID: Tag.ID?) {
         self.id = id
-        self.path = volumePath.description
-        self.volumePath = volumePath
-        self.parentID = parentID
+        self.location = OSAllocatedUnfairLock(initialState: Location(
+            path: volumePath.description, volumePath: volumePath, parentID: parentID))
         super.init()
+    }
+
+    /// Move the item to `volumePath` in the directory `parentID`, after a
+    /// rename moved it there.
+    public func move(to volumePath: VolumePath, parentID: Tag.ID?) {
+        location.withLock {
+            $0 = Location(path: volumePath.description, volumePath: volumePath, parentID: parentID)
+        }
+    }
+
+    /// Move the item if it sits under the directory a rename moved from
+    /// `source` to `destination`: that part of its path becomes
+    /// `destination`, and the rest of its path and its parent stay.
+    /// Returns whether it moved.
+    @discardableResult
+    public func rebase(from source: VolumePath, to destination: VolumePath) -> Bool {
+        let prefix = source.bytes + [UInt8(ascii: "/")]
+        return location.withLock { location in
+            guard location.volumePath.bytes.starts(with: prefix) else { return false }
+            let moved = VolumePath(
+                bytes: destination.bytes + location.volumePath.bytes.dropFirst(source.bytes.count))
+            location.path = moved.description
+            location.volumePath = moved
+            return true
+        }
+    }
+}
+
+public extension FileIDCache {
+    /// After a rename moved `item` to `destination` in the directory
+    /// `parentID`: the item carries its new path and parent, and every
+    /// cached item under it, when it is a directory, its new path
+    /// (diskjockey#352). An item FSKit already holds then reads through
+    /// where it is now, rather than answering ENOENT until FSKit looks its
+    /// name up again.
+    func moved<Tag: FileSystemTag>(_ item: FileSystemItem<Tag>, to destination: VolumePath,
+                                   parentID: Tag.ID?) where Item == FileSystemItem<Tag> {
+        let source = item.volumePath
+        item.move(to: destination, parentID: parentID)
+        forEach { cached in
+            if cached !== item { cached.rebase(from: source, to: destination) }
+        }
     }
 }
 

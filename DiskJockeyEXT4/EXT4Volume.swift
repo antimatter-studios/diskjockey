@@ -818,6 +818,9 @@ final class EXT4Volume: FSVolume,
         guard backend.rename(src: srcPath, dst: dstPath) else {
             throw Self.posixError(from: backend)
         }
+        if let moved = item as? EXT4Item {
+            items.moved(moved, to: dstPath, parentID: dstDir.inode)
+        }
         return destinationName
     }
 

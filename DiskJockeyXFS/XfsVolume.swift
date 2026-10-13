@@ -465,6 +465,9 @@ final class XfsVolume: FSVolume,
         guard driver.rename(from, to: to, replace: true) == 0 else {
             throw driver.lastPOSIXError()
         }
+        if let moved = item as? XfsItem {
+            items.moved(moved, to: to, parentID: dstDir.inode)
+        }
         return destinationName
     }
 

@@ -464,6 +464,9 @@ final class BcachefsVolume: FSVolume,
         // here first, so a refused rename loses nothing.
         let rc = backend.rename(from, to: to)
         guard rc == 0 else { throw backend.error(returned: rc) }
+        if let moved = item as? BcachefsItem {
+            items.moved(moved, to: to, parentID: dstDir.id)
+        }
         return destinationName
     }
 

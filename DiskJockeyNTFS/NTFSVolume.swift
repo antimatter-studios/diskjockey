@@ -762,9 +762,15 @@ final class NTFSVolume: FSVolume,
         // populated: FSKit only passes it when the kernel had already
         // resolved the destination, so a rename-over (e.g. `sed -i`) would
         // otherwise slip through with a nil overItem.
-        if backend.rename(ntfsItem.volumePath, toBasename: dstNameStr) != 0 {
+        let oldPath = ntfsItem.volumePath
+        if backend.rename(oldPath, toBasename: dstNameStr) != 0 {
             throw backend.lastError()
         }
+        // The rename stays in its directory: the new path is the old one's
+        // parent with the new name.
+        let parentBytes = oldPath.bytes.lastIndex(of: UInt8(ascii: "/")).map { Array(oldPath.bytes[..<$0]) } ?? []
+        items.moved(ntfsItem, to: VolumePath(bytes: parentBytes + [UInt8(ascii: "/")] + Array(dstNameStr.utf8)),
+                    parentID: ntfsItem.parentID)
 
         return destinationName
     }
