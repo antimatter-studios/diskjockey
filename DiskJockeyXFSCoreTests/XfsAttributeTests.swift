@@ -119,6 +119,23 @@ private func code(_ body: () async throws -> Void) async -> POSIXErrorCode? {
 @Suite("XFS attribute and extended attribute changes")
 struct XfsAttributeTests {
 
+    /// rust-fs-xfs frees an inode with its last name, so a file unlinked
+    /// while open would be unreadable through its open handle. FSKit keeps
+    /// such a file for its handles when the volume asks it to emulate
+    /// open-unlink (diskjockey#354), writable or not: FSKit reads the
+    /// property once, after the resource loads. Through the Objective-C
+    /// runtime, since the property is optional and macOS 26's.
+    @Test(arguments: [true, false])
+    func theVolumeAsksFSKitToEmulateOpenUnlink(writable: Bool) throws {
+        let (volume, _, _) = try fixture(writable: writable)
+        let property = "enableOpenUnlinkEmulation"
+        guard volume.responds(to: NSSelectorFromString(property)) else {
+            Issue.record("XfsVolume does not implement \(property), so FSKit never emulates open-unlink")
+            return
+        }
+        #expect(volume.value(forKey: property) as? Bool == true)
+    }
+
     @Test func modeOwnerAndTimesAreOneDriverCall() async throws {
         let (volume, driver, item) = try fixture()
         let request = FSItem.SetAttributesRequest()
