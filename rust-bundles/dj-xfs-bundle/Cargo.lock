@@ -71,9 +71,9 @@ checksum = "3b367b3bdf7ef90b9701edc9aa9cb9e67817e07c56a9ad88509367eebae74675"
 
 [[package]]
 name = "rust-fs-xfs"
-version = "0.13.0"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77086f9d84fb44d57aa4441d3aeb6eebc85981558500b6b7af519bdd0a4ca535"
+checksum = "fa46d558a6752df10a9ca5f649b52306adee58c4dd267b904f0581df2180c01a"
 dependencies = [
  "crc32c",
  "rust-fs-core",
