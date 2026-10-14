@@ -220,7 +220,7 @@ class Job:
                 "/sbin/mount",
                 "-F",
                 "-t",
-                "xfs",
+                "fsxfs",
                 "-o",
                 "rdonly" if readonly else "rw",
                 device,
@@ -253,14 +253,14 @@ class Job:
         expected_files = dict(case["files"])
         with self.attached(image) as device:
             self.command(
-                ["sudo", "-n", "/sbin/fsck_fskit", "-t", "xfs", "-n", device],
+                ["sudo", "-n", "/sbin/fsck_fskit", "-t", "fsxfs", "-n", device],
                 case["check"],
             )
         if digest(image) != before:
             raise ValueError("read-only check changed image bytes")
         with self.attached(image) as device:
             self.command(
-                ["sudo", "-n", "/sbin/fsck_fskit", "-t", "xfs", "-y", device],
+                ["sudo", "-n", "/sbin/fsck_fskit", "-t", "fsxfs", "-y", device],
                 case["repair"],
             )
         after_repair = digest(image)
@@ -274,7 +274,7 @@ class Job:
         if case["id"] not in ("unsupported", "unrepairable"):
             with self.attached(image) as device:
                 self.command(
-                    ["sudo", "-n", "/sbin/fsck_fskit", "-t", "xfs", "-n", device]
+                    ["sudo", "-n", "/sbin/fsck_fskit", "-t", "fsxfs", "-n", device]
                 )
             if digest(image) != after_repair:
                 raise ValueError("post-repair check changed image bytes")
@@ -309,7 +309,7 @@ class Job:
                 before_check = digest(image)
                 with self.attached(image) as device:
                     self.command(
-                        ["sudo", "-n", "/sbin/fsck_fskit", "-t", "xfs", "-n", device]
+                        ["sudo", "-n", "/sbin/fsck_fskit", "-t", "fsxfs", "-n", device]
                     )
                 if digest(image) != before_check:
                     raise ValueError("post-write check changed image bytes")
