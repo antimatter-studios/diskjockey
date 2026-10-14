@@ -181,6 +181,23 @@ tasks:
     cmds:
       - scripts/test-xfs-v5-release.sh {{.CLI_ARGS}}
 
+  test:xfs-mutations:
+    desc: The production XFS volume over the vendored bundle, driven through FSKit against a Linux-made image
+    # Not one of the three tiers: the image comes from test:xfs-mutations-vm
+    # `create`, and its `verify` (xfs_repair -n, xfs_logprint, xfs_db and the
+    # kernel) is the independent half. Needs the XFS bundle
+    # (scripts/build-bundles.sh xfs). Arguments: <image> <expected-dir>. The
+    # XFS mutations workflow runs both halves (#355).
+    cmds:
+      - scripts/test-xfs-mutations.sh {{.CLI_ARGS}}
+
+  test:xfs-mutations-vm:
+    desc: The Linux half of the XFS mutation oracle, in fs-linux-test-harness's VM — create|verify <dir>
+    # The harness is a sibling at the tag SIBLING_PINS.txt names; the VM
+    # comes down when the script exits.
+    cmds:
+      - scripts/xfs-mutations-vm.sh {{.CLI_ARGS}}
+
   check:agents-core:
     desc: AGENTS.md still carries the shared agent-core block, unmodified
     # A task naming a script and nothing else: rust-fs-core's, run in place

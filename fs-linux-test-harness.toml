@@ -1,0 +1,26 @@
+# fs-linux-test-harness: the disposable Debian VM the Linux half of the XFS
+# FSKit mutation oracle runs in (diskjockey#355). xfsprogs' own mkfs.xfs
+# makes the image there, and xfs_repair, xfs_logprint, xfs_db and the
+# guest's kernel judge what the FSKit volume wrote to it. One guest, one
+# version of each tool, on a developer's Mac and on CI's KVM runner alike:
+# nothing is installed on, or read from, the host.
+#
+# The harness is a sibling checkout (../fs-linux-test-harness) at the tag
+# SIBLING_PINS.txt names. scripts/xfs-mutations-vm.sh drives it.
+
+[project]
+name = "diskjockey"
+
+[setup]
+# Runs as root INSIDE the VM, and only when it has changed.
+script = "scripts/oracles/vm-setup.sh"
+
+[vm]
+# A 400 MiB image, loop-mounted once per run.
+memory = "2G"
+cpus = 2
+disk = "16G"
+deadline_minutes = 60
+
+[share]
+dir = ".vm-share"
