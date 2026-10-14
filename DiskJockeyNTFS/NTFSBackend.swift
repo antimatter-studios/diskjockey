@@ -157,9 +157,9 @@ protocol NTFSBackend: AnyObject {
     var remountsThroughDeviceChain: Bool { get }
 
     /// Unmounts, checks the dirty bit, runs fsck when it is set, and
-    /// remounts (read-write preferred, read-only fallback) on every path.
-    /// `flags` is one of `NTFSFsckFlags`' sets: only Verify's clears the
-    /// dirty flag. `onProgress` fires on the driver's thread.
+    /// remounts through `NTFSRemount.afterCheck` on every path. `flags` is
+    /// one of `NTFSFsckFlags`' sets: only Verify's clears the dirty flag.
+    /// `onProgress` fires on the driver's thread.
     func fsck(flags: UInt32,
               onProgress: @escaping (_ phase: String, _ done: UInt64, _ total: UInt64) -> Void)
         -> Result<NTFSVolume.FsckReport, Error>
@@ -203,4 +203,51 @@ enum NTFSFsckFlags {
     static let userVerify: UInt32 = clearDirty
     /// A read-write remount's own check: replay the log, leave the flag.
     static let automaticRemount: UInt32 = 0
+}
+
+/// How a volume is mounted once a remount has succeeded.
+enum NTFSMountAccess: Equatable, Sendable {
+    case readWrite
+    case readOnly
+}
+
+/// The two ways the driver can mount a volume again, behind which
+/// NTFSDriver makes its `fs_ntfs_mount_*` calls. Each returns true when the
+/// driver handed back a mount handle, which the conformer then holds.
+protocol NTFSRemounting: AnyObject {
+    /// True when the volume was mounted through an fs_core device chain —
+    /// a disk-image container, a partition slice or both.
+    var remountsThroughDeviceChain: Bool { get }
+
+    /// Mounts the whole device over the plain read/write callback pair,
+    /// with the write callback only when `writable`.
+    func mountThroughCallbacks(writable: Bool) -> Bool
+
+    /// Mounts through the device chain the volume was mounted from: the
+    /// same container reader and partition slice over the same device.
+    func mountThroughDeviceChain(writable: Bool) -> Bool
+}
+
+/// The remount after a check (diskjockey#369).
+///
+/// A volume inside a disk-image container or a partition is not the raw
+/// device: mounting the raw device reads the container's own bytes, or the
+/// disk's first sector rather than the partition's, and fails, leaving the
+/// volume with no handle. The remount therefore goes through the resource
+/// the volume was mounted from, and only through it.
+enum NTFSRemount {
+    /// Mounts the volume again after a check. A volume loaded writable is
+    /// mounted read-write, or read-only when the driver refuses to write it
+    /// (a dirty flag the check left, say); one loaded read-only is mounted
+    /// read-only. Nil when no mount succeeded and the volume has no handle.
+    @discardableResult
+    static func afterCheck(_ driver: NTFSRemounting, writable: Bool) -> NTFSMountAccess? {
+        let mount = driver.remountsThroughDeviceChain
+            ? driver.mountThroughDeviceChain(writable:)
+            : driver.mountThroughCallbacks(writable:)
+        if writable && mount(true) {
+            return .readWrite
+        }
+        return mount(false) ? .readOnly : nil
+    }
 }

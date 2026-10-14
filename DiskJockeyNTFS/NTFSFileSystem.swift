@@ -398,6 +398,7 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
                 contextPtr: contextPtr,
                 cfgSizeBytes: cfgSizeBytes,
                 bsdName: bsdName,
+                writable: isWritable,
                 containerKind: containerKind,
                 partitionOffset: partitionOffset,
                 partitionLength: partitionLength),
