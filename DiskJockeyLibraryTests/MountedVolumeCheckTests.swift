@@ -27,7 +27,9 @@ struct MountedVolumeCheckTests {
 
     @Test("a verify request says it is a verify, across the App Group")
     func verifyRequestRoundTrips() throws {
-        let request = RepairRequest(bsd: "disk9", operation: .verify)
+        // The App Group's ISO 8601 encoding preserves whole seconds only.
+        let date = Date(timeIntervalSince1970: 1_760_000_000)
+        let request = RepairRequest(bsd: "disk9", operation: .verify, submittedAt: date)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         let decoder = JSONDecoder()
