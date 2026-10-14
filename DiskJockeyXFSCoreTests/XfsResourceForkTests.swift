@@ -198,17 +198,23 @@ private func appleDouble(fork: [UInt8]) -> [UInt8] {
 /// byte shows up in.
 private let bigFork: [UInt8] = (0..<102_400).map { UInt8(truncatingIfNeeded: $0 &* 7 &+ 3) }
 
-/// Files called `._f` that hold no fork the kernel would return.
-private let notAppleDouble: [(String, [UInt8])] = {
-    let real = appleDouble(fork: bigFork)
-    let version1: [UInt8] = Array(real[0..<4]) + be32(0x0001_0000) + Array(real[8...])
-    return [
-        ("not AppleDouble", Array("just a file called ._f".utf8)),
-        ("version 1", version1),
-        ("fork past the end", Array(real.dropLast())),
-        ("header cut short", Array(real.prefix(40))),
-    ]
-}()
+/// Names for malformed siblings, kept as short test arguments so Swift
+/// Testing does not print their 100 KiB byte arrays into the library log.
+private let notAppleDouble = [
+    "not AppleDouble", "version 1", "fork past the end", "header cut short",
+]
+
+private func notAppleDoubleBytes(_ label: String) -> [UInt8] {
+    switch label {
+    case "not AppleDouble": return Array("just a file called ._f".utf8)
+    case "version 1":
+        let real = appleDouble(fork: bigFork)
+        return Array(real[0..<4]) + be32(0x0001_0000) + Array(real[8...])
+    case "fork past the end": return Array(appleDouble(fork: bigFork).dropLast())
+    case "header cut short": return Array(appleDouble(fork: bigFork).prefix(40))
+    default: preconditionFailure("unknown malformed AppleDouble case: \(label)")
+    }
+}
 
 private func fixture(writable: Bool = true) throws -> (XfsVolume, ForkDriver, XfsItem) {
     let driver = ForkDriver()
@@ -309,9 +315,9 @@ struct XfsResourceForkTests {
     /// its end, holds no fork the kernel would return, so none is listed and
     /// the list itself still succeeds.
     @Test(arguments: notAppleDouble)
-    func aSiblingThatIsNotAnAppleDoubleFileListsNoFork(_ label: String, _ bytes: [UInt8]) async throws {
+    func aSiblingThatIsNotAnAppleDoubleFileListsNoFork(_ label: String) async throws {
         let (volume, driver, item) = try fixture()
-        driver.files[appleDoublePath] = bytes
+        driver.files[appleDoublePath] = notAppleDoubleBytes(label)
         #expect(try await listed(volume, item) == ["kept"], "\(label)")
     }
 
