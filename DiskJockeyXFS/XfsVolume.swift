@@ -463,7 +463,8 @@ final class XfsVolume: FSVolume,
     }
 
     /// fs_xfs_unlink, or fs_xfs_rmdir for a directory (diskjockey#326),
-    /// chosen by what the name is now rather than what the item was.
+    /// chosen by what the name is now rather than what the item was. The
+    /// AppleDouble file beside it goes too (diskjockey#353).
     func removeItem(
         _ item: FSItem, named name: FSFileName, fromDirectory directory: FSItem
     ) async throws {
@@ -474,6 +475,7 @@ final class XfsVolume: FSVolume,
         guard let attr = driver.stat(childPath) else { throw driver.lastPOSIXError() }
         let rc = attr.fileType == .directory ? driver.rmdir(childPath) : driver.unlink(childPath)
         guard rc == 0 else { throw driver.lastPOSIXError() }
+        removeAppleDoubleFile(beside: childPath, driver)
     }
 
     /// fs_xfs_rename2 with FS_XFS_RENAME_REPLACE (diskjockey#327): a name
@@ -481,7 +483,8 @@ final class XfsVolume: FSVolume,
     /// same record. FSKit passes `overItem` only when the kernel had
     /// already resolved the destination, so the replace is always asked
     /// for, and nothing is unlinked here first: a refused rename loses
-    /// nothing.
+    /// nothing. The AppleDouble file beside the item moves with it
+    /// (diskjockey#353).
     func renameItem(
         _ item: FSItem, inDirectory sourceDirectory: FSItem, named sourceName: FSFileName,
         to destinationName: FSFileName, inDirectory destinationDirectory: FSItem, overItem: FSItem?
@@ -498,6 +501,7 @@ final class XfsVolume: FSVolume,
         if let moved = item as? XfsItem {
             items.moved(moved, to: to, parentID: dstDir.inode)
         }
+        moveAppleDoubleFile(from: from, to: to, driver)
         return destinationName
     }
 
@@ -615,6 +619,9 @@ final class XfsVolume: FSVolume,
         try ensureIdle()
         guard let driver = driver as? XfsMountedVolumeDriver,
               let eItem = item as? XfsItem else { throw POSIXError(.EBADF) }
+        // The kernel reads the fork from the AppleDouble file, and answers
+        // ENOATTR itself when there is none there either.
+        guard [UInt8](name.data) != Self.resourceForkName else { throw POSIXError(.ENOTSUP) }
         guard let value = driver.getXattr(eItem.volumePath, name: try Self.driverXattrName(name)) else {
             throw driver.lastPOSIXError()
         }
@@ -623,12 +630,16 @@ final class XfsVolume: FSVolume,
 
     /// FSKit's set policies are the driver's own flags, so whether the
     /// attribute is there is decided in the same record that writes it.
+    /// The resource fork, of any size and under every policy, is the
+    /// kernel's to keep in the AppleDouble file, so one fork is never in
+    /// two places.
     func setXattr(named name: FSFileName, to value: Data?, on item: FSItem,
                   policy: FSVolume.SetXattrPolicy) async throws {
         try ensureIdle()
         let driver = try writableDriver()
         guard let eItem = item as? XfsItem else { throw POSIXError(.EBADF) }
-        guard [UInt8](name.data) != Self.macACLName else { throw POSIXError(.ENOTSUP) }
+        guard [UInt8](name.data) != Self.macACLName,
+              [UInt8](name.data) != Self.resourceForkName else { throw POSIXError(.ENOTSUP) }
         let driverName = try Self.driverXattrName(name)
         let rc: Int32
         switch policy {
@@ -646,6 +657,11 @@ final class XfsVolume: FSVolume,
         guard rc == 0 else { throw driver.lastPOSIXError() }
     }
 
+    /// The native names, and the resource fork when the AppleDouble file
+    /// holds one: xnu adds the AppleDouble file's names to a list only when
+    /// the volume refuses the whole list, which would lose the native ones,
+    /// and copyfile copies only what the list names. A native
+    /// `com.apple.ResourceFork` is not named, since a get cannot return it.
     func xattrs(of item: FSItem) async throws -> [FSFileName] {
         try ensureIdle()
         guard let driver = driver as? XfsMountedVolumeDriver,
@@ -653,13 +669,147 @@ final class XfsVolume: FSVolume,
         guard let names = driver.listXattrs(eItem.volumePath) else {
             throw driver.lastPOSIXError()
         }
-        return names.compactMap(Self.macXattrName).map { FSFileName(data: Data($0)) }
+        var listed = names.compactMap(Self.macXattrName).filter { $0 != Self.resourceForkName }
+        if try Self.appleDoubleFileHoldsAFork(beside: eItem.volumePath, driver) {
+            listed.append(Self.resourceForkName)
+        }
+        return listed.map { FSFileName(data: Data($0)) }
+    }
+
+    // MARK: - The resource fork, in the AppleDouble file
+
+    /// The attribute macOS hands a file's resource fork over as. XFS caps
+    /// an attribute value at 64 KiB (XATTR_SIZE_MAX) and a fork can be any
+    /// size, so the volume keeps none: every request for it is answered
+    /// ENOTSUP, which is xnu's signal to keep it in the AppleDouble file
+    /// `._<name>` beside the file (vn_setxattr, vn_getxattr and
+    /// vn_removexattr: "A filesystem may keep some EAs natively and return
+    /// ENOTSUP for others"), as it keeps every attribute on msdos and exFAT.
+    /// Samba (`fruit:resource = file`) and netatalk keep a fork on Linux in
+    /// the same file, for the same limit (diskjockey#353).
+    static let resourceForkName = Array("com.apple.ResourceFork".utf8)
+
+    private static let appleDoublePrefix = Array("._".utf8)
+    /// The longest name XFS stores (MAXNAMELEN - 1).
+    private static let maximumNameBytes = 255
+
+    /// The AppleDouble file xnu keeps beside `path`: `._<name>` in the same
+    /// directory. Nil for the root, for a `._` file itself, which xnu gives
+    /// no attributes, and for a name too long to have one.
+    static func appleDoublePath(for path: VolumePath) -> VolumePath? {
+        let name = path.lastComponent
+        guard path != .root, !name.isEmpty, !name.starts(with: appleDoublePrefix),
+              appleDoublePrefix.count + name.count <= maximumNameBytes else { return nil }
+        let parent = VolumePath(bytes: Array(path.bytes.dropLast(name.count + 1)))
+        return (parent.bytes.isEmpty ? VolumePath.root : parent).appending(appleDoublePrefix + name)
+    }
+
+    /// An AppleDouble file's layout (RFC 1740, version 2): a 26-byte header
+    /// ending in the entry count, then 12 bytes per entry — its id, offset
+    /// and length, big-endian.
+    private enum AppleDouble {
+        static let magic: UInt32 = 0x0005_1607
+        static let version: UInt32 = 0x0002_0000
+        static let headerSize = 26
+        static let entrySize = 12
+        static let resourceForkID: UInt32 = 2
+    }
+
+    /// Whether the AppleDouble file beside `path` holds a resource fork of
+    /// at least one byte, which is when the kernel returns one: removing a
+    /// fork leaves its entry with length 0. A sibling that is missing, not
+    /// a regular file, not a version 2 AppleDouble file or whose fork lies
+    /// past its end holds none; one that cannot be read fails the caller,
+    /// since a list that went on without it would leave a fork out of a
+    /// copy unseen.
+    static func appleDoubleFileHoldsAFork(beside path: VolumePath,
+                                          _ driver: ReadOnlyVolumeDriver) throws -> Bool {
+        guard let sidecar = appleDoublePath(for: path) else { return false }
+        guard let attr = driver.stat(sidecar) else {
+            if driver.lastErrno() == ENOENT { return false }
+            throw driver.lastPOSIXError()
+        }
+        guard attr.fileType == .file else { return false }
+        let header = try readPrefix(of: sidecar, count: AppleDouble.headerSize, driver)
+        guard header.count == AppleDouble.headerSize,
+              bigEndian32(header, at: 0) == AppleDouble.magic,
+              bigEndian32(header, at: 4) == AppleDouble.version else { return false }
+        let entryCount = Int(header[24]) << 8 | Int(header[25])
+        let entriesEnd = AppleDouble.headerSize + entryCount * AppleDouble.entrySize
+        guard UInt64(entriesEnd) <= attr.size else { return false }
+        let entries = try readPrefix(of: sidecar, count: entriesEnd, driver)
+        guard entries.count == entriesEnd else { return false }
+        for start in stride(from: AppleDouble.headerSize, to: entriesEnd, by: AppleDouble.entrySize)
+        where bigEndian32(entries, at: start) == AppleDouble.resourceForkID {
+            let offset = UInt64(bigEndian32(entries, at: start + 4))
+            let length = UInt64(bigEndian32(entries, at: start + 8))
+            return length > 0 && offset + length <= attr.size
+        }
+        return false
+    }
+
+    private static func bigEndian32(_ bytes: [UInt8], at index: Int) -> UInt32 {
+        bytes[index..<index + 4].reduce(0) { $0 << 8 | UInt32($1) }
+    }
+
+    /// Up to `count` bytes from the start of the file at `path`; fewer only
+    /// at its end.
+    private static func readPrefix(of path: VolumePath, count: Int,
+                                   _ driver: ReadOnlyVolumeDriver) throws -> [UInt8] {
+        var bytes = [UInt8](repeating: 0, count: count)
+        var filled = 0
+        while filled < count {
+            let n = bytes.withUnsafeMutableBytes {
+                driver.read(path, at: UInt64(filled),
+                            into: UnsafeMutableRawBufferPointer(rebasing: $0[filled...]))
+            }
+            guard n >= 0 else { throw driver.lastPOSIXError() }
+            if n == 0 { break }
+            filled += Int(n)
+        }
+        return Array(bytes.prefix(filled))
+    }
+
+    // xnu removes and renames `._<name>` with its file only on a volume
+    // that does not report native extended attributes (kpi_vfs.c,
+    // VNOP_REMOVE and vn_rename, under !NATIVE_XATTR). This volume keeps
+    // every other attribute natively, so it carries the fork's file along
+    // itself; where the kernel does it too, it finds nothing left to do.
+    // Both are best effort, as the kernel's are: the item's own change has
+    // already been made, and is not undone over its sibling.
+
+    /// Removes the AppleDouble file beside `path`, so a later file of the
+    /// same name does not inherit its fork. A directory of that name is
+    /// somebody's data, and is left alone.
+    private func removeAppleDoubleFile(beside path: VolumePath, _ driver: XfsMountedVolumeDriver) {
+        guard let sidecar = Self.appleDoublePath(for: path),
+              driver.stat(sidecar)?.fileType == .file else { return }
+        if driver.unlink(sidecar) != 0 {
+            log.error("volume: \(sidecar) left behind: errno \(driver.lastErrno())", scope: AppLogScope.volume)
+        }
+    }
+
+    /// Moves the AppleDouble file beside `source` to beside `destination`,
+    /// replacing one there; or, when `source` had none, removes the one
+    /// the replaced file left at `destination`.
+    private func moveAppleDoubleFile(from source: VolumePath, to destination: VolumePath,
+                                     _ driver: XfsMountedVolumeDriver) {
+        guard let from = Self.appleDoublePath(for: source),
+              let to = Self.appleDoublePath(for: destination), from != to else { return }
+        if driver.stat(from)?.fileType == .file {
+            if driver.rename(from, to: to, replace: true) != 0 {
+                log.error("volume: \(from) not moved to \(to): errno \(driver.lastErrno())",
+                          scope: AppLogScope.volume)
+            }
+        } else {
+            removeAppleDoubleFile(beside: destination, driver)
+        }
     }
 
     // MARK: - PathConfOperations
 
     var maximumLinkCount: Int { -1 }
-    var maximumNameLength: Int { 255 }
+    var maximumNameLength: Int { Self.maximumNameBytes }
     var restrictsOwnershipChanges: Bool { true }
     var truncatesLongNames: Bool { false }
     /// The driver stores a value of up to 65536 bytes.
