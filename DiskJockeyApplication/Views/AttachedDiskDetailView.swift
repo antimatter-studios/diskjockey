@@ -3,8 +3,10 @@
 // Read-only information + Reveal-in-Finder + Verify + Repair + Unmount.
 //
 // Repair runs as an in-process pass inside the FSKit extension — see
-// `repair(_:)` and `DiskJockeyRepairProtocol`. Verify still spawns
-// `/sbin/fsck_fskit` against the live mount (read-only, no admin).
+// `repair(_:)` and `DiskJockeyRepairProtocol`. Verify of a mounted ext4
+// volume is the same kind of request (`verifyMounted(_:)`), because
+// `fsck_fskit` is refused "Resource busy" while the volume is mounted
+// (diskjockey#348); NTFS verify still spawns `/sbin/fsck_fskit`.
 //
 
 import SwiftUI
@@ -35,7 +37,8 @@ struct AttachedDiskDetailView: View {
     /// branch of the model takes over the visual.
     @State private var verifying = false
     /// Surfaced failure from spawning `fsck_fskit` (binary missing,
-    /// permission denied on the raw device, etc). Kept distinct from
+    /// permission denied on the raw device, etc), or from a verify the
+    /// mounted volume could not run (busy, unmounted). Kept distinct from
     /// `unmountError` so a stale error from one operation can't
     /// masquerade as the other.
     @State private var verifyError: String? = nil
@@ -44,6 +47,9 @@ struct AttachedDiskDetailView: View {
     /// rewrites `$LogFile` and clears the dirty bit (and briefly
     /// unmounts the live volume) so we want an explicit OK first.
     @State private var showVerifyConfirm = false
+    /// What a verify served by the mounted volume found (e.g. "Verified:
+    /// no problems found."). nil = no banner.
+    @State private var verifyResultMessage: String? = nil
 
     /// Spinner shown on the Repair button between tap and the FSKit
     /// extension picking up the call. Same role as `verifying` — once
@@ -146,6 +152,14 @@ struct AttachedDiskDetailView: View {
                         headline: "Verify failed",
                         message: err,
                         onDismiss: { verifyError = nil }
+                    )
+                }
+
+                if let msg = verifyResultMessage {
+                    successBanner(
+                        headline: "Verify complete",
+                        message: msg,
+                        onDismiss: { verifyResultMessage = nil }
                     )
                 }
 
@@ -508,7 +522,17 @@ struct AttachedDiskDetailView: View {
     /// Spawn pattern matches `unmount(_:)` above: detached Task,
     /// captured stdout+stderr, failure surfaced via the dedicated
     /// `verifyError` banner.
+    ///
+    /// Not for ext4 (`MountedVolumeCheckRoute`): FSKit serves a
+    /// `fsck_fskit` check in a new extension instance that opens the
+    /// device again, and while the volume is mounted that open is refused
+    /// "Resource busy" (diskjockey#348). An ext4 verify is a request to
+    /// the instance that holds the mount instead — `verifyMounted(_:)`.
     private func verify(_ disk: AttachedDisk) {
+        if MountedVolumeCheckRoute(fsType: disk.fsType) == .request {
+            verifyMounted(disk)
+            return
+        }
         // `fsckArgFstype` is non-nil iff `verifySupported` was true at
         // tap time. Defensive guard so a future caller can't slip a
         // bogus fstype into the `-t` flag.
@@ -557,6 +581,52 @@ struct AttachedDiskDetailView: View {
         }
     }
 
+    /// Verify a mounted volume in the extension instance that holds the
+    /// mount: a `.verify` request in the App Group, which the extension's
+    /// RepairWatcher serves over the mounted volume's own driver under its
+    /// `OperationLock`, read-only. The `fsck.*` events drive the status
+    /// badge and progress as they do for `fsck_fskit`; the result file
+    /// says whether the scan ran and what it found.
+    private func verifyMounted(_ disk: AttachedDisk) {
+        guard let bsd = disk.bsd, !bsd.isEmpty else {
+            verifyError = "Verify is unavailable: this row has no BSD identity."
+            return
+        }
+        let request = RepairRequest(bsd: bsd, operation: .verify)
+        let resultURL: URL
+        switch submitRequest(request, fsType: disk.fsType, noun: "verify") {
+        case .success(let url): resultURL = url
+        case .failure(let failure):
+            verifyError = failure.message
+            return
+        }
+
+        verifying = true
+        verifyError = nil
+        verifyResultMessage = nil
+        AppLog.shared.info("verify: submitted request \(request.id) for bsd=\(bsd)")
+
+        Task.detached {
+            let outcome = await Self.awaitResult(at: resultURL)
+            await MainActor.run {
+                self.verifying = false
+                switch outcome {
+                case .finished(let result):
+                    if result.success {
+                        self.verifyResultMessage = result.message
+                    } else {
+                        self.verifyError = result.message
+                    }
+                    AppLog.shared.info("verify: \(request.id) done success=\(result.success): \(result.message)")
+                case .unreadable(let why):
+                    self.verifyError = "Could not parse verify result: \(why)"
+                case .timedOut:
+                    self.verifyError = "Verify timed out after 30 minutes. Check the per-disk log strip for the latest progress."
+                }
+            }
+        }
+    }
+
     // MARK: - Repair
 
     /// Drive the repair pass in-process inside the FSKit extension by
@@ -578,40 +648,12 @@ struct AttachedDiskDetailView: View {
             repairError = "Repair is unavailable: this row has no BSD identity."
             return
         }
-        guard
-            let requestsDir = DiskJockeyRepairFiles.requestsURL(forFsType: disk.fsType),
-            let responsesDir = DiskJockeyRepairFiles.responsesURL(forFsType: disk.fsType)
-        else {
-            repairError = "Repair is not supported for filesystem \"\(disk.fsType)\""
-            return
-        }
-
-        // Make sure the directory tree exists. The extension also
-        // creates these on its own start, but we can't assume it has
-        // started before the user clicks Repair — creating from both
-        // sides is idempotent.
-        do {
-            try DiskJockeyRepairFiles.ensureDirectories(forFsType: disk.fsType)
-        } catch {
-            repairError = "Could not create repair request directory: \(error.localizedDescription)"
-            return
-        }
-
-        let request = RepairRequest(bsd: bsd)
-        let requestURL = requestsDir.appendingPathComponent(
-            DiskJockeyRepairFiles.requestFilename(id: request.id)
-        )
-        let resultURL = responsesDir.appendingPathComponent(
-            DiskJockeyRepairFiles.resultFilename(id: request.id)
-        )
-
-        do {
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            let data = try encoder.encode(request)
-            try data.write(to: requestURL, options: .atomic)
-        } catch {
-            repairError = "Could not write repair request: \(error.localizedDescription)"
+        let request = RepairRequest(bsd: bsd, operation: .repair)
+        let resultURL: URL
+        switch submitRequest(request, fsType: disk.fsType, noun: "repair") {
+        case .success(let url): resultURL = url
+        case .failure(let failure):
+            repairError = failure.message
             return
         }
 
@@ -622,67 +664,124 @@ struct AttachedDiskDetailView: View {
         let model = self.attachedDisks
         model.setStatus(.repairing, forID: diskID)
 
-        AppLog.shared.info("repair: submitted request \(request.id) for bsd=\(bsd) at \(requestURL.lastPathComponent)")
+        AppLog.shared.info("repair: submitted request \(request.id) for bsd=\(bsd)")
 
-        // Watch for the response. We use a simple polling Task rather
-        // than DispatchSource because the host app can't watch
-        // directories that haven't been written to yet (kqueue
-        // semantics), and the result file may appear seconds-to-
-        // minutes from now depending on the volume's repair load.
-        // Polling every 0.5s is cheap (single stat() per tick) and
-        // plenty responsive.
+        Task.detached {
+            let outcome = await Self.awaitResult(at: resultURL)
+            await MainActor.run {
+                self.repairing = false
+                switch outcome {
+                case .finished(let result):
+                    if result.success {
+                        self.repairResultMessage = result.message
+                        model.setStatus(.live, forID: diskID)
+                    } else {
+                        self.repairError = result.message
+                        model.setStatus(
+                            .repairFailed("Repair failed: \(result.message.prefix(160))"),
+                            forID: diskID)
+                    }
+                    AppLog.shared.info("repair: \(request.id) done success=\(result.success) repaired=\(result.repairedCount.map { "\($0)" } ?? "—")")
+                case .unreadable(let why):
+                    self.repairError = "Could not parse repair result: \(why)"
+                    model.setStatus(.repairFailed("Repair result unreadable."), forID: diskID)
+                case .timedOut:
+                    // The extension may have crashed or is taking
+                    // unreasonably long. Surface clearly.
+                    self.repairError = "Repair timed out after 30 minutes. Check the per-disk log strip for the latest progress."
+                    model.setStatus(
+                        .repairFailed("Repair timed out — check per-disk log."),
+                        forID: diskID)
+                }
+            }
+        }
+    }
+
+    // MARK: - App Group requests
+
+    private struct RequestFailure: Error {
+        let message: String
+    }
+
+    private enum RequestOutcome {
+        case finished(RepairResult)
+        case unreadable(String)
+        case timedOut
+    }
+
+    /// Write `request` where `fsType`'s extension watches for it, and
+    /// return where its result will appear. `noun` names the operation
+    /// in the failure messages.
+    private func submitRequest(_ request: RepairRequest, fsType: String,
+                               noun: String) -> Result<URL, RequestFailure> {
+        guard
+            let requestsDir = DiskJockeyRepairFiles.requestsURL(forFsType: fsType),
+            let responsesDir = DiskJockeyRepairFiles.responsesURL(forFsType: fsType)
+        else {
+            return .failure(RequestFailure(
+                message: "\(noun.capitalized) is not supported for filesystem \"\(fsType)\""))
+        }
+
+        // Make sure the directory tree exists. The extension also
+        // creates these on its own start, but we can't assume it has
+        // started before the user clicks — creating from both sides is
+        // idempotent.
+        do {
+            try DiskJockeyRepairFiles.ensureDirectories(forFsType: fsType)
+        } catch {
+            return .failure(RequestFailure(
+                message: "Could not create \(noun) request directory: \(error.localizedDescription)"))
+        }
+
+        let requestURL = requestsDir.appendingPathComponent(
+            DiskJockeyRepairFiles.requestFilename(id: request.id)
+        )
+        do {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            let data = try encoder.encode(request)
+            try data.write(to: requestURL, options: .atomic)
+        } catch {
+            return .failure(RequestFailure(
+                message: "Could not write \(noun) request: \(error.localizedDescription)"))
+        }
+        return .success(responsesDir.appendingPathComponent(
+            DiskJockeyRepairFiles.resultFilename(id: request.id)
+        ))
+    }
+
+    /// Wait for the result the extension writes for a request.
+    ///
+    /// We use a simple polling loop rather than DispatchSource because
+    /// the host app can't watch directories that haven't been written
+    /// to yet (kqueue semantics), and the result file may appear
+    /// seconds-to-minutes from now depending on the volume's load.
+    /// Polling every 0.5s is cheap (single stat() per tick) and plenty
+    /// responsive.
+    private static func awaitResult(at resultURL: URL) async -> RequestOutcome {
         let timeoutSec: Double = 60 * 30  // 30 minutes — even the largest
                                           // ext4 volumes finish in under that.
         let pollInterval: Double = 0.5
         let startedAt = Date()
-
-        Task.detached {
-            let fm = FileManager.default
-            while Date().timeIntervalSince(startedAt) < timeoutSec {
-                if fm.fileExists(atPath: resultURL.path) {
-                    do {
-                        let data = try Data(contentsOf: resultURL)
-                        let decoder = JSONDecoder()
-                        decoder.dateDecodingStrategy = .iso8601
-                        let result = try decoder.decode(RepairResult.self, from: data)
-                        // Best-effort cleanup so the response dir
-                        // doesn't accumulate stale entries.
-                        try? fm.removeItem(at: resultURL)
-                        await MainActor.run {
-                            self.repairing = false
-                            if result.success {
-                                self.repairResultMessage = result.message
-                                model.setStatus(.live, forID: diskID)
-                            } else {
-                                self.repairError = result.message
-                                model.setStatus(
-                                    .repairFailed("Repair failed: \(result.message.prefix(160))"),
-                                    forID: diskID)
-                            }
-                            AppLog.shared.info("repair: \(request.id) done success=\(result.success) repaired=\(result.repairedCount.map { "\($0)" } ?? "—")")
-                        }
-                        return
-                    } catch {
-                        await MainActor.run {
-                            self.repairing = false
-                            self.repairError = "Could not parse repair result: \(error.localizedDescription)"
-                            model.setStatus(.repairFailed("Repair result unreadable."), forID: diskID)
-                        }
-                        return
-                    }
+        let fm = FileManager.default
+        while Date().timeIntervalSince(startedAt) < timeoutSec {
+            if fm.fileExists(atPath: resultURL.path) {
+                do {
+                    let data = try Data(contentsOf: resultURL)
+                    let decoder = JSONDecoder()
+                    decoder.dateDecodingStrategy = .iso8601
+                    let result = try decoder.decode(RepairResult.self, from: data)
+                    // Best-effort cleanup so the response dir
+                    // doesn't accumulate stale entries.
+                    try? fm.removeItem(at: resultURL)
+                    return .finished(result)
+                } catch {
+                    return .unreadable(error.localizedDescription)
                 }
-                try? await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
             }
-            // Timeout — the extension may have crashed or is taking
-            // unreasonably long. Surface clearly.
-            await MainActor.run {
-                self.repairing = false
-                self.repairError = "Repair timed out after 30 minutes. Check the per-disk log strip for the latest progress."
-                model.setStatus(
-                    .repairFailed("Repair timed out — check per-disk log."),
-                    forID: diskID)
-            }
+            try? await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
         }
+        return .timedOut
     }
 
     // MARK: - Error banner

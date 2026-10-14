@@ -33,7 +33,7 @@
 import Foundation
 import os
 
-public enum FsckOperation: String, Sendable {
+public enum FsckOperation: String, Codable, Sendable {
     case verify
     case repair
     /// The quick check (`-q`) the system runs as part of mounting a

@@ -126,6 +126,7 @@ let package = Package(
                 "FileSystemBackend.swift",
                 "EXT4Watchdog.swift",
                 "EXT4Log.swift",
+                "EXT4Check.swift",
             ],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),

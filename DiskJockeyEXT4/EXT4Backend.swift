@@ -52,7 +52,7 @@ private struct UncheckedConstBuffer: @unchecked Sendable {
     let p: UnsafeRawPointer
 }
 
-final class EXT4Backend: FileSystemBackend {
+final class EXT4Backend: FileSystemBackend, EXT4CheckingBackend {
 
     /// am-fs-ext4 0.6.0 reads every in-image path as the bytes up to the
     /// NUL (rust-fs-ext4#418), so a name is handed over exactly as its dirent
@@ -408,52 +408,10 @@ final class EXT4Backend: FileSystemBackend {
 
     // MARK: - fsck
 
-    struct FsckReport {
-        let inodesVisited: UInt64
-        let directoriesScanned: UInt64
-        let entriesScanned: UInt64
-        /// **Authoritative current** anomaly count. After a repair
-        /// pass this is the post-repair re-scan count — what's still
-        /// actually wrong on disk. NOT initial-minus-repaired.
-        let anomaliesFound: UInt64
-        let wasDirty: Bool
-        let dirtyCleared: Bool
-        /// Number of anomalies the repair pass committed to disk. 0
-        /// when the run was read-only.
-        let repairedCount: UInt64
-        /// Anomalies the audit found BEFORE any repair commits.
-        /// Equal to `anomaliesFound` for non-repair runs. After a
-        /// repair pass: `initialAnomaliesFound - repairedCount` is
-        /// what we EXPECT to remain; `anomaliesFound` is what
-        /// ACTUALLY remains. A discrepancy flags repair-logic bugs.
-        let initialAnomaliesFound: UInt64
-
-        /// Format the report as `fsck.done` event fields. Mirrors
-        /// `NTFSVolume.FsckReport.toEventFields()` — both include
-        /// `dirty_cleared` so the host app's
-        /// `AttachedDisksModel.applyEventInPlace`
-        /// consumes either with the same code path.
-        func toEventFields() -> [String: String] {
-            return [
-                "dirty_cleared":           dirtyCleared ? "true" : "false",
-                "anomalies":               "\(anomaliesFound)",
-                "directories":             "\(directoriesScanned)",
-                "inodes":                  "\(inodesVisited)",
-                "repaired_count":          "\(repairedCount)",
-                "initial_anomalies_count": "\(initialAnomaliesFound)",
-            ]
-        }
-    }
-
-    struct FsckFinding {
-        /// One of "link_count_low", "link_count_high", "dangling_entry",
-        /// "wrong_dotdot", "bogus_entry", "duplicate_dir_inode"
-        /// (Rust-emitted strings — do NOT extend without coordinating
-        /// with the Rust crate's `anomaly_to_capi`).
-        let kind: String
-        let inode: UInt32
-        let detail: String
-    }
+    /// The checker's report and findings live in EXT4Check.swift, beside
+    /// what a request decides from them, so `swift test` holds both.
+    typealias FsckReport = EXT4FsckReport
+    typealias FsckFinding = EXT4FsckFinding
 
     /// Box for the two Swift closures fsck needs to call back into.
     /// Required because `@convention(c)` callbacks (which Rust expects)
