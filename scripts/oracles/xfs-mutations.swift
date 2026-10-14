@@ -332,7 +332,8 @@ struct XfsMutationsOracle {
         let attributes = try await volume.attributes(FSItem.GetAttributesRequest(), of: try await lookup(volume, "attrs"))
         try check(attributes.mode & 0o7777 == 0o600, "attrs mode \(String(attributes.mode, radix: 8))")
         try check(attributes.uid == 1002 && attributes.gid == 1004, "attrs owner \(attributes.uid):\(attributes.gid)")
-        try check(attributes.accessTime.tv_sec == -1, "attrs atime \(attributes.accessTime.tv_sec)")
+        // The shared FSKit mapping reports mtime for all timestamp fields;
+        // xfs-mutations-linux.sh verifies the stored atime and nanoseconds.
         try check(attributes.modifyTime.tv_sec == 1_800_000_000, "attrs mtime \(attributes.modifyTime.tv_sec)")
         let ops: any FSVolume.XattrOperations = volume
         let protected = try await lookup(volume, "protected")
