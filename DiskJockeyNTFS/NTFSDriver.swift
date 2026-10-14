@@ -16,7 +16,7 @@
 import Foundation
 import DiskJockeyLibrary
 
-final class NTFSDriver: NTFSBackend {
+final class NTFSDriver: NTFSBackend, NTFSRemounting {
 
     /// The mounted filesystem. Replaced by `fsck` and the deferred
     /// remount; nil once unmounted.
@@ -37,6 +37,10 @@ final class NTFSDriver: NTFSBackend {
     /// BSD device name (e.g. `disk5s1`), for the deferred remount's log.
     private let bsdName: String
 
+    /// The block device was loaded writable, so a remount after a check
+    /// asks for a read-write mount.
+    private let writable: Bool
+
     /// Set when the resource sits inside a known disk-image container
     /// (qcow2, vhd, vhdx, vmdk). nil = raw NTFS partition image.
     private let containerKind: NTFSContainerKind?
@@ -51,6 +55,7 @@ final class NTFSDriver: NTFSBackend {
          contextPtr: UnsafeMutableRawPointer,
          cfgSizeBytes: UInt64,
          bsdName: String,
+         writable: Bool,
          containerKind: NTFSContainerKind? = nil,
          partitionOffset: UInt64? = nil,
          partitionLength: UInt64? = nil) {
@@ -58,6 +63,7 @@ final class NTFSDriver: NTFSBackend {
         self.contextPtr = contextPtr
         self.cfgSizeBytes = cfgSizeBytes
         self.bsdName = bsdName
+        self.writable = writable
         self.containerKind = containerKind
         self.partitionOffset = partitionOffset
         self.partitionLength = partitionLength
@@ -227,8 +233,10 @@ final class NTFSDriver: NTFSBackend {
 
     var isMounted: Bool { fs != nil }
 
+    /// The condition `NTFSFileSystem.loadResource` mounts through the
+    /// device chain on, so every remount reads what the mount read.
     var remountsThroughDeviceChain: Bool {
-        containerKind != nil || partitionOffset != nil
+        containerKind != nil || partitionOffset != nil || partitionLength != nil
     }
 
     func unmount() {
@@ -270,28 +278,20 @@ final class NTFSDriver: NTFSBackend {
         // fs is already nil — we just skip the umount.
         unmount()
 
-        var cfg = fs_ntfs_blockdev_cfg_t()
-        cfg.read = { ctx, buf, offset, length in
-            guard let ctx = ctx, let buf = buf else { return EIO }
-            let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
-            return context.read(into: buf, offset: off_t(offset), length: Int(length))
-        }
-        cfg.write = { ctx, buf, offset, length in
-            guard let ctx = ctx, let buf = buf else { return EIO }
-            let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
-            return context.write(from: buf, offset: off_t(offset), length: Int(length))
-        }
-        cfg.context = contextPtr
-        cfg.size_bytes = cfgSizeBytes
+        let dlog = TaggedLogger(log, fields: ["bsd": bsdName], kind: "ntfs.fsck",
+                                scope: AppLogScope.fsck)
 
         // Always remount before returning — even on errors — so the
-        // volume stays usable. Captured here so every exit path runs it.
+        // volume stays usable, through the resource it was mounted from
+        // (diskjockey#369). Captured here so every exit path runs it.
         func remount() {
-            if let newFs = fs_ntfs_mount_with_callbacks(&cfg) {
-                fs = newFs
-            } else {
-                cfg.write = nil
-                fs = fs_ntfs_mount_with_callbacks(&cfg)
+            switch NTFSRemount.afterCheck(self, writable: writable) {
+            case .readWrite:
+                dlog.info("remounted read-write after the check")
+            case .readOnly:
+                dlog.info("remounted read-only after the check")
+            case nil:
+                dlog.error("remount after the check failed; the volume is unusable until it is mounted again")
             }
         }
 
@@ -300,8 +300,6 @@ final class NTFSDriver: NTFSBackend {
         // their writes to reach the disk in order, and rust-fs-ntfs refuses
         // both through the read/write callback pair, which cannot flush
         // (rust-fs-ntfs#518).
-        let dlog = TaggedLogger(log, fields: ["bsd": bsdName], kind: "ntfs.fsck",
-                                scope: AppLogScope.fsck)
         guard let handle = buildContainerHandle(rw: true, allowPlain: true, dlog: dlog) else {
             remount()
             return .failure(NSError(
@@ -523,14 +521,52 @@ final class NTFSDriver: NTFSBackend {
     private func fallbackRemountRo() {
         let dlog = TaggedLogger(log, fields: ["bsd": bsdName], kind: "ntfs.activate",
                                 scope: AppLogScope.lifecycle)
-        guard let containerHandle = buildContainerHandle(rw: false, dlog: dlog) else {
-            dlog.error("RO fallback: buildContainerHandle failed; volume is unusable until next mount")
-            return
-        }
-        fs = fs_ntfs_mount_with_fs_core_device(containerHandle)
-        fs_core_device_close(containerHandle)
-        if fs != nil {
+        if mountThroughDeviceChain(writable: false) {
             dlog.info("RO fallback remount succeeded")
+        } else {
+            dlog.error("RO fallback remount failed; volume is unusable until next mount")
         }
+    }
+
+    // MARK: - Remounting (NTFSRemounting)
+    //
+    // Each is called with no handle held, and holds the one it mounts.
+
+    func mountThroughCallbacks(writable: Bool) -> Bool {
+        var cfg = fs_ntfs_blockdev_cfg_t()
+        cfg.read = { ctx, buf, offset, length in
+            guard let ctx = ctx, let buf = buf else { return EIO }
+            let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+            return context.read(into: buf, offset: off_t(offset), length: Int(length))
+        }
+        if writable {
+            cfg.write = { ctx, buf, offset, length in
+                guard let ctx = ctx, let buf = buf else { return EIO }
+                let context = Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                return context.write(from: buf, offset: off_t(offset), length: Int(length))
+            }
+        } else {
+            cfg.write = nil
+        }
+        cfg.context = contextPtr
+        cfg.size_bytes = cfgSizeBytes
+        fs = fs_ntfs_mount_with_callbacks(&cfg)
+        return fs != nil
+    }
+
+    func mountThroughDeviceChain(writable: Bool) -> Bool {
+        let dlog = TaggedLogger(log, fields: ["bsd": bsdName], kind: "ntfs.remount",
+                                scope: AppLogScope.lifecycle)
+        guard let handle = buildContainerHandle(rw: writable, allowPlain: true, dlog: dlog) else {
+            return false
+        }
+        fs = writable ? fs_ntfs_mount_rw_with_fs_core_device(handle)
+                      : fs_ntfs_mount_with_fs_core_device(handle)
+        fs_core_device_close(handle)
+        if fs == nil {
+            let err = fs_ntfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
+            dlog.info("fs_ntfs_mount_\(writable ? "rw_" : "")with_fs_core_device refused: \(err)")
+        }
+        return fs != nil
     }
 }
