@@ -38,3 +38,9 @@ go-networkfs        v0.1.5
 # alone would leave unpinned (#239). Raise it to a tag whose release carries
 # that tarball.
 rust-blk-probe      v0.1.0
+
+# fs-linux-test-harness is NOT BUILT either. It is the disposable Linux VM the
+# XFS FSKit mutation oracle's Linux half runs in (scripts/xfs-mutations-vm.sh,
+# fs-linux-test-harness.toml, diskjockey#355): checked out beside this
+# repository at this tag, by hand or by the XFS mutations workflow.
+fs-linux-test-harness v0.5.1

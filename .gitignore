@@ -19,6 +19,8 @@ diskjockey-backend/test-mount/mount*/
 /lib/
 .wip/
 /tmp/
+# fs-linux-test-harness's shared directory (fs-linux-test-harness.toml).
+/.vm-share/
 
 # Claude Code session-local data: memory db, settings.local.json,
 # scheduled tasks, worktrees, workgroup coordination state.
