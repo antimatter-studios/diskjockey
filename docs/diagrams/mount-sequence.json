@@ -1,0 +1,230 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "From a disk image to a Finder volume",
+    "quality_profile": "showcase",
+    "viewBox": [
+      960,
+      860
+    ],
+    "column_fit": "spread"
+  },
+  "participants": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "You",
+      "sublabel": "picks an image"
+    },
+    {
+      "id": "app",
+      "type": "frontend",
+      "label": "DiskJockey.app",
+      "sublabel": "host app"
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "DiskJockeyAgent",
+      "sublabel": "runs hdiutil"
+    },
+    {
+      "id": "macos",
+      "type": "external",
+      "label": "macOS",
+      "sublabel": "DiskArbitration, fskitd"
+    },
+    {
+      "id": "ext",
+      "type": "backend",
+      "label": "FSKit extension",
+      "sublabel": "DiskJockey<FS>"
+    },
+    {
+      "id": "driver",
+      "type": "backend",
+      "label": "Rust driver",
+      "sublabel": "libdj_<fs>_bundle.a"
+    }
+  ],
+  "segments": [
+    {
+      "from": 165,
+      "to": 300,
+      "label": "Attach"
+    },
+    {
+      "from": 312,
+      "to": 500,
+      "label": "Probe"
+    },
+    {
+      "from": 512,
+      "to": 660,
+      "label": "Mount"
+    },
+    {
+      "from": 672,
+      "to": 760,
+      "label": "Ready"
+    }
+  ],
+  "messages": [
+    {
+      "id": "pick",
+      "from": "user",
+      "to": "app",
+      "y": 190,
+      "label": "pick an image",
+      "variant": "emphasis"
+    },
+    {
+      "id": "hdiutil",
+      "from": "app",
+      "to": "agent",
+      "y": 232,
+      "label": "hdiutil attach"
+    },
+    {
+      "id": "slices",
+      "from": "agent",
+      "to": "app",
+      "y": 272,
+      "label": "/dev/diskN slices",
+      "variant": "return"
+    },
+    {
+      "id": "da-mount",
+      "from": "app",
+      "to": "macos",
+      "y": 330,
+      "label": "DADiskMount",
+      "variant": "emphasis"
+    },
+    {
+      "id": "probe",
+      "from": "macos",
+      "to": "ext",
+      "y": 414,
+      "label": "probeResource"
+    },
+    {
+      "id": "superblock",
+      "from": "ext",
+      "to": "driver",
+      "y": 452,
+      "label": "read superblock"
+    },
+    {
+      "id": "recognised",
+      "from": "driver",
+      "to": "ext",
+      "y": 488,
+      "label": "recognised",
+      "variant": "return"
+    },
+    {
+      "id": "load",
+      "from": "macos",
+      "to": "ext",
+      "y": 540,
+      "label": "loadResource"
+    },
+    {
+      "id": "mount-lazy",
+      "from": "ext",
+      "to": "driver",
+      "y": 578,
+      "label": "mount, replay deferred"
+    },
+    {
+      "id": "activate",
+      "from": "macos",
+      "to": "ext",
+      "y": 616,
+      "label": "activate"
+    },
+    {
+      "id": "replay",
+      "from": "ext",
+      "to": "driver",
+      "y": 650,
+      "label": "replay journal"
+    },
+    {
+      "id": "volume",
+      "from": "ext",
+      "to": "macos",
+      "y": 696,
+      "label": "root item",
+      "variant": "return"
+    },
+    {
+      "id": "mounted",
+      "from": "macos",
+      "to": "app",
+      "y": 734,
+      "label": "/Volumes/<label>",
+      "variant": "return"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "app",
+      "from": 185,
+      "to": 740,
+      "type": "frontend"
+    },
+    {
+      "participant": "agent",
+      "from": 227,
+      "to": 278,
+      "type": "backend"
+    },
+    {
+      "participant": "macos",
+      "from": 325,
+      "to": 740,
+      "type": "external"
+    },
+    {
+      "participant": "ext",
+      "from": 409,
+      "to": 702,
+      "type": "backend"
+    },
+    {
+      "participant": "driver",
+      "from": 447,
+      "to": 656,
+      "type": "backend"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Nothing needs root",
+      "items": [
+        "hdiutil runs in the unsandboxed agent",
+        "DiskArbitration mounts each slice at its own label"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "The extension is chosen by probing",
+      "items": [
+        "fskitd asks each FSKit module whether it recognises the slice",
+        "Each extension's Rust driver reads the superblock"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Replay waits for a writable device",
+      "items": [
+        "The volume is loaded with journal replay deferred",
+        "Replay runs at activate, once FSKit hands over a writable device"
+      ]
+    }
+  ]
+}

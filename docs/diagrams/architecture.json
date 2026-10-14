@@ -1,0 +1,319 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "DiskJockey architecture",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1380,
+      620
+    ]
+  },
+  "components": [
+    {
+      "id": "image",
+      "type": "database",
+      "label": "Disk or image",
+      "sublabel": "raw, qcow2, VHD, VHDX, VMDK",
+      "pos": [
+        40,
+        50
+      ],
+      "size": [
+        200,
+        64
+      ]
+    },
+    {
+      "id": "fskitd",
+      "type": "external",
+      "label": "fskitd",
+      "sublabel": "DiskArbitration + FSKit",
+      "pos": [
+        310,
+        120
+      ],
+      "size": [
+        180,
+        64
+      ]
+    },
+    {
+      "id": "rw",
+      "type": "backend",
+      "label": "ext4 · NTFS · XFS · bcachefs",
+      "sublabel": "FSKit extensions, read-write",
+      "pos": [
+        580,
+        50
+      ],
+      "size": [
+        220,
+        64
+      ]
+    },
+    {
+      "id": "ro",
+      "type": "backend",
+      "label": "Btrfs · EROFS · SquashFS",
+      "sublabel": "FSKit extensions, read-only",
+      "pos": [
+        580,
+        190
+      ],
+      "size": [
+        260,
+        64
+      ]
+    },
+    {
+      "id": "bundle",
+      "type": "backend",
+      "label": "libdj_<fs>_bundle.a",
+      "sublabel": "rust-fs-<fs> + rust-img-*",
+      "pos": [
+        930,
+        120
+      ],
+      "size": [
+        210,
+        64
+      ],
+      "tag": "one per extension"
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "DiskJockeyAgent",
+      "sublabel": "on-demand XPC helper",
+      "pos": [
+        40,
+        185
+      ],
+      "size": [
+        200,
+        64
+      ]
+    },
+    {
+      "id": "host",
+      "type": "frontend",
+      "label": "DiskJockey.app",
+      "sublabel": "SwiftUI host app",
+      "pos": [
+        40,
+        320
+      ],
+      "size": [
+        200,
+        64
+      ]
+    },
+    {
+      "id": "finder",
+      "type": "external",
+      "label": "Finder",
+      "sublabel": "native volumes",
+      "pos": [
+        310,
+        322
+      ],
+      "size": [
+        180,
+        60
+      ]
+    },
+    {
+      "id": "fpd",
+      "type": "external",
+      "label": "fileproviderd",
+      "sublabel": "File Provider",
+      "pos": [
+        310,
+        500
+      ],
+      "size": [
+        180,
+        64
+      ]
+    },
+    {
+      "id": "fpext",
+      "type": "backend",
+      "label": "DiskJockeyFileProvider",
+      "sublabel": "File Provider extension",
+      "pos": [
+        580,
+        500
+      ],
+      "size": [
+        230,
+        64
+      ]
+    },
+    {
+      "id": "gonet",
+      "type": "backend",
+      "label": "libnetworkfs.a",
+      "sublabel": "go-networkfs drivers",
+      "pos": [
+        930,
+        500
+      ],
+      "size": [
+        190,
+        64
+      ]
+    },
+    {
+      "id": "remote",
+      "type": "cloud",
+      "label": "Network & cloud",
+      "sublabel": "SMB, SFTP, S3, Dropbox…",
+      "pos": [
+        1190,
+        500
+      ],
+      "size": [
+        170,
+        64
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "host-agent",
+      "from": "host",
+      "to": "agent",
+      "label": "attach, probe",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "hdiutil",
+      "from": "agent",
+      "to": "image",
+      "label": "hdiutil",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "attach",
+      "from": "image",
+      "to": "fskitd",
+      "label": "disk",
+      "variant": "emphasis"
+    },
+    {
+      "id": "load-rw",
+      "from": "fskitd",
+      "to": "rw",
+      "label": "probe, mount"
+    },
+    {
+      "id": "load-ro",
+      "from": "fskitd",
+      "to": "ro"
+    },
+    {
+      "id": "rw-abi",
+      "from": "rw",
+      "to": "bundle",
+      "label": "C ABI"
+    },
+    {
+      "id": "ro-abi",
+      "from": "ro",
+      "to": "bundle"
+    },
+    {
+      "id": "volume",
+      "from": "fskitd",
+      "to": "finder",
+      "label": "volume",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [
+        400,
+        252
+      ]
+    },
+    {
+      "id": "host-mount",
+      "from": "host",
+      "to": "fskitd",
+      "label": "mount, unmount",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelAt": [
+        275,
+        263
+      ]
+    },
+    {
+      "id": "domains",
+      "from": "host",
+      "to": "fpd",
+      "label": "domains",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "left"
+    },
+    {
+      "id": "fp-items",
+      "from": "fpd",
+      "to": "fpext"
+    },
+    {
+      "id": "cgo",
+      "from": "fpext",
+      "to": "gonet",
+      "label": "cgo"
+    },
+    {
+      "id": "wire",
+      "from": "gonet",
+      "to": "remote",
+      "label": "network"
+    },
+    {
+      "id": "fp-finder",
+      "from": "fpd",
+      "to": "finder",
+      "variant": "emphasis",
+      "fromSide": "top",
+      "toSide": "bottom"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Block devices",
+      "items": [
+        "Seven FSKit extensions, one per filesystem",
+        "Each links one Rust staticlib from crates.io",
+        "qcow2, VHD, VHDX and VMDK open inside every extension"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Network and cloud",
+      "items": [
+        "One File Provider extension",
+        "Eight drivers from go-networkfs, linked through cgo"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "No daemon",
+      "items": [
+        "The host app reaches its extensions through Apple frameworks",
+        "DiskJockeyAgent starts on demand to attach and probe images",
+        "Verify and repair hand off through the shared App Group container"
+      ]
+    }
+  ]
+}
