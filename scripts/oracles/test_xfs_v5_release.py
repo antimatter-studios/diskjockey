@@ -221,6 +221,37 @@ class MatrixTests(unittest.TestCase):
             self.assertFalse(mounted)
         self.assertEqual(command.call_count, 1)
 
+    def test_mount_dispatches_to_the_signed_module_short_name(self):
+        job = runner.Job(self.root)
+        with (
+            patch.object(job, "command", return_value=b"unsupported") as command,
+            job.mounted(
+                "/dev/disk999", self.root, False, {"exit": 1, "pattern": "unsupported"}
+            ),
+        ):
+            args = command.call_args.args[0]
+            info = plistlib.loads(
+                (runner.ROOT / "DiskJockeyXFS/Info.plist").read_bytes()
+            )
+            short_name = info["EXAppExtensionAttributes"]["FSShortName"]
+            self.assertEqual(args[args.index("-t") + 1], short_name)
+
+    def test_maintenance_dispatches_to_the_same_module_as_mount(self):
+        job, case = self.fake_job()
+        commands = []
+        original_command = job.command
+
+        def command(args, expected=None):
+            commands.append(args)
+            return original_command(args, expected)
+
+        with patch.object(job, "command", side_effect=command):
+            job.case(case, "/test/oracle")
+        maintenance = [a for a in commands if "/sbin/fsck_fskit" in a]
+        self.assertEqual(len(maintenance), 4)
+        for args in maintenance:
+            self.assertEqual(args[args.index("-t") + 1], "fsxfs")
+
     def test_command_retains_failure_transcript(self):
         job = runner.Job(self.root)
         with self.assertRaises(ValueError):

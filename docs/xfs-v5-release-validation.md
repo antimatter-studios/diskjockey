@@ -71,6 +71,15 @@ the runner does not certify remote GitHub check conclusions by itself.
 - Enough space for eight full image copies, command logs and oracle artifacts.
   Each command has a 120-second ceiling; a timeout fails the job.
 
+The native tools select this module by `FSShortName`, which is `fsxfs` in
+the signed extension's `Info.plist`. The XFS personality name `xfs` does
+not dispatch the maintenance task. Use `mount -F -t fsxfs` and
+`fsck_fskit -t fsxfs` when reproducing an individual command. A native run
+on macOS 26.4.1 reproduced exit 22 without a diagnostic for
+`fsck_fskit -t xfs -n`, while `-t fsxfs` reached ExtensionKit and reported
+the extension's actual launch failure. Neither result is an accepted
+filesystem check or an unsupported-feature refusal.
+
 ## Required matrix
 
 Every ID below must occur exactly once. Feature names in the manifest are the
