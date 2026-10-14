@@ -223,7 +223,7 @@ Changes since v1.2.0 are listed in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Architecture
 
-![DiskJockey architecture: disks and images reach the FSKit extensions through fskitd, each extension links one Rust bundle, and network drives reach Finder through fileproviderd, the File Provider extension and go-networkfs](media/architecture.svg)
+![DiskJockey architecture: the app has DiskJockeyAgent attach images with hdiutil, disks and attached images reach the FSKit extensions through fskitd, each extension links one Rust bundle, and network drives reach Finder through fileproviderd, the File Provider extension and go-networkfs](media/architecture.svg)
 
 DiskJockey is a host SwiftUI app, an unsandboxed helper, seven FSKit extensions and one File Provider extension. Each extension owns one trust and lifecycle boundary, and the host app is optional at runtime once a volume or drive is configured. There is **no** Go backend daemon, **no** central XPC bridge and **no** privileged helper. All three were tried, none survived contact with macOS's extension model, and the current shape is "the host app talks to its own extensions through Apple framework APIs, period."
 

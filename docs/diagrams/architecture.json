@@ -17,7 +17,7 @@
       "sublabel": "raw, qcow2, VHD, VHDX, VMDK",
       "pos": [
         40,
-        120
+        50
       ],
       "size": [
         200,
@@ -80,6 +80,20 @@
         64
       ],
       "tag": "one per extension"
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "DiskJockeyAgent",
+      "sublabel": "on-demand XPC helper",
+      "pos": [
+        40,
+        185
+      ],
+      "size": [
+        200,
+        64
+      ]
     },
     {
       "id": "host",
@@ -168,10 +182,27 @@
   ],
   "connections": [
     {
+      "id": "host-agent",
+      "from": "host",
+      "to": "agent",
+      "label": "attach, probe",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "hdiutil",
+      "from": "agent",
+      "to": "image",
+      "label": "hdiutil",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
       "id": "attach",
       "from": "image",
       "to": "fskitd",
-      "label": "attach",
+      "label": "disk",
       "variant": "emphasis"
     },
     {
@@ -215,8 +246,12 @@
       "to": "fskitd",
       "label": "mount, unmount",
       "variant": "dashed",
-      "fromSide": "top",
-      "toSide": "left"
+      "fromSide": "right",
+      "toSide": "left",
+      "labelAt": [
+        275,
+        263
+      ]
     },
     {
       "id": "domains",
@@ -276,6 +311,7 @@
       "title": "No daemon",
       "items": [
         "The host app reaches its extensions through Apple frameworks",
+        "DiskJockeyAgent starts on demand to attach and probe images",
         "Verify and repair hand off through the shared App Group container"
       ]
     }
