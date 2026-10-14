@@ -81,11 +81,55 @@ public struct RepairRequest: Codable, Equatable, Hashable {
     /// flight for N seconds" hints in the UI; not used for ordering
     /// (the file's mtime is the authoritative arrival time).
     public let submittedAt: Date
+    /// What the extension is asked to run on the mounted volume:
+    /// `.verify` (a read-only audit) or `.repair`. A request that names
+    /// none decodes as `.repair`, which is all a request could ask for
+    /// before Verify used them (diskjockey#348).
+    public let operation: FsckOperation
 
-    public init(id: UUID = UUID(), bsd: String, submittedAt: Date = Date()) {
+    public init(id: UUID = UUID(), bsd: String, operation: FsckOperation = .repair,
+                submittedAt: Date = Date()) {
         self.id = id
         self.bsd = bsd
+        self.operation = operation
         self.submittedAt = submittedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, bsd, submittedAt, operation
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        bsd = try c.decode(String.self, forKey: .bsd)
+        submittedAt = try c.decode(Date.self, forKey: .submittedAt)
+        operation = try c.decodeIfPresent(FsckOperation.self, forKey: .operation) ?? .repair
+    }
+}
+
+/// How the host asks for a check of a volume that is already mounted.
+///
+/// `fsck_fskit -t <fs> <device>` reaches the module's `startCheck`, but
+/// FSKit serves a check task in a new extension instance, which opens the
+/// device again (`loadResource` with `-f`, then `startCheck`). While the
+/// volume is mounted that second open is refused EBUSY before any extension
+/// code runs (diskjockey#348). The instance that holds the mount already has
+/// the driver and the device, and the App Group request reaches it.
+public enum MountedVolumeCheckRoute: Equatable, Sendable {
+    /// A `RepairRequest` naming `.verify`, served by the extension instance
+    /// that holds the mount, over its own driver, under its `OperationLock`.
+    case request
+    /// `fsck_fskit -t <fs> <device>`.
+    case fsckFskit
+
+    public init(fsType: String) {
+        switch fsType.lowercased() {
+        case "ext2", "ext3", "ext4":
+            self = .request
+        default:
+            self = .fsckFskit
+        }
     }
 }
 

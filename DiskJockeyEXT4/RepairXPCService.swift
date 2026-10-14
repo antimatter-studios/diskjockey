@@ -7,10 +7,15 @@
  * processing,responses}/` triple. See `RepairWatcher.swift` and
  * `DiskJockeyRepairProtocol.swift` for the wire shape and rationale.
  *
+ * A request asks for a repair or, since diskjockey#348, a verify: Verify on
+ * a mounted volume comes here because `fsck_fskit` is refused EBUSY while
+ * the volume is mounted (see EXT4Check.swift).
+ *
  * What stays here:
- *   - The EXT4-specific `runRepair` body (`backend.runFsck` + throttled
- *     `onProgress` callbacks + watchdog heartbeats).
- *   - The bracket that registers each repair pass in
+ *   - Resolving the request's mounted volume, the throttled `onProgress`
+ *     callbacks and the watchdog heartbeats around `EXT4Check.serve`,
+ *     which holds what the request decides.
+ *   - The bracket that registers each pass in
  *     `DetachedOperationWatchdog` via `enterOperation` / `exitOperation`.
  *
  * Everything else (FD-watcher binding, atomic-rename-as-claim, JSON
@@ -71,40 +76,27 @@ final class RepairXPCService: NSObject {
             logScope: AppLogScope.fsck,
             enterOperation: { EXT4FileSystem.enterOperation() },
             exitOperation: { EXT4FileSystem.exitOperation() },
-            runRepair: { request in Self.runRepair(for: request) }
+            runRepair: { request in Self.serve(request) }
         )
         watcher = w
         w.start()
     }
 
-    /// Look up the live backend for `request.bsd` and run the repair
-    /// pass. Always returns a `RepairResult` — never throws.
-    private static func runRepair(for request: RepairRequest) -> RepairResult {
+    /// Look up the live backend for `request.bsd` and serve the request:
+    /// a repair, or a verify of the mounted volume (diskjockey#348). What
+    /// the request decides lives in `EXT4Check`; this adds the throttled
+    /// progress events and the watchdog heartbeat. Always returns a
+    /// `RepairResult` — never throws.
+    private static func serve(_ request: RepairRequest) -> RepairResult {
         let resolved = EXT4FileSystem.mountedResources.first { $0.bsdName == request.bsd }
-
-        guard let resolved = resolved else {
-            let msg = "no mounted ext4 volume for bsd=\(request.bsd) — is the disk still attached?"
-            log.warn("RepairWatcher: \(msg)", scope: AppLogScope.fsck)
-            return RepairResult(id: request.id, success: false, message: msg)
+        if resolved == nil {
+            log.warn("RepairWatcher: no mounted ext4 volume for bsd=\(request.bsd)", scope: AppLogScope.fsck)
         }
 
         let dlog = TaggedLogger(
             log, fields: ["bsd": request.bsd], kind: "ext4.fsck.xpc",
             scope: AppLogScope.fsck
         )
-
-        // Cooperative tri-state mutex. Reject if a verify (via
-        // fsck_fskit) or another repair is already in flight. The
-        // matching release is via `defer` on this scope — runFsck is
-        // synchronous, so this scope IS the operation lifetime.
-        if let busy = resolved.opLock.tryAcquire(.repair) {
-            let msg = "Volume busy with \(busy.displayName) — try again when it finishes."
-            dlog.warn("repair rejected: \(msg)")
-            return RepairResult(id: request.id, success: false, message: msg)
-        }
-        defer { resolved.opLock.release() }
-
-        dlog.event(kind: "fsck.start", fields: ["repair": "true"])
 
         // Rust's audit_with_repair fires `onProgress` once per dirent
         // — on a large volume that's tens of thousands of callbacks
@@ -128,11 +120,12 @@ final class RepairXPCService: NSObject {
         var lastPhase: String = ""
         let minIntervalNs: UInt64 = verbose ? 100_000_000 : 1_000_000_000  // 10 Hz vs 1 Hz
 
-        let runResult = resolved.backend.runFsck(
-            repair: true,
+        let result = EXT4Check.serve(
+            request,
+            on: resolved.map { EXT4CheckTarget(checker: $0.backend, opLock: $0.opLock) },
             onProgress: { phase, done, total in
                 // Stuck-progress heartbeat (Fix D). Refreshes the
-                // watchdog clock so a repair that's still making
+                // watchdog clock so a pass that's still making
                 // forward progress can't trip the stuck-deadline
                 // even though the log emission below is throttled.
                 EXT4Watchdog.shared.heartbeat()
@@ -161,18 +154,14 @@ final class RepairXPCService: NSObject {
             },
             onFinding: { f in
                 dlog.warn("fsck finding: kind=\(f.kind) inode=\(f.inode) \(f.detail)")
+            },
+            emit: { kind, fields in
+                dlog.event(kind: kind, fields: fields)
             }
         )
-
-        switch runResult {
-        case .success(let report):
-            dlog.event(kind: "fsck.done", fields: report.toEventFields())
-            let n = report.repairedCount
-            let summary = n == 1 ? "Repaired 1 anomaly." : "Repaired \(n) anomalies."
-            return RepairResult(id: request.id, success: true, message: summary, repairedCount: n)
-        case .failure(let err):
-            dlog.event(kind: "fsck.failed", fields: ["error": err.localizedDescription])
-            return RepairResult(id: request.id, success: false, message: err.localizedDescription)
+        if !result.success {
+            dlog.warn("\(request.operation.displayName) request not completed: \(result.message)")
         }
+        return result
     }
 }
