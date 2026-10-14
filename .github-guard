@@ -63,6 +63,13 @@
 	advisory = CLI pipe
 	# Its Linux leg, for the same reason (#296).
 	advisory = CLI pipe (Linux)
+	# The XFS FSKit mutation oracle runs only on the pull requests that
+	# change the XFS volume or what builds it, so it cannot be a gate
+	# either (#355): Linux makes the image, the macOS volume changes it,
+	# and Linux's tools and kernel judge the result.
+	advisory = XFS mutations (Linux image)
+	advisory = XFS mutations (macOS FSKit volume)
+	advisory = XFS mutations (Linux verify)
 	# Gates only through ci-ok, which reads its `code` output and accepts
 	# the macOS legs' skip only for a change to documentation alone.
 	advisory = changes (does this need the full pipeline?)

@@ -1,0 +1,271 @@
+name: XFS mutations
+
+# THE XFS FSKIT MUTATION ORACLE, IN CI (diskjockey#355).
+#
+# scripts/test-xfs-mutations.sh drives the production XFS volume, driver,
+# mount policy and device bridge through FSKit's volume methods against an
+# image Linux made, and scripts/oracles/xfs-mutations-linux.sh has
+# xfs_repair -n, xfs_db, xfs_logprint and the kernel check what it wrote.
+# Both halves ran by hand once, with the evidence in pull request
+# descriptions; here they are three jobs, each handing the image to the next:
+#
+#   image    Linux VM: xfsprogs' mkfs.xfs makes it, the kernel populates it
+#   native   macOS: the FSKit volume changes it, and reads it all back
+#   verify   Linux VM: xfs_repair -n, xfs_db, xfs_logprint and the kernel
+#            judge it
+#
+# THE LINUX HALF RUNS IN fs-linux-test-harness's VM, under KVM on an x86_64
+# runner, never on the runner itself: the family's one Linux oracle, with the
+# one xfsprogs and kernel its Debian guest pins, which is also what a
+# developer's Mac boots. rust-fs-xfs moved its own oracles off the runner for
+# the same reason (two halves of one suite graded by two different xfsprogs).
+# A step makes the runner's own xfsprogs unusable, so a green run is evidence
+# of it. The harness is a sibling checkout at the tag SIBLING_PINS.txt names.
+#
+# THE macOS HALF NEEDS NO GUI SESSION. FSKit's daemon is not involved: the
+# volume's methods are called in-process, as the library tier calls
+# DiskJockeyXFSCoreTests, over DiskJockeyLibrary compiled from its sources the
+# way Package.swift compiles it. Nothing is launched, installed or signed.
+#
+# ADVISORY, NOT A GATE. It runs only on the pull requests that change the XFS
+# volume or what builds it, so it cannot be required: a required check that
+# never reports is a permanent block (.github-guard declares all three jobs
+# advisory). The daily run catches what changes elsewhere -- DiskJockeyLibrary,
+# the macOS image's toolchain, the guest's box.
+
+on:
+  pull_request:
+    paths:
+      - DiskJockeyXFS/**
+      - rust-bundles/dj-xfs-bundle/**
+      - scripts/build-bundles.sh
+      - scripts/test-xfs-mutations.sh
+      - scripts/xfs-mutations-vm.sh
+      - scripts/oracles/xfs-mutations.swift
+      - scripts/oracles/xfs-mutations-linux.sh
+      - scripts/oracles/vm-setup.sh
+      - scripts/quiet-run.sh
+      - fs-linux-test-harness.toml
+      - SIBLING_PINS.txt
+      - .github/workflows/xfs-mutations.yml
+  push:
+    branches: [main]
+    paths:
+      - DiskJockeyXFS/**
+      - rust-bundles/dj-xfs-bundle/**
+      - scripts/build-bundles.sh
+      - scripts/test-xfs-mutations.sh
+      - scripts/xfs-mutations-vm.sh
+      - scripts/oracles/xfs-mutations.swift
+      - scripts/oracles/xfs-mutations-linux.sh
+      - scripts/oracles/vm-setup.sh
+      - scripts/quiet-run.sh
+      - fs-linux-test-harness.toml
+      - SIBLING_PINS.txt
+      - .github/workflows/xfs-mutations.yml
+  schedule:
+    - cron: '41 5 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || format('{0}-{1}', github.ref_name, github.sha) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    name: XFS mutations (Linux image)
+    # x86_64, where GitHub's runners have KVM; the arm64 ones have none.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: fs-linux-test-harness at the pinned tag, beside this checkout
+        run: |
+          ref=$(awk '$1=="fs-linux-test-harness"{print $2}' SIBLING_PINS.txt)
+          git clone --quiet --depth 1 --branch "$ref" \
+            https://github.com/antimatter-studios/fs-linux-test-harness.git ../fs-linux-test-harness
+
+      - name: KVM, QEMU and Vagrant
+        id: vm-host
+        timeout-minutes: 10
+        run: ../fs-linux-test-harness/scripts/ci-setup-linux.sh
+
+      - name: Cache the Vagrant box
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.vagrant.d/boxes
+          key: ${{ steps.vm-host.outputs.box-cache-key }}
+
+      # THE EVIDENCE, NOT THE CLAIM: a step that reached for the runner's
+      # xfsprogs would be answered by a different version than the guest's.
+      - name: Make the runner's own xfsprogs unusable
+        run: |
+          set -eu
+          for tool in mkfs.xfs xfs_db xfs_repair xfs_logprint xfs_io xfs_admin; do
+            path="$(command -v "$tool" 2>/dev/null || true)"
+            [ -n "$path" ] || continue
+            sudo mv "$path" "$path.host-copy"
+            printf '#!/bin/sh\necho "::error::%s ran on the runner; the oracle tools belong in the VM" >&2\nexit 97\n' \
+              "$tool" | sudo tee "$path" >/dev/null
+            sudo chmod +x "$path"
+            echo "poisoned $path"
+          done
+
+      # Two boots, the provisioning one included, and a 400 MiB image: the
+      # current mkfs.xfs refuses anything under 300 MiB.
+      - name: Make the image with mkfs.xfs and populate it through the kernel, in the VM
+        timeout-minutes: 25
+        run: |
+          scripts/quiet-run.sh xfs-mutations-image 400 40000 -- \
+            bash scripts/xfs-mutations-vm.sh create tmp/xfs-mutations
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: xfs-mutations-image-${{ github.run_id }}-${{ github.run_attempt }}
+          path: tmp/xfs-mutations/
+          retention-days: 3
+          if-no-files-found: error
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: logs-xfs-mutations-image-${{ github.run_id }}-${{ github.run_attempt }}
+          path: tmp/logs/
+          retention-days: 7
+          if-no-files-found: warn
+
+  native:
+    name: XFS mutations (macOS FSKit volume)
+    needs: image
+    runs-on: macos-26
+    # A cold XFS bundle is a Rust release build; the oracle itself is two
+    # swiftc invocations and a run over a 400 MiB image.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Select Xcode
+        run: |
+          XCODE=$(find /Applications -maxdepth 1 -name 'Xcode*.app' -type d 2>/dev/null | sort -V | tail -1)
+          echo "Using Xcode: $XCODE"
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          swift --version
+
+      - name: Set up Rust (aarch64)
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          targets: aarch64-apple-darwin
+
+      # The one Rust library the oracle links, from the bundle's own
+      # lockfile, as the library tier builds the bcachefs bundle.
+      - name: Restore the XFS bundle
+        id: xfs-bundle
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: lib/bundle_xfs
+          key: bundle-xfs-${{ runner.os }}-${{ hashFiles('rust-bundles/dj-xfs-bundle/Cargo.toml', 'rust-bundles/dj-xfs-bundle/Cargo.lock', 'scripts/build-bundles.sh') }}
+
+      - name: Build the XFS bundle
+        if: steps.xfs-bundle.outputs.cache-hit != 'true'
+        timeout-minutes: 15
+        run: bash scripts/build-bundles.sh xfs
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: xfs-mutations-image-${{ github.run_id }}-${{ github.run_attempt }}
+          path: tmp/xfs-mutations
+
+      # An artifact keeps no empty directory, so the one the expected bytes
+      # go into is made here.
+      - name: Change the image through the FSKit volume
+        timeout-minutes: 10
+        run: |
+          mkdir -p tmp/xfs-mutations/expected
+          bash scripts/test-xfs-mutations.sh tmp/xfs-mutations/xfs.img tmp/xfs-mutations/expected
+
+      - name: Name what failed
+        if: failure()
+        run: grep -aE 'error:|FAIL|refused' tmp/logs/xfs-mutations.log | head -40 || true
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: xfs-mutations-changed-${{ github.run_id }}-${{ github.run_attempt }}
+          path: tmp/xfs-mutations/
+          retention-days: 3
+          if-no-files-found: error
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: logs-xfs-mutations-${{ github.run_id }}-${{ github.run_attempt }}
+          path: tmp/logs/
+          retention-days: 7
+          if-no-files-found: warn
+
+  verify:
+    name: XFS mutations (Linux verify)
+    needs: native
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: fs-linux-test-harness at the pinned tag, beside this checkout
+        run: |
+          ref=$(awk '$1=="fs-linux-test-harness"{print $2}' SIBLING_PINS.txt)
+          git clone --quiet --depth 1 --branch "$ref" \
+            https://github.com/antimatter-studios/fs-linux-test-harness.git ../fs-linux-test-harness
+
+      - name: KVM, QEMU and Vagrant
+        id: vm-host
+        timeout-minutes: 10
+        run: ../fs-linux-test-harness/scripts/ci-setup-linux.sh
+
+      - name: Cache the Vagrant box
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.vagrant.d/boxes
+          key: ${{ steps.vm-host.outputs.box-cache-key }}
+
+      - name: Make the runner's own xfsprogs unusable
+        run: |
+          set -eu
+          for tool in mkfs.xfs xfs_db xfs_repair xfs_logprint xfs_io xfs_admin; do
+            path="$(command -v "$tool" 2>/dev/null || true)"
+            [ -n "$path" ] || continue
+            sudo mv "$path" "$path.host-copy"
+            printf '#!/bin/sh\necho "::error::%s ran on the runner; the oracle tools belong in the VM" >&2\nexit 97\n' \
+              "$tool" | sudo tee "$path" >/dev/null
+            sudo chmod +x "$path"
+            echo "poisoned $path"
+          done
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: xfs-mutations-changed-${{ github.run_id }}-${{ github.run_attempt }}
+          path: tmp/xfs-mutations
+
+      - name: Check the changed image with xfs_repair -n, xfs_db, xfs_logprint and the kernel, in the VM
+        timeout-minutes: 25
+        run: |
+          scripts/quiet-run.sh xfs-mutations-linux 400 40000 -- \
+            bash scripts/xfs-mutations-vm.sh verify tmp/xfs-mutations
+
+      - name: Name what failed
+        if: failure()
+        run: grep -aE '^(FAIL|ok) ' tmp/logs/xfs-mutations-linux.log || true
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: logs-xfs-mutations-linux-${{ github.run_id }}-${{ github.run_attempt }}
+          path: tmp/logs/
+          retention-days: 7
+          if-no-files-found: warn
