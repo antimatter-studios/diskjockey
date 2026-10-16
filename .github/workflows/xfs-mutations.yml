@@ -123,7 +123,7 @@ jobs:
           scripts/quiet-run.sh xfs-mutations-image 400 40000 -- \
             bash scripts/xfs-mutations-vm.sh create tmp/xfs-mutations
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: xfs-mutations-image-${{ github.run_id }}-${{ github.run_attempt }}
           path: tmp/xfs-mutations/
@@ -132,7 +132,7 @@ jobs:
 
       - name: Keep the logs
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: logs-xfs-mutations-image-${{ github.run_id }}-${{ github.run_attempt }}
           path: tmp/logs/
@@ -192,7 +192,7 @@ jobs:
         if: failure()
         run: grep -aE 'error:|FAIL|refused' tmp/logs/xfs-mutations.log | head -40 || true
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: xfs-mutations-changed-${{ github.run_id }}-${{ github.run_attempt }}
           path: tmp/xfs-mutations/
@@ -201,7 +201,7 @@ jobs:
 
       - name: Keep the logs
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: logs-xfs-mutations-${{ github.run_id }}-${{ github.run_attempt }}
           path: tmp/logs/
@@ -263,7 +263,7 @@ jobs:
 
       - name: Keep the logs
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: logs-xfs-mutations-linux-${{ github.run_id }}-${{ github.run_attempt }}
           path: tmp/logs/
