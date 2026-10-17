@@ -35,7 +35,10 @@
 # main's run 38992160207 (2026-10-17) ran 47 in 773 lines / 40,698 bytes, and
 # the CI dispatch guard (#405) brings it to 48 files, floor 48.
 # The CLI capability executor guard (#401), together with the CI dispatch
-# guard, brings the measured glob to 49 files on 2026-10-18, floor 49.
+# guard (#405) and DriverKit mount-contract guard (#392), brings the measured
+# glob to 50 files on 2026-10-18, floor 50.
+# The DriverKit mount-contract guard (#392) brings the tracked inventory to
+# 50 files on 2026-10-18, floor 50; execution is verified by CI.
 # It moves up with the suite; it never moves down.
 #
 # `rc`, not `status`: `status` is READ-ONLY in zsh, so a loop written with it
@@ -46,7 +49,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
-FLOOR=49
+FLOOR=50
 
 # The raw loop, whose whole output is the tier's log. Failure lines carry a
 # TIER-FAIL prefix so the quiet verdict below can name them without a tail.
