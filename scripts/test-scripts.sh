@@ -32,6 +32,8 @@
 # The branch reaper's guard brings it to 45 files on 2026-10-11, floor 45.
 # main held 46 files on 2026-10-14, and the XFS mutation oracle's guard
 # (#355) brings it to 47, floor 47.
+# The DriverKit mount-contract guard (#392) brings the tracked inventory to
+# 48 files on 2026-10-17, floor 48; execution is verified by CI.
 # It moves up with the suite; it never moves down.
 #
 # `rc`, not `status`: `status` is READ-ONLY in zsh, so a loop written with it
@@ -42,7 +44,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
-FLOOR=47
+FLOOR=48
 
 # The raw loop, whose whole output is the tier's log. Failure lines carry a
 # TIER-FAIL prefix so the quiet verdict below can name them without a tail.
