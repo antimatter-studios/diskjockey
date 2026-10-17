@@ -105,6 +105,10 @@ final class XfsVolume: FSVolume,
     var supportedVolumeCapabilities: FSVolume.SupportedCapabilities {
         let caps = Self.readOnlyCapabilities.fsCapabilities
         caps.doesNotSupportSettingFilePermissions = !allowsWrites
+        // The driver's attribute ABI has no immutable-flag setter, even
+        // for a writable handle, so setAttributes refuses every flags
+        // change. Mount approval cannot add that operation.
+        caps.doesNotSupportImmutableFiles = true
         return caps
     }
 
