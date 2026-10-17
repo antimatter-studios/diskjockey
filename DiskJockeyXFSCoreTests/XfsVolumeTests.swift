@@ -185,6 +185,7 @@ struct XfsVolumeTests {
 
     @Test func defaultVolumeDoesNotAdvertisePermissionWrites() {
         #expect(makeVolume(seededDriver()).supportedVolumeCapabilities.doesNotSupportSettingFilePermissions)
+        #expect(makeVolume(seededDriver()).supportedVolumeCapabilities.doesNotSupportImmutableFiles)
     }
 
     /// The defect this style of test could not see when it was a mirror:

@@ -122,6 +122,7 @@ struct XfsMountPolicyTests {
         try volume.requireWritableMount()
         let capabilities = volume.supportedVolumeCapabilities
         #expect(!capabilities.doesNotSupportSettingFilePermissions)
+        #expect(capabilities.doesNotSupportImmutableFiles)
         // Mount permission cannot invent operation/journal support.
         #expect(!capabilities.supportsHardLinks)
         #expect(!capabilities.supportsActiveJournal)
