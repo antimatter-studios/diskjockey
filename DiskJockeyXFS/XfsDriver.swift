@@ -54,7 +54,11 @@ final class XfsDriver: XfsMountedVolumeDriver, XfsCheckingDriver {
             size: attr.size,
             linkCount: attr.link_count,
             mtime: Int64(attr.mtime),
-            fileType: XfsVolume.readOnlyFileType(fromRaw: attr.file_type))
+            fileType: XfsVolume.readOnlyFileType(fromRaw: attr.file_type),
+            atime: Int64(attr.atime),
+            ctime: Int64(attr.ctime),
+            // A v4 volume has no creation time, and reports 0 for it.
+            birthtime: attr.crtime == 0 ? nil : Int64(attr.crtime))
     }
 
     func walkDirectory(_ path: VolumePath,

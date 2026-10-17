@@ -55,14 +55,21 @@ public struct ReadOnlyFileAttributes: Equatable, Sendable {
     public var gid: UInt32
     public var size: UInt64
     public var linkCount: UInt32
-    /// Seconds since the epoch. The drivers report one timestamp, not
+    /// Seconds since the epoch. Most drivers report one timestamp, not
     /// four; see `fsAttributes(from:parentInode:)` for what that means.
     public var mtime: Int64
     public var fileType: ReadOnlyFileType
+    /// The access, inode-change and creation times, in seconds, for a
+    /// driver that reports them; nil stands in `mtime`. A writable volume
+    /// needs them, or a time it was asked to set reads back as another.
+    public var atime: Int64?
+    public var ctime: Int64?
+    public var birthtime: Int64?
 
     public init(inode: UInt64, mode: UInt32, uid: UInt32, gid: UInt32,
                 size: UInt64, linkCount: UInt32, mtime: Int64,
-                fileType: ReadOnlyFileType) {
+                fileType: ReadOnlyFileType,
+                atime: Int64? = nil, ctime: Int64? = nil, birthtime: Int64? = nil) {
         self.inode = inode
         self.mode = mode
         self.uid = uid
@@ -71,6 +78,9 @@ public struct ReadOnlyFileAttributes: Equatable, Sendable {
         self.linkCount = linkCount
         self.mtime = mtime
         self.fileType = fileType
+        self.atime = atime
+        self.ctime = ctime
+        self.birthtime = birthtime
     }
 }
 
@@ -207,8 +217,8 @@ public enum ReadOnlyVolumeSupport {
 
     /// Turn a driver's attributes into FSKit's.
     ///
-    /// The four timestamps are all set from the one the drivers report.
-    /// That is not laziness: none of these formats gives all four, and
+    /// A time the driver reports is shown as itself. One it does not is
+    /// set from `mtime`: most of these formats do not give all four, and
     /// leaving the others unset makes Finder show the epoch. One honest
     /// value repeated is better than three wrong ones.
     public static func fsAttributes(from attr: ReadOnlyFileAttributes,
@@ -225,10 +235,11 @@ public enum ReadOnlyVolumeSupport {
         attrs.allocSize = attr.size
         attrs.linkCount = attr.linkCount
         let ts = timespec(tv_sec: Int(attr.mtime), tv_nsec: 0)
-        attrs.accessTime = ts
+        let reported = { (seconds: Int64?) in seconds.map { timespec(tv_sec: Int($0), tv_nsec: 0) } ?? ts }
+        attrs.accessTime = reported(attr.atime)
         attrs.modifyTime = ts
-        attrs.changeTime = ts
-        attrs.birthTime = ts
+        attrs.changeTime = reported(attr.ctime)
+        attrs.birthTime = reported(attr.birthtime)
         if let id = FSItem.Identifier(rawValue: attr.inode) {
             attrs.fileID = id
         }

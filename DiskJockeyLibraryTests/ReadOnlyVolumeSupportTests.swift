@@ -248,6 +248,20 @@ struct ReadOnlyAttributeTests {
         #expect(a.birthTime.tv_sec == 1_700_000_000)
     }
 
+    /// A driver that reports all four times has each one shown as itself:
+    /// on a writable volume, a time that was set must read back unchanged.
+    @Test func reportedTimesAreShownAsThemselves() {
+        var attr = sample()
+        attr.atime = -1
+        attr.ctime = 1_750_000_000
+        attr.birthtime = 1_600_000_000
+        let a = ReadOnlyVolumeSupport.fsAttributes(from: attr, parentInode: nil)
+        #expect(a.accessTime.tv_sec == -1)
+        #expect(a.modifyTime.tv_sec == 1_700_000_000)
+        #expect(a.changeTime.tv_sec == 1_750_000_000)
+        #expect(a.birthTime.tv_sec == 1_600_000_000)
+    }
+
     /// Root has no parent, and reports itself.
     @Test func anAbsentParentBecomesRoot() {
         let a = ReadOnlyVolumeSupport.fsAttributes(from: sample(), parentInode: nil)
