@@ -217,8 +217,8 @@ public enum ReadOnlyVolumeSupport {
 
     /// Turn a driver's attributes into FSKit's.
     ///
-    /// The four timestamps are all set from the one the drivers report.
-    /// That is not laziness: none of these formats gives all four, and
+    /// A time the driver reports is shown as itself. One it does not is
+    /// set from `mtime`: most of these formats do not give all four, and
     /// leaving the others unset makes Finder show the epoch. One honest
     /// value repeated is better than three wrong ones.
     public static func fsAttributes(from attr: ReadOnlyFileAttributes,
@@ -235,10 +235,11 @@ public enum ReadOnlyVolumeSupport {
         attrs.allocSize = attr.size
         attrs.linkCount = attr.linkCount
         let ts = timespec(tv_sec: Int(attr.mtime), tv_nsec: 0)
-        attrs.accessTime = ts
+        let reported = { (seconds: Int64?) in seconds.map { timespec(tv_sec: Int($0), tv_nsec: 0) } ?? ts }
+        attrs.accessTime = reported(attr.atime)
         attrs.modifyTime = ts
-        attrs.changeTime = ts
-        attrs.birthTime = ts
+        attrs.changeTime = reported(attr.ctime)
+        attrs.birthTime = reported(attr.birthtime)
         if let id = FSItem.Identifier(rawValue: attr.inode) {
             attrs.fileID = id
         }
