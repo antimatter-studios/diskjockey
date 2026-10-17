@@ -55,14 +55,21 @@ public struct ReadOnlyFileAttributes: Equatable, Sendable {
     public var gid: UInt32
     public var size: UInt64
     public var linkCount: UInt32
-    /// Seconds since the epoch. The drivers report one timestamp, not
+    /// Seconds since the epoch. Most drivers report one timestamp, not
     /// four; see `fsAttributes(from:parentInode:)` for what that means.
     public var mtime: Int64
     public var fileType: ReadOnlyFileType
+    /// The access, inode-change and creation times, in seconds, for a
+    /// driver that reports them; nil stands in `mtime`. A writable volume
+    /// needs them, or a time it was asked to set reads back as another.
+    public var atime: Int64?
+    public var ctime: Int64?
+    public var birthtime: Int64?
 
     public init(inode: UInt64, mode: UInt32, uid: UInt32, gid: UInt32,
                 size: UInt64, linkCount: UInt32, mtime: Int64,
-                fileType: ReadOnlyFileType) {
+                fileType: ReadOnlyFileType,
+                atime: Int64? = nil, ctime: Int64? = nil, birthtime: Int64? = nil) {
         self.inode = inode
         self.mode = mode
         self.uid = uid
@@ -71,6 +78,9 @@ public struct ReadOnlyFileAttributes: Equatable, Sendable {
         self.linkCount = linkCount
         self.mtime = mtime
         self.fileType = fileType
+        self.atime = atime
+        self.ctime = ctime
+        self.birthtime = birthtime
     }
 }
 
