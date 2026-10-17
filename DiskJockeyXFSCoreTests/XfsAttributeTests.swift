@@ -136,6 +136,22 @@ struct XfsAttributeTests {
         #expect(volume.value(forKey: property) as? Bool == true)
     }
 
+    /// A volume that cannot write asks FSKit for a read-only mount, so
+    /// Finder shows it read-only rather than letting every write fail with
+    /// EROFS (diskjockey#354); a writable volume asks for nothing. Through
+    /// the Objective-C runtime too: the property and its type are the macOS
+    /// 26.4 SDK's, where `FSMountOptionsReadOnly` is 1.
+    @Test(arguments: [true, false])
+    func aVolumeThatCannotWriteAsksFSKitForAReadOnlyMount(writable: Bool) throws {
+        let (volume, _, _) = try fixture(writable: writable)
+        let property = "requestedMountOptions"
+        guard volume.responds(to: NSSelectorFromString(property)) else {
+            Issue.record("XfsVolume does not implement \(property), so a volume that cannot write mounts as writable")
+            return
+        }
+        #expect((volume.value(forKey: property) as? NSNumber)?.uintValue == (writable ? 0 : 1))
+    }
+
     @Test func modeOwnerAndTimesAreOneDriverCall() async throws {
         let (volume, driver, item) = try fixture()
         let request = FSItem.SetAttributesRequest()
