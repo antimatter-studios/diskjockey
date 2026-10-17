@@ -123,8 +123,11 @@ final class XfsVolume: FSVolume,
     /// (diskjockey#354), so Finder shows it read-only rather than letting
     /// every write fail with EROFS. The property and `FSVolume.MountOptions`
     /// are in the macOS 26.4 SDK; Swift 6.3 is the compiler that ships with
-    /// it, and an older SDK cannot compile this declaration.
-    @available(macOS 26.0, *)
+    /// it, and an older SDK cannot compile this declaration. The type is
+    /// macOS 26.4's, so the property is too: the protocol declares it from
+    /// 26.0, which in the Swift 5 language mode is a warning, and an older
+    /// system never asks for it.
+    @available(macOS 26.4, *)
     var requestedMountOptions: FSVolume.MountOptions {
         get { allowsWrites ? [] : .readOnly }
         set {}
