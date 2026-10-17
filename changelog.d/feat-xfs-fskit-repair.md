@@ -10,4 +10,6 @@
   repair, and a repair on a device that cannot be written is refused.
   Cancelling the task stops the driver's repair at its next item, before
   anything is written; the volume is still mounted again, and the task
-  fails with ECANCELED.
+  fails with ECANCELED. The XFS bundle moves to rust-fs-xfs 0.14.2, the
+  first release whose C ABI carries that repair, and to the rust-fs-core
+  0.3.13 it requires.
