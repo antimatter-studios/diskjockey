@@ -222,8 +222,10 @@ final class XfsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             mountAccess: mountAccess,
             opLock: opLock
         )
+        // The checker is the volume, which hands a check its current
+        // driver: a repair mounts the device again (#324).
         Self.mountedResources.register(resource, MountedResource(
-            bsdName: bsdName, volume: volume, opLock: opLock, checker: driver))
+            bsdName: bsdName, volume: volume, opLock: opLock, checker: volume))
         stats.start()
 
         containerStatus = .ready
@@ -251,13 +253,38 @@ final class XfsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
 
     func didFinishLoading() {}
 
+    /// Mount the device behind `contextPtr` again, for writing when
+    /// `writable` asks and the driver allows it, read-only otherwise: the
+    /// mount a repair leaves the volume with, as loadResource made the
+    /// first (#324). nil when it cannot be mounted at all.
+    static func mountDriver(contextPtr: UnsafeMutableRawPointer, writable: Bool,
+                            dlog: TaggedLogger) -> XfsDriver? {
+        guard let handle = try? XfsBlockDeviceBridge.makeHandle(contextPtr: contextPtr, logger: dlog) else {
+            return nil
+        }
+        defer { fs_core_device_close(handle) }
+        var mounted: OpaquePointer?
+        if writable {
+            mounted = fs_xfs_mount_rw_with_fs_core_device(handle)
+            if mounted == nil {
+                let err = fs_xfs_last_error().flatMap { String(cString: $0) } ?? "(no error set)"
+                dlog.info("after the repair the driver cannot mount this volume for writing (errno \(fs_xfs_last_errno()): \(err)); mounting it read-only")
+            }
+        }
+        if mounted == nil {
+            mounted = fs_xfs_mount_with_fs_core_device(handle)
+        }
+        return mounted.map { XfsDriver(fs: $0) }
+    }
+
 }
 
 // fskitd calls `_checkResource:` on every mount; without this conformance
 // the call returns ENOTSUP and the system refuses to mount. A check runs
-// the driver's checker over the mounted volume and writes nothing; what
-// the task reports is decided in XfsCheck.swift (#324). Format is
-// unsupported.
+// the driver's checker over the mounted volume and writes nothing; a
+// repair (-y) runs the driver's repair over the device, with the mounted
+// driver let go first and the device mounted again after. What the task
+// reports is decided in XfsCheck.swift (#324). Format is unsupported.
 extension XfsFileSystem: FSManageableResourceMaintenanceOperations {
     func startCheck(task: FSTask, options: FSTaskOptions) throws -> Progress {
         guard let resolved = Self.mountedResources.resolveSingle() else {
@@ -272,7 +299,8 @@ extension XfsFileSystem: FSManageableResourceMaintenanceOperations {
         // mounting, anything else is a verify (FsckOperation).
         let argv = options.taskOptions
         let operation = FsckOperation(checkOptions: argv)
-        if let refused = XfsCheck.refusal(for: operation) {
+        let volume = resolved.volume
+        if let refused = XfsCheck.refusal(for: operation, deviceIsWritable: volume.deviceIsWritable) {
             dlog.warn("startCheck refused: taskOptions=\(argv): \(refused.localizedDescription)")
             throw refused
         }
@@ -282,7 +310,8 @@ extension XfsFileSystem: FSManageableResourceMaintenanceOperations {
             throw POSIXError(.EBUSY)
         }
         dlog.info("startCheck: taskOptions=\(argv) operation=\(operation.rawValue)")
-        dlog.event(kind: "fsck.start", fields: ["repair": "false"])
+        let repairing = operation == .repair
+        dlog.event(kind: "fsck.start", fields: ["repair": repairing ? "true" : "false"])
 
         // The checker reports no progress of its own: one unit, done when
         // it returns.
@@ -291,6 +320,44 @@ extension XfsFileSystem: FSManageableResourceMaintenanceOperations {
         // The lock is released before the task reports, because FSKit goes
         // on to mount from there and a lock still held refuses the mount's
         // first operations (diskjockey#166).
+        if repairing {
+            // The repair writes the device: the volume lets its driver go,
+            // the driver's repair runs over the device, and the volume is
+            // mounted again as it was (#324). Every operation answers EBUSY
+            // under the .repair lock meanwhile.
+            Task.detached {
+                let result = volume.repairDevice({ contextPtr in
+                    do {
+                        let handle = try XfsBlockDeviceBridge.makeHandle(contextPtr: contextPtr, logger: dlog)
+                        defer { fs_core_device_close(handle) }
+                        // FSKit cancels the task through the Progress it
+                        // was handed; the driver's repair asks after each
+                        // item and stops before it writes.
+                        return XfsCheck.runRepair(XfsDeviceRepair(handle: handle),
+                                                  isCancelled: { progress.isCancelled },
+                                                  onItem: { dlog.warn("repair \($0.logLine)") })
+                    } catch {
+                        return .failure(error as NSError)
+                    }
+                }, remount: { contextPtr, writable in
+                    Self.mountDriver(contextPtr: contextPtr, writable: writable, dlog: dlog)
+                })
+                let outcome: (any Error)?
+                switch result {
+                case .success(let report):
+                    dlog.event(kind: "fsck.done", fields: XfsCheck.repairEventFields(report))
+                    progress.completedUnitCount = 1
+                    outcome = nil
+                case .failure(let error):
+                    dlog.event(kind: "fsck.failed", fields: ["error": error.localizedDescription])
+                    outcome = error
+                }
+                opLock.finish {
+                    task.didComplete(error: outcome)
+                }
+            }
+            return progress
+        }
         Task.detached {
             let outcome: (any Error)?
             switch XfsCheck.run(checker, onFinding: { dlog.warn("fsck finding: \($0.logLine)") }) {

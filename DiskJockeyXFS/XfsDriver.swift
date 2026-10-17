@@ -286,3 +286,60 @@ final class XfsDriver: XfsMountedVolumeDriver, XfsCheckingDriver {
         }
     }
 }
+
+/// The driver's repair over a device (#324):
+/// fs_xfs_repair_with_fs_core_device, writing what it plans. The caller
+/// asserts that nothing else reads or writes the device meanwhile, which
+/// XfsVolume.repairDevice arranges by letting its mounted driver go first.
+final class XfsDeviceRepair: XfsRepairingDevice {
+    private let handle: OpaquePointer
+
+    /// `handle` is an `FsCoreDevice` the caller keeps open for the repair.
+    init(handle: OpaquePointer) {
+        self.handle = handle
+    }
+
+    func repair(onItem: @escaping (XfsRepairItem) -> Void,
+                shouldStop: @escaping () -> Bool) -> XfsRepairReport? {
+        let sink = ItemSink(onItem, shouldStop: shouldStop)
+        var out = fs_xfs_repair_report_t()
+        let rc = withExtendedLifetime(sink) {
+            fs_xfs_repair_with_fs_core_device(handle, 1, { context, item in
+                guard let context, let i = item?.pointee else { return 0 }
+                let sink = Unmanaged<ItemSink>.fromOpaque(context).takeUnretainedValue()
+                sink.visit(XfsRepairItem(
+                    kind: i.kind.map { String(cString: $0) } ?? "",
+                    code: i.code.map { String(cString: $0) } ?? "",
+                    rule: i.rule.map { String(cString: $0) },
+                    offset: i.offset < 0 ? nil : i.offset,
+                    length: i.length,
+                    what: i.what.map { String(cString: $0) } ?? ""))
+                // Nonzero stops the listing and cancels the apply before
+                // anything is written (fs_xfs_repair_item_fn).
+                return sink.shouldStop() ? 1 : 0
+            }, Unmanaged.passUnretained(sink).toOpaque(), &out)
+        }
+        guard rc == 0 else { return nil }
+        return XfsRepairReport(
+            ready: out.ready != 0, changes: out.changes, refusals: out.refusals,
+            unplanned: out.unplanned, written: out.written, clean: out.clean != 0)
+    }
+
+    func lastErrno() -> Int32 {
+        Int32(fs_xfs_last_errno())
+    }
+
+    func lastErrorMessage() -> String? {
+        fs_xfs_last_error().map { String(cString: $0) }
+    }
+
+    /// The item callback, as the context pointer the C callback gets.
+    private final class ItemSink {
+        let visit: (XfsRepairItem) -> Void
+        let shouldStop: () -> Bool
+        init(_ visit: @escaping (XfsRepairItem) -> Void, shouldStop: @escaping () -> Bool) {
+            self.visit = visit
+            self.shouldStop = shouldStop
+        }
+    }
+}
