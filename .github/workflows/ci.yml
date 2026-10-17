@@ -45,6 +45,13 @@ on:
   # decides whether they land. The queue reads ci-ok only from a workflow
   # that triggers here.
   merge_group:
+  # By hand, on any branch: a pull request's test-only commit is pushed to
+  # red/<branch> and CI dispatched there, so the run records the new tests
+  # failing without the fix (#405). A dispatch has no range to diff, so the
+  # changes job answers true and it is the full pipeline; its concurrency
+  # group is keyed by its commit and never cancelled.
+  # scripts/tests/ci-dispatch.sh fails if either stops being so.
+  workflow_dispatch:
 
 # Cancel an in-progress run when a newer commit supersedes it: keyed per source
 # branch for PRs (head_ref), per ref for main pushes (ref_name).
@@ -64,10 +71,10 @@ jobs:
   # scripts/code-changed.sh reads the change's paths and says false only when
   # every one is documentation. The change is the pull request's diff, the
   # merge queue group's (its base_sha to its head_sha: what the queue is about
-  # to land), or a push to main's (before to after); a tag or a push it cannot
-  # diff runs everything. The macOS library tests and the Xcode build and test
-  # run only when the answer is true, and ci-ok accepts their skip when, and
-  # only when, it is false.
+  # to land), or a push to main's (before to after); a tag, a push it cannot
+  # diff, and a dispatch run everything. The macOS library tests and the
+  # Xcode build and test run only when the answer is true, and ci-ok accepts
+  # their skip when, and only when, it is false.
   changes:
     name: changes (does this need the full pipeline?)
     runs-on: ubuntu-latest
