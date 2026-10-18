@@ -10,6 +10,42 @@ final class DJAgentClient {
 
     private var connection: NSXPCConnection?
 
+    func attachDriverKitImage(atPath path: String, imageURL: URL,
+                              offset: UInt64 = 0, length: UInt64 = 0,
+                              blockSize: UInt32 = 0) async throws -> (UInt64, String) {
+        let proof = try FileHandle(forReadingFrom: imageURL)
+        defer { try? proof.close() }
+        return try await withCheckedThrowingContinuation { continuation in
+            let completion = AgentReplyOnce(continuation)
+            do {
+                let proxy = try makeProxy(onError: { completion.finish(.failure($0)) })
+                proxy.attachDriverKitImage(atPath: path, proof: proof,
+                    offset: offset, length: length, blockSize: blockSize) { identity, device, error in
+                    if error == nil, identity != 0, let device {
+                        completion.finish(.success((identity, device)))
+                    } else {
+                        completion.finish(.failure(FSKitMountService.FSKitError.processFailed(
+                            exitCode: -1, stderr: error ?? "agent returned no owned DriverKit device")))
+                    }
+                }
+            } catch { completion.finish(.failure(error)) }
+        }
+    }
+
+    func detachDriverKitImage(_ attachmentID: UInt64) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let completion = AgentReplyOnce(continuation)
+            do {
+                let proxy = try makeProxy(onError: { completion.finish(.failure($0)) })
+                proxy.detachDriverKitImage(attachmentID) { success, error in
+                    completion.finish(success ? .success(()) : .failure(
+                        FSKitMountService.FSKitError.processFailed(
+                            exitCode: -1, stderr: error ?? "agent DriverKit detach failed")))
+                }
+            } catch { completion.finish(.failure(error)) }
+        }
+    }
+
     // NOTE: an UNSANDBOXED agent cannot be registered by this sandboxed app
     // via SMAppService (BTM rejects it: "target executable must be sandboxed
     // because the app is sandboxed"), and it can't ship through the Mac App
@@ -160,7 +196,7 @@ final class DJAgentClient {
         "anchor apple generic and certificate leaf[subject.OU] = \"\(teamID)\""
     }
 
-    private func makeProxy() throws -> DJAgentProtocol {
+    private func makeProxy(onError: ((Error) -> Void)? = nil) throws -> DJAgentProtocol {
         if connection == nil {
             let conn = NSXPCConnection(machServiceName: "com.antimatterstudios.diskjockey.agent",
                                        options: [])
@@ -177,10 +213,25 @@ final class DJAgentClient {
         }
         guard let proxy = connection?.remoteObjectProxyWithErrorHandler({ [weak self] error in
             Task { @MainActor in self?.connection = nil }
+            onError?(error)
         }) as? DJAgentProtocol else {
             throw FSKitMountService.FSKitError.processFailed(
                 exitCode: -1, stderr: "failed to obtain DJAgent proxy")
         }
         return proxy
+    }
+}
+
+/// XPC can race a reply with a transport error. Resume an async caller once.
+private final class AgentReplyOnce<Value> {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Value, Error>?
+    init(_ continuation: CheckedContinuation<Value, Error>) { self.continuation = continuation }
+    func finish(_ result: Result<Value, Error>) {
+        lock.lock()
+        let pending = continuation
+        continuation = nil
+        lock.unlock()
+        pending?.resume(with: result)
     }
 }
