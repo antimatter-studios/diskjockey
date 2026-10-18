@@ -165,7 +165,8 @@ final class FSKitMountService {
                              imageURL: URL? = nil,
                              partitions: [DiskProbeResult.Partition],
                              container: String = "raw") async throws -> [MountedVolume] {
-        let hdiutilCompatible = container == "raw" || container == "vhd" || container == "vmdk"
+        let route = ImageAttachmentRoute(container: container)
+        let hdiutilCompatible = route == .hdiutil
 
         struct Classified {
             var supported: [(part: DiskProbeResult.Partition, fs: String)] = []
@@ -182,16 +183,16 @@ final class FSKitMountService {
             }
             switch part.fsKind {
             case "fat32", "fat16":
-                if hdiutilCompatible { c.supported.append((part, "msdos")) }
+                if route.reachesAppleFilesystems { c.supported.append((part, "msdos")) }
                 else { c.skipped.append(part) }
             case "exfat":
-                if hdiutilCompatible { c.supported.append((part, "exfat")) }
+                if route.reachesAppleFilesystems { c.supported.append((part, "exfat")) }
                 else { c.skipped.append(part) }
             case "hfs_plus":
-                if hdiutilCompatible { c.supported.append((part, "hfs")) }
+                if route.reachesAppleFilesystems { c.supported.append((part, "hfs")) }
                 else { c.skipped.append(part) }
             case "apfs":
-                if hdiutilCompatible { c.supported.append((part, "apfs")) }
+                if route.reachesAppleFilesystems { c.supported.append((part, "apfs")) }
                 else { c.skipped.append(part) }
             default:                     c.skipped.append(part)
             }
@@ -241,9 +242,10 @@ final class FSKitMountService {
             return mounted
         }
 
-        // Container formats (QCOW2/VHDX/VMDK) require a DriverKit block device
-        // driver to mount — deferred to v2. The UI prevents users from reaching
-        // this path (DiskImageInspectorView shows "coming in a future update").
+        // qcow2 and VHDX take the DriverKit route, which the app does not
+        // attach through yet (diskjockey#479); anything else has no route.
+        // The UI prevents users from reaching this path (DiskImageInspectorView
+        // shows "coming in a future update").
         throw FSKitError.processFailed(exitCode: -1,
             stderr: "\(container.uppercased()): mounting requires a future update.")
     }
@@ -619,7 +621,7 @@ enum FSKitAttachController {
         // only to our extensions.
         let ourKinds = ShippedFilesystems.probeKinds
         let appleKinds: Set<String> = ["fat32", "fat16", "exfat", "hfs_plus", "apfs"]
-        let containerSupportsApple = ["raw", "vhd", "vmdk"].contains(probe.container)
+        let containerSupportsApple = ImageAttachmentRoute(container: probe.container).reachesAppleFilesystems
         func isSupported(_ p: DiskProbeResult.Partition) -> Bool {
             if ourKinds.contains(p.fsKind) { return true }
             if appleKinds.contains(p.fsKind) && containerSupportsApple { return true }
