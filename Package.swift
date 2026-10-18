@@ -72,6 +72,11 @@ let package = Package(
             name: "DiskJockeyAgentCore",
             path: "DiskJockeyAgent",
             exclude: [
+                "AgentReadAuthority.swift",
+                "DJAgentReadEndpoint.cpp",
+                "DJAgentReadEndpoint.h",
+                "DJAgentReadLoop.hpp",
+                "DiskJockeyAgent-Bridging-Header.h",
                 "AgentImpl.swift",
                 "DJAgentProtocol.swift",
                 "ProcessRunner.swift",

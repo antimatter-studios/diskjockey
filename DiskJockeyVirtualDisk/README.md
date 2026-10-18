@@ -225,3 +225,22 @@ which client death also reaches, fails every pending read before the timer is
 cancelled. The dext target builds with fatal warnings, and
 `scripts/tests/driverkit-service-target.sh` requires the class in the target and
 the personality.
+
+## Agent read endpoint
+
+`DJAgentReadEndpointOpen` (#443, part of #436) takes a borrowed service,
+mount request, caller-opened readable descriptor and mount identity. It calls
+`AgentAuthority.attachableImage` before opening either the reader or the user
+client. The current host adapter is VHDX; the portable loop accepts the shared
+reader ABI so decoders remain in the agent. `make vendor-bundles` now builds
+the agent archive separately from the filesystem extensions.
+
+The endpoint connects with the version scalar and an async completion. Its
+main-run-loop callback receives the five packed `DJReadRequest` words, checks
+the count and mount identity, then calls `DJAgentServeRead`. Replies use
+`DJReadReplyToScalars` and the payload as the call's one structure input.
+Disconnect, service termination, async failure or reply failure closes the
+reader. Open and close must run on the main thread; close removes callback
+delivery before freeing the endpoint. The host guard drives this same loop
+over a fake connection. Activation and the provisioned mount round trip
+remain #437.

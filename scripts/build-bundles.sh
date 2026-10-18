@@ -80,4 +80,13 @@ for n, v in deps:
 
     echo "${GREEN}  -> $out/libdj_${fs}_bundle.a${NC}"
 done
+# The host agent has its own process and Rust runtime, separate from every
+# extension. A selected FS-only build (the library tier) does not need it.
+if [ "$#" -eq 0 ]; then
+    bundle="$root/rust-bundles/dj-agent-image-reader"
+    out="$root/lib/agent_image_reader"
+    cargo build --locked --release --target "$target" --manifest-path "$bundle/Cargo.toml"
+    mkdir -p "$out"
+    cp "$bundle/target/$target/release/libdj_agent_image_reader.a" "$out/"
+fi
 echo "\n${GREEN}all bundles built${NC}"

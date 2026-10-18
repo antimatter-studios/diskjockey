@@ -378,7 +378,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: lib/
-          key: lib-${{ runner.os }}-${{ hashFiles('SIBLING_PINS.txt', 'rust-bundles/**/Cargo.toml', 'rust-bundles/**/Cargo.lock') }}
+          key: lib-${{ runner.os }}-${{ hashFiles('SIBLING_PINS.txt', 'rust-bundles/**/Cargo.toml', 'rust-bundles/**/Cargo.lock', 'scripts/build-bundles.sh') }}
 
       # Only restore intermediate Rust artifacts on a vendor cache miss
       # so the next miss still benefits from incremental compilation.
