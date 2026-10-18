@@ -318,3 +318,22 @@ releases the slot; a failed removal keeps the child and its slot. The shell
 guard drives this core over a fake backend and publisher. #461 owns block I/O,
 #462 the `IOUserBlockStorageDevice` child and its `DJAttachmentIdentity`
 property, and #463 the provisioned-host round trip.
+
+## Block I/O
+
+`DiskJockeyVirtualDisk/DJVirtualDiskBlockIO.h` (#461, part of #394) is the
+portable core of one published medium's block I/O over the injected read
+backend; the DriverKit child only translates `IOUserBlockStorageDevice` calls
+into it. A read of `count` blocks at `lba` becomes one backend read at
+`byteOffset + lba * blockSize` of `count * blockSize` bytes, every addition
+and multiplication overflow-checked, and is refused when it would leave
+`byteLength` or exceed `kDJReadMaxBytes`, which the transport never clamps.
+Writes, unmap and zero-length reads are refused before the backend is called.
+
+An accepted read completes exactly once, possibly before `submit` returns. It
+is retired before its completion runs, so a duplicate, late or re-entrant
+backend report reaches nothing. A backend that will not start the read, a
+failed or timed-out read, a short read, or a success without the requested
+bytes completes with an error and no bytes, never with zero-filled ones.
+Teardown fails every in-flight read once. `scripts/tests/dext-block-io.sh`
+compiles the header over a fake backend to prove all of this.
