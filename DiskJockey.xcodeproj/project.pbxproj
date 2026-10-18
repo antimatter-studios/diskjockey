@@ -69,6 +69,10 @@
 		BCAC5F50000000000000000A /* FSKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EA52B7280D02F6F8D737A4DF /* FSKit.framework */; };
 		BCAC5F50000000000000000B /* DiskJockeyLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 501F025D2E058C51009EBB59 /* DiskJockeyLibrary.framework */; };
 		BCAC5F50000000000000000C /* DiskJockeyBCACHEFS.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = BCAC5F500000000000000002 /* DiskJockeyBCACHEFS.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		D39300000000000000000010 /* DJVirtualDiskService.iig in Sources */ = {isa = PBXBuildFile; fileRef = D39300000000000000000002 /* DJVirtualDiskService.iig */; };
+		D39300000000000000000011 /* DJVirtualDiskService.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D39300000000000000000003 /* DJVirtualDiskService.cpp */; };
+		D39300000000000000000012 /* DriverKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D39300000000000000000004 /* DriverKit.framework */; };
+		D39300000000000000000013 /* DiskJockeyVirtualDisk.dext in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = D39300000000000000000001 /* DiskJockeyVirtualDisk.dext */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -534,6 +538,13 @@
 			remoteGlobalIDString = 501F025C2E058C51009EBB59;
 			remoteInfo = DiskJockeyLibrary;
 		};
+		D39300000000000000000030 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 50A51F8A2E05892200AC6D10 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D39300000000000000000040;
+			remoteInfo = DiskJockeyVirtualDisk;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -596,6 +607,17 @@
 				BCAC5F50000000000000000C /* DiskJockeyBCACHEFS.appex in Embed ExtensionKit Extensions */,
 			);
 			name = "Embed ExtensionKit Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D39300000000000000000023 /* Embed System Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "Contents/Library/SystemExtensions";
+			dstSubfolderSpec = 1;
+			files = (
+				D39300000000000000000013 /* DiskJockeyVirtualDisk.dext in Embed System Extensions */,
+			);
+			name = "Embed System Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -674,6 +696,12 @@
 		BCAC5F500000000000000005 /* DiskJockeyBCACHEFS.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = DiskJockeyBCACHEFS.entitlements; sourceTree = "<group>"; };
 		BCAC5F500000000000000006 /* DiskJockeyBCACHEFS-Bridging-Header.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = "DiskJockeyBCACHEFS-Bridging-Header.h"; sourceTree = "<group>"; };
 		BCAC5F500000000000000002 /* DiskJockeyBCACHEFS.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = DiskJockeyBCACHEFS.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		D39300000000000000000001 /* DiskJockeyVirtualDisk.dext */ = {isa = PBXFileReference; explicitFileType = "wrapper.driver-extension"; includeInIndex = 0; path = DiskJockeyVirtualDisk.dext; sourceTree = BUILT_PRODUCTS_DIR; };
+		D39300000000000000000002 /* DJVirtualDiskService.iig */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.iig; path = DJVirtualDiskService.iig; sourceTree = "<group>"; };
+		D39300000000000000000003 /* DJVirtualDiskService.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = DJVirtualDiskService.cpp; sourceTree = "<group>"; };
+		D39300000000000000000004 /* DriverKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = DriverKit.framework; path = System/DriverKit/System/Library/Frameworks/DriverKit.framework; sourceTree = SDKROOT; };
+		D39300000000000000000005 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		D39300000000000000000006 /* DiskJockeyVirtualDisk.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DiskJockeyVirtualDisk.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -1447,6 +1475,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D39300000000000000000021 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D39300000000000000000012 /* DriverKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -1557,6 +1593,7 @@
 			isa = PBXGroup;
 			children = (
 				50A51F942E05892200AC6D10 /* DiskJockeyApplication */,
+				D39300000000000000000007 /* DiskJockeyVirtualDisk */,
 				50A51FA32E05892400AC6D10 /* DiskJockeyTests */,
 				50A51FAD2E05892400AC6D10 /* DiskJockeyUITests */,
 				501F02472E058BAF009EBB59 /* DiskJockeyFileProvider */,
@@ -1580,6 +1617,7 @@
 			isa = PBXGroup;
 			children = (
 				50A51F922E05892200AC6D10 /* DiskJockey.app */,
+				D39300000000000000000001 /* DiskJockeyVirtualDisk.dext */,
 				50A51FA02E05892400AC6D10 /* DiskJockeyTests.xctest */,
 				50A51FAA2E05892400AC6D10 /* DiskJockeyUITests.xctest */,
 				501F02432E058BAF009EBB59 /* DiskJockeyFileProvider.appex */,
@@ -1685,6 +1723,17 @@
 			name = DiskJockeyBCACHEFS;
 			path = DiskJockeyBCACHEFS;
 			sourceTree = SOURCE_ROOT;
+		};
+		D39300000000000000000007 /* DiskJockeyVirtualDisk */ = {
+			isa = PBXGroup;
+			children = (
+				D39300000000000000000002 /* DJVirtualDiskService.iig */,
+				D39300000000000000000003 /* DJVirtualDiskService.cpp */,
+				D39300000000000000000005 /* Info.plist */,
+				D39300000000000000000006 /* DiskJockeyVirtualDisk.entitlements */,
+			);
+			path = DiskJockeyVirtualDisk;
+			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
@@ -1810,6 +1859,7 @@
 				501F02772E058C51009EBB59 /* Embed Frameworks */,
 				EC707CEC95F594A0FBA80A25 /* Embed ExtensionKit Extensions */,
 				DA9E17A0000000000000000E /* Copy LaunchAgents */,
+				D39300000000000000000023 /* Embed System Extensions */,
 			);
 			buildRules = (
 			);
@@ -1824,6 +1874,7 @@
 				12E218A9352001743993B7B7 /* PBXTargetDependency */,
 				BCAC5F50000000000000000E /* PBXTargetDependency */,
 				DA9E17A00000000000000013 /* PBXTargetDependency */,
+				D39300000000000000000031 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				50A51F942E05892200AC6D10 /* DiskJockeyApplication */,
@@ -1985,6 +2036,22 @@
 			productReference = BCAC5F500000000000000002 /* DiskJockeyBCACHEFS.appex */;
 			productType = "com.apple.product-type.extensionkit-extension";
 		};
+		D39300000000000000000040 /* DiskJockeyVirtualDisk */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D39300000000000000000052 /* Build configuration list for PBXNativeTarget "DiskJockeyVirtualDisk" */;
+			buildPhases = (
+				D39300000000000000000020 /* Sources */,
+				D39300000000000000000021 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = DiskJockeyVirtualDisk;
+			productName = DiskJockeyVirtualDisk;
+			productReference = D39300000000000000000001 /* DiskJockeyVirtualDisk.dext */;
+			productType = "com.apple.product-type.driver-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -2033,6 +2100,7 @@
 			projectRoot = "";
 			targets = (
 				50A51F912E05892200AC6D10 /* DiskJockey */,
+				D39300000000000000000040 /* DiskJockeyVirtualDisk */,
 				50A51F9F2E05892400AC6D10 /* DiskJockeyTests */,
 				50A51FA92E05892400AC6D10 /* DiskJockeyUITests */,
 				501F02422E058BAF009EBB59 /* DiskJockeyFileProvider */,
@@ -2318,6 +2386,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D39300000000000000000020 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D39300000000000000000010 /* DJVirtualDiskService.iig in Sources */,
+				D39300000000000000000011 /* DJVirtualDiskService.cpp in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -2434,6 +2511,11 @@
 			name = DiskJockeyLibrary;
 			target = 501F025C2E058C51009EBB59 /* DiskJockeyLibrary */;
 			targetProxy = BCAC5F50000000000000000F /* PBXContainerItemProxy */;
+		};
+		D39300000000000000000031 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D39300000000000000000040 /* DiskJockeyVirtualDisk */;
+			targetProxy = D39300000000000000000030 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -3610,6 +3692,60 @@
 			};
 			name = Release;
 		};
+		D39300000000000000000050 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
+				CODE_SIGN_ENTITLEMENTS = DiskJockeyVirtualDisk/DiskJockeyVirtualDisk.entitlements;
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 43UMKXZ8P4;
+				DRIVERKIT_DEPLOYMENT_TARGET = 24.0;
+				GCC_ENABLE_CPP_EXCEPTIONS = NO;
+				GCC_ENABLE_CPP_RTTI = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(DERIVED_SOURCES_DIR)",
+					"$(DERIVED_SOURCES_DIR)/$(PRODUCT_NAME)",
+					"$(SRCROOT)/DiskJockeyVirtualDisk",
+				);
+				INFOPLIST_FILE = DiskJockeyVirtualDisk/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.virtualdisk;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = driverkit;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = driverkit;
+			};
+			name = Debug;
+		};
+		D39300000000000000000051 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
+				CODE_SIGN_ENTITLEMENTS = DiskJockeyVirtualDisk/DiskJockeyVirtualDisk.entitlements;
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 43UMKXZ8P4;
+				DRIVERKIT_DEPLOYMENT_TARGET = 24.0;
+				GCC_ENABLE_CPP_EXCEPTIONS = NO;
+				GCC_ENABLE_CPP_RTTI = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(DERIVED_SOURCES_DIR)",
+					"$(DERIVED_SOURCES_DIR)/$(PRODUCT_NAME)",
+					"$(SRCROOT)/DiskJockeyVirtualDisk",
+				);
+				INFOPLIST_FILE = DiskJockeyVirtualDisk/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = com.antimatterstudios.diskjockey.virtualdisk;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = driverkit;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = driverkit;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -3746,6 +3882,15 @@
 			buildConfigurations = (
 				BCAC5F500000000000000013 /* Release */,
 				BCAC5F500000000000000012 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D39300000000000000000052 /* Build configuration list for PBXNativeTarget "DiskJockeyVirtualDisk" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D39300000000000000000050 /* Debug */,
+				D39300000000000000000051 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

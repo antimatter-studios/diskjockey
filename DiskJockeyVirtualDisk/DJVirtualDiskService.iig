@@ -1,0 +1,15 @@
+#ifndef DJVirtualDiskService_h
+#define DJVirtualDiskService_h
+
+#include <DriverKit/IOService.iig>
+
+// Service lifecycle recovered from feat/driverkit-virtual-disk (df5f5d1).
+// Media publication and user clients belong to later read-only slices.
+class DJVirtualDiskService : public IOService
+{
+public:
+    virtual kern_return_t Start(IOService * provider) override;
+    virtual kern_return_t Stop(IOService * provider) override;
+};
+
+#endif
