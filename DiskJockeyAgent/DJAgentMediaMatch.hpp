@@ -13,9 +13,8 @@
 #include <stdint.h>
 #include <string.h>
 
-/* The registry property the child publication (#394) sets on the owned
- * IOMedia ancestry. The bridge searches the media and its parents for it. */
-#define kDJAttachmentIdentityKey "DJAttachmentIdentity"
+/* kDJAttachmentIdentityKey, shared with the dext child that publishes it. */
+#include "../DiskJockeyVirtualDisk/DJVirtualDiskShared.h"
 
 struct DJAgentMediaEvent {
     const char *bsdName; /* kDADiskDescriptionMediaBSDNameKey, e.g. "disk7". */

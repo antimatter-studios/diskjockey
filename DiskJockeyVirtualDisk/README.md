@@ -282,8 +282,10 @@ media named `diskN` whose IOMedia ancestry carries the non-zero owned
 `DJAttachmentIdentity` yields `/dev/diskN` for `DJAgentAttachment::appeared`.
 A BSD name, path or reused disk number is never proof of ownership. The name
 is checked before the registry is read. The shell guard drives the matcher
-over a fake ancestry. #394 still publishes the identity property; #452 owns
-the IOKit ancestry search and the DiskArbitration callback.
+over a fake ancestry. The key, `kDJAttachmentIdentityKey`, is defined once in
+`DJVirtualDiskShared.h`, which the matcher and the dext's block-device child
+both include; #452 owns the IOKit ancestry search and the DiskArbitration
+callback.
 
 ## Agent attachment bridge
 
@@ -337,3 +339,23 @@ failed or timed-out read, a short read, or a success without the requested
 bytes completes with an error and no bytes, never with zero-filled ones.
 Teardown fails every in-flight read once. `scripts/tests/dext-block-io.sh`
 compiles the header over a fake backend to prove all of this.
+
+## Block-device child
+
+`DiskJockeyVirtualDisk/DJVirtualDiskDevice.iig` (#462, part of #394) is the
+published medium: a subclass of Apple's `IOUserBlockStorageDevice`, adapted
+from the prototype's child. It is created with the non-zero attachment
+identity under `kDJAttachmentIdentityKey` and the checked geometry under
+`DJByteOffset`, `DJByteLength` and `DJBlockSize`, and refuses to start
+without all four or with geometry the block-I/O core rejects. Start allocates
+its `DJBlockIO` and sets the identity on its own registry entry, where the
+agent's matcher finds it in the IOMedia ancestry. It advertises the
+geometry's block size and block count, at most `kDJReadMaxBytes` per request,
+as write-protected media with no unmap. Reads, writes and unmaps all go
+through the core, so writes and unmaps fail `kIOReturnNotWritable`. Stop
+fails every pending read once and releases the core. There is no read backend
+yet: every read fails `kIOReturnNotReady`, and compressed container bytes are
+never served as raw disk bytes. `scripts/tests/driverkit-service-target.sh`
+requires the sources in the dext target and one shared definition of the key.
+Hosting the mount selectors in the user client, so their publish and remove
+hooks create and terminate this child, is #467.

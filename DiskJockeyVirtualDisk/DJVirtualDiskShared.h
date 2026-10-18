@@ -39,6 +39,12 @@ typedef struct DJMountInfo {
 
 #define kDJMaxVirtualDisks 16
 
+/* The registry property the block-device child publishes on itself, holding
+ * the attachment identity as a number. The agent's media matcher searches the
+ * IOMedia and its registry parents for it; one definition keeps the two from
+ * drifting. */
+#define kDJAttachmentIdentityKey "DJAttachmentIdentity"
+
 /* Local validated geometry, not a wire payload. The block count is
  * byteLength / blockSize; byteOffset applies to every backend read. */
 typedef struct DJMountGeometry {
