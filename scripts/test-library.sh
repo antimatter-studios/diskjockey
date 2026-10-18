@@ -44,6 +44,8 @@
 # with the bcachefs volume's 59 cases, over a stand-in and over the driver on
 # the reference tools' images (diskjockey#342), measured locally 2026-10-12,
 # then 65 + 603 = 668 on CI over main with #344 and #356 (run 38300220670).
+# then 668 + 13 = 681 with the system extension activation tests (#473),
+# counted from the source: swift-testing counts a parameterized test once.
 # The floor moves up with the suite; it never moves down.
 #
 #   scripts/test-library.sh [--verbose]
@@ -70,9 +72,9 @@ log="${QUIET_LOG_DIR:-$ROOT/tmp/logs}/library.log"
 xct=$(grep -aoE 'Executed [0-9]+ tests' "$log" 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
 swt=$(grep -aoE 'Test run with [0-9]+ tests' "$log" 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
 total=$(( ${xct:-0} + ${swt:-0} ))
-echo "library cases executed: $total = ${xct:-0} XCTest + ${swt:-0} swift-testing (floor 668)"
-if [ "$total" -lt 668 ]; then
-    echo "::error::only $total library cases executed, floor is 668 — 668 ran on 2026-10-12, and a run that executes less than that has stopped early rather than passed (diskjockey#139)"
+echo "library cases executed: $total = ${xct:-0} XCTest + ${swt:-0} swift-testing (floor 681)"
+if [ "$total" -lt 681 ]; then
+    echo "::error::only $total library cases executed, floor is 681 — 668 ran on 2026-10-12 before the 13 system extension activation cases (#473), and a run that executes less than that has stopped early rather than passed (diskjockey#139)"
     exit 1
 fi
 exit "$rc"
