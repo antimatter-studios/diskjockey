@@ -6,9 +6,12 @@
  *
  * The lifecycle's close hook is the bridge's: the endpoint closes and the
  * service is released exactly once, only after removal (or before
- * publication). Authorization, discovery, opening and the publish, unmount
- * and remove hooks stay injected; #458 backs the last three with #394's
- * selectors. Same serial queue and lifetime rules as DJAgentAttachment.
+ * publication). Authorization, discovery and opening stay injected.
+ *
+ * Publication is the dext's mount selector and removal its unmount selector
+ * (#458), called on the open endpoint's connection; the dext validates the
+ * request and decodes the geometry. The disk unmount between them stays the
+ * lifecycle's hook. Same serial queue and lifetime rules as DJAgentAttachment.
  */
 #pragma once
 #include "DJAgentAttachment.hpp"
@@ -26,12 +29,17 @@ struct DJAgentBridgePlatform {
      * Null means nothing stayed open. */
     void *(*open)(void *, uint32_t service, const DJMountRequest *, int proof, uint64_t identity);
     void (*close)(void *, void *endpoint);
+    /* IOConnectCallMethod on the endpoint's user-client connection, returning
+     * its kern_return_t. outputCount is the output capacity in, the count out. */
+    int32_t (*call)(void *, void *endpoint, uint64_t selector, const uint64_t *input,
+                    uint32_t inputCount, const void *structure, size_t structureSize,
+                    uint64_t *output, uint32_t *outputCount);
 };
 
 class DJAgentBridge {
 public:
-    /* lifecycle supplies the clock, timer and child hooks; its close hook is
-     * ignored, because closing belongs to the bridge. */
+    /* lifecycle supplies the clock, timer and disk unmount hooks; its publish,
+     * remove and close hooks are ignored, because they belong to the bridge. */
     DJAgentBridge(uint64_t owner, uint64_t identity, DJAgentBridgePlatform platform,
                   DJAgentAttachment::Hooks lifecycle)
         : platform_(platform), lifecycle_(lifecycle), attachment_(owner, identity, hooks(this)),
@@ -48,6 +56,7 @@ public:
             !waitNanoseconds || waitNanoseconds > DJAgentAttachment::maxWaitNanoseconds ||
             !memchr(mount.path, '\0', sizeof(mount.path)) || !complete()) return false;
         attempted_ = true;
+        mount_ = mount;
         if (!platform_.authorize(platform_.context, mount.path, proof)) return false;
         if (!(service_ = platform_.discover(platform_.context))) return false;
         endpoint_ = platform_.open(platform_.context, service_, &mount, proof, identity_);
@@ -65,14 +74,17 @@ private:
     DJAgentAttachment::Hooks lifecycle_;
     DJAgentAttachment attachment_;
     const uint64_t owner_, identity_;
+    // kIOReturnNotFound: the dext holds no child for the identity.
+    static constexpr int32_t notFound = int32_t(0xe00002f0);
+    DJMountRequest mount_ = {};
     uint32_t service_ = 0;
     void *endpoint_ = nullptr;
     bool attempted_ = false;
 
     bool complete() const {
         return platform_.authorize && platform_.discover && platform_.release &&
-            platform_.open && platform_.close && lifecycle_.now && lifecycle_.arm &&
-            lifecycle_.cancel && lifecycle_.publish && lifecycle_.unmount && lifecycle_.remove;
+            platform_.open && platform_.close && platform_.call && lifecycle_.now &&
+            lifecycle_.arm && lifecycle_.cancel && lifecycle_.unmount;
     }
     void closeResources() {
         if (endpoint_) { void *const endpoint = endpoint_; endpoint_ = nullptr;
@@ -86,14 +98,30 @@ private:
         auto &b = self(c); return b.lifecycle_.arm(b.lifecycle_.context, deadline, callback, context);
     }
     static void cancel(void *c) { auto &b = self(c); b.lifecycle_.cancel(b.lifecycle_.context); }
+    /* The identity and the request in; the device ID out, which must be the
+     * identity, or the child is not this attachment's. */
     static bool publish(void *c, uint64_t id) {
-        auto &b = self(c); return b.lifecycle_.publish(b.lifecycle_.context, id);
+        auto &b = self(c);
+        uint64_t device = 0;
+        uint32_t count = 1;
+        return b.endpoint_ &&
+            b.platform_.call(b.platform_.context, b.endpoint_, kDJSelectorMountImage, &id, 1,
+                             &b.mount_, sizeof(b.mount_), &device, &count) == 0 &&
+            count == 1 && device == id;
     }
     static bool unmount(void *c, uint64_t id, uint64_t attempt, const char *device) {
         auto &b = self(c); return b.lifecycle_.unmount(b.lifecycle_.context, id, attempt, device);
     }
+    /* Idempotent: identities are never reused, so a dext holding no child for
+     * this one (never created, or already removed) has removed it. */
     static bool remove(void *c, uint64_t id) {
-        auto &b = self(c); return b.lifecycle_.remove(b.lifecycle_.context, id);
+        auto &b = self(c);
+        uint32_t count = 0;
+        if (!b.endpoint_) return false;
+        const int32_t status = b.platform_.call(b.platform_.context, b.endpoint_,
+                                                kDJSelectorUnmountImage, &id, 1, nullptr, 0,
+                                                nullptr, &count);
+        return status == 0 || status == notFound;
     }
     static void close(void *c) { self(c).closeResources(); }
     static DJAgentAttachment::Hooks hooks(DJAgentBridge *bridge) {
