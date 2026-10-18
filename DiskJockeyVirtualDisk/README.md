@@ -92,3 +92,27 @@ reader stays in `DiskJockeyAgent`, which already holds the caller's
 authorization to the backing file, and the dext forwards bounded block reads
 to it (#421). Re-run the probe after a DriverKit SDK or Rust release; if it
 ever exits 0, record the new answer here.
+
+## Agent-side VHDX adapter
+
+`rust-bundles/dj-agent-image-reader` builds a **macOS host** static library for
+the agent; its C ABI is `DiskJockeyAgent/DJAgentImageReader.h`. It duplicates
+an already-authorized readable file descriptor without reopening a path.
+The published VHDX reader verifies the content and reports decoded capacity
+and logical sector size. Reads are limited to 1 MiB and the decoded image
+extent; sparse ranges and reader failures retain the decoder's behavior.
+There is no writable API. Close releases the duplicate; the caller keeps its
+original descriptor. Callers must discard output on any failed read.
+
+The Library tests CI job runs `scripts/agent-vhdx-oracle.sh`: QEMU produces a
+dynamic VHDX under a filename without a VHDX extension and converts it back
+to raw. The C consumer checks capacity, sector geometry, allocated/sparse
+reads, a partition-relative sample, bounds, truncation errors and descriptor
+ownership. QEMU's generated fixture uses 512-byte logical sectors; a 4096-byte
+fixture remains part of provisioned-host integration. Fixture tests run in CI.
+
+This adapter is not yet linked into the agent target and publishes no media.
+#425 connects it to the shared #421 transport after #394/#419; #426 checks
+failed attachments and detach during pending reads. Keep the reader out of
+the dext. The agent must retain `AgentAuthority`'s caller-readable file proof,
+add a selected partition offset exactly once, and serialize close with reads.
