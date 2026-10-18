@@ -391,6 +391,23 @@ filesystems answer the same way.
 4. **Same exit codes.** `fsck.*` follows the scheme scripts already
    depend on — 0 clean, 1 corrected, 4 uncorrected, 8 operational error.
 
+   `fs.<fs>` has one table for every driver, so a script driving several
+   of them reads the same answer from the same status:
+
+   | status | name | meaning |
+   |---|---|---|
+   | 0 | success | the operation was done |
+   | 1 | failed | an I/O error, a corrupt structure, or a bug: the operation could not complete |
+   | 2 | usage | the command line was wrong (clap's own choice) |
+   | 3 | unsupported | the verb exists and this driver or format cannot do it at all: not implemented yet, or the format is read-only |
+   | 4 | refused | the volume's current state forbids it — directory not empty, name already exists, target missing, not a directory — from `rm`, `rmdir`, `mv`, `ln`, `mkdir`, `truncate` or `write --at` |
+
+   3 and 4 are different answers. 3 says no volume of this format will
+   ever accept the request from this tool; 4 says this one will not now,
+   and the same command succeeds once the volume changes. Before the
+   table, fs.ext4 exited 1 for a non-empty `rmdir` and fs.btrfs exited 3
+   (diskjockey#390).
+
 5. **Properties are a namespace, and they get ONE tool with
    subcommands rather than a dotted verb each.** Linux invented
    `e2label`, `xfs_admin -L`, `ntfslabel`, `tune2fs -U` and
