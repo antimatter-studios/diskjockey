@@ -1,7 +1,7 @@
 /* Portable dispatch core for the DJVirtualDisk user client's read transport.
  * The DriverKit IOUserClient maps IOUserClientMethodArguments onto
- * DJDispatchArguments (the reply payload is its mapped structure input
- * descriptor) and calls externalMethod on DJPendingReads' serial queue. Every
+ * DJDispatchArguments (the reply payload is its one structure input, inline or
+ * a mapped descriptor) and calls externalMethod on DJPendingReads' serial queue. Every
  * count and size is checked against the table before any copy, and a refused
  * call never touches the endpoint or any pending read. */
 #pragma once
@@ -9,8 +9,9 @@
 
 enum class DJDispatchResult { Success, BadArgument, Unsupported, NotReady, Busy };
 
-/* Untrusted caller arguments. structureInput is the inline header and may be
- * unaligned; payload is the mapped descriptor; completion is the async action. */
+/* Untrusted caller arguments. payload is the call's one structure input,
+ * inline or a mapped descriptor; no method takes any other structure, so the
+ * table refuses a nonzero structureInputSize. completion is the async action. */
 struct DJDispatchArguments {
     const uint64_t *scalarInput;
     uint32_t scalarInputCount;
@@ -36,7 +37,7 @@ struct DJDispatchMethod {
 
 static constexpr DJDispatchMethod kDJReadDispatchMethods[] = {
     {kDJSelectorConnectReadEndpoint, 1, 0, 0, true},
-    {kDJSelectorDeliverReadReply, 0, sizeof(DJReadReply), kDJReadMaxBytes, false},
+    {kDJSelectorDeliverReadReply, kDJReadReplyScalarCount, 0, kDJReadMaxBytes, false},
     {kDJSelectorDisconnectReadEndpoint, 0, 0, 0, false},
 };
 
@@ -85,11 +86,14 @@ public:
         if (!DJDispatchArgumentsMatch(*method, arguments)) return DJDispatchResult::BadArgument;
         switch (selector) {
         case kDJSelectorConnectReadEndpoint: return connect(arguments);
-        case kDJSelectorDeliverReadReply:
+        case kDJSelectorDeliverReadReply: {
+            DJReadReply header;
+            if (!DJReadReplyFromScalars(arguments.scalarInput, arguments.scalarInputCount, &header))
+                return DJDispatchResult::BadArgument;
             if (!endpoint_) return DJDispatchResult::NotReady;
-            pending_.reply(arguments.structureInput, arguments.structureInputSize,
-                           arguments.payload, arguments.payloadSize);
+            pending_.reply(&header, sizeof(header), arguments.payload, arguments.payloadSize);
             return DJDispatchResult::Success;
+        }
         default:
             stop();
             return DJDispatchResult::Success;

@@ -155,9 +155,12 @@ kern_return_t DJVirtualDiskUserClient::ExternalMethod(uint64_t selector,
     DJDispatchArguments call = {};
     call.scalarInput = arguments->scalarInput;
     call.scalarInputCount = arguments->scalarInputCount;
+    // The one structure input is the reply payload: inline up to 4096 bytes,
+    // a descriptor above. A call carrying both is malformed.
+    if (arguments->structureInput && arguments->structureInputDescriptor) return kIOReturnBadArgument;
     if (arguments->structureInput) {
-        call.structureInput = arguments->structureInput->getBytesNoCopy();
-        call.structureInputSize = arguments->structureInput->getLength();
+        call.payload = arguments->structureInput->getBytesNoCopy();
+        call.payloadSize = arguments->structureInput->getLength();
     }
     if (arguments->structureInputDescriptor) {
         const kern_return_t mapped = arguments->structureInputDescriptor->CreateMapping(

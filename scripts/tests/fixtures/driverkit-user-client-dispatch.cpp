@@ -8,12 +8,12 @@ struct Completion {
     unsigned calls = 0;
     DJReadResult result = DJReadResult::Success;
     size_t count = 0;
-    unsigned char bytes[512] = {};
+    unsigned char bytes[8192] = {};
     static void done(void *context, DJReadResult result, const void *data, size_t size) {
         auto &self = *static_cast<Completion *>(context);
         ++self.calls; self.result = result; self.count = size;
         CHECK((result == DJReadResult::Success) == (data != nullptr));
-        if (size) { CHECK(size == sizeof(self.bytes)); memcpy(self.bytes, data, sizeof(self.bytes)); }
+        if (size) { CHECK(size <= sizeof(self.bytes)); memcpy(self.bytes, data, size); }
     }
 };
 // The agent's side of the user client: it only ever sees delivered requests
@@ -59,9 +59,16 @@ static DJDispatchArguments connectArguments() {
     a.scalarInput = version; a.scalarInputCount = 1; a.completion = action;
     return a;
 }
+// The reply header travels as five scalars in DJReadReply's field order, and
+// the payload is the call's one structure input: inline up to 4096 bytes, a
+// descriptor above. Written out here, not through the header's own helper.
+static uint64_t replyScalars[5];
 static DJDispatchArguments replyArguments(const DJReadReply *reply, const void *payload, size_t size) {
+    const uint64_t scalars[5] = {reply->requestID, reply->byteCount, reply->status,
+                                 reply->version, reply->reserved};
+    memcpy(replyScalars, scalars, sizeof(scalars));
     DJDispatchArguments a = {};
-    a.structureInput = reply; a.structureInputSize = sizeof(*reply);
+    a.scalarInput = replyScalars; a.scalarInputCount = 5;
     a.payload = payload; a.payloadSize = size;
     return a;
 }
@@ -113,21 +120,28 @@ int main() {
     // retire, fail or answer the pending request.
     unsigned char payload[512]; fill(payload, sizeof(payload), e.sent[0].imageOffset);
     DJReadReply reply = {e.sent[0].requestID, 512, kDJReadReplySuccess, kDJReadProtocolVersion, 0};
-    unsigned char header[sizeof(reply) + 1] = {};
-    memcpy(header, &reply, sizeof(reply));
-    for (unsigned kind = 0; kind < 11; ++kind) {
+    for (unsigned kind = 0; kind < 15; ++kind) {
         DJDispatchArguments a = replyArguments(&reply, payload, sizeof(payload));
-        if (kind == 0) { a.structureInput = header; a.structureInputSize = sizeof(reply) - 1; }
-        if (kind == 1) { a.structureInput = header; a.structureInputSize = sizeof(reply) + 1; }
-        if (kind == 2) a.structureInput = nullptr;
-        if (kind == 3) a.structureInputSize = 0;
+        uint64_t six[6] = {}, wide[5] = {};
+        memcpy(six, replyScalars, sizeof(replyScalars));
+        memcpy(wide, replyScalars, sizeof(replyScalars));
+        if (kind == 0) a.scalarInputCount = 4;
+        if (kind == 1) { a.scalarInput = six; a.scalarInputCount = 6; }
+        if (kind == 2) a.scalarInput = nullptr; // A count without scalars is refused too.
+        if (kind == 3) a.scalarInputCount = 0;
         if (kind == 4) a.payloadSize = size_t(kDJReadMaxBytes) + 1; // Never read: refused on size.
         if (kind == 5) a.payload = nullptr;
-        if (kind == 6) { a.scalarInput = version; a.scalarInputCount = 1; }
+        if (kind == 6) { a.structureInput = &reply; a.structureInputSize = sizeof(reply); } // The old inline header.
         if (kind == 7) a.completion = action;
         if (kind == 8) a.scalarOutputCount = 1;
         if (kind == 9) a.structureOutputMaximumSize = 512;
-        if (kind == 10) a.scalarInputCount = 1; // A count without scalars is refused too.
+        // A 32-bit field whose scalar does not fit is refused, never truncated
+        // into a value that would otherwise match the request.
+        if (kind == 10) { wide[1] |= UINT64_C(1) << 32; a.scalarInput = wide; }
+        if (kind == 11) { wide[2] |= UINT64_C(1) << 32; a.scalarInput = wide; }
+        if (kind == 12) { wide[3] |= UINT64_C(1) << 32; a.scalarInput = wide; }
+        if (kind == 13) { wide[4] |= UINT64_C(1) << 32; a.scalarInput = wide; }
+        if (kind == 14) { a.scalarInput = version; a.scalarInputCount = 1; }
         CHECK(d.externalMethod(kDJSelectorDeliverReadReply, a) == DJDispatchResult::BadArgument);
         CHECK(first.calls == 0 && d.pendingCount() == 1 && d.connected());
     }
@@ -147,6 +161,17 @@ int main() {
     for (size_t i = 0; i < 512; ++i) CHECK(first.bytes[i] == (4608 + i) % 251);
     CHECK(d.externalMethod(kDJSelectorDeliverReadReply, replyArguments(&reply, payload, sizeof(payload))) == DJDispatchResult::Success);
     CHECK(first.calls == 1 && d.pendingCount() == 0);
+
+    // A payload above 4096 bytes, which IOKit only carries as a descriptor,
+    // completes its read through the same reply shape.
+    Completion large; CHECK(d.submit(geometry, 11, 8192, 8192, 1000, Completion::done, &large));
+    static unsigned char largePayload[8192]; fill(largePayload, sizeof(largePayload), e.sent[e.sends - 1].imageOffset);
+    DJReadReply largeReply = {e.sent[e.sends - 1].requestID, 8192, kDJReadReplySuccess, kDJReadProtocolVersion, 0};
+    CHECK(d.externalMethod(kDJSelectorDeliverReadReply, replyArguments(&largeReply, largePayload, sizeof(largePayload))) == DJDispatchResult::Success);
+    CHECK(large.calls == 1 && large.result == DJReadResult::Success && large.count == 8192);
+    bool exact = true;
+    for (size_t i = 0; i < 8192; ++i) exact = exact && large.bytes[i] == (12288 + i) % 251;
+    CHECK(exact);
 
     // Short and error replies are well-formed calls that fail their request.
     Completion shortRead; CHECK(read(d, shortRead));
