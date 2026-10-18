@@ -273,3 +273,14 @@ DiskArbitration bridge and synchronized protocols; #449 owns provisioned-host
 ownership evidence. #394 retains child publication, #419/#425 retain block-node
 reader integration, and #420/#426 retain decoder-specific cleanup. This core
 does not enable a shipping mount route or certify provisioned behavior.
+
+## Agent media correlation
+
+`DiskJockeyAgent/DJAgentMediaMatch.hpp` (#451, part of #448) decides whether
+one DiskArbitration media event is the owned attachment's device. Only whole
+media named `diskN` whose IOMedia ancestry carries the non-zero owned
+`DJAttachmentIdentity` yields `/dev/diskN` for `DJAgentAttachment::appeared`.
+A BSD name, path or reused disk number is never proof of ownership. The name
+is checked before the registry is read. The shell guard drives the matcher
+over a fake ancestry. #394 still publishes the identity property; #452 owns
+the IOKit ancestry search and the DiskArbitration callback.
