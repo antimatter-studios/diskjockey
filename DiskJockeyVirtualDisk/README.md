@@ -284,3 +284,17 @@ A BSD name, path or reused disk number is never proof of ownership. The name
 is checked before the registry is read. The shell guard drives the matcher
 over a fake ancestry. #394 still publishes the identity property; #452 owns
 the IOKit ancestry search and the DiskArbitration callback.
+
+## Agent attachment bridge
+
+`DiskJockeyAgent/DJAgentBridge.hpp` (#456, part of #452) owns one
+attachment's platform resources. It checks `AgentAuthority.attachableImage`
+against the caller's open descriptor first, then discovers the dext service,
+then opens the image reader and the #443 read endpoint, and only then starts
+the `DJAgentAttachment` lifecycle. A refused or invalid request opens
+nothing and takes no completion. A discovery or endpoint failure releases
+what was opened and starts no lifecycle. The lifecycle's close hook is the
+bridge's, so the endpoint closes and the service is released exactly once,
+only after removal. The shell guard drives the bridge over injected
+boundaries. #457 owns the IOKit ancestry search and the DiskArbitration
+callback; #458 backs publish, unmount and remove with #394's selectors.
