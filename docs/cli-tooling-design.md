@@ -563,6 +563,247 @@ copy (antimatter-studios/rust-fs-core#177).
 
 ---
 
+## File and tree transfer
+
+Copying a file or a tree between an image and the host is the same
+algorithm whatever the format, so it is written once, in
+`fs_core::cli::transfer` (rust-fs-core's `cli` feature), behind traits each
+driver fills in. This section is the contract every `fs.<fs>` follows; the
+tracking issue is #379, and the cross-driver check that holds the drivers
+to it is #389.
+
+Status words below are exact. **Released** means in rust-fs-core v0.3.14,
+the version the drivers pin. **Merged** means on rust-fs-core `main` but not
+yet released. **In review** names the open pull request that carries it.
+**Planned** means no code does it yet, and names the issue that will.
+`core#N` is antimatter-studios/rust-fs-core#N; a driver's issue or pull
+request is written `ext4#N` for antimatter-studios/rust-fs-ext4#N, and so
+on.
+
+### Verbs
+
+```
+fs.ext4 disk.img export PATH DEST [--replace] [--verify]
+fs.ext4 disk.img import SOURCE PATH [--replace] [--verify]
+```
+
+- **`export`** copies image to host and **`import`** copies host to image.
+  Both are target-first like every other verb. `DEST` `-` is stdout;
+  `SOURCE` `-` is stdin.
+- They are distinct from **`read`/`write`**, which stay the raw bytes of one
+  file with their existing contract, and from **`get`**, which stays
+  properties. Neither of those changes shape (released: `export_args`,
+  core#250; the driver pull requests below leave `write` as it was).
+- **Recursion only with `--recursive`.** Without it a directory is refused.
+  `--max-depth N` bounds the walk below the source root, which is depth
+  zero; the default is 64 (in review: core#278 for export, core#287 for
+  import).
+
+### Flags
+
+| Flag | Meaning | Where it stands |
+|---|---|---|
+| `--replace` | Replace an existing name atomically. Without it, an existing file, directory or symlink, dangling or not, is refused before the image is read. A directory is refused even with it. | Released, core#250 (`tests/transfer_export.rs`) |
+| `--verify` | Read the persisted bytes back and publish only on a match. | Export: merged, core#251 (core pull request #273, `src/cli/transfer_verify_tests.rs`). Import: driver-side in ext4#554 and ntfs#844; shared import verification planned, core#262 |
+| `--recursive`, `--max-depth` | Copy a tree; existing destination directories are merged into. | In review: core#278 (export), core#287 (import) |
+| `--preserve=times,links,sparse,xattrs` | Comma-separated, each one an optional capability. | `links`: core#280; `times`: core#281; import `times,links`: core#299; `sparse`: core#302; `xattrs` on export: core#307. All in review |
+| `--progress` | Per-file and overall progress, on stderr only. | In review, core#282 |
+| `--manifest FILE` | Record a durable entry per verified file. | Storage in review, core#294; the command-line flag is planned, core#265 |
+| `--resume` | Skip only what the manifest proves verified. | Decision logic in review, core#298; the command-line flag is planned, core#266 |
+
+### Report and statuses
+
+- **Stdout carries content only when the destination is stdout.** Then the
+  bytes are the whole output and nothing else is written there. Otherwise
+  stdout carries one JSON report: for a file, its `path`, `destination`,
+  `bytes`, `sha256` and `replaced` (released, core#250). Progress goes to
+  stderr only, shaped for a terminal or for a pipe (in review, core#282).
+- **A tree report names every item.** Each entry is `completed`,
+  `skipped`, `refused` or `failed`, with counts of each. A refused or
+  skipped directory is not entered, and its siblings still run. Tree
+  import adds `cancelled` for the in-flight and queued items of a
+  cancelled run (in review: core#278, core#287, core#283).
+- **Missing data is never success.** A writer that fails, such as a closed
+  pipe, fails the copy and says how many bytes of the total it delivered
+  (released, core#250).
+
+Exit statuses:
+
+| Status | Meaning |
+|---|---|
+| 0 | Every item completed (or was skipped on manifest evidence). |
+| 1 | An item failed, or the tree is partial. Lock contention and an alias of the image are also 1. |
+| 2 | A wrong command line, such as `--replace` with stdout. |
+| 3 | The format or driver cannot do it, decided before any input is read: a driver with no sink, `--replace` on a sink without atomic replacement, `--preserve=sparse` on a sink without holes, a read-only format. Inside a tree, the same refusal marks that one item `refused`. |
+| 130 / 143 | Cancelled by SIGINT / SIGTERM, at a chunk boundary and before publication (in review, core#283). |
+
+The codes are core's `EXIT_FAILED`, `EXIT_USAGE` and `EXIT_UNSUPPORTED`,
+so a driver cannot pick its own.
+
+### Bounded memory
+
+The copy moves `CHUNK` (1 MiB) at a time through one buffer allocated
+once, so memory does not grow with the file (released, core#250;
+`tests/transfer_bounded.rs` measures it). A driver whose own read path
+buffers a whole stream refuses that stream rather than export it over a
+whole-file buffer: ntfs#834 refuses compressed and encrypted streams and
+reparse points for that reason.
+
+### Publication
+
+- **Staged beside the destination.** Bytes are written under a hidden
+  staging name in the destination's own directory, persisted, and only
+  then published under the real name.
+- **On the host** (export), the staging name is `.<name>.<pid>-<n>.partial`,
+  created exclusively. Without `--replace`, publication is a hard link,
+  which fails rather than overwrite a name that appeared meanwhile; there
+  is no fallback to check-then-rename, and a host filesystem without hard
+  links is told to use `--replace`. With `--replace`, publication is a
+  rename. The directory is synced after either (released, core#250).
+- **In the image** (import), the driver owns staging through the
+  `FileSink` trait: `stage`, increasing-offset `write_at`, `persist`,
+  `read_at` for verification, `publish` and `abort`. No method may touch
+  the final name before `publish`, and `publish` must refuse a name created
+  since `stage` (in review, core#284).
+- **Never delete-first.** A driver that cannot replace atomically refuses
+  `--replace` with exit 3 rather than delete the old name and write a new
+  one.
+- **What a crash leaves.** At most a staging file beside the destination:
+  partial if the process died while writing, complete if it died between
+  persistence and publication. The destination is either the old file,
+  absent, or the complete new one; never half-written.
+- **Space for a replacement.** Refusing a replacement when the staged copy
+  and the old file cannot both fit is planned, core#261; today a full
+  volume fails the write, and the old file survives because nothing was
+  deleted first.
+
+### Verification
+
+Verification reads back the **persisted** bytes, not the bytes that were
+sent: the synced staging file on the host for export (merged, core#251),
+or a fresh read of the staged file in the image for import. It compares
+the byte count and the SHA-256 against those of the source, and publishes
+only on a match. A mismatch removes the staging file and fails the item.
+Every copy, verified or not, reports its byte count and SHA-256 (released,
+core#250).
+
+### Manifest and resume
+
+- **The manifest** is newline-terminated JSON records, one per verified
+  and published file, holding source and destination identities, the
+  digest and the completion time. Each append is synced before it
+  returns, and a failed append stops the transfer. An unterminated last
+  line is ignored, durably removed and reported. The manifest file is
+  checked against image and tree aliases before it is opened (in review,
+  core#294, `tests/transfer_manifest.rs`).
+- **Resume skips only what the manifest proves verified.** It needs the
+  latest record for the destination, matching fresh identities of the
+  opened endpoints, **and** a SHA-256 of the source re-streamed from byte
+  zero to end of file that equals the recorded one. Size and modification
+  time are never evidence on their own; access time is excluded because
+  reading a file can change it. A skip is reported as `skipped: verified
+  earlier` with the original completion time; it is not a verification
+  performed now (in review, core#298).
+- **No partial-file continuation.** A file without that evidence, partial
+  or changed, is copied again from byte zero.
+- **A source that changes during import** fails that file instead of
+  publishing it, checked through the opened file's identity (in review,
+  core#286). On a host without change times, a same-size rewrite that
+  restores its modification time may go unseen, and the report says so
+  under `limitations`.
+
+### Safety checks before any byte moves
+
+- **Aliasing.** A local source or destination that is the image being read
+  or written is refused, compared by opened identity rather than by name,
+  so a hard link to the image is caught (in review, core#274; core#252).
+- **Exclusive writes.** Import takes an exclusive, non-blocking lock on
+  the image before the driver opens it writable or reads input; export
+  takes a shared one and warns when a writer holds it. The locks are
+  cooperative and stop another `fs.<fs>`, not a program that ignores them.
+  Refusing an image the host has mounted is planned, core#253 (in review
+  for the lock: core#277).
+- **Names.** Tree export refuses names that would collide on a
+  case-folding destination instead of overwriting (in review, core#279).
+  Tree import refuses names the target format refuses, and names that
+  collide under the format's own case rules, which the driver supplies
+  (in review, core#287).
+- **Links cannot loop.** `--preserve=links` copies symbolic links without
+  following them, so a looping source cannot make the walk recurse (in
+  review, core#280).
+
+### What lives where
+
+- **rust-fs-core** owns the streaming copy, SHA-256 and byte counts,
+  staged publication on the host, read-back verification, aliasing and
+  lock preflight, the tree walk and its report, name safety, progress,
+  cancellation, the manifest and resume, and the `--preserve` options as
+  optional capabilities: core#250 to core#269.
+- **Each driver** implements `FileSource` (export: length and positioned
+  read over its own lookup), `TreeSource` (listing and stat),
+  `FileSink`/`TreeSink` (import: staged create, positioned write, persist,
+  read-back, rename, name equivalence, directory creation), and the
+  optional metadata capabilities its format can hold. What it cannot do
+  yet is exit 3 before input is read, never a whole-file fallback.
+- **diskjockey** owns this write-up and the cross-driver check, #389.
+
+### Per driver
+
+Every driver pins rust-fs-core v0.3.14, which releases only the
+single-file export API. So every shipped `export` copies one regular file
+and refuses directories, symlinks and special files; tree export in each
+driver waits for core's tree source traits to be released. ext4 and ntfs
+import on a driver-side adapter over the released copy, not on core's
+`FileSink`, which is still in review.
+
+| Driver | Export | Import | `--preserve=times,links` | `--preserve=xattrs` |
+|---|---|---|---|---|
+| ext4 | ext4#524: file in ext4#547; tree ext4#546 | ext4#525: file in ext4#554; tree ext4#550 | ext4#526 | ext4#527 |
+| ntfs | ntfs#668: file in ntfs#834; tree ntfs#833 | ntfs#669: file in ntfs#844; tree ntfs#843 | ntfs#670 | ntfs#671 (with named streams) |
+| xfs | xfs#529, not started | xfs#530, blocked on a positioned write that grows a file | xfs#531 | xfs#532 |
+| btrfs | btrfs#430: file in btrfs#542; tree btrfs#541 | btrfs#431, blocked on a positioned write | btrfs#435 | btrfs#440 |
+| erofs | erofs#214: file in erofs#226; tree erofs#225 | erofs#215: refused, erofs#228 | export only, with the tree | erofs#216 |
+| squashfs | squashfs#181: file in squashfs#196; tree squashfs#195 | squashfs#182: refused, squashfs#202 | export only, with the tree | squashfs#183 |
+| bcachefs | bcachefs#282: file in bcachefs#344; tree bcachefs#342 | bcachefs#283, blocked on a positioned write and the shared verb names (bcachefs#252) | bcachefs#284 | bcachefs#285, needs an xattr listing |
+
+Where the drivers differ:
+
+- **Read-only formats refuse import with exit 3** before opening the image
+  or the source, or reading stdin, with their existing messages: erofs
+  ("EROFS is read-only; build a new image with mkfs.erofs instead",
+  erofs#228) and squashfs ("SquashFS is read-only; rebuild the image with
+  mksquashfs instead", squashfs#202). `--replace` and `--offset` do not
+  change that.
+- **ext4 import** (ext4#554) needs an extent-capable volume with an
+  internal journal; any other volume refuses with exit 3 before stdin is
+  read. Each chunk goes through the driver's journaled commit.
+  Publication is a same-directory rename in which inserting the final
+  name, removing the staging name and reclaiming a replaced inode share
+  one journal transaction, so `--replace` is atomic. The staging file is
+  `.dj-import-<pid>-<n>.partial` beside PATH, visible through
+  `fs.ext4 ls`.
+- **ntfs import** (ntfs#844) keeps no journal of its own, so ordering makes
+  it safe: every data byte is synced before the rename, and the rename
+  rewrites only the staging file's name and its index entry. A crash
+  during the rename can leave the two disagreeing, which chkdsk repairs.
+  The driver's rename refuses an existing name, so an existing PATH is
+  refused and `--replace` exits 3 instead of deleting first. Staging is a
+  `.dj-import-*.partial` sibling, visible through `fs.ntfs ls`.
+- **Stdin import** in ext4 and ntfs is first spooled to a private host
+  temporary file, because the released copy needs a known source length.
+  Core's `FileSink` path consumes stdin directly, after the sink's
+  capabilities have been checked (in review, core#284).
+- **ntfs export** refuses compressed and encrypted streams and reparse
+  points, because its compressed reader buffers the whole stream.
+- **erofs and squashfs export** turn off their decompressed-data caches for
+  the sequential copy.
+- **btrfs and bcachefs export** resolve a path to its own subvolume or
+  snapshot before reading, so a path inside a snapshot reads the
+  snapshot.
+- **xfs** has no transfer verb yet.
+
+---
+
 ## Disk images: `img.<fmt>`
 
 The container formats (qcow2, vhd, vhdx, vmdk) **join the interface
