@@ -57,6 +57,7 @@ final class FSKitMountService {
     static let shared = FSKitMountService()
 
     private let logger = Logger(subsystem: "com.antimatterstudios.diskjockey", category: "FSKitMount")
+    private let imageEject = ImageEjectSequence()
 
     enum FSKitError: LocalizedError {
         case processFailed(exitCode: Int32, stderr: String)
@@ -141,6 +142,8 @@ final class FSKitMountService {
             _ = try? await Self.runHdiutilDetach(hdiResult.parentDevice)
             throw lastError ?? FSKitError.processFailed(exitCode: -1, stderr: "All DA mounts failed")
         }
+        imageEject.register(attachment: .hdiutil(hdiResult.parentDevice),
+                            devices: mounted.map(\.device), mountPaths: mounted.compactMap(\.mountPoint))
         return mounted
     }
 
@@ -215,12 +218,14 @@ final class FSKitMountService {
         // qcow2 and VHDX attach through the agent's owned DriverKit media
         // and mount read-only (diskjockey#479).
         let steps: ImageMountSteps<ImageAttachment, MountedVolume>
+        var ejectAttachment: ImageEjectAttachment?
         if hdiutilCompatible {
             steps = ImageMountSteps(
                 attach: {
                     // The fd-inheritance path avoids the sandbox block that
                     // prevents hdiutil from opening security-scoped URLs.
                     let hdiResult = try await Self.runHdiutilAttach(at: source, imageURL: imageURL)
+                    ejectAttachment = .hdiutil(hdiResult.parentDevice)
                     self.logger.info("hdiutil attach \(source, privacy: .public) -> \(hdiResult.parentDevice, privacy: .public) (\(hdiResult.slices.count, privacy: .public) slices)")
                     return .hdiutil(hdiResult)
                 },
@@ -246,6 +251,7 @@ final class FSKitMountService {
             steps = ImageMountSteps(
                 attach: {
                     let owned = try await DriverKitImageAttachment.attach(imageURL: imageURL)
+                    ejectAttachment = .driverKit(owned.attachmentID)
                     self.logger.info("DriverKit attach \(source, privacy: .public) -> \(owned.device, privacy: .public) (attachment \(owned.attachmentID, privacy: .public))")
                     return .driverKit(owned)
                 },
@@ -261,9 +267,14 @@ final class FSKitMountService {
                     }
                 })
         }
-        return try await ImageMountSequence.run(route: route,
-                                                partitions: c.supported.map(\.part.index),
-                                                steps: steps)
+        let mounted = try await ImageMountSequence.run(route: route,
+                                                       partitions: c.supported.map(\.part.index),
+                                                       steps: steps)
+        if let ejectAttachment, !mounted.isEmpty {
+            imageEject.register(attachment: ejectAttachment, devices: mounted.map(\.device),
+                                mountPaths: mounted.compactMap(\.mountPoint))
+        }
+        return mounted
     }
 
     /// What `attachAllPartitions` attached, so cleanup detaches the same thing.
@@ -439,6 +450,22 @@ final class FSKitMountService {
 
     // MARK: - Detach
 
+    /// Both UI eject entry points use the attachment retained at mount time.
+    /// The agent's owned detach unmounts all volumes before removing media;
+    /// no DriverKit or privileged unmount operation runs in the sandbox.
+    func ejectImage(mountPath: String, device: String? = nil) async throws -> Bool {
+        var bsd = device
+        if bsd == nil, let session = DASessionCreate(kCFAllocatorDefault),
+           let disk = DADiskCreateFromVolumePath(kCFAllocatorDefault, session,
+                                                URL(fileURLWithPath: mountPath) as CFURL),
+           let name = DADiskGetBSDName(disk) {
+            bsd = String(cString: name)
+        }
+        return try await imageEject.eject(mountPath: mountPath, device: bsd,
+            detachDriverKit: { try await DJAgentClient.shared.detachDriverKitImage($0) },
+            detachHdiutil: { try await Self.runHdiutilDetach($0) })
+    }
+
     /// Unmount a volume under /Volumes via NSWorkspace. NSWorkspace routes
     /// through diskarbitrationd which handles the privileged umount(2) call
     /// — no root required in the sandboxed app.
@@ -446,6 +473,7 @@ final class FSKitMountService {
         try Self.validateMountName(name)
         let url = URL(fileURLWithPath: "/Volumes/\(name)")
         logger.info("detach \(url.path, privacy: .public)")
+        if try await ejectImage(mountPath: url.path) { return }
         try NSWorkspace.shared.unmountAndEjectDevice(at: url)
     }
 

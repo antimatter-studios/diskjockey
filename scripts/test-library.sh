@@ -48,6 +48,8 @@
 # counted from the source: swift-testing counts a parameterized test once.
 # then 681 + 8 = 689 with the image attachment route tests (#478).
 # then 689 + 7 = 696 with the image mount sequence tests (#479).
+# then 696 + 9 = 705 with the image eject sequence tests (#480), counted
+# from the source; execution remains in CI.
 # The floor moves up with the suite; it never moves down.
 #
 #   scripts/test-library.sh [--verbose]
@@ -74,9 +76,9 @@ log="${QUIET_LOG_DIR:-$ROOT/tmp/logs}/library.log"
 xct=$(grep -aoE 'Executed [0-9]+ tests' "$log" 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
 swt=$(grep -aoE 'Test run with [0-9]+ tests' "$log" 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
 total=$(( ${xct:-0} + ${swt:-0} ))
-echo "library cases executed: $total = ${xct:-0} XCTest + ${swt:-0} swift-testing (floor 696)"
-if [ "$total" -lt 696 ]; then
-    echo "::error::only $total library cases executed, floor is 696 — 668 ran on 2026-10-12 before the 13 system extension activation cases (#473), the 8 image attachment route cases (#478) and the 7 image mount sequence cases (#479), and a run that executes less than that has stopped early rather than passed (diskjockey#139)"
+echo "library cases executed: $total = ${xct:-0} XCTest + ${swt:-0} swift-testing (floor 705)"
+if [ "$total" -lt 705 ]; then
+    echo "::error::only $total library cases executed, floor is 705 — 668 ran on 2026-10-12 before the 13 system extension activation cases (#473), the 8 image attachment route cases (#478), the 7 image mount sequence cases (#479) and the 9 image eject sequence cases (#480), and a run that executes less than that has stopped early rather than passed (diskjockey#139)"
     exit 1
 fi
 exit "$rc"
