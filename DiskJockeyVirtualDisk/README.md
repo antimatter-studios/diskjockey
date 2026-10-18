@@ -66,3 +66,29 @@ completion results and system log with the evidence. Without the profile or
 harness, runtime validation is **blocked by provisioning prerequisites**, not
 passed or skipped. The shell project guard checks packaging and source
 membership only; it cannot certify runtime registration or shutdown.
+
+## Reader boundary
+
+#418 measured whether the qcow2 reader can run inside the dext rather than
+assuming it. `scripts/driverkit-reader-probe.sh` builds the rust-img-qcow2
+release the bundles lock, with Rust's std, for the DriverKit platform: a
+nightly `-Zbuild-std` build against an `arm64-apple-driverkit` LLVM target, so
+the objects carry the DRIVERKIT platform rather than a retagged macOS one.
+It then links them the way a dext is linked, against DriverKit.framework and
+libc++ from the installed DriverKit SDK, with Apple's linker as the judge.
+
+Measured on 2026-10-18 with the DriverKit 25.2 SDK, nightly 1.97.0 and
+rust-img-qcow2 0.6.1: the link is refused with 175 unresolved symbols. They
+include `malloc`, `free`, `open`, `pread`, `close`, `mmap`, `pthread_create`,
+`pthread_mutex_lock`, `__tlv_bootstrap`, `__error` and
+`CCRandomGenerateBytes`. DriverKit's libSystem names only Apple's own
+libraries as allowable clients, and DriverKit.framework does not export these
+symbols, so a third-party dext has no POSIX file, thread or TLS API to offer
+the reader and cannot open the backing image at all. Defining them in the
+dext is exactly the prototype's stub approach, and it stays out.
+
+The verified boundary is therefore the **agent-to-dext read transport**: the
+reader stays in `DiskJockeyAgent`, which already holds the caller's
+authorization to the backing file, and the dext forwards bounded block reads
+to it (#421). Re-run the probe after a DriverKit SDK or Rust release; if it
+ever exits 0, record the new answer here.
