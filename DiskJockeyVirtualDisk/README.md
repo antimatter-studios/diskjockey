@@ -116,3 +116,32 @@ This adapter is not yet linked into the agent target and publishes no media.
 failed attachments and detach during pending reads. Keep the reader out of
 the dext. The agent must retain `AgentAuthority`'s caller-readable file proof,
 add a selected partition offset exactly once, and serialize close with reads.
+
+## Bounded read wire contract
+
+`DJVirtualDiskReadShared.h` defines the version-1 request (40 bytes) and reply
+header (24 bytes) for #428, the first slice of #421. These are native-endian,
+same-machine C11/C++17 layouts with no pointers or file paths. The payload is
+separate from the reply header. A request carries nonzero device/read IDs,
+decoded image offset, byte count and an absolute monotonic deadline in
+nanoseconds. Read IDs must never be reused, including across reconnections.
+
+Construct requests from validated mount geometry and the original block
+read's media-relative offset/count. The constructor adds the partition offset
+once, rejects overflow or misalignment, caps reads at 1 MiB (matching the
+host adapter), and accepts deadlines at most 30 seconds ahead. It leaves the
+output unchanged on failure. Both peers must use the same monotonic clock
+and convert its ticks to nanoseconds before calling these helpers.
+
+Copy incoming headers into aligned local storage only after checking buffer
+sizes. A successful reply must match the retained request ID, protocol
+version, successful status and exact byte count, with an unexpired deadline.
+Short, oversized, malformed, failed or expired replies cannot authorize any
+payload copy. `scripts/tests/driverkit-read-contract.sh` checks numeric field
+offsets and sizes plus request/reply boundary cases as C11 and C++17.
+
+This contract does not dispatch requests, run timers or publish block media.
+#429 owns bounded pending slots, once-only completion, timeouts without a
+reply and disconnect handling; #430 wires that lifecycle through the real
+user client and authorized agent reader. #419 and #425 retain block-node
+oracle validation for qcow2 and VHDX respectively.
