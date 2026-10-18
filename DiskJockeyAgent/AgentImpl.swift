@@ -12,6 +12,27 @@ final class AgentImpl: NSObject, DJAgentProtocol {
         self.owner = owner
     }
 
+    func attachDriverKitImage(atPath path: String, proof: FileHandle,
+                              offset: UInt64, length: UInt64, blockSize: UInt32,
+                              reply: @escaping (UInt64, String?, String?) -> Void) {
+        DispatchQueue.main.async { [owner] in
+            defer { try? proof.close() }
+            guard !path.utf8.contains(0) else {
+                reply(0, nil, "image path contains a NUL"); return
+            }
+            path.withCString {
+                DJAgentOwnedImageAttach(owner, $0, proof.fileDescriptor, offset, length, blockSize, reply)
+            }
+        }
+    }
+
+    func detachDriverKitImage(_ attachmentID: UInt64,
+                              reply: @escaping (Bool, String?) -> Void) {
+        DispatchQueue.main.async { [owner] in
+            DJAgentOwnedImageDetach(owner, attachmentID, reply)
+        }
+    }
+
     /// Attach only an image the caller has shown it can read: `proof` is
     /// that image, opened by the caller inside its own sandbox and sent
     /// over XPC (diskjockey#94). What the attach produced is recorded, so

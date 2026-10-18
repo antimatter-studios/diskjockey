@@ -68,6 +68,14 @@ DJAgentReadEndpoint *DJAgentReadEndpointOpen(io_service_t service,
     if (e && !e->loop.start(*mount, proof, deviceID)) { DJAgentReadEndpointClose(e); return nullptr; }
     return e;
 }
+int32_t DJAgentReadEndpointCall(DJAgentReadEndpoint *e, uint64_t selector,
+    const uint64_t *input, uint32_t inputCount, const void *structure, size_t structureSize,
+    uint64_t *output, uint32_t *outputCount) {
+    assert(pthread_main_np());
+    if (!e || !e->connection) return kIOReturnNotOpen;
+    return IOConnectCallMethod(e->connection, uint32_t(selector), input, inputCount,
+        structure, structureSize, output, outputCount, nullptr, nullptr);
+}
 void DJAgentReadEndpointClose(DJAgentReadEndpoint *e) {
     if (!e) return;
     assert(pthread_main_np());
