@@ -171,3 +171,19 @@ job, compiles and links every lifecycle path against Apple's installed
 DriverKit SDK with linker warnings fatal and no POSIX or Rust replacements.
 This is injected lifecycle scaffolding: #430 still owns the real user-client
 endpoint and DriverKit timer hook. No media or shipping mount route is enabled.
+
+## Agent read server
+
+`DiskJockeyAgent/DJAgentReadServer.h` is the agent's half of one round trip
+(#433). It copies an untrusted request header only after checking its length,
+validates it against the mount geometry the agent authorized, and reads the
+image at the request's `imageOffset` as given: the partition offset was added
+once, in `DJReadRequestCreate`, and is never added again. A success reply
+carries exactly the requested bytes; any reader failure or a too-small buffer
+becomes `kDJReadReplyIOError` with no payload, and partial bytes are scrubbed.
+A malformed, expired or out-of-geometry request produces no reply and never
+reaches the reader. The reader is borrowed and already authorized by
+`AgentAuthority`; the qcow2 and VHDX decoders stay in the agent and are never
+linked into the dext. `scripts/tests/agent-read-server.sh` drives it with a
+fake reader as C11 and C++17. The user client, agent connection and
+provisioned round trip follow in #434–#437.
