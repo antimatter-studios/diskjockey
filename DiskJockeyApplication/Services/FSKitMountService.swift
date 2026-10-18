@@ -202,52 +202,113 @@ final class FSKitMountService {
         }
         if c.supported.isEmpty { return [] }
 
-        if hdiutilCompatible {
-            // Attach image as block devices, then mount each slice via DA —
-            // no root required. The fd-inheritance path avoids the sandbox
-            // block that prevents hdiutil from opening security-scoped URLs.
-            let hdiResult = try await Self.runHdiutilAttach(at: source, imageURL: imageURL)
-            logger.info("hdiutil attach \(source, privacy: .public) -> \(hdiResult.parentDevice, privacy: .public) (\(hdiResult.slices.count, privacy: .public) slices)")
-
-            var sliceByIndex: [Int: String] = [:]
-            for slice in hdiResult.slices {
-                if let n = Self.sliceNumber(of: slice) { sliceByIndex[n - 1] = slice }
-            }
-
-            guard let session = DASessionCreate(kCFAllocatorDefault) else {
-                _ = try? await Self.runHdiutilDetach(hdiResult.parentDevice)
-                throw FSKitError.processFailed(exitCode: -1, stderr: "Failed to create DA session")
-            }
-            DASessionSetDispatchQueue(session, .global(qos: .userInitiated))
-
-            var mounted: [MountedVolume] = []
-            for (part, _) in c.supported {
-                guard let slice = sliceByIndex[part.index] else {
-                    logger.error("no hdiutil slice for partition \(part.index) (\(part.fsKind, privacy: .public))")
-                    continue
-                }
-                do {
-                    let volume = try await Self.mountSliceWithDA(slice, session: session)
-                    logger.info("DA mounted \(slice, privacy: .public) -> \(volume.described, privacy: .public)")
-                    mounted.append(volume)
-                } catch {
-                    logger.error("DA mount \(slice, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
-                }
-            }
-
-            if mounted.isEmpty {
-                _ = try? await Self.runHdiutilDetach(hdiResult.parentDevice)
-                logger.info("attachAllPartitions \(source, privacy: .public): all DA mounts failed")
-            }
-            return mounted
+        guard route != .unsupported else {
+            throw FSKitError.processFailed(exitCode: -1,
+                stderr: "\(container.uppercased()): no attachment route for this container.")
         }
+        guard let session = DASessionCreate(kCFAllocatorDefault) else {
+            throw FSKitError.processFailed(exitCode: -1, stderr: "Failed to create DA session")
+        }
+        DASessionSetDispatchQueue(session, .global(qos: .userInitiated))
 
-        // qcow2 and VHDX take the DriverKit route, which the app does not
-        // attach through yet (diskjockey#479); anything else has no route.
-        // The UI prevents users from reaching this path (DiskImageInspectorView
-        // shows "coming in a future update").
-        throw FSKitError.processFailed(exitCode: -1,
-            stderr: "\(container.uppercased()): mounting requires a future update.")
+        // hdiutil attaches raw, VHD and VMDK images and mounts read-write;
+        // qcow2 and VHDX attach through the agent's owned DriverKit media
+        // and mount read-only (diskjockey#479).
+        let steps: ImageMountSteps<ImageAttachment, MountedVolume>
+        if hdiutilCompatible {
+            steps = ImageMountSteps(
+                attach: {
+                    // The fd-inheritance path avoids the sandbox block that
+                    // prevents hdiutil from opening security-scoped URLs.
+                    let hdiResult = try await Self.runHdiutilAttach(at: source, imageURL: imageURL)
+                    self.logger.info("hdiutil attach \(source, privacy: .public) -> \(hdiResult.parentDevice, privacy: .public) (\(hdiResult.slices.count, privacy: .public) slices)")
+                    return .hdiutil(hdiResult)
+                },
+                waitForPartitions: { attachment, _ in
+                    guard case .hdiutil(let hdiResult) = attachment else { return [:] }
+                    var sliceByIndex: [Int: String] = [:]
+                    for slice in hdiResult.slices {
+                        if let n = Self.sliceNumber(of: slice) { sliceByIndex[n - 1] = slice }
+                    }
+                    return sliceByIndex
+                },
+                mount: { try await self.mountLogged($0, readOnly: $1, session: session) },
+                detach: { attachment in
+                    guard case .hdiutil(let hdiResult) = attachment else { return }
+                    self.logger.info("attachAllPartitions \(source, privacy: .public): all DA mounts failed")
+                    _ = try? await Self.runHdiutilDetach(hdiResult.parentDevice)
+                })
+        } else {
+            guard let imageURL else {
+                throw FSKitError.processFailed(exitCode: -1,
+                    stderr: "\(container.uppercased()): the DriverKit route needs the image's URL.")
+            }
+            steps = ImageMountSteps(
+                attach: {
+                    let owned = try await DriverKitImageAttachment.attach(imageURL: imageURL)
+                    self.logger.info("DriverKit attach \(source, privacy: .public) -> \(owned.device, privacy: .public) (attachment \(owned.attachmentID, privacy: .public))")
+                    return .driverKit(owned)
+                },
+                waitForPartitions: { attachment, indices in
+                    guard case .driverKit(let owned) = attachment else { return [:] }
+                    return try await Self.waitForSlices(of: owned.device, indices: indices, session: session)
+                },
+                mount: { try await self.mountLogged($0, readOnly: $1, session: session) },
+                detach: { attachment in
+                    guard case .driverKit(let owned) = attachment else { return }
+                    do { try await owned.detach() } catch {
+                        self.logger.error("DriverKit detach \(owned.attachmentID, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+                    }
+                })
+        }
+        return try await ImageMountSequence.run(route: route,
+                                                partitions: c.supported.map(\.part.index),
+                                                steps: steps)
+    }
+
+    /// What `attachAllPartitions` attached, so cleanup detaches the same thing.
+    enum ImageAttachment {
+        case hdiutil(HdiutilAttachResult)
+        case driverKit(DriverKitImageAttachment)
+    }
+
+    private func mountLogged(_ device: String, readOnly: Bool,
+                                    session: DASession) async throws -> MountedVolume {
+        do {
+            let volume = try await Self.mountSliceWithDA(device, session: session, readOnly: readOnly)
+            logger.info("DA mounted \(device, privacy: .public) -> \(volume.described, privacy: .public)")
+            return volume
+        } catch {
+            logger.error("DA mount \(device, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            throw error
+        }
+    }
+
+    /// How long the DriverKit route waits for its media's partitions to
+    /// reach Disk Arbitration before detaching.
+    static let driverKitMediaTimeout: Duration = .seconds(15)
+
+    /// Wait until DA describes each selected partition of a DriverKit
+    /// attachment (`<whole>s<index + 1>`), or throw at the timeout.
+    private static func waitForSlices(of whole: String, indices: [Int],
+                                      session: DASession) async throws -> [Int: String] {
+        let base = whole.hasPrefix("/dev/") ? String(whole.dropFirst(5)) : whole
+        let wanted = Dictionary(uniqueKeysWithValues: indices.map { ($0, "/dev/\(base)s\($0 + 1)") })
+        let clock = ContinuousClock()
+        let deadline = clock.now + driverKitMediaTimeout
+        while true {
+            let ready = wanted.values.allSatisfy { device in
+                guard let disk = DADiskCreateFromBSDName(kCFAllocatorDefault, session,
+                                                         String(device.dropFirst(5))) else { return false }
+                return DADiskCopyDescription(disk) != nil
+            }
+            if ready { return wanted }
+            guard clock.now < deadline else {
+                throw FSKitError.processFailed(exitCode: -1,
+                    stderr: "DriverKit media \(base) did not present its partitions within \(driverKitMediaTimeout)")
+            }
+            try await Task.sleep(for: .milliseconds(250))
+        }
     }
 
     /// hdiutil-attach result. The parent is the whole-disk node, slices
@@ -291,7 +352,8 @@ final class FSKitMountService {
     ///
     /// Returns the mount point DA's description reports once the mount has
     /// completed: DA chose it, so DA is the only authority on where it is.
-    private static func mountSliceWithDA(_ bsdName: String, session: DASession) async throws -> MountedVolume {
+    private static func mountSliceWithDA(_ bsdName: String, session: DASession,
+                                         readOnly: Bool = false) async throws -> MountedVolume {
         let devName = bsdName.hasPrefix("/dev/") ? String(bsdName.dropFirst(5)) : bsdName
         guard let disk = DADiskCreateFromBSDName(kCFAllocatorDefault, session, devName) else {
             throw FSKitError.processFailed(exitCode: -1, stderr: "DA: no disk object for \(bsdName)")
@@ -312,11 +374,11 @@ final class FSKitMountService {
                     b.resume(nil)
                 }
             }
-            // Request a read-write mount explicitly. Without this, diskarbitrationd
+            // Request the access explicitly. Without "rw", diskarbitrationd
             // treats disk images and removable media as read-only by default, which
             // causes FSBlockDeviceResource.isWritable to return false and the FSKit
-            // extension to see a read-only resource.
-            var args: [Unmanaged<CFString>?] = [Unmanaged.passRetained("rw" as CFString), nil]
+            // extension to see a read-only resource. DriverKit images ask for "rdonly".
+            var args: [Unmanaged<CFString>?] = [Unmanaged.passRetained((readOnly ? "rdonly" : "rw") as CFString), nil]
             DADiskMountWithArguments(disk, nil, DADiskMountOptions(kDADiskMountOptionDefault), cb, ptr, &args)
             args[0]?.release()
         }
