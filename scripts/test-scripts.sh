@@ -40,6 +40,7 @@
 # The DriverKit mount-contract guard (#392) brings the tracked inventory to
 # 50 files on 2026-10-18, floor 50; execution is verified by CI.
 # The CLI exit-status contract guard (#411) brings it to 51 files, floor 51.
+# The DriverKit service target guard (#393) raises the inventory to 52 files.
 # It moves up with the suite; it never moves down.
 #
 # `rc`, not `status`: `status` is READ-ONLY in zsh, so a loop written with it
@@ -50,7 +51,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
-FLOOR=51
+FLOOR=52
 
 # The raw loop, whose whole output is the tier's log. Failure lines carry a
 # TIER-FAIL prefix so the quiet verdict below can name them without a tail.

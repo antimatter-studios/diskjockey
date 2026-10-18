@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key><string>com.antimatterstudios.diskjockey.virtualdisk</string>
+    <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+    <key>CFBundleName</key><string>DiskJockeyVirtualDisk</string>
+    <key>CFBundlePackageType</key><string>DEXT</string>
+    <key>CFBundleShortVersionString</key><string>1.0</string>
+    <key>CFBundleVersion</key><string>1</string>
+    <key>OSBundleUsageDescription</key>
+    <string>DiskJockey virtual disk service scaffold for future read-only image mounting.</string>
+    <key>IOKitPersonalities</key>
+    <dict>
+        <key>DJVirtualDiskManager</key>
+        <dict>
+            <key>IOProviderClass</key><string>IOUserResources</string>
+            <key>IOResourceMatch</key><string>IOKit</string>
+            <key>IOClass</key><string>IOUserService</string>
+            <key>IOUserClass</key><string>DJVirtualDiskService</string>
+            <key>IOUserServerName</key><string>com.antimatterstudios.diskjockey.virtualdisk</string>
+            <key>IOMatchCategory</key><string>com.antimatterstudios.diskjockey.virtualdisk</string>
+        </dict>
+    </dict>
+</dict>
+</plist>

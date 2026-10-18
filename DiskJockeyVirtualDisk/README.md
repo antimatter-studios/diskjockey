@@ -1,4 +1,4 @@
-# Shared virtual-disk mount contract
+# Virtual-disk service scaffold and mount contract
 
 This directory starts the recovery of `feat/driverkit-virtual-disk` for #385.
 `DJVirtualDiskShared.h` preserves the prototype's selectors and request/list
@@ -19,8 +19,12 @@ call this validator before creating a child. The backend must apply
 protection and reject writes. The existing caller-readable file proof must
 remain part of image authorization.
 
-No DriverKit target, reader backend or mounting route is enabled by this
-slice. Those follow in #393–#399. The recovered prototype's raw-file I/O and
+The service scaffold (#393) restores `DJVirtualDiskService` and a separate
+DriverKit target. Start calls the superclass and registers the service; a
+registration failure unwinds the superclass start. Stop delegates to the
+superclass. The app embeds the dext at `Contents/Library/SystemExtensions`.
+No media, user client, reader backend or mounting route is enabled. Those
+follow in #394–#399. The recovered prototype's raw-file I/O and
 `DKRustStubs.c` are not restored. See
 [`docs/driverkit-qcow2-architecture.md`](../docs/driverkit-qcow2-architecture.md)
 for the earlier design and #385 for the ordered implementation checklist.
@@ -29,3 +33,36 @@ CI runs `scripts/tests/driverkit-mount-contract.sh` in the shell tier. It
 builds and runs the ABI and boundary cases as both C11 and C++17. Compile-only
 validation against the installed DriverKit SDK is also possible without
 activating or signing a dext.
+
+## Build and activation prerequisites
+
+Build the service without vendored libraries or a signing identity:
+
+```sh
+xcodebuild -project DiskJockey.xcodeproj -target DiskJockeyVirtualDisk \
+  -configuration Debug CODE_SIGNING_ALLOWED=NO build
+```
+
+This compiles the `.iig` with the installed DriverKit SDK and links only
+DriverKit. No macOS Rust archive, replacement Rust symbol or Mach-O platform
+rewrite is involved. The existing app build still needs `make vendor-all`.
+
+An unsigned build does not prove activation. Apple must grant the
+[DriverKit entitlement](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.driverkit)
+for `com.antimatterstudios.diskjockey.virtualdisk`; sign the dext with a
+provisioning profile carrying that capability. An activation host also needs
+a signed containing application with the System Extension installation
+capability, an activation harness using `OSSystemExtensionRequest`, and user
+approval. This slice adds no activation UI or installation entitlement to the
+shipping app. A future block-device slice must separately obtain and provision
+the storage-family capability; this IOService-only scaffold does not use it.
+
+On that provisioned host, activate the embedded bundle and inspect
+`ioreg -l -w0 -c IOUserService` for an entry whose `IOUserClass` is
+`DJVirtualDiskService` and whose `IOUserServerName` is the dext bundle ID. Then
+deactivate it through the same harness and verify that entry disappears.
+Also confirm no new `/dev/diskN` appears. Retain the activation/deactivation
+completion results and system log with the evidence. Without the profile or
+harness, runtime validation is **blocked by provisioning prerequisites**, not
+passed or skipped. The shell project guard checks packaging and source
+membership only; it cannot certify runtime registration or shutdown.
