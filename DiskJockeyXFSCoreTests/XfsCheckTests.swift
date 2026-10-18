@@ -12,6 +12,7 @@ private final class CheckDriver: XfsMountedVolumeDriver, XfsCheckingDriver {
     var errno: Int32 = ENOENT
     var message: String?
     var checks = 0
+    var unmounts = 0
 
     var isWritable = false
     func volumeInfo() -> ReadOnlyVolumeInfo? { nil }
@@ -39,7 +40,7 @@ private final class CheckDriver: XfsMountedVolumeDriver, XfsCheckingDriver {
     func removeXattr(_ path: VolumePath, name: [UInt8]) -> Int32 { -1 }
     func lastErrno() -> Int32 { errno }
     func lastErrorMessage() -> String? { message }
-    func unmount() {}
+    func unmount() { unmounts += 1 }
 
     func check(onFinding: @escaping (XfsCheckFinding) -> Void) -> XfsCheckReport? {
         checks += 1
@@ -66,15 +67,16 @@ private func run(_ driver: CheckDriver) -> (Result<XfsCheckReport, NSError>, [Xf
 @Suite("XFS check task")
 struct XfsCheckTests {
 
-    @Test func aRepairIsRefusedBeforeAnythingRuns() {
-        let refused = XfsCheck.refusal(for: .repair)
+    @Test func aRepairOnADeviceThatCannotBeWrittenIsRefusedBeforeAnythingRuns() {
+        let refused = XfsCheck.refusal(for: .repair, deviceIsWritable: false)
         #expect(refused?.domain == NSPOSIXErrorDomain)
-        #expect(refused?.code == Int(ENOTSUP))
+        #expect(refused?.code == Int(EROFS))
+        #expect(XfsCheck.refusal(for: .repair, deviceIsWritable: true) == nil)
     }
 
     @Test(arguments: [FsckOperation.verify, .quickCheck])
     func aCheckThatWritesNothingMayRun(_ operation: FsckOperation) {
-        #expect(XfsCheck.refusal(for: operation) == nil)
+        #expect(XfsCheck.refusal(for: operation, deviceIsWritable: false) == nil)
     }
 
     @Test func aCleanVolumeCompletesClean() throws {
@@ -213,5 +215,233 @@ struct XfsVolumeCheckLockTests {
         lock.release()
         #expect(await code { _ = try await volume.lookupItem(named: FSFileName(string: "a"), inDirectory: root) }
             == .ENOENT)
+    }
+}
+
+/// A device whose repair answers what the test says.
+private final class RepairDevice: XfsRepairingDevice {
+    var report: XfsRepairReport?
+    var items: [XfsRepairItem] = []
+    var errno: Int32 = EIO
+    var message: String?
+    /// Items listed before the repair stopped, and whether it was asked to.
+    private(set) var listed = 0
+    private(set) var stopped = false
+    private(set) var ran = false
+
+    /// As fs_xfs_repair_with_fs_core_device: a nonzero answer from the
+    /// item callback stops the listing and cancels the apply, so nothing
+    /// is written and the call still returns its report.
+    func repair(onItem: @escaping (XfsRepairItem) -> Void,
+                shouldStop: @escaping () -> Bool) -> XfsRepairReport? {
+        ran = true
+        for item in items {
+            onItem(item)
+            listed += 1
+            if shouldStop() {
+                stopped = true
+                guard var cancelled = report else { return nil }
+                cancelled.written = 0
+                cancelled.clean = false
+                return cancelled
+            }
+        }
+        return report
+    }
+    func lastErrno() -> Int32 { errno }
+    func lastErrorMessage() -> String? { message }
+}
+
+private let change = XfsRepairItem(kind: "change", code: "sb.copy.field", rule: "superblock-copies",
+                                   offset: 1_073_741_824, length: 512,
+                                   what: "group 1's superblock copy rewritten from the primary")
+
+/// What an FSKit repair task on an XFS volume reports, from what the
+/// driver's repair did (diskjockey#324): clean only when the driver checks
+/// the volume clean after it.
+@Suite("XFS repair task")
+struct XfsRepairTests {
+
+    @Test func aRepairThatLeavesTheVolumeCleanCompletesWithWhatItWrote() throws {
+        let device = RepairDevice()
+        device.items = [change]
+        device.report = XfsRepairReport(ready: true, changes: 1, refusals: 0, unplanned: 0,
+                                        written: 1, clean: true)
+        var seen: [XfsRepairItem] = []
+        let report = try XfsCheck.runRepair(device, onItem: { seen.append($0) }).get()
+        #expect(seen == [change])
+        #expect(seen[0].logLine.contains("offset=1073741824 length=512"))
+        let fields = XfsCheck.repairEventFields(report)
+        #expect(fields["repaired_count"] == "1")
+        #expect(fields["anomalies"] == "0")
+        #expect(fields["clean"] == "true")
+    }
+
+    @Test func aRefusedRepairFailsTheTaskHavingWrittenNothing() {
+        let device = RepairDevice()
+        device.items = [XfsRepairItem(kind: "refusal", code: "repair.ambiguous", rule: nil, offset: nil,
+                                      length: 0, what: "a block has two owners")]
+        device.report = XfsRepairReport(ready: false, changes: 0, refusals: 1, unplanned: 0,
+                                        written: 0, clean: false)
+        guard case .failure(let error) = XfsCheck.runRepair(device, onItem: { _ in }) else {
+            Issue.record("a refused repair completed")
+            return
+        }
+        #expect(error.code == Int(EIO))
+        #expect(error.localizedDescription.contains("refused"))
+    }
+
+    @Test func aRepairThatLeavesDamageFailsTheTask() {
+        let device = RepairDevice()
+        device.report = XfsRepairReport(ready: true, changes: 1, refusals: 0, unplanned: 2,
+                                        written: 1, clean: false)
+        guard case .failure(let error) = XfsCheck.runRepair(device, onItem: { _ in }) else {
+            Issue.record("a repair that left damage completed")
+            return
+        }
+        #expect(error.localizedDescription.contains("2 errors it does not repair remain"))
+    }
+
+    @Test func aRepairThatCouldNotRunFailsWithTheDriversErrno() {
+        let device = RepairDevice()
+        device.errno = EROFS
+        device.message = "the device cannot be written"
+        guard case .failure(let error) = XfsCheck.runRepair(device, onItem: { _ in }) else {
+            Issue.record("a repair that could not run completed")
+            return
+        }
+        #expect(error.code == Int(EROFS))
+        #expect(error.localizedDescription.contains("the device cannot be written"))
+    }
+
+    @Test func aRepairCancelledBeforeItStartsNeverReachesTheDriver() {
+        let device = RepairDevice()
+        device.items = [change]
+        device.report = XfsRepairReport(ready: true, changes: 1, refusals: 0, unplanned: 0,
+                                        written: 1, clean: true)
+        guard case .failure(let error) = XfsCheck.runRepair(device, isCancelled: { true }, onItem: { _ in }) else {
+            Issue.record("a cancelled repair completed")
+            return
+        }
+        #expect(error.code == Int(ECANCELED))
+        #expect(error.localizedDescription.contains("nothing was written"))
+        #expect(device.ran == false)
+    }
+
+    /// A cancel that arrives while the driver lists its plan stops it at
+    /// the next item, before anything is written, and fails the task.
+    @Test func aRepairCancelledWhileListingStopsTheDriverBeforeItWrites() {
+        let device = RepairDevice()
+        device.items = [change, change]
+        device.report = XfsRepairReport(ready: true, changes: 2, refusals: 0, unplanned: 0,
+                                        written: 2, clean: true)
+        var cancelled = false
+        var seen = 0
+        let result = XfsCheck.runRepair(device, isCancelled: { cancelled }, onItem: { _ in
+            seen += 1
+            cancelled = true
+        })
+        guard case .failure(let error) = result else {
+            Issue.record("a repair cancelled while listing completed")
+            return
+        }
+        #expect(error.code == Int(ECANCELED))
+        #expect(error.localizedDescription.contains("0 of 2 changes were written"))
+        #expect(device.stopped)
+        #expect(device.listed == 1)
+        #expect(seen == 1)
+    }
+
+    @Test func aRepairNotCancelledListsEveryItemAndIsNotStopped() throws {
+        let device = RepairDevice()
+        device.items = [change, change]
+        device.report = XfsRepairReport(ready: true, changes: 2, refusals: 0, unplanned: 0,
+                                        written: 2, clean: true)
+        let report = try XfsCheck.runRepair(device, isCancelled: { false }, onItem: { _ in }).get()
+        #expect(report.written == 2)
+        #expect(device.listed == 2)
+        #expect(device.stopped == false)
+    }
+
+    /// A cancelled repair still leaves the volume mounted again on the
+    /// new driver, and the task keeps the cancellation as its outcome.
+    @Test func aCancelledRepairStillRemountsTheVolumeAndReportsTheCancel() {
+        let old = CheckDriver()
+        let new = CheckDriver()
+        new.report = XfsCheckReport(findings: 0, errors: 0, suppressed: 0, inodes: 3, directories: 1,
+                                    freeBlocks: 9, complete: true, dirty: false, clean: true)
+        let volume = XfsVolume(volumeID: FSVolume.Identifier(), volumeName: FSFileName(string: "repair"),
+                               driver: old, contextPtr: UnsafeMutableRawPointer(bitPattern: 0x1000)!,
+                               bsdName: "repair-test",
+                               stats: IOStatsCollector(label: "repair-test", emit: { _ in }))
+        let device = RepairDevice()
+        device.items = [change]
+        device.report = XfsRepairReport(ready: true, changes: 1, refusals: 0, unplanned: 0,
+                                        written: 1, clean: true)
+        var remounts = 0
+        let result = volume.repairDevice({ _ in
+            XfsCheck.runRepair(device, isCancelled: { true }, onItem: { _ in })
+        }, remount: { _, _ in
+            remounts += 1
+            return new
+        })
+        guard case .failure(let error) = result else {
+            Issue.record("a cancelled repair reported success")
+            return
+        }
+        #expect(error.code == Int(ECANCELED))
+        #expect(old.unmounts == 1)
+        #expect(remounts == 1)
+        #expect(volume.check(onFinding: { _ in })?.clean == true)
+        #expect(new.checks == 1)
+    }
+
+    /// The volume lets its driver go before the repair runs over the
+    /// device, mounts the device again after, and hands later operations
+    /// and checks the new driver.
+    @Test func aVolumeLetsItsDriverGoForTheRepairAndTakesTheRemountedOne() throws {
+        let old = CheckDriver()
+        let new = CheckDriver()
+        new.report = XfsCheckReport(findings: 0, errors: 0, suppressed: 0, inodes: 3, directories: 1,
+                                    freeBlocks: 9, complete: true, dirty: false, clean: true)
+        let device = UnsafeMutableRawPointer(bitPattern: 0x1000)!
+        let volume = XfsVolume(volumeID: FSVolume.Identifier(), volumeName: FSFileName(string: "repair"),
+                               driver: old, contextPtr: device, bsdName: "repair-test",
+                               stats: IOStatsCollector(label: "repair-test", emit: { _ in }))
+        var order: [String] = []
+        let result = volume.repairDevice({ ptr in
+            order.append("repair, old driver unmounted \(old.unmounts) time(s)")
+            #expect(ptr == device)
+            return .success(XfsRepairReport(ready: true, changes: 1, refusals: 0, unplanned: 0,
+                                            written: 1, clean: true))
+        }, remount: { ptr, writable in
+            order.append("remount")
+            #expect(ptr == device)
+            #expect(writable == false)
+            return new
+        })
+        #expect(try result.get().written == 1)
+        #expect(order == ["repair, old driver unmounted 1 time(s)", "remount"])
+        // The next check reaches the new driver through the volume.
+        let checked = volume.check(onFinding: { _ in })
+        #expect(checked?.clean == true)
+        #expect(new.checks == 1)
+        #expect(old.checks == 0)
+    }
+
+    @Test func aVolumeThatCannotBeMountedAgainFailsTheRepair() {
+        let volume = XfsVolume(volumeID: FSVolume.Identifier(), volumeName: FSFileName(string: "repair"),
+                               driver: CheckDriver(), contextPtr: UnsafeMutableRawPointer(bitPattern: 0x1000)!,
+                               bsdName: "repair-test",
+                               stats: IOStatsCollector(label: "repair-test", emit: { _ in }))
+        let result = volume.repairDevice({ _ in
+            .success(XfsRepairReport(ready: true, changes: 1, refusals: 0, unplanned: 0, written: 1, clean: true))
+        }, remount: { _, _ in nil })
+        guard case .failure(let error) = result else {
+            Issue.record("a volume left without a driver reported success")
+            return
+        }
+        #expect(error.localizedDescription.contains("could not be mounted again"))
+        #expect(volume.check(onFinding: { _ in }) == nil)
     }
 }

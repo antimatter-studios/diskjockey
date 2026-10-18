@@ -65,15 +65,15 @@ dependencies = [
 
 [[package]]
 name = "rust-fs-core"
-version = "0.3.11"
+version = "0.3.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b367b3bdf7ef90b9701edc9aa9cb9e67817e07c56a9ad88509367eebae74675"
+checksum = "2f1f036d73491e52424995be4598c47192bfc9d4bbd1baa690aef5a9694de1a5"
 
 [[package]]
 name = "rust-fs-xfs"
-version = "0.14.0"
+version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa46d558a6752df10a9ca5f649b52306adee58c4dd267b904f0581df2180c01a"
+checksum = "ecb06cb02c57e1e295f2d9dbf7cacf7557c78e0c453de3ffe7c89e4bcd9fd6c5"
 dependencies = [
  "crc32c",
  "rust-fs-core",

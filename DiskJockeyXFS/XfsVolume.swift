@@ -73,6 +73,51 @@ final class XfsVolume: FSVolume,
         }
     }
 
+    // MARK: - Repair
+
+    /// Whether the device under this volume can be written, which a repair
+    /// needs (#324).
+    var deviceIsWritable: Bool {
+        guard let contextPtr else { return false }
+        return Unmanaged<XfsBlockDeviceContext>.fromOpaque(contextPtr).takeUnretainedValue().isWritable
+    }
+
+    /// Repair the device under this volume (#324). The mounted driver is
+    /// let go first: a writable one unmounts cleanly, so what it logged is
+    /// home and the log ends with an unmount record, because the repair
+    /// plans from what is on the device and nothing may read or write it
+    /// meanwhile. `repair` runs over the device; `remount` then mounts it
+    /// again as this volume was mounted (writable or not), and the driver
+    /// it returns takes the old one's place, the item cache emptied with
+    /// it. The caller holds the `.repair` lock, under which every operation
+    /// here answers EBUSY.
+    func repairDevice(
+        _ repair: (UnsafeMutableRawPointer) -> Result<XfsRepairReport, NSError>,
+        remount: (UnsafeMutableRawPointer, Bool) -> ReadOnlyVolumeDriver?
+    ) -> Result<XfsRepairReport, NSError> {
+        guard let contextPtr else {
+            return .failure(NSError(domain: NSPOSIXErrorDomain, code: Int(EIO), userInfo: [
+                NSLocalizedDescriptionKey: "the XFS volume has no device to repair",
+            ]))
+        }
+        let writable = allowsWrites
+        driver?.unmount()
+        driver = nil
+        let result = repair(contextPtr)
+        guard let again = remount(contextPtr, writable) else {
+            let why = "the XFS volume could not be mounted again after the repair"
+            log.error(why, scope: AppLogScope.fsck)
+            return .failure(NSError(domain: NSPOSIXErrorDomain, code: Int(EIO), userInfo: [
+                NSLocalizedDescriptionKey: why,
+            ]))
+        }
+        driver = again
+        var cached: [UInt64] = []
+        items.forEach { cached.append($0.id) }
+        cached.forEach { items.remove(id: $0) }
+        return result
+    }
+
     // MARK: - Item cache
 
     func item(forInode inode: UInt64, path: VolumePath,
@@ -855,5 +900,25 @@ final class XfsVolume: FSVolume,
     static func attributes(from attr: ReadOnlyFileAttributes,
                            parentInode: UInt64?) -> FSItem.Attributes {
         ReadOnlyVolumeSupport.fsAttributes(from: attr, parentInode: parentInode)
+    }
+}
+
+/// A check task reaches the checker through the volume, so that a repair,
+/// which mounts the device again, hands the next check the new driver
+/// (#324).
+extension XfsVolume: XfsCheckingDriver {
+    func check(onFinding: @escaping (XfsCheckFinding) -> Void) -> XfsCheckReport? {
+        (driver as? XfsCheckingDriver)?.check(onFinding: onFinding)
+    }
+
+    func lastErrno() -> Int32 {
+        (driver as? XfsCheckingDriver)?.lastErrno() ?? EIO
+    }
+
+    func lastErrorMessage() -> String? {
+        guard let driver = driver as? XfsCheckingDriver else {
+            return "the XFS volume has no mounted driver"
+        }
+        return driver.lastErrorMessage()
     }
 }
