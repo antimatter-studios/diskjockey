@@ -39,6 +39,7 @@
 # glob to 50 files on 2026-10-18, floor 50.
 # The DriverKit mount-contract guard (#392) brings the tracked inventory to
 # 50 files on 2026-10-18, floor 50; execution is verified by CI.
+# The CLI exit-status contract guard (#411) brings it to 51 files, floor 51.
 # It moves up with the suite; it never moves down.
 #
 # `rc`, not `status`: `status` is READ-ONLY in zsh, so a loop written with it
@@ -49,7 +50,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
-FLOOR=50
+FLOOR=51
 
 # The raw loop, whose whole output is the tier's log. Failure lines carry a
 # TIER-FAIL prefix so the quiet verdict below can name them without a tail.
@@ -83,7 +84,7 @@ if [ "${1:-}" = "--run-all" ]; then
 fi
 
 rc=0
-scripts/quiet-run.sh "$@" scripts 810 42600 -- bash scripts/test-scripts.sh --run-all || rc=$?
+scripts/quiet-run.sh "$@" scripts 1030 53300 -- bash scripts/test-scripts.sh --run-all || rc=$?
 log="${QUIET_LOG_DIR:-$ROOT/tmp/logs}/scripts.log"
 grep -E '^ran [0-9]+ script test' "$log" 2>/dev/null | tail -1
 grep -E '^TIER-FAIL' "$log" 2>/dev/null | sed 's/^TIER-FAIL //' | head -40

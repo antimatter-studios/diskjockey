@@ -23,7 +23,7 @@ chore_min_version: 0.6.0
 # is about a quarter over the measurement, and each row says what it is:
 #
 #   tier      lines    bytes   measured (lines / bytes)     headroom   floor
-#   scripts     810    42600   649 / 34,084 (40 files)      25% / 25%  50 files
+#   scripts    1030    53300   819 / 42,583 (51 files)      25% / 25%  51 files
 #   library    3530   272200   2,779 / 214,287              27% / 27%  668 cases
 #   app        5200   950000   4,119 / 750,848 (raw)        26% / 27%  90 cases
 #   cli-pipe    270    16200   213 / 12,909 (Linux)         27% / 25%  25 macOS, 37 Linux
@@ -37,6 +37,11 @@ chore_min_version: 0.6.0
 # diagnostics; #403 will record the released-tool workflow measurement.
 # The DriverKit mount-contract guard (#392) raises the tracked script-file
 # inventory and floor from 49 to 50 on 2026-10-18; execution is left to CI.
+# The scripts row is measured again for #411: main's run 39094316044
+# (2026-10-18) printed 801 lines / 41,786 bytes for 49 files against the
+# 810 / 42,600 budget. With the DriverKit guard and the CLI exit-status guard
+# the tier is 51 files, floor 51, measured locally the same day at
+# 819 / 42,583, so the budget rises 25% over that.
 # The XFS writable-policy gate raises the library floor to 593 (#321),
 # measured locally 2026-10-07: 65 XCTest + 528 swift-testing, all passed.
 # The bcachefs volume raises the library floor to 663 (#342), measured
