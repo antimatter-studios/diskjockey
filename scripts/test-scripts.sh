@@ -44,6 +44,7 @@
 # The DriverKit reader-boundary guard (#418) raises it to 53 files.
 # The agent-side VHDX ABI guard (#424) raises it to 54 files.
 # The read wire contract guard (#428) raises it to 55 files.
+# The pending-read lifecycle guard (#429) raises it to 56 files.
 # It moves up with the suite; it never moves down.
 #
 # `rc`, not `status`: `status` is READ-ONLY in zsh, so a loop written with it
@@ -54,7 +55,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
-FLOOR=55
+FLOOR=56
 
 # The raw loop, whose whole output is the tier's log. Failure lines carry a
 # TIER-FAIL prefix so the quiet verdict below can name them without a tail.

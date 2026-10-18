@@ -141,7 +141,33 @@ payload copy. `scripts/tests/driverkit-read-contract.sh` checks numeric field
 offsets and sizes plus request/reply boundary cases as C11 and C++17.
 
 This contract does not dispatch requests, run timers or publish block media.
-#429 owns bounded pending slots, once-only completion, timeouts without a
+#429 supplies bounded pending slots, once-only completion, timeouts without a
 reply and disconnect handling; #430 wires that lifecycle through the real
 user client and authorized agent reader. #419 and #425 retain block-node
 oracle validation for qcow2 and VHDX respectively.
+
+## Pending read lifecycle
+
+`DJVirtualDiskPendingReads.h` implements #429 over injected endpoint, monotonic
+clock and one-shot timer hooks. The default is 16 pending reads; capacity is
+fixed at construction and excess submissions are rejected without taking a
+completion. Accepted reads complete once on an exact successful reply, an
+invalid matching reply, send failure, deadline, disconnect or timer failure.
+Only a complete successful payload reaches the completion; errors expose no
+payload. Slots are released before callbacks, including synchronous replies.
+
+The service must own one `DJReadIdentities` sequence shared by every device
+and connection for its entire lifetime. IDs never wrap or reset on reconnect;
+exhaustion rejects new reads. Unknown, duplicate and stale replies do nothing.
+All lifecycle calls and timer delivery must share one serial queue. The timer
+hook replaces an absolute monotonic deadline and must enqueue its callback
+without waiting for a reply. Failure to arm disconnects and fails all pending
+work. Cancel must drain callbacks before destruction. Completion contexts must
+outlive accepted reads; successful payloads are borrowed during the callback.
+
+The shell guard drives a fake endpoint and active fake monotonic timer.
+`scripts/build-driverkit-pending-reads.sh`, also run by the macOS Library tests
+job, compiles and links every lifecycle path against Apple's installed
+DriverKit SDK with linker warnings fatal and no POSIX or Rust replacements.
+This is injected lifecycle scaffolding: #430 still owns the real user-client
+endpoint and DriverKit timer hook. No media or shipping mount route is enabled.
