@@ -298,3 +298,23 @@ bridge's, so the endpoint closes and the service is released exactly once,
 only after removal. The shell guard drives the bridge over injected
 boundaries. #457 owns the IOKit ancestry search and the DiskArbitration
 callback; #458 backs publish, unmount and remove with #394's selectors.
+
+## Mount selectors
+
+`DiskJockeyVirtualDisk/DJVirtualDiskMountSelectors.h` (#460, part of #394) is
+the portable core of the user client's mount (0), unmount (1) and list (2)
+selectors. One table fixes each selector's scalar counts, structure sizes and
+least output capacity, checked before any byte is copied or any slot touched.
+Mount takes the non-zero attachment identity and one `DJMountRequest`, and
+returns the identity as the device ID. Its geometry comes from
+`DJMountRequestGetGeometry` against the decoded virtual size the injected read
+backend reports for that identity. With no backend, or one that does not serve
+the identity, mount fails explicitly and publishes nothing.
+
+At most `kDJMaxVirtualDisks` media are live. A slot is reserved before the
+publish hook runs and held until the remove hook succeeds, so a concurrent
+request can neither take it nor reuse its identity. A failed publication
+releases the slot; a failed removal keeps the child and its slot. The shell
+guard drives this core over a fake backend and publisher. #461 owns block I/O,
+#462 the `IOUserBlockStorageDevice` child and its `DJAttachmentIdentity`
+property, and #463 the provisioned-host round trip.
