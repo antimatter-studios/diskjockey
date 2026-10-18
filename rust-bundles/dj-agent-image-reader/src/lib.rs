@@ -3,6 +3,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 use fs_core::{BlockDevice, BlockRead};
+use img_qcow2::Qcow2Reader;
 use img_vhdx::VhdxReader;
 use std::fs::File;
 use std::os::fd::FromRawFd;
@@ -34,7 +35,26 @@ impl BlockRead for Backing {
 }
 impl BlockDevice for Backing {} // The default write operation refuses writes.
 
-pub struct DJAgentImageReader(VhdxReader);
+enum Image {
+    Vhdx(VhdxReader),
+    Qcow2(Qcow2Reader),
+}
+impl Image {
+    fn virtual_size(&self) -> u64 {
+        match self {
+            Image::Vhdx(reader) => reader.virtual_size(),
+            Image::Qcow2(reader) => reader.virtual_size(),
+        }
+    }
+    fn read_at(&self, offset: u64, buffer: &mut [u8]) -> bool {
+        match self {
+            Image::Vhdx(reader) => reader.read_at(offset, buffer).is_ok(),
+            Image::Qcow2(reader) => reader.read_at(offset, buffer).is_ok(),
+        }
+    }
+}
+
+pub struct DJAgentImageReader(Image);
 #[repr(C)]
 pub struct DJAgentImageGeometry {
     virtual_size: u64,
@@ -49,6 +69,40 @@ pub struct DJAgentImageGeometry {
 pub unsafe extern "C" fn dj_agent_vhdx_open(
     fd: i32,
     geometry: *mut DJAgentImageGeometry,
+) -> *mut DJAgentImageReader {
+    unsafe {
+        open_image(fd, geometry, |backing| {
+            let reader = VhdxReader::open_on_device(backing).ok()?;
+            let sector = reader.sector_size();
+            Some((Image::Vhdx(reader), sector))
+        })
+    }
+}
+
+/// # Safety
+/// As for dj_agent_vhdx_open. An image naming a backing file is refused: the
+/// agent authorized this descriptor only, never a path the image names.
+#[no_mangle]
+pub unsafe extern "C" fn dj_agent_qcow2_open(
+    fd: i32,
+    geometry: *mut DJAgentImageGeometry,
+) -> *mut DJAgentImageReader {
+    unsafe {
+        open_image(fd, geometry, |backing| {
+            // The on-device open rejects a backing chain; qcow2 has no sector
+            // size of its own, so the block node uses 512-byte sectors.
+            let reader = Qcow2Reader::open_on_device(backing).ok()?;
+            Some((Image::Qcow2(reader), 512))
+        })
+    }
+}
+
+/// # Safety
+/// As for dj_agent_vhdx_open.
+unsafe fn open_image(
+    fd: i32,
+    geometry: *mut DJAgentImageGeometry,
+    decode: impl FnOnce(Arc<Backing>) -> Option<(Image, u32)>,
 ) -> *mut DJAgentImageReader {
     if fd < 0 || geometry.is_null() {
         return std::ptr::null_mut();
@@ -65,17 +119,15 @@ pub unsafe extern "C" fn dj_agent_vhdx_open(
         if !metadata.is_file() {
             return None;
         }
-        let reader = VhdxReader::open_on_device(Arc::new(Backing {
+        let (image, sector) = decode(Arc::new(Backing {
             file,
             size: metadata.len(),
-        }))
-        .ok()?;
-        let size = reader.virtual_size();
-        let sector = reader.sector_size();
+        }))?;
+        let size = image.virtual_size();
         if !matches!(sector, 512 | 4096) || size == 0 || size % u64::from(sector) != 0 {
             return None;
         }
-        let handle = Box::new(DJAgentImageReader(reader));
+        let handle = Box::new(DJAgentImageReader(image));
         unsafe {
             geometry.write(DJAgentImageGeometry {
                 virtual_size: size,
@@ -109,7 +161,7 @@ pub unsafe extern "C" fn dj_agent_image_read(
             return -1;
         }
         let output = unsafe { std::slice::from_raw_parts_mut(buffer, len) };
-        if reader.read_at(offset, output).is_ok() {
+        if reader.read_at(offset, output) {
             0
         } else {
             -1

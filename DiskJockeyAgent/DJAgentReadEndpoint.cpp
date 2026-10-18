@@ -17,7 +17,9 @@ struct DJAgentReadEndpoint {
 };
 static uint64_t now(void *) { return clock_gettime_nsec_np(CLOCK_UPTIME_RAW); }
 static DJAgentImageReader *openImage(void *, int fd, DJAgentImageGeometry *g) {
-    return dj_agent_vhdx_open(fd, g);
+    // Each reader checks its own signature, so the content picks the format.
+    if (DJAgentImageReader *reader = dj_agent_vhdx_open(fd, g)) return reader;
+    return dj_agent_qcow2_open(fd, g);
 }
 static void received(void *p, IOReturn result, void **arguments, uint32_t count) {
     auto *endpoint = static_cast<DJAgentReadEndpoint *>(p);

@@ -57,6 +57,7 @@
 # The trusted XPC connection ownership guard (#453) raises it to 66 files.
 # The owned DriverKit XPC route guard (#454) raises it to 67 files.
 # The retained image eject route guard (#480) raises it to 68 files.
+# The agent-side qcow2 reader guard (#395) raises it to 69 files.
 # It moves up with the suite; it never moves down.
 #
 # `rc`, not `status`: `status` is READ-ONLY in zsh, so a loop written with it
@@ -67,7 +68,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
-FLOOR=68
+FLOOR=69
 
 # The raw loop, whose whole output is the tier's log. Failure lines carry a
 # TIER-FAIL prefix so the quiet verdict below can name them without a tail.
