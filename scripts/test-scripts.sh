@@ -46,6 +46,7 @@
 # The read wire contract guard (#428) raises it to 55 files.
 # The pending-read lifecycle guard (#429) raises it to 56 files.
 # The agent read server guard (#433) raises it to 57 files.
+# The user-client dispatch guard (#434) raises it to 58 files.
 # It moves up with the suite; it never moves down.
 #
 # `rc`, not `status`: `status` is READ-ONLY in zsh, so a loop written with it
@@ -56,7 +57,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
-FLOOR=57
+FLOOR=58
 
 # The raw loop, whose whole output is the tier's log. Failure lines carry a
 # TIER-FAIL prefix so the quiet verdict below can name them without a tail.

@@ -187,3 +187,22 @@ reaches the reader. The reader is borrowed and already authorized by
 linked into the dext. `scripts/tests/agent-read-server.sh` drives it with a
 fake reader as C11 and C++17. The user client, agent connection and
 provisioned round trip follow in #434–#437.
+
+## User-client dispatch
+
+`DJVirtualDiskUserClientDispatch.h` is the portable core of the user client's
+read transport (#434). One table names its three selectors —
+`kDJSelectorConnectReadEndpoint` (3: the protocol version as its one scalar,
+with an async completion), `kDJSelectorDeliverReadReply` (4: exactly one
+`DJReadReply` header and a payload of at most `kDJReadMaxBytes`) and
+`kDJSelectorDisconnectReadEndpoint` (5: no arguments) — with exact scalar
+counts and structure sizes and no outputs. Every count, size and completion is
+checked against that table before any byte is copied; a wrong shape or an
+unknown selector is refused and never touches the endpoint or a pending read.
+Accepted calls route into `DJPendingReads<16>`, so at most sixteen requests are
+ever outstanding at the agent. Disconnect, client death and teardown fail every
+pending read and then release the endpoint's completion once.
+`scripts/tests/driverkit-user-client-dispatch.sh` drives it with a fake agent
+endpoint and timer: exact bytes at the translated offset, and timeout,
+disconnect, short and error replies failing their block request. The DriverKit
+link probe also links the core. The `IOUserClient` class itself is #435.

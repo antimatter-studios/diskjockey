@@ -13,6 +13,14 @@ extern "C" {
 #define kDJReadMaxTimeoutNanoseconds UINT64_C(30000000000)
 enum { kDJReadReplySuccess = 0, kDJReadReplyIOError = 1 };
 
+/* Read transport selectors, after the mount selectors. None has a scalar or
+ * structure output; DJVirtualDiskUserClientDispatch.h holds the exact table. */
+enum {
+    kDJSelectorConnectReadEndpoint = 3,    /* Version scalar; async completion. */
+    kDJSelectorDeliverReadReply = 4,       /* DJReadReply; 0..kDJReadMaxBytes payload. */
+    kDJSelectorDisconnectReadEndpoint = 5, /* No arguments. */
+};
+
 typedef struct DJReadRequest {
     uint64_t requestID;           /* Nonzero; never reuse across connections. */
     uint64_t deviceID;            /* Nonzero live mount identity. */
