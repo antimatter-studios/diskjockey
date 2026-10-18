@@ -44,3 +44,15 @@ rust-blk-probe      v0.1.0
 # fs-linux-test-harness.toml, diskjockey#355): checked out beside this
 # repository at this tag, by hand or by the XFS mutations workflow.
 fs-linux-test-harness v0.5.1
+
+# Filesystem CLIs are NOT BUILT. scripts/install-cli-capabilities.sh downloads
+# these exact releases for cli-capability-matrix.sh --install, verifying the
+# shared release-cli signer and refs/tags/<tag> before unpacking or execution.
+# Both darwin-arm64 and linux-x86_64 assets exist at these tags (2026-10-18).
+rust-fs-ext4         v0.8.0
+rust-fs-ntfs         v0.10.2
+rust-fs-xfs          v0.14.2
+rust-fs-btrfs        v0.10.2
+rust-fs-bcachefs     v0.4.2
+rust-fs-erofs        v0.4.1
+rust-fs-squashfs     v0.4.0
