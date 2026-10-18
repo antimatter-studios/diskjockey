@@ -1,0 +1,14 @@
+[package]
+name = "dj-agent-image-reader"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "MIT"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+rust-img-vhdx = "=0.6.1"
+rust-fs-core = "=0.3.14"
+libc = "0.2"

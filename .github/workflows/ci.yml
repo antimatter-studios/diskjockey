@@ -222,6 +222,12 @@ jobs:
         with:
           targets: aarch64-apple-darwin
 
+      - name: Agent-side VHDX reads match QEMU
+        timeout-minutes: 5
+        run: |
+          brew list qemu >/dev/null 2>&1 || brew install qemu
+          bash scripts/quiet-run.sh agent-vhdx 100 12000 -- bash scripts/agent-vhdx-oracle.sh
+
       - name: Restore the bcachefs bundle
         id: bcachefs-bundle
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
