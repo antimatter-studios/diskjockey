@@ -294,8 +294,12 @@ A BSD name, path or reused disk number is never proof of ownership. The name
 is checked before the registry is read. The shell guard drives the matcher
 over a fake ancestry. The key, `kDJAttachmentIdentityKey`, is defined once in
 `DJVirtualDiskShared.h`, which the matcher and the dext's block-device child
-both include; #452 owns the IOKit ancestry search and the DiskArbitration
-callback.
+both include. `DiskJockeyAgent/DJAgentMediaIdentity.hpp` (#506) is the
+ancestry search behind the matcher's identity hook: it asks the registry for
+the key in the service plane, recursively through the media's parents,
+accepts only a non-zero 64-bit number, and releases the copied property on
+every path. The registry stays injected for the shell guard; #507 binds it to
+IOKit and owns the DiskArbitration callback.
 
 ## Agent attachment bridge
 
