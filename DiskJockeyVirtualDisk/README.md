@@ -196,8 +196,9 @@ provisioned round trip follow in #434–#437.
 
 `DJVirtualDiskUserClientDispatch.h` is the portable core of the user client's
 read transport (#434). One table names its three selectors —
-`kDJSelectorConnectReadEndpoint` (3: the protocol version as its one scalar,
-with an async completion), `kDJSelectorDeliverReadReply` (4: the five
+`kDJSelectorConnectReadEndpoint` (3: the protocol version, the non-zero
+attachment identity and the reader's non-zero decoded virtual size as its
+three scalars, with an async completion), `kDJSelectorDeliverReadReply` (4: the five
 `DJReadReply` scalars and a payload of at most `kDJReadMaxBytes`) and
 `kDJSelectorDisconnectReadEndpoint` (5: no arguments) — with exact scalar
 counts and structure sizes and no outputs. Every count, size and completion is
@@ -323,7 +324,10 @@ Mount takes the non-zero attachment identity and one `DJMountRequest`, and
 returns the identity as the device ID. Its geometry comes from
 `DJMountRequestGetGeometry` against the decoded virtual size the injected read
 backend reports for that identity. With no backend, or one that does not serve
-the identity, mount fails explicitly and publishes nothing.
+the identity, mount fails explicitly and publishes nothing. In the user client
+that backend is the read transport (#470): the size is the one the connected
+endpoint registered for its identity, and a disconnect withdraws it, so a
+mount for an identity no endpoint registered stays `kIOReturnNotReady`.
 
 At most `kDJMaxVirtualDisks` media are live. A slot is reserved before the
 publish hook runs and held until the remove hook succeeds, so a concurrent

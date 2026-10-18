@@ -30,6 +30,8 @@ extern "C" void probeDispatch(DJReadIdentities &ids, Dispatch::Platform platform
     dispatch.externalMethod(kDJSelectorDeliverReadReply, arguments);
     dispatch.externalMethod(kDJSelectorDisconnectReadEndpoint, arguments);
     dispatch.pendingCount();
+    uint64_t size = 0;
+    dispatch.virtualSize(1, &size);
     dispatch.stop();
 }
 int main() { return 0; }

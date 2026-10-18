@@ -14,11 +14,14 @@ extern "C" {
 #define kDJReadMaxBytes 1048576u
 #define kDJReadMaxTimeoutNanoseconds UINT64_C(30000000000)
 enum { kDJReadReplySuccess = 0, kDJReadReplyIOError = 1 };
+/* Connect's scalars: version, the nonzero attachment identity, and the
+ * reader's nonzero decoded virtual size (never the container's length). */
+#define kDJReadConnectScalarCount 3u
 
 /* Read transport selectors, after the mount selectors. None has a scalar or
  * structure output; DJVirtualDiskUserClientDispatch.h holds the exact table. */
 enum {
-    kDJSelectorConnectReadEndpoint = 3,    /* Version scalar; async completion. */
+    kDJSelectorConnectReadEndpoint = 3,    /* Version, identity, virtual size; async completion. */
     kDJSelectorDeliverReadReply = 4,       /* DJReadReply scalars; 0..kDJReadMaxBytes payload. */
     kDJSelectorDisconnectReadEndpoint = 5, /* No arguments. */
 };
