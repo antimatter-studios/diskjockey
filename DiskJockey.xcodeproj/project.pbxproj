@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		D44300000000000000000001 /* AgentReadAuthority.swift in Sources */ = {isa = PBXBuildFile; fileRef = D44300000000000000000003 /* AgentReadAuthority.swift */; };
+		D44300000000000000000002 /* DJAgentReadEndpoint.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D44300000000000000000004 /* DJAgentReadEndpoint.cpp */; };
 		DA9E17A00000000000000007 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA9E17A00000000000000000 /* main.swift */; };
 		DA9E17A00000000000000008 /* AgentImpl.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA9E17A00000000000000001 /* AgentImpl.swift */; };
 		DA9E17A00000000000000009 /* DJAgentProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA9E17A00000000000000002 /* DJAgentProtocol.swift */; };
@@ -625,6 +627,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		D44300000000000000000003 /* AgentReadAuthority.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentReadAuthority.swift; sourceTree = "<group>"; };
+		D44300000000000000000004 /* DJAgentReadEndpoint.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = DJAgentReadEndpoint.cpp; sourceTree = "<group>"; };
 		DA9E17A00000000000000000 /* main.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		DA9E17A00000000000000001 /* AgentImpl.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentImpl.swift; sourceTree = "<group>"; };
 		DA9E17A00000000000000002 /* DJAgentProtocol.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DJAgentProtocol.swift; sourceTree = "<group>"; };
@@ -1493,6 +1497,8 @@
 		DA9E17A00000000000000006 /* DiskJockeyAgent */ = {
 			isa = PBXGroup;
 			children = (
+				D44300000000000000000003 /* AgentReadAuthority.swift */,
+				D44300000000000000000004 /* DJAgentReadEndpoint.cpp */,
 				DA9E17A00000000000000000 /* main.swift */,
 				DA9E17A00000000000000001 /* AgentImpl.swift */,
 				DA9E17A00000000000000002 /* DJAgentProtocol.swift */,
@@ -2247,6 +2253,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D44300000000000000000001 /* AgentReadAuthority.swift in Sources */,
+				D44300000000000000000002 /* DJAgentReadEndpoint.cpp in Sources */,
 				DA9E17A00000000000000007 /* main.swift in Sources */,
 				DA9E17A00000000000000008 /* AgentImpl.swift in Sources */,
 				DA9E17A00000000000000009 /* DJAgentProtocol.swift in Sources */,
@@ -2531,6 +2539,11 @@
 		DA9E17A0000000000000000F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/DiskJockeyVirtualDisk";
+				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/lib/agent_image_reader";
+				OTHER_LDFLAGS = ("$(inherited)", "-framework", IOKit, "-ldj_agent_image_reader",);
+				SWIFT_OBJC_BRIDGING_HEADER = "DiskJockeyAgent/DiskJockeyAgent-Bridging-Header.h";
 				CODE_SIGN_ENTITLEMENTS = DiskJockeyAgent/DiskJockeyAgent.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
@@ -2554,6 +2567,11 @@
 		DA9E17A00000000000000010 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/DiskJockeyVirtualDisk";
+				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/lib/agent_image_reader";
+				OTHER_LDFLAGS = ("$(inherited)", "-framework", IOKit, "-ldj_agent_image_reader",);
+				SWIFT_OBJC_BRIDGING_HEADER = "DiskJockeyAgent/DiskJockeyAgent-Bridging-Header.h";
 				CODE_SIGN_ENTITLEMENTS = DiskJockeyAgent/DiskJockeyAgent.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
