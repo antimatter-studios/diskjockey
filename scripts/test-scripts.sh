@@ -54,6 +54,7 @@
 # The dext mount-selector guard (#460) raises it to 63 files.
 # The dext block-I/O guard (#461) raises it to 64 files.
 # The agent bridge mount-selector guard (#458) raises it to 65 files.
+# The trusted XPC connection ownership guard (#453) raises it to 66 files.
 # It moves up with the suite; it never moves down.
 #
 # `rc`, not `status`: `status` is READ-ONLY in zsh, so a loop written with it
@@ -64,7 +65,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
-FLOOR=65
+FLOOR=66
 
 # The raw loop, whose whole output is the tier's log. Failure lines carry a
 # TIER-FAIL prefix so the quiet verdict below can name them without a tail.
