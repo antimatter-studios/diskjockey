@@ -4,12 +4,13 @@
 #include <DriverKit/IOService.iig>
 
 // Service lifecycle recovered from feat/driverkit-virtual-disk (df5f5d1).
-// Media publication and user clients belong to later read-only slices.
+// Media publication belongs to a later read-only slice.
 class DJVirtualDiskService : public IOService
 {
 public:
     virtual kern_return_t Start(IOService * provider) override;
     virtual kern_return_t Stop(IOService * provider) override;
+    virtual kern_return_t NewUserClient(uint32_t type, IOUserClient ** userClient) override;
 };
 
 #endif

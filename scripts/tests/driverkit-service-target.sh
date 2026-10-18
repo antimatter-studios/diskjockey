@@ -47,11 +47,13 @@ for cid in configs:
     assert value(config, 'CODE_SIGN_ENTITLEMENTS') == 'DiskJockeyVirtualDisk/DiskJockeyVirtualDisk.entitlements'
     assert value(config, 'INFOPLIST_FILE') == 'DiskJockeyVirtualDisk/Info.plist'
     assert not value(config, 'LIBRARY_SEARCH_PATHS'), 'no host Rust archives in the dext'
+    assert value(config, 'GCC_TREAT_WARNINGS_AS_ERRORS') == 'YES', 'the dext builds with fatal warnings'
 phases = [objects[pid] for pid in refs(target, 'buildPhases')]
 sources = [objects[bid] for phase in phases if value(phase, 'isa') == 'PBXSourcesBuildPhase'
            for bid in refs(phase, 'files')]
 names = {pathlib.Path(value(objects[refs(source, 'fileRef')[0]], 'path')).name for source in sources}
-assert names == {'DJVirtualDiskService.cpp', 'DJVirtualDiskService.iig'}, names
+assert names == {'DJVirtualDiskService.cpp', 'DJVirtualDiskService.iig',
+                 'DJVirtualDiskUserClient.cpp', 'DJVirtualDiskUserClient.iig'}, names
 app = targets['DiskJockey'][1]
 copies = [objects[pid] for pid in refs(app, 'buildPhases')
           if value(objects[pid], 'isa') == 'PBXCopyFilesBuildPhase']
@@ -68,11 +70,21 @@ assert personality['IOProviderClass'] == 'IOUserResources'
 assert personality['IOClass'] == 'IOUserService'
 assert personality['IOUserClass'] == 'DJVirtualDiskService'
 assert personality['IOUserServerName'] == info['CFBundleIdentifier']
+client = personality['UserClientProperties']
+assert client['IOClass'] == 'IOUserUserClient'
+assert client['IOUserClass'] == 'DJVirtualDiskUserClient'
+service = (root / 'DiskJockeyVirtualDisk/DJVirtualDiskService.iig').read_text()
+assert re.search(r'\bkern_return_t\s+NewUserClient\s*\(', service), 'the service opens user clients'
+user = (root / 'DiskJockeyVirtualDisk/DJVirtualDiskUserClient.iig').read_text()
+assert re.search(r'class\s+DJVirtualDiskUserClient\s*:\s*public\s+IOUserClient\b', user)
+assert re.search(r'\bkern_return_t\s+ExternalMethod\s*\(', user), 'the user client dispatches'
+source = (root / 'DiskJockeyVirtualDisk/DJVirtualDiskUserClient.cpp').read_text()
+assert 'DJUserClientDispatch' in source and 'IOTimerDispatchSource' in source, 'hosts the dispatch core'
 entitlements = plistlib.loads((root / 'DiskJockeyVirtualDisk/DiskJockeyVirtualDisk.entitlements').read_bytes())
 assert entitlements == {'com.apple.developer.driverkit': True}, 'service-only least privilege'
 PY
 then
-    ok 'the standalone service target preserves app targets and embeds a service-only dext'
+    ok 'the service target embeds a dext whose user client hosts the read dispatch core'
 else
     fail 'the DriverKit project graph or service personality is invalid'
 fi

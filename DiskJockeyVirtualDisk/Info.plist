@@ -21,6 +21,11 @@
             <key>IOUserClass</key><string>DJVirtualDiskService</string>
             <key>IOUserServerName</key><string>com.antimatterstudios.diskjockey.virtualdisk</string>
             <key>IOMatchCategory</key><string>com.antimatterstudios.diskjockey.virtualdisk</string>
+            <key>UserClientProperties</key>
+            <dict>
+                <key>IOClass</key><string>IOUserUserClient</string>
+                <key>IOUserClass</key><string>DJVirtualDiskUserClient</string>
+            </dict>
         </dict>
     </dict>
 </dict>
