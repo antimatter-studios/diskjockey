@@ -23,7 +23,7 @@ chore_min_version: 0.6.0
 # is about a quarter over the measurement, and each row says what it is:
 #
 #   tier      lines    bytes   measured (lines / bytes)     headroom   floor
-#   scripts    1030    53300   819 / 42,583 (51 files)      25% / 25%  54 files
+#   scripts    1030    53300   819 / 42,583 (51 files)      25% / 25%  55 files
 #   library    3530   272200   2,779 / 214,287              27% / 27%  668 cases
 #   app        5200   950000   4,119 / 750,848 (raw)        26% / 27%  90 cases
 #   cli-pipe    270    16200   213 / 12,909 (Linux)         27% / 25%  25 macOS, 37 Linux
@@ -45,6 +45,8 @@ chore_min_version: 0.6.0
 # The DriverKit service target guard (#393) raises the inventory floor to 52;
 # its two verdict lines fit the existing measured output headroom.
 # The reader-boundary guard (#418) and host VHDX ABI guard (#424) raise it to 54.
+# The C11/C++17 read wire contract (#428) raises the inventory floor to 55;
+# its three verdict lines fit the unchanged output budget.
 # The XFS writable-policy gate raises the library floor to 593 (#321),
 # measured locally 2026-10-07: 65 XCTest + 528 swift-testing, all passed.
 # The bcachefs volume raises the library floor to 663 (#342), measured
