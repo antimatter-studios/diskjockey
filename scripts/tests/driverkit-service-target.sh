@@ -53,7 +53,8 @@ sources = [objects[bid] for phase in phases if value(phase, 'isa') == 'PBXSource
            for bid in refs(phase, 'files')]
 names = {pathlib.Path(value(objects[refs(source, 'fileRef')[0]], 'path')).name for source in sources}
 assert names == {'DJVirtualDiskService.cpp', 'DJVirtualDiskService.iig',
-                 'DJVirtualDiskUserClient.cpp', 'DJVirtualDiskUserClient.iig'}, names
+                 'DJVirtualDiskUserClient.cpp', 'DJVirtualDiskUserClient.iig',
+                 'DJVirtualDiskDevice.cpp', 'DJVirtualDiskDevice.iig'}, names
 app = targets['DiskJockey'][1]
 copies = [objects[pid] for pid in refs(app, 'buildPhases')
           if value(objects[pid], 'isa') == 'PBXCopyFilesBuildPhase']
@@ -80,6 +81,15 @@ assert re.search(r'class\s+DJVirtualDiskUserClient\s*:\s*public\s+IOUserClient\b
 assert re.search(r'\bkern_return_t\s+ExternalMethod\s*\(', user), 'the user client dispatches'
 source = (root / 'DiskJockeyVirtualDisk/DJVirtualDiskUserClient.cpp').read_text()
 assert 'DJUserClientDispatch' in source and 'IOTimerDispatchSource' in source, 'hosts the dispatch core'
+device = (root / 'DiskJockeyVirtualDisk/DJVirtualDiskDevice.iig').read_text()
+assert re.search(r'class\s+DJVirtualDiskDevice\s*:\s*public\s+IOUserBlockStorageDevice\b', device), \
+    "the child subclasses Apple's IOUserBlockStorageDevice"
+assert '<BlockStorageDeviceDriverKit/IOUserBlockStorageDevice.iig>' in device
+child = (root / 'DiskJockeyVirtualDisk/DJVirtualDiskDevice.cpp').read_text()
+assert '#include "DJVirtualDiskBlockIO.h"' in child and 'DJBlockIO<' in child, 'I/O routes through the block-I/O core'
+assert 'kDJAttachmentIdentityKey' in child, 'the child publishes the attachment identity'
+assert re.search(r'\*isWriteProtected\s*=\s*true\s*;', child), 'the media is write-protected'
+assert 'failAll(' in child, 'terminating the child completes pending I/O'
 entitlements = plistlib.loads((root / 'DiskJockeyVirtualDisk/DiskJockeyVirtualDisk.entitlements').read_bytes())
 assert entitlements == {'com.apple.developer.driverkit': True}, 'service-only least privilege'
 PY
@@ -87,6 +97,28 @@ then
     ok 'the service target embeds a dext whose user client hosts the read dispatch core'
 else
     fail 'the DriverKit project graph or service personality is invalid'
+fi
+# One definition of the identity key, in the header the agent and the dext both
+# include, so the matcher cannot search for a key the child never publishes.
+if python3 - "$ROOT" <<'PY'
+import pathlib, re, sys
+root = pathlib.Path(sys.argv[1])
+sources = [p for d in ('DiskJockeyAgent', 'DiskJockeyVirtualDisk') for p in sorted((root / d).iterdir())
+           if p.suffix in {'.h', '.hpp', '.c', '.cpp', '.iig', '.swift'}]
+defs = [p.relative_to(root).as_posix() for p in sources
+        if re.search(r'^\s*#\s*define\s+kDJAttachmentIdentityKey\b', p.read_text(), re.M)]
+assert defs == ['DiskJockeyVirtualDisk/DJVirtualDiskShared.h'], defs
+shared = (root / 'DiskJockeyVirtualDisk/DJVirtualDiskShared.h').read_text()
+assert re.search(r'#define\s+kDJAttachmentIdentityKey\s+"DJAttachmentIdentity"\s*$', shared, re.M)
+match = (root / 'DiskJockeyAgent/DJAgentMediaMatch.hpp').read_text()
+assert '#include "../DiskJockeyVirtualDisk/DJVirtualDiskShared.h"' in match, 'the agent matcher includes the shared key'
+child = (root / 'DiskJockeyVirtualDisk/DJVirtualDiskDevice.cpp').read_text()
+assert '#include "DJVirtualDiskShared.h"' in child, 'the dext child includes the shared key'
+PY
+then
+    ok 'the agent and the dext take the attachment identity key from one shared header'
+else
+    fail 'the attachment identity key is defined more than once or not shared'
 fi
 if [ "$fails" -eq 0 ]; then
     echo 'driverkit-service-target: all checks passed'

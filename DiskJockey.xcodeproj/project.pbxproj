@@ -75,7 +75,10 @@
 		D39300000000000000000011 /* DJVirtualDiskService.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D39300000000000000000003 /* DJVirtualDiskService.cpp */; };
 		D39300000000000000000014 /* DJVirtualDiskUserClient.iig in Sources */ = {isa = PBXBuildFile; fileRef = D39300000000000000000008 /* DJVirtualDiskUserClient.iig */; };
 		D39300000000000000000015 /* DJVirtualDiskUserClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D39300000000000000000009 /* DJVirtualDiskUserClient.cpp */; };
+		D39300000000000000000018 /* DJVirtualDiskDevice.iig in Sources */ = {isa = PBXBuildFile; fileRef = D39300000000000000000016 /* DJVirtualDiskDevice.iig */; };
+		D39300000000000000000019 /* DJVirtualDiskDevice.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D39300000000000000000017 /* DJVirtualDiskDevice.cpp */; };
 		D39300000000000000000012 /* DriverKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D39300000000000000000004 /* DriverKit.framework */; };
+		D3930000000000000000001B /* BlockStorageDeviceDriverKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D3930000000000000000001A /* BlockStorageDeviceDriverKit.framework */; };
 		D39300000000000000000013 /* DiskJockeyVirtualDisk.dext in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = D39300000000000000000001 /* DiskJockeyVirtualDisk.dext */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -707,7 +710,10 @@
 		D39300000000000000000003 /* DJVirtualDiskService.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = DJVirtualDiskService.cpp; sourceTree = "<group>"; };
 		D39300000000000000000008 /* DJVirtualDiskUserClient.iig */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.iig; path = DJVirtualDiskUserClient.iig; sourceTree = "<group>"; };
 		D39300000000000000000009 /* DJVirtualDiskUserClient.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = DJVirtualDiskUserClient.cpp; sourceTree = "<group>"; };
+		D39300000000000000000016 /* DJVirtualDiskDevice.iig */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.iig; path = DJVirtualDiskDevice.iig; sourceTree = "<group>"; };
+		D39300000000000000000017 /* DJVirtualDiskDevice.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = DJVirtualDiskDevice.cpp; sourceTree = "<group>"; };
 		D39300000000000000000004 /* DriverKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = DriverKit.framework; path = System/DriverKit/System/Library/Frameworks/DriverKit.framework; sourceTree = SDKROOT; };
+		D3930000000000000000001A /* BlockStorageDeviceDriverKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = BlockStorageDeviceDriverKit.framework; path = System/DriverKit/System/Library/Frameworks/BlockStorageDeviceDriverKit.framework; sourceTree = SDKROOT; };
 		D39300000000000000000005 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		D39300000000000000000006 /* DiskJockeyVirtualDisk.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DiskJockeyVirtualDisk.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -1488,6 +1494,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				D39300000000000000000012 /* DriverKit.framework in Frameworks */,
+				D3930000000000000000001B /* BlockStorageDeviceDriverKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1741,6 +1748,8 @@
 				D39300000000000000000003 /* DJVirtualDiskService.cpp */,
 				D39300000000000000000008 /* DJVirtualDiskUserClient.iig */,
 				D39300000000000000000009 /* DJVirtualDiskUserClient.cpp */,
+				D39300000000000000000016 /* DJVirtualDiskDevice.iig */,
+				D39300000000000000000017 /* DJVirtualDiskDevice.cpp */,
 				D39300000000000000000005 /* Info.plist */,
 				D39300000000000000000006 /* DiskJockeyVirtualDisk.entitlements */,
 			);
@@ -2408,6 +2417,8 @@
 				D39300000000000000000011 /* DJVirtualDiskService.cpp in Sources */,
 				D39300000000000000000014 /* DJVirtualDiskUserClient.iig in Sources */,
 				D39300000000000000000015 /* DJVirtualDiskUserClient.cpp in Sources */,
+				D39300000000000000000018 /* DJVirtualDiskDevice.iig in Sources */,
+				D39300000000000000000019 /* DJVirtualDiskDevice.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
