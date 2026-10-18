@@ -45,6 +45,12 @@ typedef struct DJMountInfo {
  * drifting. */
 #define kDJAttachmentIdentityKey "DJAttachmentIdentity"
 
+/* The checked geometry the publish hook passes to the child beside the
+ * identity, each as a number property. */
+#define kDJDeviceByteOffsetKey "DJByteOffset"
+#define kDJDeviceByteLengthKey "DJByteLength"
+#define kDJDeviceBlockSizeKey "DJBlockSize"
+
 /* Local validated geometry, not a wire payload. The block count is
  * byteLength / blockSize; byteOffset applies to every backend read. */
 typedef struct DJMountGeometry {
