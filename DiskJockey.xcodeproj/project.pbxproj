@@ -71,6 +71,8 @@
 		BCAC5F50000000000000000C /* DiskJockeyBCACHEFS.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = BCAC5F500000000000000002 /* DiskJockeyBCACHEFS.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D39300000000000000000010 /* DJVirtualDiskService.iig in Sources */ = {isa = PBXBuildFile; fileRef = D39300000000000000000002 /* DJVirtualDiskService.iig */; };
 		D39300000000000000000011 /* DJVirtualDiskService.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D39300000000000000000003 /* DJVirtualDiskService.cpp */; };
+		D39300000000000000000014 /* DJVirtualDiskUserClient.iig in Sources */ = {isa = PBXBuildFile; fileRef = D39300000000000000000008 /* DJVirtualDiskUserClient.iig */; };
+		D39300000000000000000015 /* DJVirtualDiskUserClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D39300000000000000000009 /* DJVirtualDiskUserClient.cpp */; };
 		D39300000000000000000012 /* DriverKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D39300000000000000000004 /* DriverKit.framework */; };
 		D39300000000000000000013 /* DiskJockeyVirtualDisk.dext in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = D39300000000000000000001 /* DiskJockeyVirtualDisk.dext */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -699,6 +701,8 @@
 		D39300000000000000000001 /* DiskJockeyVirtualDisk.dext */ = {isa = PBXFileReference; explicitFileType = "wrapper.driver-extension"; includeInIndex = 0; path = DiskJockeyVirtualDisk.dext; sourceTree = BUILT_PRODUCTS_DIR; };
 		D39300000000000000000002 /* DJVirtualDiskService.iig */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.iig; path = DJVirtualDiskService.iig; sourceTree = "<group>"; };
 		D39300000000000000000003 /* DJVirtualDiskService.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = DJVirtualDiskService.cpp; sourceTree = "<group>"; };
+		D39300000000000000000008 /* DJVirtualDiskUserClient.iig */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.iig; path = DJVirtualDiskUserClient.iig; sourceTree = "<group>"; };
+		D39300000000000000000009 /* DJVirtualDiskUserClient.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = DJVirtualDiskUserClient.cpp; sourceTree = "<group>"; };
 		D39300000000000000000004 /* DriverKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = DriverKit.framework; path = System/DriverKit/System/Library/Frameworks/DriverKit.framework; sourceTree = SDKROOT; };
 		D39300000000000000000005 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		D39300000000000000000006 /* DiskJockeyVirtualDisk.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DiskJockeyVirtualDisk.entitlements; sourceTree = "<group>"; };
@@ -1729,6 +1733,8 @@
 			children = (
 				D39300000000000000000002 /* DJVirtualDiskService.iig */,
 				D39300000000000000000003 /* DJVirtualDiskService.cpp */,
+				D39300000000000000000008 /* DJVirtualDiskUserClient.iig */,
+				D39300000000000000000009 /* DJVirtualDiskUserClient.cpp */,
 				D39300000000000000000005 /* Info.plist */,
 				D39300000000000000000006 /* DiskJockeyVirtualDisk.entitlements */,
 			);
@@ -2392,6 +2398,8 @@
 			files = (
 				D39300000000000000000010 /* DJVirtualDiskService.iig in Sources */,
 				D39300000000000000000011 /* DJVirtualDiskService.cpp in Sources */,
+				D39300000000000000000014 /* DJVirtualDiskUserClient.iig in Sources */,
+				D39300000000000000000015 /* DJVirtualDiskUserClient.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3704,6 +3712,7 @@
 				DRIVERKIT_DEPLOYMENT_TARGET = 24.0;
 				GCC_ENABLE_CPP_EXCEPTIONS = NO;
 				GCC_ENABLE_CPP_RTTI = NO;
+				GCC_TREAT_WARNINGS_AS_ERRORS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				HEADER_SEARCH_PATHS = (
 					"$(DERIVED_SOURCES_DIR)",
@@ -3731,6 +3740,7 @@
 				DRIVERKIT_DEPLOYMENT_TARGET = 24.0;
 				GCC_ENABLE_CPP_EXCEPTIONS = NO;
 				GCC_ENABLE_CPP_RTTI = NO;
+				GCC_TREAT_WARNINGS_AS_ERRORS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				HEADER_SEARCH_PATHS = (
 					"$(DERIVED_SOURCES_DIR)",

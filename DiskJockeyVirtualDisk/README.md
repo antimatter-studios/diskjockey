@@ -206,3 +206,18 @@ pending read and then release the endpoint's completion once.
 endpoint and timer: exact bytes at the translated offset, and timeout,
 disconnect, short and error replies failing their block request. The DriverKit
 link probe also links the core. The `IOUserClient` class itself is #435.
+
+## DriverKit user client
+
+`DJVirtualDiskUserClient` is the IIG class `NewUserClient` on the service
+creates from the personality's `UserClientProperties`. It maps
+`IOUserClientMethodArguments` onto `DJDispatchArguments`: the inline structure
+input is the reply header and the mapped structure input descriptor is the
+payload. The connect completion is retained only while the core owns it, and
+requests reach the agent through `AsyncCompletion`. One
+`IOTimerDispatchSource` on the default queue implements the arm/cancel hooks at
+the absolute `CLOCK_UPTIME_RAW` deadline (`kIOTimerClockUptimeRaw`). `Stop`,
+which client death also reaches, fails every pending read before the timer is
+cancelled. The dext target builds with fatal warnings, and
+`scripts/tests/driverkit-service-target.sh` requires the class in the target and
+the personality.
