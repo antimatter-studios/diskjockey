@@ -8,11 +8,6 @@
 #include "DJVirtualDiskBlockIO.h"
 #include "DJVirtualDiskShared.h"
 
-// The publish hook passes the checked geometry beside the identity.
-#define kDJDeviceByteOffsetKey "DJByteOffset"
-#define kDJDeviceByteLengthKey "DJByteLength"
-#define kDJDeviceBlockSizeKey "DJBlockSize"
-
 static constexpr size_t kDJDeviceOutstanding = 16;
 using DJDeviceBlockIO = DJBlockIO<kDJDeviceOutstanding>;
 

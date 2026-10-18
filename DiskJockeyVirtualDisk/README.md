@@ -357,5 +357,23 @@ fails every pending read once and releases the core. There is no read backend
 yet: every read fails `kIOReturnNotReady`, and compressed container bytes are
 never served as raw disk bytes. `scripts/tests/driverkit-service-target.sh`
 requires the sources in the dext target and one shared definition of the key.
-Hosting the mount selectors in the user client, so their publish and remove
-hooks create and terminate this child, is #467.
+
+## Hosting the mount selectors
+
+The user client (#467, part of #462) routes the mount (0), unmount (1) and
+list (2) selectors to its `DJMountTable` and the read selectors (3 to 5) to
+the read dispatch core, unchanged. Mount requests arrive inline; the list
+output, larger than the 4096-byte inline limit, arrives as a descriptor that
+is zeroed first, so unused entries read as device ID zero. The publish hook
+copies the service personality's `DJVirtualDiskDeviceProperties` (IOClass
+`IOUserBlockStorageDevice`, IOUserClass `DJVirtualDiskDevice`), writes the
+identity under `kDJAttachmentIdentityKey` and the geometry under the shared
+`kDJDeviceByteOffsetKey`, `kDJDeviceByteLengthKey` and `kDJDeviceBlockSizeKey`
+into it, sets it back on the service and has the service `Create` the child,
+since `Create` reads the personality from the creating service's own
+properties. The remove hook calls `Terminate` and reports failure, leaving the
+child published, when that is refused. Closing the user client terminates
+every child it published. With no read backend, `virtualSize` refuses every
+identity, so mount stays `kIOReturnNotReady` and no child is created; #419 and
+#458 supply the backend. `scripts/tests/driverkit-service-target.sh` requires
+the personality, the hosting and the shared geometry keys.

@@ -90,11 +90,27 @@ assert '#include "DJVirtualDiskBlockIO.h"' in child and 'DJBlockIO<' in child, '
 assert 'kDJAttachmentIdentityKey' in child, 'the child publishes the attachment identity'
 assert re.search(r'\*isWriteProtected\s*=\s*true\s*;', child), 'the media is write-protected'
 assert 'failAll(' in child, 'terminating the child completes pending I/O'
+# The user client hosts the mount selectors; its publish hook has the service
+# create the child from this personality, and its remove hook terminates it.
+device_personality = personality['DJVirtualDiskDeviceProperties']
+assert device_personality['IOClass'] == 'IOUserBlockStorageDevice'
+assert device_personality['IOUserClass'] == 'DJVirtualDiskDevice'
+assert '#include "DJVirtualDiskMountSelectors.h"' in source and 'DJMountTable' in source, \
+    'the user client hosts the mount-selector core'
+assert re.search(r'\bCreate\s*\([^;]*kDJDevicePropertiesKey', source), 'publish creates the child from its personality'
+assert re.search(r'->Terminate\s*\(', source), 'remove terminates the child'
+for key in ('kDJAttachmentIdentityKey', 'kDJDeviceByteOffsetKey', 'kDJDeviceByteLengthKey', 'kDJDeviceBlockSizeKey'):
+    assert key in source and key in child, key
+shared_text = (root / 'DiskJockeyVirtualDisk/DJVirtualDiskShared.h').read_text()
+for key, name in (('kDJDeviceByteOffsetKey', 'DJByteOffset'), ('kDJDeviceByteLengthKey', 'DJByteLength'),
+                  ('kDJDeviceBlockSizeKey', 'DJBlockSize')):
+    assert re.search(r'#define\s+' + key + r'\s+"' + name + r'"\s*$', shared_text, re.M), key
+    assert not re.search(r'#\s*define\s+' + key + r'\b', child), key + ' is defined once, in the shared header'
 entitlements = plistlib.loads((root / 'DiskJockeyVirtualDisk/DiskJockeyVirtualDisk.entitlements').read_bytes())
 assert entitlements == {'com.apple.developer.driverkit': True}, 'service-only least privilege'
 PY
 then
-    ok 'the service target embeds a dext whose user client hosts the read dispatch core'
+    ok 'the service target embeds a dext whose user client hosts the read dispatch and mount-selector cores'
 else
     fail 'the DriverKit project graph or service personality is invalid'
 fi

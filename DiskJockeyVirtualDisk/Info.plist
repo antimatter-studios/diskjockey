@@ -21,6 +21,13 @@
             <key>IOUserClass</key><string>DJVirtualDiskService</string>
             <key>IOUserServerName</key><string>com.antimatterstudios.diskjockey.virtualdisk</string>
             <key>IOMatchCategory</key><string>com.antimatterstudios.diskjockey.virtualdisk</string>
+            <!-- The block-device child the mount selectors publish; the user
+                 client fills in its identity and geometry before Create. -->
+            <key>DJVirtualDiskDeviceProperties</key>
+            <dict>
+                <key>IOClass</key><string>IOUserBlockStorageDevice</string>
+                <key>IOUserClass</key><string>DJVirtualDiskDevice</string>
+            </dict>
             <key>UserClientProperties</key>
             <dict>
                 <key>IOClass</key><string>IOUserUserClient</string>
