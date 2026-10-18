@@ -222,6 +222,10 @@ jobs:
         with:
           targets: aarch64-apple-darwin
 
+      - name: Build pending reads against DriverKit
+        timeout-minutes: 2
+        run: bash scripts/quiet-run.sh driverkit-pending-build 100 12000 -- bash scripts/build-driverkit-pending-reads.sh
+
       - name: Agent-side VHDX reads match QEMU
         timeout-minutes: 5
         run: |
