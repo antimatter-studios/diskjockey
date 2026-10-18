@@ -122,7 +122,11 @@ add a selected partition offset exactly once, and serialize close with reads.
 `DJVirtualDiskReadShared.h` defines the version-1 request (40 bytes) and reply
 header (24 bytes) for #428, the first slice of #421. These are native-endian,
 same-machine C11/C++17 layouts with no pointers or file paths. The payload is
-separate from the reply header. A request carries nonzero device/read IDs,
+separate from the reply header: an external method call carries one structure
+input, which IOKit passes only as a memory descriptor above 4096 bytes, so the
+reply header travels as its five fields in `kDJReadReplyScalarCount` scalars
+(`DJReadReplyToScalars`, `DJReadReplyFromScalars`, which refuses a 32-bit field
+that does not fit) and the payload is the structure input (#442). A request carries nonzero device/read IDs,
 decoded image offset, byte count and an absolute monotonic deadline in
 nanoseconds. Read IDs must never be reused, including across reconnections.
 
@@ -193,8 +197,8 @@ provisioned round trip follow in #434–#437.
 `DJVirtualDiskUserClientDispatch.h` is the portable core of the user client's
 read transport (#434). One table names its three selectors —
 `kDJSelectorConnectReadEndpoint` (3: the protocol version as its one scalar,
-with an async completion), `kDJSelectorDeliverReadReply` (4: exactly one
-`DJReadReply` header and a payload of at most `kDJReadMaxBytes`) and
+with an async completion), `kDJSelectorDeliverReadReply` (4: the five
+`DJReadReply` scalars and a payload of at most `kDJReadMaxBytes`) and
 `kDJSelectorDisconnectReadEndpoint` (5: no arguments) — with exact scalar
 counts and structure sizes and no outputs. Every count, size and completion is
 checked against that table before any byte is copied; a wrong shape or an
@@ -211,9 +215,9 @@ link probe also links the core. The `IOUserClient` class itself is #435.
 
 `DJVirtualDiskUserClient` is the IIG class `NewUserClient` on the service
 creates from the personality's `UserClientProperties`. It maps
-`IOUserClientMethodArguments` onto `DJDispatchArguments`: the inline structure
-input is the reply header and the mapped structure input descriptor is the
-payload. The connect completion is retained only while the core owns it, and
+`IOUserClientMethodArguments` onto `DJDispatchArguments`: the one structure
+input, inline or a mapped descriptor, is the reply payload, and a call carrying
+both is refused. The connect completion is retained only while the core owns it, and
 requests reach the agent through `AsyncCompletion`. One
 `IOTimerDispatchSource` on the default queue implements the arm/cancel hooks at
 the absolute `CLOCK_UPTIME_RAW` deadline (`kIOTimerClockUptimeRaw`). `Stop`,

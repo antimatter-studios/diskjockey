@@ -1,6 +1,8 @@
 /* Same-machine host/DriverKit read protocol, version 1. No pointers, paths or
- * runtime dependencies. Native-endian fixed-width fields; headers and payload
- * are separate user-client buffers. This header does not enable transport. */
+ * runtime dependencies. Native-endian fixed-width fields. A request arrives in
+ * the async completion's arguments; a reply's header travels as scalars and
+ * its payload as the call's one structure input. This header does not enable
+ * transport. */
 #pragma once
 #include "DJVirtualDiskShared.h"
 
@@ -17,7 +19,7 @@ enum { kDJReadReplySuccess = 0, kDJReadReplyIOError = 1 };
  * structure output; DJVirtualDiskUserClientDispatch.h holds the exact table. */
 enum {
     kDJSelectorConnectReadEndpoint = 3,    /* Version scalar; async completion. */
-    kDJSelectorDeliverReadReply = 4,       /* DJReadReply; 0..kDJReadMaxBytes payload. */
+    kDJSelectorDeliverReadReply = 4,       /* DJReadReply scalars; 0..kDJReadMaxBytes payload. */
     kDJSelectorDisconnectReadEndpoint = 5, /* No arguments. */
 };
 
@@ -37,6 +39,38 @@ typedef struct DJReadReply {
     uint32_t version;
     uint32_t reserved;  /* Must be zero. */
 } DJReadReply;
+
+/* An external method call carries one structure input, and above 4096 bytes
+ * IOKit passes it only as a memory descriptor. So a reply's header is its five
+ * fields as scalars, in this order, and the payload is the structure input,
+ * inline or a descriptor, whichever IOKit chose. */
+#define kDJReadReplyScalarCount 5u
+
+static inline void DJReadReplyToScalars(const DJReadReply *reply,
+                                        uint64_t scalars[kDJReadReplyScalarCount])
+{
+    scalars[0] = reply->requestID;
+    scalars[1] = reply->byteCount;
+    scalars[2] = reply->status;
+    scalars[3] = reply->version;
+    scalars[4] = reply->reserved;
+}
+
+/* scalars is untrusted. A 32-bit field whose scalar does not fit is refused,
+ * never truncated. Failure leaves *reply unchanged. */
+static inline bool DJReadReplyFromScalars(const uint64_t *scalars, uint32_t scalarCount,
+                                          DJReadReply *reply)
+{
+    if (!scalars || scalarCount != kDJReadReplyScalarCount || !reply) return false;
+    for (uint32_t i = 1; i < kDJReadReplyScalarCount; ++i)
+        if (scalars[i] > UINT32_MAX) return false;
+    reply->requestID = scalars[0];
+    reply->byteCount = (uint32_t)scalars[1];
+    reply->status = (uint32_t)scalars[2];
+    reply->version = (uint32_t)scalars[3];
+    reply->reserved = (uint32_t)scalars[4];
+    return true;
+}
 
 /* Callers check incoming buffer lengths BEFORE copying into aligned local
  * headers. These helpers take aligned, complete local copies only. geometry
