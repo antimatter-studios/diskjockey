@@ -244,3 +244,32 @@ reader. Open and close must run on the main thread; close removes callback
 delivery before freeing the endpoint. The host guard drives this same loop
 over a fake connection. Activation and the provisioned mount round trip
 remain #437.
+
+## Agent attachment ownership lifecycle
+
+`DiskJockeyAgent/DJAgentAttachment.hpp` (#447, part of #397) provides the
+injected lifecycle for one authorized attachment and one trusted XPC
+connection owner. Attachment identities must not be reused within a service
+lifetime. Only a matching media event with a whole-disk `/dev/diskN` name can
+complete attachment successfully. The appearance wait has an active monotonic
+timer, bounded to 30 seconds. Unrelated, duplicate and late events cannot
+return another device. Publication failure and connection loss enter cleanup.
+
+Every cleanup first requests asynchronous unmount of the owned attachment,
+including when its BSD name has not appeared yet. The platform hook must
+resolve that identity; it must never select another disk. Only a successful,
+unexpired unmount reply permits child removal. Each unmount attempt has a
+fresh token, so delayed replies cannot authorize removal during a retry.
+Unmount has its own 30-second deadline. Unmount or removal failure preserves
+ownership and the reader/connection for a trusted retry. Resources close only
+after removal, or before any publication when the appearance timer cannot arm.
+Accepted attach/detach completions occur once; rejection takes no completion.
+
+All hooks and callbacks share one serial queue. The bridge retains the core
+and its hooks until `closed()` and drains timer callbacks before destruction.
+The shell guard drives this production core through fake publication, disk,
+unmount and timer boundaries. #448 still owns the actual XPC, IOKit and
+DiskArbitration bridge and synchronized protocols; #449 owns provisioned-host
+ownership evidence. #394 retains child publication, #419/#425 retain block-node
+reader integration, and #420/#426 retain decoder-specific cleanup. This core
+does not enable a shipping mount route or certify provisioned behavior.
