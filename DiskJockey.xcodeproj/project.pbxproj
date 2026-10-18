@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		D44300000000000000000001 /* AgentReadAuthority.swift in Sources */ = {isa = PBXBuildFile; fileRef = D44300000000000000000003 /* AgentReadAuthority.swift */; };
 		D44300000000000000000002 /* DJAgentReadEndpoint.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D44300000000000000000004 /* DJAgentReadEndpoint.cpp */; };
+		D45300000000000000000001 /* DJAgentConnections.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D45300000000000000000002 /* DJAgentConnections.cpp */; };
 		DA9E17A00000000000000007 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA9E17A00000000000000000 /* main.swift */; };
 		DA9E17A00000000000000008 /* AgentImpl.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA9E17A00000000000000001 /* AgentImpl.swift */; };
 		DA9E17A00000000000000009 /* DJAgentProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA9E17A00000000000000002 /* DJAgentProtocol.swift */; };
@@ -632,6 +633,7 @@
 /* Begin PBXFileReference section */
 		D44300000000000000000003 /* AgentReadAuthority.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentReadAuthority.swift; sourceTree = "<group>"; };
 		D44300000000000000000004 /* DJAgentReadEndpoint.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = DJAgentReadEndpoint.cpp; sourceTree = "<group>"; };
+		D45300000000000000000002 /* DJAgentConnections.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = DJAgentConnections.cpp; sourceTree = "<group>"; };
 		DA9E17A00000000000000000 /* main.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		DA9E17A00000000000000001 /* AgentImpl.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentImpl.swift; sourceTree = "<group>"; };
 		DA9E17A00000000000000002 /* DJAgentProtocol.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DJAgentProtocol.swift; sourceTree = "<group>"; };
@@ -1506,6 +1508,7 @@
 			children = (
 				D44300000000000000000003 /* AgentReadAuthority.swift */,
 				D44300000000000000000004 /* DJAgentReadEndpoint.cpp */,
+				D45300000000000000000002 /* DJAgentConnections.cpp */,
 				DA9E17A00000000000000000 /* main.swift */,
 				DA9E17A00000000000000001 /* AgentImpl.swift */,
 				DA9E17A00000000000000002 /* DJAgentProtocol.swift */,
@@ -2264,6 +2267,7 @@
 			files = (
 				D44300000000000000000001 /* AgentReadAuthority.swift in Sources */,
 				D44300000000000000000002 /* DJAgentReadEndpoint.cpp in Sources */,
+				D45300000000000000000001 /* DJAgentConnections.cpp in Sources */,
 				DA9E17A00000000000000007 /* main.swift in Sources */,
 				DA9E17A00000000000000008 /* AgentImpl.swift in Sources */,
 				DA9E17A00000000000000009 /* DJAgentProtocol.swift in Sources */,

@@ -4,9 +4,12 @@ final class AgentImpl: NSObject, DJAgentProtocol {
     /// What this agent attached, shared by every connection and kept on
     /// disk across launchd's restarts. See AgentAuthority.swift.
     private let ledger: AttachLedgerFile
+    /// Used only by the owned DriverKit methods; never supplied by the caller.
+    let owner: UInt64
 
-    init(ledger: AttachLedgerFile) {
+    init(ledger: AttachLedgerFile, owner: UInt64) {
         self.ledger = ledger
+        self.owner = owner
     }
 
     /// Attach only an image the caller has shown it can read: `proof` is

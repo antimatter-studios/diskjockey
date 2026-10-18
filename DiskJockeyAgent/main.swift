@@ -8,8 +8,8 @@ import Foundation
 private let kTeamID = "43UMKXZ8P4"
 
 final class AgentDelegate: NSObject, NSXPCListenerDelegate {
-    /// One ledger for every connection: an image attached over one
-    /// connection is detached over another after the app relaunches.
+    /// The legacy hdiutil ledger survives app relaunches. DriverKit
+    /// attachments instead belong to one live XPC connection.
     private let ledger = AttachLedgerFile(url: AttachLedgerFile.defaultURL)
 
     func listener(_ listener: NSXPCListener,
@@ -28,8 +28,12 @@ final class AgentDelegate: NSObject, NSXPCListenerDelegate {
         conn.setCodeSigningRequirement(
             "anchor apple generic and identifier \"com.antimatterstudios.diskjockey\" "
             + "and certificate leaf[subject.OU] = \"\(kTeamID)\"")
+        let owner = DJAgentConnectionOpen()
+        guard owner != 0 else { return false }
         conn.exportedInterface = NSXPCInterface(with: DJAgentProtocol.self)
-        conn.exportedObject = AgentImpl(ledger: ledger)
+        conn.exportedObject = AgentImpl(ledger: ledger, owner: owner)
+        conn.invalidationHandler = { DJAgentConnectionDisconnect(owner) }
+        conn.interruptionHandler = { DJAgentConnectionDisconnect(owner) }
         conn.resume()
         return true
     }
