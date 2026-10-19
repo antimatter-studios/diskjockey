@@ -422,6 +422,29 @@ filesystems answer the same way.
    question (rust-fs-core#361); until it is settled the transfer table
    below keeps 1.
 
+   A path that does not exist is recognised by a fixed `kind` field, not
+   by the wording and not by the status: the JSON error object carries
+   `"kind": "not_found"` beside `error` and `code`, so the human `error`
+   text stays free. Core's `cli::output::CliError::not_found` is the one
+   constructor that sets it, so a driver cannot spell the kind itself, and
+   every verb that takes a path — `ls`, `stat`, `read`, `get` and
+   `export` — reports a missing path through it. Every other error carries
+   no `kind`. The status is whichever the table gives the verb; the kind
+   is what a script matches.
+
+   ```
+   fs.ext4 disk.img read /no/such/file
+   {"error": "...", "code": 1, "kind": "not_found"}
+   ```
+
+   Before the field, fs.ext4 and fs.ntfs said "not found" and fs.xfs and
+   fs.btrfs "no such file or directory", so a script driving several had
+   to match both phrasings and each driver's tests pinned its own
+   (diskjockey#502). `scripts/tests/cli-error-kind.sh` holds the contract
+   to the field. It is planned, not released: the constructor is
+   diskjockey#524, each driver's adoption #525–#531, and the cross-driver
+   pipe check that asserts it #532.
+
 5. **Properties are a namespace, and they get ONE tool with
    subcommands rather than a dotted verb each.** Linux invented
    `e2label`, `xfs_admin -L`, `ntfslabel`, `tune2fs -U` and
