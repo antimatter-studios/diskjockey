@@ -188,6 +188,25 @@ jobs:
           bash scripts/quiet-run.sh ntfs-capability-fresh-copy 20 2000 -- \
             bash scripts/ntfs-capability-fixture.sh --check tmp/fixtures/ntfs
 
+      # The xfs capability seed (#491, part of #402) is formatted and
+      # populated by mkfs.xfs from a protofile, gets its hard link and xattr
+      # through a kernel loop mount, and is read back by xfs_repair -n and
+      # xfs_db from the unmounted image and by a read-only kernel mount,
+      # never by this constellation's writers or readers. xfsprogs and attr
+      # are GPL tools run at arm's length as oracles; nothing links or
+      # copies them. They are installed first, with apt's output in the kept
+      # log; a missing builder fails naming it.
+      # 20 lines / 2,000 bytes is an initial ceiling for about six lines.
+      - name: xfs capability seed, built and checked independently
+        run: |
+          mkdir -p tmp/logs
+          sudo apt-get update -q > tmp/logs/xfsprogs-install.log 2>&1
+          sudo apt-get install -y -q xfsprogs attr >> tmp/logs/xfsprogs-install.log 2>&1
+          bash scripts/quiet-run.sh xfs-capability-fixture 20 2000 -- \
+            bash scripts/xfs-capability-fixture.sh --dest tmp/fixtures/xfs
+          bash scripts/quiet-run.sh xfs-capability-fresh-copy 20 2000 -- \
+            bash scripts/xfs-capability-fixture.sh --check tmp/fixtures/xfs
+
       # KEEP THE LOG, GREEN OR RED. The tier prints a verdict; the whole run
       # is in tmp/logs/, and a log nothing uploads is a log nobody can read
       # once the runner is gone (#211).
