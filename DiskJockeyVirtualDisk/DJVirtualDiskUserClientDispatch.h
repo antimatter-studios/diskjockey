@@ -36,7 +36,7 @@ struct DJDispatchMethod {
 };
 
 static constexpr DJDispatchMethod kDJReadDispatchMethods[] = {
-    {kDJSelectorConnectReadEndpoint, 1, 0, 0, true},
+    {kDJSelectorConnectReadEndpoint, kDJReadConnectScalarCount, 0, 0, true},
     {kDJSelectorDeliverReadReply, kDJReadReplyScalarCount, 0, kDJReadMaxBytes, false},
     {kDJSelectorDisconnectReadEndpoint, 0, 0, 0, false},
 };
@@ -111,23 +111,39 @@ public:
         void *const endpoint = endpoint_;
         pending_.disconnect();
         endpoint_ = nullptr;
+        identity_ = 0;
+        virtualSize_ = 0;
         if (endpoint) platform_.release(platform_.context, endpoint);
     }
     bool connected() const { return endpoint_ != nullptr; }
+    /* The mount table's virtual-size hook: the decoded capacity the connected
+     * endpoint registered, for its identity only. */
+    bool virtualSize(uint64_t identity, uint64_t *size) const {
+        if (!endpoint_ || !size || !identity || identity != identity_) return false;
+        *size = virtualSize_;
+        return true;
+    }
     size_t pendingCount() const { return pending_.pendingCount(); }
 
 private:
     Platform platform_;
     Pending pending_;
     void *endpoint_ = nullptr;
+    uint64_t identity_ = 0;
+    uint64_t virtualSize_ = 0;
 
     DJDispatchResult connect(const DJDispatchArguments &arguments) {
-        if (arguments.scalarInput[0] != kDJReadProtocolVersion) return DJDispatchResult::BadArgument;
+        if (arguments.scalarInput[0] != kDJReadProtocolVersion || !arguments.scalarInput[1] ||
+            !arguments.scalarInput[2]) return DJDispatchResult::BadArgument;
         if (endpoint_) return DJDispatchResult::Busy;
         if (!platform_.now || !platform_.arm || !platform_.cancel || !platform_.deliver ||
             !platform_.release) return DJDispatchResult::NotReady;
         endpoint_ = arguments.completion;
-        if (pending_.connect()) return DJDispatchResult::Success;
+        if (pending_.connect()) {
+            identity_ = arguments.scalarInput[1];
+            virtualSize_ = arguments.scalarInput[2];
+            return DJDispatchResult::Success;
+        }
         endpoint_ = nullptr;
         return DJDispatchResult::NotReady;
     }

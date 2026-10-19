@@ -31,7 +31,7 @@ static void terminated(void *p, io_service_t, uint32_t message, void *) {
     if (message == kIOMessageServiceIsTerminated)
         static_cast<DJAgentReadEndpoint *>(p)->loop.stop();
 }
-static bool connect(void *p, DJAgentReadLoop *, uint64_t version) {
+static bool connect(void *p, DJAgentReadLoop *, uint64_t version, uint64_t identity, uint64_t virtualSize) {
     auto *e = static_cast<DJAgentReadEndpoint *>(p);
     if (IOServiceOpen(e->service, mach_task_self(), 0, &e->connection) != kIOReturnSuccess) return false;
     e->notifications = IONotificationPortCreate(kIOMainPortDefault);
@@ -40,12 +40,13 @@ static bool connect(void *p, DJAgentReadLoop *, uint64_t version) {
     CFRunLoopAddSource(CFRunLoopGetMain(), IONotificationPortGetRunLoopSource(e->notifications), kCFRunLoopCommonModes);
     if (IOServiceAddInterestNotification(e->notifications, e->service, kIOGeneralInterest,
         terminated, e, &e->interest) != kIOReturnSuccess) return false;
+    const uint64_t scalars[kDJReadConnectScalarCount] = {version, identity, virtualSize};
     io_async_ref64_t reference = {};
     reference[kIOAsyncCalloutFuncIndex] = reinterpret_cast<uintptr_t>(&received);
     reference[kIOAsyncCalloutRefconIndex] = reinterpret_cast<uintptr_t>(e);
     return IOConnectCallAsyncMethod(e->connection, kDJSelectorConnectReadEndpoint,
         IONotificationPortGetMachPort(e->notifications), reference, kIOAsyncCalloutCount,
-        &version, 1, nullptr, 0, nullptr, nullptr, nullptr, nullptr) == kIOReturnSuccess;
+        scalars, kDJReadConnectScalarCount, nullptr, 0, nullptr, nullptr, nullptr, nullptr) == kIOReturnSuccess;
 }
 static bool reply(void *p, const uint64_t *header, uint32_t count, const void *payload, size_t size) {
     auto *e = static_cast<DJAgentReadEndpoint *>(p);

@@ -12,7 +12,9 @@ struct DJAgentReadHooks {
     DJAgentReadFunction read;
     void (*close)(DJAgentImageReader *);
     uint64_t (*now)(void *);
-    bool (*connect)(void *, DJAgentReadLoop *, uint64_t);
+    /* Version, identity and the reader's decoded virtual size, which the dext
+     * records as that identity's capacity before it validates a mount. */
+    bool (*connect)(void *, DJAgentReadLoop *, uint64_t, uint64_t, uint64_t);
     bool (*reply)(void *, const uint64_t *, uint32_t, const void *, size_t);
     void (*disconnect)(void *);
 };
@@ -37,7 +39,7 @@ public:
         if (!DJMountRequestGetGeometry(&mount, sizeof(mount), image.virtualSize, &geometry) ||
             !(payload = malloc(kDJReadMaxBytes))) { stop(); return false; }
         deviceID = identity;
-        connected = hooks.connect(hooks.context, this, kDJReadProtocolVersion);
+        connected = hooks.connect(hooks.context, this, kDJReadProtocolVersion, identity, image.virtualSize);
         if (!connected) { stop(); return false; }
         return true;
     }

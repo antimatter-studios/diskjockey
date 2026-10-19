@@ -109,11 +109,12 @@ static kern_return_t DJUserClientMountStatus(DJMountResult result)
     return kIOReturnError;
 }
 
-// No read backend is installed yet, so no identity has a virtual size and
-// every mount is refused before a child is created.
-static bool DJUserClientVirtualSize(void *, uint64_t, uint64_t *)
+// The size the connected read endpoint registered for its identity; an
+// identity no endpoint registered is refused before a child is created.
+static bool DJUserClientVirtualSize(void *context, uint64_t identity, uint64_t *virtualSize)
 {
-    return false;
+    auto *ivars = static_cast<DJVirtualDiskUserClient_IVars *>(context);
+    return ivars->dispatch && ivars->dispatch->virtualSize(identity, virtualSize);
 }
 
 static bool DJUserClientSetNumber(OSDictionary *dictionary, const char *key, uint64_t value)

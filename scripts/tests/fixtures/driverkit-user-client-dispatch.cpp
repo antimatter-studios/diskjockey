@@ -1,4 +1,5 @@
 #include "DJVirtualDiskUserClientDispatch.h"
+#include "DJVirtualDiskMountSelectors.h"
 #include <stdio.h>
 #include <string.h>
 static int fails;
@@ -53,10 +54,13 @@ struct Endpoint {
 static const DJMountGeometry geometry = {4096, 2097152, 512};
 static int token;
 static void *const action = &token; // Stands in for the agent's OSAction.
-static const uint64_t version[1] = {kDJReadProtocolVersion};
+// Connect registers the protocol version, the attachment identity and the
+// reader's decoded virtual size, in that order.
+static const uint64_t kRegisteredSize = 4096 + 2097152;
+static const uint64_t version[3] = {kDJReadProtocolVersion, 11, kRegisteredSize};
 static DJDispatchArguments connectArguments() {
     DJDispatchArguments a = {};
-    a.scalarInput = version; a.scalarInputCount = 1; a.completion = action;
+    a.scalarInput = version; a.scalarInputCount = 3; a.completion = action;
     return a;
 }
 // The reply header travels as five scalars in DJReadReply's field order, and
@@ -85,9 +89,12 @@ int main() {
 
     // Connect: every argument shape other than the table's exact one is refused
     // and leaves no endpoint connected.
-    for (unsigned kind = 0; kind < 8; ++kind) {
+    for (unsigned kind = 0; kind < 10; ++kind) {
         DJDispatchArguments a = connectArguments();
-        const uint64_t two[2] = {kDJReadProtocolVersion, 0}, wrong[1] = {kDJReadProtocolVersion + 1};
+        const uint64_t two[2] = {kDJReadProtocolVersion, 11},
+                       wrong[3] = {kDJReadProtocolVersion + 1, 11, kRegisteredSize},
+                       anonymous[3] = {kDJReadProtocolVersion, 0, kRegisteredSize},
+                       empty[3] = {kDJReadProtocolVersion, 11, 0};
         unsigned char extra[8] = {};
         if (kind == 0) a.scalarInputCount = 0;
         if (kind == 1) { a.scalarInput = two; a.scalarInputCount = 2; }
@@ -97,6 +104,8 @@ int main() {
         if (kind == 5) a.scalarOutputCount = 1;
         if (kind == 6) a.structureOutputMaximumSize = 8;
         if (kind == 7) { a.payload = extra; a.payloadSize = sizeof(extra); }
+        if (kind == 8) a.scalarInput = anonymous;
+        if (kind == 9) a.scalarInput = empty;
         CHECK(d.externalMethod(kDJSelectorConnectReadEndpoint, a) == DJDispatchResult::BadArgument);
         CHECK(!d.connected());
     }
@@ -230,5 +239,60 @@ int main() {
         CHECK(read(temporary, orphan));
     }
     CHECK(orphan.calls == 1 && orphan.result == DJReadResult::Disconnected && f.releases == 1);
+
+    // The virtual-size hook answers only for the identity whose endpoint
+    // registered a size, and only while that endpoint stays connected.
+    Endpoint g;
+    Dispatch sized(ids, g.platform());
+    uint64_t size = 0;
+    CHECK(!sized.virtualSize(11, &size) && size == 0);
+    CHECK(sized.externalMethod(kDJSelectorConnectReadEndpoint, connectArguments()) == DJDispatchResult::Success);
+    CHECK(sized.virtualSize(11, &size) && size == kRegisteredSize);
+    size = 0;
+    CHECK(!sized.virtualSize(12, &size) && size == 0);
+    CHECK(!sized.virtualSize(0, &size) && size == 0);
+    CHECK(!sized.virtualSize(11, nullptr));
+
+    // A mount validates against that registered size, exactly as
+    // DJMountRequestGetGeometry does, and an unregistered identity is NotReady.
+    struct Publisher {
+        unsigned publishes = 0;
+        DJMountGeometry geometry{};
+        static bool size(void *context, uint64_t identity, uint64_t *out) {
+            return static_cast<Publisher *>(context)->dispatch->virtualSize(identity, out);
+        }
+        static bool publish(void *context, uint64_t, const DJMountGeometry &geometry) {
+            auto &p = *static_cast<Publisher *>(context);
+            ++p.publishes; p.geometry = geometry;
+            return true;
+        }
+        static bool remove(void *, uint64_t) { return true; }
+        Dispatch *dispatch = nullptr;
+    } publisher;
+    publisher.dispatch = &sized;
+    DJMountTable table({&publisher, Publisher::size, Publisher::publish, Publisher::remove});
+    auto mount = [&](uint64_t identity, uint64_t offset, uint64_t length) {
+        DJMountRequest request = {};
+        strcpy(request.path, "/image.qcow2");
+        request.partOffset = offset; request.partLength = length;
+        uint64_t scalar = identity, output = 0;
+        DJMountArguments a = {};
+        a.scalarInput = &scalar; a.scalarInputCount = 1;
+        a.structureInput = &request; a.structureInputSize = sizeof(request);
+        a.scalarOutput = &output; a.scalarOutputCount = 1;
+        return table.externalMethod(kDJSelectorMountImage, a);
+    };
+    CHECK(mount(12, 0, 0) == DJMountResult::NotReady && publisher.publishes == 0);
+    CHECK(mount(11, 4096, kRegisteredSize) == DJMountResult::BadArgument && publisher.publishes == 0);
+    CHECK(mount(11, 4096, kRegisteredSize - 4096 + 512) == DJMountResult::BadArgument);
+    CHECK(mount(11, 4096, kRegisteredSize - 4096) == DJMountResult::Success && publisher.publishes == 1);
+    CHECK(publisher.geometry.byteOffset == 4096 && publisher.geometry.byteLength == kRegisteredSize - 4096);
+    CHECK(publisher.geometry.blockSize == 512);
+
+    // Disconnecting withdraws the registration: the next mount is NotReady.
+    sized.stop();
+    size = 0;
+    CHECK(!sized.virtualSize(11, &size) && size == 0);
+    CHECK(mount(11, 0, 0) == DJMountResult::NotReady && publisher.publishes == 1);
     return fails != 0;
 }

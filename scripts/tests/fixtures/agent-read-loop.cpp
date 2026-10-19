@@ -21,9 +21,11 @@ struct Fake {
     }
     static void close(DJAgentImageReader *r) { ++reinterpret_cast<Fake *>(r)->closes; }
     static uint64_t clock(void *p) { return static_cast<Fake *>(p)->now; }
-    static bool connect(void *p, DJAgentReadLoop *loop, uint64_t version) {
+    static bool connect(void *p, DJAgentReadLoop *loop, uint64_t version, uint64_t identity,
+                        uint64_t virtualSize) {
         auto &f = *static_cast<Fake *>(p); ++f.connects; f.loop = loop;
-        assert(version == kDJReadProtocolVersion); return f.connected;
+        assert(version == kDJReadProtocolVersion && identity == 9 && virtualSize == 65536);
+        return f.connected;
     }
     static bool reply(void *p, const uint64_t *scalars, uint32_t count, const void *bytes, size_t size) {
         auto &f = *static_cast<Fake *>(p); ++f.replies;
