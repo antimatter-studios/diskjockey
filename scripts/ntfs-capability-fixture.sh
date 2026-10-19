@@ -106,7 +106,7 @@ verify() {
     [ "$(ntfscat "$img" /data.bin 2>/dev/null | sha256sum | cut -d' ' -f1)" = "$(cat "$dest/data.bin.sha256")" ] \
         || fail 'ntfscat reads /data.bin with the wrong bytes'
     ntfsls -p /dir "$img" 2>/dev/null | grep -qx 'file.txt' || fail '/dir is not nonempty'
-    [ -z "$(ntfsls -p /empty "$img" 2>/dev/null)" ] && ntfsinfo -F /empty "$img" >/dev/null 2>&1 \
+    [ -z "$(ntfsls -p /empty "$img" 2>/dev/null | grep -vx '\.')" ] && ntfsinfo -F /empty "$img" >/dev/null 2>&1 \
         || fail '/empty is not an empty directory'
     # Two names on one MFT record is a hard link with a link count of 2.
     inode_a="$(ntfsls -i -p / "$img" 2>/dev/null | awk '$NF == "link-target.txt" { print $1 }')"
@@ -114,7 +114,7 @@ verify() {
     [ -n "$inode_a" ] && [ "$inode_a" = "$inode_b" ] || fail '/hardlink.txt is not a hard link of /link-target.txt'
     # ntfs-3g stores a symlink as an Interix file ($DATA) or as a reparse
     # point ($REPARSE_POINT, 0xc0); either names data.bin in UTF-16.
-    { ntfscat "$img" /symlink 2>/dev/null; ntfscat -a 0xc0 "$img" /symlink 2>/dev/null; } \
+    { ntfscat "$img" /symlink 2>/dev/null || :; ntfscat -a 0xc0 "$img" /symlink 2>/dev/null || :; } \
         | tr -d '\000' | grep -aq 'data\.bin' || fail '/symlink does not point at data.bin'
     # The named $DATA (0x80) attribute "capability" is the stream.
     [ "$(ntfscat -a 0x80 -n capability "$img" /data.bin 2>/dev/null)" = seed ] \
