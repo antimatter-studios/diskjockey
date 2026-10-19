@@ -63,6 +63,7 @@
 # The dext provisioning documentation guard (#476) raises it to 72 files.
 # The ext4 capability seed guard (#489) raises it to 73 files.
 # The ntfs capability seed guard (#490) raises it to 74 files.
+# The xfs capability seed guard (#491) raises it to 75 files.
 # It moves up with the suite; it never moves down.
 #
 # `rc`, not `status`: `status` is READ-ONLY in zsh, so a loop written with it
@@ -73,7 +74,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
-FLOOR=74
+FLOOR=75
 
 # The raw loop, whose whole output is the tier's log. Failure lines carry a
 # TIER-FAIL prefix so the quiet verdict below can name them without a tail.
