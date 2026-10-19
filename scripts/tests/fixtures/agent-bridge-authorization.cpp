@@ -64,6 +64,19 @@ bool remove(void *, uint64_t attachmentID) {
     note("remove"); assert(attachmentID == 9); return world->remove;
 }
 
+// The user-client connection: the mount selector is the publication and the
+// unmount selector the removal, so both log as the lifecycle steps they back.
+int32_t call(void *, void *, uint64_t selector, const uint64_t *input, uint32_t, const void *,
+             size_t, uint64_t *output, uint32_t *) {
+    constexpr int32_t failed = int32_t(0xe00002bc);  // kIOReturnError
+    if (selector == kDJSelectorMountImage) {
+        if (!publish(nullptr, input[0])) return failed;
+        output[0] = input[0];
+        return 0;
+    }
+    return remove(nullptr, input[0]) ? 0 : failed;
+}
+
 struct Outcome {
     unsigned calls = 0;
     DJAttachmentResult result = DJAttachmentResult::Detached;
@@ -73,7 +86,7 @@ void completed(void *context, DJAttachmentResult result, const char *) {
     ++outcome->calls; outcome->result = result;
 }
 
-const DJAgentBridgePlatform platform = {nullptr, authorize, discover, release, open, close};
+const DJAgentBridgePlatform platform = {nullptr, authorize, discover, release, open, close, call};
 // The lifecycle's own close hook is deliberately null: the bridge owns close.
 const DJAgentAttachment::Hooks lifecycle = {nullptr, now, arm, cancel, publish, unmount, remove, nullptr};
 
@@ -156,7 +169,8 @@ int main() {
         DJAgentBridgePlatform partial = platform; partial.release = nullptr;
         DJAgentBridge incomplete(3, 9, partial, lifecycle); w.bridge = &incomplete;
         assert(!incomplete.attach(request(), 11, attachWait, completed, &outcome));
-        DJAgentAttachment::Hooks noRemove = lifecycle; noRemove.remove = nullptr;
+        // Removal is the unmount selector now; the disk unmount stays required.
+        DJAgentAttachment::Hooks noRemove = lifecycle; noRemove.unmount = nullptr;
         DJAgentBridge unremovable(3, 9, platform, noRemove); w.bridge = &unremovable;
         assert(!unremovable.attach(request(), 11, attachWait, completed, &outcome));
         assert(w.log.empty() && outcome.calls == 0);

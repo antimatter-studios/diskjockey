@@ -299,7 +299,19 @@ what was opened and starts no lifecycle. The lifecycle's close hook is the
 bridge's, so the endpoint closes and the service is released exactly once,
 only after removal. The shell guard drives the bridge over injected
 boundaries. #457 owns the IOKit ancestry search and the DiskArbitration
-callback; #458 backs publish, unmount and remove with #394's selectors.
+callback.
+
+Publication and removal are the dext's (#458): the bridge's publish hook
+calls the mount selector (0) on the open endpoint's connection with the
+attachment identity and the caller's request, and accepts only a device ID
+equal to that identity; its remove hook calls the unmount selector (1), and
+treats `kIOReturnNotFound` as already removed, since identities are never
+reused. The dext validates the request and decodes the geometry; the disk
+unmount between publication and removal stays the lifecycle's hook. A
+refused mount selector, an appearance timeout, a failed disk unmount and a
+failed unmount selector each enter the attachment cleanup, and the reader and
+connection close only after a successful removal; the
+`agent-bridge-mount-selectors` guard drives each.
 
 ## Mount selectors
 
