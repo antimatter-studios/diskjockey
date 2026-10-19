@@ -4,5 +4,7 @@
 <dict>
     <key>com.apple.developer.driverkit</key>
     <true/>
+    <key>com.apple.developer.driverkit.family.block-storage-device</key>
+    <true/>
 </dict>
 </plist>
