@@ -9,7 +9,8 @@ import DiskJockeyLibrary
 ///
 /// Each delegate callback feeds `SystemExtensionActivation`, the host-free
 /// model the library tests drive; this class only submits the request and
-/// wakes the mounts waiting on it.
+/// wakes the mounts waiting on it. What a mount throws is
+/// `SystemExtensionActivationError`, whose prompt the view shows (#475).
 @MainActor
 final class SystemExtensionActivator: NSObject {
     static let shared = SystemExtensionActivator()
@@ -17,23 +18,6 @@ final class SystemExtensionActivator: NSObject {
     /// The dext's PRODUCT_BUNDLE_IDENTIFIER. scripts/tests/
     /// system-extension-activation.sh holds it to the embedded target.
     static let identifier = "com.antimatterstudios.diskjockey.virtualdisk"
-
-    enum ActivationError: LocalizedError {
-        case awaitingUserApproval
-        case restartRequired
-        case failed(code: Int)
-
-        var errorDescription: String? {
-            switch self {
-            case .awaitingUserApproval:
-                return "Allow the DiskJockey virtual disk in System Settings > General > Login Items & Extensions, then mount the image again."
-            case .restartRequired:
-                return "The DiskJockey virtual disk finishes installing after a restart. Restart the Mac, then mount the image again."
-            case .failed(let code):
-                return "The DiskJockey virtual disk could not be activated (OSSystemExtensionError \(code))."
-            }
-        }
-    }
 
     private let logger = Logger(subsystem: "com.antimatterstudios.diskjockey", category: "SystemExtension")
     private var activation = SystemExtensionActivation()
@@ -51,10 +35,8 @@ final class SystemExtensionActivator: NSObject {
         switch activation.state {
         case .activated:
             return
-        case .awaitingUserApproval:
-            throw ActivationError.awaitingUserApproval
-        case .activatedAfterRestart:
-            throw ActivationError.restartRequired
+        case .awaitingUserApproval, .activatedAfterRestart:
+            throw SystemExtensionActivationError(state: activation.state)
         case .requesting:
             break
         case .idle, .failed:
@@ -77,13 +59,11 @@ final class SystemExtensionActivator: NSObject {
             return
         case .activated:
             result = .success(())
-        case .awaitingUserApproval:
-            result = .failure(ActivationError.awaitingUserApproval)
-        case .activatedAfterRestart:
-            result = .failure(ActivationError.restartRequired)
+        case .awaitingUserApproval, .activatedAfterRestart:
+            result = .failure(SystemExtensionActivationError(state: activation.state))
         case .failed(let code):
             logger.error("activation failed: OSSystemExtensionError \(code, privacy: .public)")
-            result = .failure(ActivationError.failed(code: code))
+            result = .failure(SystemExtensionActivationError(state: activation.state))
         }
         let resumed = waiters
         waiters.removeAll()

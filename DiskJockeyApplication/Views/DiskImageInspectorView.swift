@@ -13,6 +13,10 @@ struct DiskImageInspectorView: View {
 
     @State private var isMounting = false
     @State private var mountError: String?
+    /// Set instead of `mountError` when the mount waits on the virtual disk
+    /// system extension, so the user gets the action that resolves it.
+    @State private var activationPrompt: SystemExtensionActivationPrompt?
+    @Environment(\.openURL) private var openURL
 
     init(url: URL, probe: DiskProbeResult, logRepository: LogRepository?, onDismiss: @escaping () -> Void) {
         self.url = url
@@ -277,6 +281,10 @@ struct DiskImageInspectorView: View {
                     .foregroundStyle(.red)
             }
 
+            if let prompt = activationPrompt {
+                activationPromptView(prompt)
+            }
+
             // No name field: Disk Arbitration mounts each volume at its own
             // label and takes no mount point from us, so a name typed here
             // would reach nothing (diskjockey#290).
@@ -302,6 +310,36 @@ struct DiskImageInspectorView: View {
         }
     }
 
+    private func activationPromptView(_ prompt: SystemExtensionActivationPrompt) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(prompt.title)
+                    .font(.callout.weight(.semibold))
+                Text(prompt.message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            switch prompt.action {
+            case .openLoginItemsAndExtensions:
+                Button("Open System Settings") {
+                    openURL(SystemExtensionActivationPrompt.loginItemsAndExtensionsURL)
+                }
+            case .retry:
+                Button("Try Again") { performMount() }
+                    .disabled(isMounting)
+            case nil:
+                EmptyView()
+            }
+        }
+        .padding(10)
+        .background(Color.orange.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
     private var mountButtonLabel: String {
         if isMounting { return "Mounting…" }
         if probe.table != "none" && !probe.partitions.isEmpty { return "Mount All" }
@@ -321,6 +359,7 @@ struct DiskImageInspectorView: View {
     private func performMount() {
         isMounting = true
         mountError = nil
+        activationPrompt = nil
 
         Task { @MainActor in
             do {
@@ -343,6 +382,12 @@ struct DiskImageInspectorView: View {
                         category: "info", source: "FSKit"))
                 }
                 onDismiss()
+            } catch let activation as SystemExtensionActivationError {
+                if let prompt = activation.prompt {
+                    activationPrompt = prompt
+                } else {
+                    mountError = activation.localizedDescription
+                }
             } catch {
                 mountError = error.localizedDescription
             }
