@@ -86,7 +86,7 @@ OAuth app-registration instructions: [Dropbox](docs/dropbox-registration.md), [G
 
 As of 2026-10-14:
 
-- **qcow2 and VHDX images open but do not mount** yet (see [Disk images](#disk-images)).
+- **qcow2 and VHDX images open but do not mount** yet (see [Disk images](#disk-images)). The virtual disk driver they need is not provisioned: two of the entitlements it requires are not in the project yet ([Activation and provisioning](DiskJockeyVirtualDisk/README.md#activation-and-provisioning)).
 - **Btrfs is read-only.** The driver reads everything, subvolumes and snapshots included; its copy-on-write write path is not built. EROFS and SquashFS are read-only formats.
 - **XFS has no repair.** The check task reports the driver's findings, but the driver's repair is not reachable through its C ABI yet, so a repair request is refused. XFS work is tracked in [#319](https://github.com/antimatter-studios/diskjockey/issues/319).
 - **bcachefs is limited to single-device, unencrypted filesystems and the root subvolume.** Other subvolumes are listed but cannot be entered, times are read but not set, and there is no check or format.
