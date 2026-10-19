@@ -83,8 +83,19 @@ else fail "the first holder's release deleted the second holder's slot (slot now
 
 # 3. #125. Kill the wrapper with SIGKILL while its command runs. The slot
 #    must still read held, and a second caller must not get it.
+#    A loaded machine stretches the gap between the command starting and the
+#    wrapper recording its process group (#466). A `mv` stub on PATH that
+#    pauses before the record rewrite makes that gap wide on every run.
 fresh
-AM_SLOT_LIMIT=1 AM_SLOT_NAME=builder "$SLOT" p sh -c 'sleep 30' >/dev/null 2>&1 & wrapper=$!; pids+=("$wrapper")
+mkdir -p "$sandbox/slowbin"
+REAL_MV="$(command -v mv)"
+cat > "$sandbox/slowbin/mv" <<STUB
+#!/bin/sh
+case "\$1" in *.slot.new.*) sleep 0.5 ;; esac
+exec "$REAL_MV" "\$@"
+STUB
+chmod +x "$sandbox/slowbin/mv"
+PATH="$sandbox/slowbin:$PATH" AM_SLOT_LIMIT=1 AM_SLOT_NAME=builder "$SLOT" p sh -c 'sleep 30' >/dev/null 2>&1 & wrapper=$!; pids+=("$wrapper")
 wait_for '[ -f "$P/1.slot" ] && pgrep -f "sleep 30" >/dev/null' || fail "harness: the build never started"
 kill -9 "$wrapper"; wait "$wrapper" 2>/dev/null
 build=$(pgrep -f "^sleep 30$" | head -1)
