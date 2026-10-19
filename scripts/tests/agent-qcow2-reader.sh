@@ -7,7 +7,7 @@ ok() { printf 'ok    %s\n' "$1"; }
 fail() { printf 'FAIL  %s\n' "$1"; fails=$((fails + 1)); }
 probe='#include "DJAgentImageReader.h"
 static DJAgentImageReader *(*const open_qcow2)(int, DJAgentImageGeometry *) = dj_agent_qcow2_open;
-int main(void) { return open_qcow2 == 0; }'
+int main(void) { (void)open_qcow2; return 0; }'
 for language in c c++; do
     if [ "$language" = c ]; then compiler="${CC:-cc}"; standard=c11;
     else compiler="${CXX:-c++}"; standard=c++17; fi
