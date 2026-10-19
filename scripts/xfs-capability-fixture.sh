@@ -117,7 +117,7 @@ PROTO
 # is the last field, before any "(good)" verdict.
 db_names() {
     xfs_db -r -f -c "ls $2" "$1" 2>/dev/null \
-        | awk '{ n = $NF; if (n ~ /^\(.*\)$/) n = $(NF - 1); print n }'
+        | awk '$1 ~ /^[0-9]+$/ { n = $NF; if (n ~ /^\(.*\)$/) n = $(NF - 1); print n }'
 }
 
 # Read the seed back through xfsprogs and the kernel, not our drivers.
