@@ -157,6 +157,19 @@ jobs:
         # its FAIL lines, and every script's output is in the uploaded log.
         run: bash scripts/test-scripts.sh
 
+      # The ext4 capability seed (#489, part of #402) is built by e2fsprogs
+      # (mke2fs -d, debugfs) and read back by e2fsck and debugfs, never by
+      # this constellation's writers or readers. The second step proves the
+      # capability executor hands every operation a fresh copy of it. The
+      # runner image ships e2fsprogs; a missing builder fails naming it.
+      # 20 lines / 2,000 bytes is an initial ceiling for about six lines.
+      - name: ext4 capability seed, built and checked independently
+        run: |
+          bash scripts/quiet-run.sh ext4-capability-fixture 20 2000 -- \
+            bash scripts/ext4-capability-fixture.sh --dest tmp/fixtures/ext4
+          bash scripts/quiet-run.sh ext4-capability-fresh-copy 20 2000 -- \
+            bash scripts/ext4-capability-fixture.sh --check tmp/fixtures/ext4
+
       # KEEP THE LOG, GREEN OR RED. The tier prints a verdict; the whole run
       # is in tmp/logs/, and a log nothing uploads is a log nobody can read
       # once the runner is gone (#211).

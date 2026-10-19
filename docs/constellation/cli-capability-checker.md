@@ -63,6 +63,33 @@ For a persistent installation, use
 existing destination and writes `NEW_DIR/releases.tsv` plus `NEW_DIR/bin`.
 `--pins FILE` selects an alternate pins file for installer guards.
 
+## The ext4 seed
+
+`bash scripts/ext4-capability-fixture.sh --dest NEW_DIR` builds `ext4.img`
+and `payload.bin` with e2fsprogs only: `mke2fs -d` copies a prepared tree
+and `debugfs` sets the extended attribute. It then reads the seed back with
+`e2fsck -fn` and `debugfs`, never with this constellation's readers, and
+refuses a seed whose names, bytes, hard link, symlink target, empty
+directory or xattr disagree. `--check DIR` runs the executor over three rows
+that each remove `/data.bin` through `debugfs`, so a reused copy or a write
+to the source fixture fails the run. The Shell scripts job runs both modes
+on Ubuntu. A missing `mke2fs`, `debugfs` or `e2fsck` fails naming e2fsprogs
+before anything is created; nothing is skipped.
+
+| path | operand for |
+|---|---|
+| `/data.bin` (8 KiB, `user.capability=seed`) | stat, write --at, truncate, rm, xattr |
+| `/dir/file.txt` | recursive ls, rm of a child, a nonempty rmdir refusal |
+| `/empty` | rmdir, mkdir --parents below it |
+| `/link-target.txt`, `/hardlink.txt` | hard links (link count 2) |
+| `/symlink` -> `data.bin` | symbolic links |
+| `/mv-src.txt`, `/replace-dst.txt` | mv, and mv onto an existing destination |
+| `payload.bin` (4 KiB) | stdin for write rows |
+
+Format limits: ext4 has no named data streams, so stream verbs have no
+operand and a correct driver refuses them (exit 3). The seed is 32 MiB with
+4 KiB blocks and 256-byte inodes, so the xattr is stored in the inode.
+
 This is the execution layer of #387 (#401) and its verified release
 installation layer (#488, part of #402). Independent fixture builders are
 tracked in #489–#495, and the measured seven-driver capability TSV in #496.
