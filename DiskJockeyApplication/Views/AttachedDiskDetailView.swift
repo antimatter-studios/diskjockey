@@ -393,11 +393,22 @@ struct AttachedDiskDetailView: View {
     private func unmount(_ disk: AttachedDisk) {
         unmounting = true
         unmountError = nil
-        VolumeUnmounter.unmount(mountPath: disk.mountPath) { error in
-            let message = error.map { "Unmount failed: \($0.localizedDescription)" }
-            Task { @MainActor in
+        Task { @MainActor in
+            do {
+                if try await FSKitMountService.shared.ejectImage(mountPath: disk.mountPath, device: disk.bsd) {
+                    self.unmounting = false
+                    return
+                }
+                VolumeUnmounter.unmount(mountPath: disk.mountPath) { error in
+                    let message = error.map { "Unmount failed: \($0.localizedDescription)" }
+                    Task { @MainActor in
+                        self.unmounting = false
+                        self.unmountError = message
+                    }
+                }
+            } catch {
                 self.unmounting = false
-                self.unmountError = message
+                self.unmountError = "Unmount failed: \(error.localizedDescription)"
             }
         }
     }
