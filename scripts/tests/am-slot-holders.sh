@@ -34,6 +34,9 @@ fail() { printf 'FAIL  %s\n' "$1"; fails=$((fails + 1)); }
 fresh() { rm -rf "$AM_SLOT_DIR"; mkdir -p "$P"; }
 dead_pid() { local d=99999; while kill -0 "$d" 2>/dev/null; do d=$((d + 1)); done; echo "$d"; }
 wait_for() { local i; for i in $(seq 1 50); do eval "$1" && return 0; sleep 0.1; done; return 1; }
+# The wrapper is fully started once slot 1's record carries the command's
+# process group. A wait on the command's process alone returns before that.
+group_recorded() { [ -n "$(cut -d'|' -f4 "$P/1.slot" 2>/dev/null)" ]; }
 
 echo "am-slot-holders: removals and liveness"
 
@@ -70,22 +73,36 @@ rm -f "$sandbox/bin/cut" "$sandbox/crossed"
 #    second holder's file.
 fresh
 sleep 300 & other=$!; disown "$other"; pids+=("$other")
-AM_SLOT_LIMIT=1 AM_SLOT_NAME=first "$SLOT" p sleep 1.5 >/dev/null 2>&1 & first=$!; pids+=("$first")
+# The first holder runs until the replacement is made, not for a fixed time
+# that a loaded machine can outlast before the replacement happens (#466).
+AM_SLOT_LIMIT=1 AM_SLOT_NAME=first "$SLOT" p sh -c 'while [ ! -e "$1" ]; do sleep 0.05; done' _ "$sandbox/go" >/dev/null 2>&1 & first=$!; pids+=("$first")
 # Wait for the record to carry the command's process group: a live holder
 # is never reclaimed, so the replacement this check models happens after
 # the holder is fully started, not inside its own startup.
-wait_for '[ "$(cut -d"|" -f4 "$P/1.slot" 2>/dev/null)" != "" ] || { [ -f "$P/1.slot" ] && [ "$(awk -F"|" "{print NF}" "$P/1.slot")" = 2 ]; }' \
-    || fail "harness: the first holder never took a slot"
+wait_for group_recorded || fail "harness: the first holder never took a slot"
 printf 'second|%s\n' "$other" > "$P/1.slot.new" && mv "$P/1.slot.new" "$P/1.slot"
+: > "$sandbox/go"
 wait "$first" 2>/dev/null
+rm -f "$sandbox/go"
 if grep -q '^second|' "$P/1.slot" 2>/dev/null; then ok "a holder's exit does not delete a slot someone else now holds"
 else fail "the first holder's release deleted the second holder's slot (slot now: $(cat "$P/1.slot" 2>/dev/null || echo gone))"; fi
 
 # 3. #125. Kill the wrapper with SIGKILL while its command runs. The slot
 #    must still read held, and a second caller must not get it.
+#    A loaded machine stretches the gap between the command starting and the
+#    wrapper recording its process group (#466). A `mv` stub on PATH that
+#    pauses before the record rewrite makes that gap wide on every run.
 fresh
-AM_SLOT_LIMIT=1 AM_SLOT_NAME=builder "$SLOT" p sh -c 'sleep 30' >/dev/null 2>&1 & wrapper=$!; pids+=("$wrapper")
-wait_for '[ -f "$P/1.slot" ] && pgrep -f "sleep 30" >/dev/null' || fail "harness: the build never started"
+mkdir -p "$sandbox/slowbin"
+REAL_MV="$(command -v mv)"
+cat > "$sandbox/slowbin/mv" <<STUB
+#!/bin/sh
+case "\$1" in *.slot.new.*) sleep 0.5 ;; esac
+exec "$REAL_MV" "\$@"
+STUB
+chmod +x "$sandbox/slowbin/mv"
+PATH="$sandbox/slowbin:$PATH" AM_SLOT_LIMIT=1 AM_SLOT_NAME=builder "$SLOT" p sh -c 'sleep 30' >/dev/null 2>&1 & wrapper=$!; pids+=("$wrapper")
+wait_for 'group_recorded && pgrep -f "^sleep 30$" >/dev/null' || fail "harness: the build never started"
 kill -9 "$wrapper"; wait "$wrapper" 2>/dev/null
 build=$(pgrep -f "^sleep 30$" | head -1)
 [ -n "$build" ] && pids+=("$build")
@@ -112,7 +129,7 @@ AM_SLOT_LIMIT=1 AM_SLOT_NAME=plain "$SLOT" p sh -c 'exit 7' >/dev/null 2>&1; rc=
 # 5. SIGTERM to the wrapper stops the work it is accounting for and releases.
 fresh
 AM_SLOT_LIMIT=1 AM_SLOT_NAME=stopped "$SLOT" p sh -c 'sleep 31' >/dev/null 2>&1 & wrapper=$!; pids+=("$wrapper")
-wait_for 'pgrep -f "^sleep 31$" >/dev/null' || fail "harness: the command never started"
+wait_for 'group_recorded && pgrep -f "^sleep 31$" >/dev/null' || fail "harness: the command never started"
 kill -TERM "$wrapper"; wait "$wrapper" 2>/dev/null
 if wait_for '! pgrep -f "^sleep 31$" >/dev/null' && [ -z "$(ls -A "$P" 2>/dev/null)" ]; then
     ok "SIGTERM to the wrapper stops its command and releases the slot"
