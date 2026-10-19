@@ -77,11 +77,12 @@ request delegate as an error, which the image inspector shows.
 | Signed code | Entitlement | Why | In the project |
 |---|---|---|---|
 | the dext | `com.apple.developer.driverkit` | lets it run as a driver; Apple grants it on request | yes, `DiskJockeyVirtualDisk/DiskJockeyVirtualDisk.entitlements` |
-| the dext | `com.apple.developer.driverkit.family.block-storage-device` | Apple requires it of every BlockStorageDeviceDriverKit driver, and the personality publishes `IOUserBlockStorageDevice`; Apple grants it on request | **no** |
+| the dext | `com.apple.developer.driverkit.family.block-storage-device` | Apple requires it of every BlockStorageDeviceDriverKit driver, and the personality publishes `IOUserBlockStorageDevice`; Apple grants it on request | yes, `DiskJockeyVirtualDisk/DiskJockeyVirtualDisk.entitlements` |
 | the app | `com.apple.developer.system-extension.install` | the System Extension capability, which activation requires | yes, `DiskJockeyApplication/DiskJockeyApplication.entitlements` |
-| the agent | `com.apple.developer.driverkit.userclient-access`, an array holding `com.antimatterstudios.diskjockey.virtualdisk` | Apple requires it of the process that opens a dext's user client, and `DJAgentReadEndpoint.cpp` calls `IOServiceOpen` | **no**, `DiskJockeyAgent/DiskJockeyAgent.entitlements` |
+| the agent | `com.apple.developer.driverkit.userclient-access`, an array holding `com.antimatterstudios.diskjockey.virtualdisk` | Apple requires it of the process that opens a dext's user client, and `DJAgentReadEndpoint.cpp` calls `IOServiceOpen` | yes, `DiskJockeyAgent/DiskJockeyAgent.entitlements` |
 
-The two missing rows are why a provisioned activation is not yet possible.
+Apple grants the two DriverKit rows to the team, so a build signed with them
+only runs once the profiles below carry them.
 DriverKit's `IOKitKeys.h` also defines
 `com.apple.developer.driverkit.allow-any-userclient-access`, which would let
 any process open the dext's user client; the agent-side entitlement is the
