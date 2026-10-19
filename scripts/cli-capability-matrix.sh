@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Execute capability rows against prepared images (#401, part of #387).
-# Release installation and independent fixture construction belong to #402;
-# this executor never substitutes a stub for a missing driver or image.
+# --install uses the exact attested releases from SIBLING_PINS.txt (#488).
+# Independent fixture construction remains under #402.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 usage() {
-    echo 'usage: scripts/cli-capability-matrix.sh --matrix FILE --images DIR [--verbose]' >&2
+    echo 'usage: scripts/cli-capability-matrix.sh --matrix FILE --images DIR [--install] [--verbose]' >&2
     exit 2
 }
 fails=0
@@ -36,7 +36,7 @@ parse_row() {
 }
 
 run_all() {
-    local matrix="$1" images="$2" work line number=0 rows=0 ran=0 rc input image before out err prior
+    local matrix="$1" images="$2" install="${3:-0}" work line number=0 rows=0 ran=0 rc input image before out err prior
     local -a fields
     [ -f "$matrix" ] || { fail "missing matrix $matrix; provide --matrix FILE"; return 1; }
     [ -d "$images" ] || { fail "missing image directory $images; build the independent fixtures (#402)"; return 1; }
@@ -58,8 +58,15 @@ run_all() {
         case "$line" in ''|\#*) continue ;; esac
         parse_row "$line" || continue
         rows=$((rows + 1))
-        command -v "${fields[0]}" >/dev/null 2>&1 \
-            || fail "row $number: missing tool ${fields[0]}; install its pinned release (#402)"
+        if [ "$install" = 1 ]; then
+            case "${fields[0]}" in
+                fs.ext4|fs.ntfs|fs.xfs|fs.btrfs|fs.bcachefs|fs.erofs|fs.squashfs) ;;
+                *) fail "row $number: no pinned release for ${fields[0]}; add its capability installer mapping (#488)" ;;
+            esac
+        else
+            command -v "${fields[0]}" >/dev/null 2>&1 \
+                || fail "row $number: missing tool ${fields[0]}; use --install for its pinned release (#488)"
+        fi
         [ -f "$images/${fields[1]}" ] \
             || fail "row $number: missing image ${fields[1]}; build the independent fixtures (#402)"
         if [ "${fields[3]}" != - ] && [ ! -f "$images/${fields[3]}" ]; then
@@ -69,6 +76,13 @@ run_all() {
     [ "$rows" -gt 0 ] || fail 'matrix contains no operations'
     [ "$fails" = 0 ] || return 1
 
+    if [ "$install" = 1 ]; then
+        bash "$ROOT/scripts/install-cli-capabilities.sh" --dest "$work/tools" || return 1
+        export PATH="$work/tools/bin:$PATH"
+        # The private installation is removed on exit; retain its exact
+        # release identities and digests in the capability run's log.
+        cat "$work/tools/releases.tsv" || return 1
+    fi
     number=0
     out="$work/stdout" err="$work/stderr"
     while IFS= read -r line || [ -n "$line" ]; do
@@ -110,15 +124,16 @@ run_all() {
 }
 
 if [ "${1:-}" = --run-all ]; then
-    [ "$#" = 3 ] || usage
-    run_all "$2" "$3"
+    [ "$#" = 3 ] || [ "$#" = 4 ] || usage
+    run_all "$2" "$3" "${4:-0}"
     exit $?
 fi
-matrix='' images='' verbose=()
+matrix='' images='' install=0 verbose=()
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --matrix) [ "$#" -ge 2 ] || usage; matrix="$2"; shift 2 ;;
         --images) [ "$#" -ge 2 ] || usage; images="$2"; shift 2 ;;
+        --install) install=1; shift ;;
         --verbose) verbose=(--verbose); shift ;;
         *) usage ;;
     esac
@@ -128,5 +143,5 @@ done
 # The workflow integration (#403) will record its released-tool measurement.
 rc=0
 "$ROOT/scripts/quiet-run.sh" ${verbose[@]+"${verbose[@]}"} cli-capability-matrix 200 30000 -- \
-    bash "$ROOT/scripts/cli-capability-matrix.sh" --run-all "$matrix" "$images" || rc=$?
+    bash "$ROOT/scripts/cli-capability-matrix.sh" --run-all "$matrix" "$images" "$install" || rc=$?
 exit "$rc"
