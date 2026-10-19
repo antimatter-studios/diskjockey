@@ -60,6 +60,7 @@
 # The agent-side qcow2 reader guard (#395) raises it to 69 files.
 # The agent media identity guard (#506) raises it to 70 files.
 # The system-extension activation guard (#474) raises it to 71 files.
+# The dext provisioning documentation guard (#476) raises it to 72 files.
 # It moves up with the suite; it never moves down.
 #
 # `rc`, not `status`: `status` is READ-ONLY in zsh, so a loop written with it
@@ -70,7 +71,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
-FLOOR=71
+FLOOR=72
 
 # The raw loop, whose whole output is the tier's log. Failure lines carry a
 # TIER-FAIL prefix so the quiet verdict below can name them without a tail.

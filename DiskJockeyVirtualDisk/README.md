@@ -47,25 +47,103 @@ This compiles the `.iig` with the installed DriverKit SDK and links only
 DriverKit. No macOS Rust archive, replacement Rust symbol or Mach-O platform
 rewrite is involved. The existing app build still needs `make vendor-all`.
 
-An unsigned build does not prove activation. Apple must grant the
-[DriverKit entitlement](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.driverkit)
-for `com.antimatterstudios.diskjockey.virtualdisk`; sign the dext with a
-provisioning profile carrying that capability. An activation host also needs
-a signed containing application with the System Extension installation
-capability, an activation harness using `OSSystemExtensionRequest`, and user
-approval. This slice adds no activation UI or installation entitlement to the
-shipping app. A future block-device slice must separately obtain and provision
-the storage-family capability; this IOService-only scaffold does not use it.
+An unsigned build does not prove activation. What a signed, activated build
+needs is in [Activation and provisioning](#activation-and-provisioning).
 
-On that provisioned host, activate the embedded bundle and inspect
-`ioreg -l -w0 -c IOUserService` for an entry whose `IOUserClass` is
-`DJVirtualDiskService` and whose `IOUserServerName` is the dext bundle ID. Then
-deactivate it through the same harness and verify that entry disappears.
-Also confirm no new `/dev/diskN` appears. Retain the activation/deactivation
-completion results and system log with the evidence. Without the profile or
-harness, runtime validation is **blocked by provisioning prerequisites**, not
-passed or skipped. The shell project guard checks packaging and source
-membership only; it cannot certify runtime registration or shutdown.
+## Activation and provisioning
+
+Everything here is read from the project file and the entitlements files, and
+`scripts/tests/dext-provisioning-docs.sh` fails when this section stops naming
+one of them. The requirements themselves are Apple's, from
+[Installing System Extensions and Drivers](https://developer.apple.com/documentation/systemextensions/installing-system-extensions-and-drivers),
+[Requesting Entitlements for DriverKit Development](https://developer.apple.com/documentation/driverkit/requesting-entitlements-for-driverkit-development)
+and
+[Debugging and testing system extensions](https://developer.apple.com/documentation/driverkit/debugging-and-testing-system-extensions).
+
+**What activation checks.** The app's `SystemExtensionActivator` submits
+`OSSystemExtensionRequest.activationRequest` for
+`com.antimatterstudios.diskjockey.virtualdisk`, and only when a qcow2 or VHDX
+image takes the DriverKit route. Installing System Extensions and Drivers lists
+what the system then verifies: the dext sits in the app's
+`Contents/Library/SystemExtensions` (the app target's Embed System Extensions
+phase puts `DiskJockeyVirtualDisk.dext` there), the app is installed in an
+`Applications` directory, the dext's code signature is valid, its signed
+entitlements match those Apple granted the development team, and the request's
+identifier matches the dext's `CFBundleIdentifier`. A failed check reaches the
+request delegate as an error, which the image inspector shows.
+
+**Capabilities.** Each row is one entitlement on one piece of signed code.
+
+| Signed code | Entitlement | Why | In the project |
+|---|---|---|---|
+| the dext | `com.apple.developer.driverkit` | lets it run as a driver; Apple grants it on request | yes, `DiskJockeyVirtualDisk/DiskJockeyVirtualDisk.entitlements` |
+| the dext | `com.apple.developer.driverkit.family.block-storage-device` | Apple requires it of every BlockStorageDeviceDriverKit driver, and the personality publishes `IOUserBlockStorageDevice`; Apple grants it on request | **no** |
+| the app | `com.apple.developer.system-extension.install` | the System Extension capability, which activation requires | yes, `DiskJockeyApplication/DiskJockeyApplication.entitlements` |
+| the agent | `com.apple.developer.driverkit.userclient-access`, an array holding `com.antimatterstudios.diskjockey.virtualdisk` | Apple requires it of the process that opens a dext's user client, and `DJAgentReadEndpoint.cpp` calls `IOServiceOpen` | **no**, `DiskJockeyAgent/DiskJockeyAgent.entitlements` |
+
+The two missing rows are why a provisioned activation is not yet possible.
+DriverKit's `IOKitKeys.h` also defines
+`com.apple.developer.driverkit.allow-any-userclient-access`, which would let
+any process open the dext's user client; the agent-side entitlement is the
+narrower choice. Whether the agent can carry a profile-backed entitlement has
+not been measured.
+
+**Provisioning profiles.** Requesting Entitlements for DriverKit Development
+ties granted entitlements to the team. When the dext's profile is made, the
+portal offers the DriverKit entitlement groups Apple added to the team, and
+only one can be chosen, so a single group must hold both dext rows above.
+
+- **The dext.** The `DiskJockeyVirtualDisk` target signs manually
+  (`CODE_SIGN_STYLE = Manual`, team `43UMKXZ8P4`) and commits no profile.
+  Register an App ID for `com.antimatterstudios.diskjockey.virtualdisk` in
+  Certificates, Identifiers & Profiles, create a profile for it with the
+  DriverKit group selected, and set it as that target's provisioning profile
+  in Xcode. `PROVISIONING_PROFILE_SPECIFIER` on the `xcodebuild` command line
+  would apply it to every target, not only the dext.
+- **The app.** The `DiskJockey` target signs automatically with
+  `Apple Development`. Its profile for `com.antimatterstudios.diskjockey` must
+  carry the System Extension capability (Signing & Capabilities in Xcode).
+
+**Local runs.** Debugging and testing system extensions describes two
+development-only relaxations. Turn both back on before testing a build meant
+for users.
+
+- `systemextensionsctl developer on` stops the system checking where the dext
+  is loaded from, so an app run from DerivedData can activate it.
+  `systemextensionsctl developer off` restores the check. Its man page adds
+  that developer mode also skips the version comparison with an installed
+  copy.
+- Disabling System Integrity Protection bypasses the notarization checks that
+  development builds do not pass; Apple's
+  [Disabling and Enabling System Integrity Protection](https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection)
+  covers it. `csrutil status` reports the current state; changing it needs
+  recoveryOS.
+
+**Activation evidence.** On a provisioned host, keep the output of each step:
+
+1. `codesign -d --entitlements - DiskJockey.app` and
+   `codesign -d --entitlements - DiskJockey.app/Contents/Library/SystemExtensions/DiskJockeyVirtualDisk.dext`:
+   the signed entitlements, compared with the table above.
+2. Mount a qcow2 or VHDX image and record the state the image inspector
+   shows: approval needed, restart needed, failure or activated.
+3. `systemextensionsctl list`: `activated waiting for user` until the driver
+   is approved in System Settings > General > Login Items & Extensions, then
+   `activated enabled`.
+4. `ioreg -l -w0 -c IOUserService`: an entry whose `IOUserClass` is
+   `DJVirtualDiskService` and whose `IOUserServerName` is
+   `com.antimatterstudios.diskjockey.virtualdisk`.
+5. `log show --last 10m --predicate 'subsystem == "com.antimatterstudios.diskjockey" AND category == "SystemExtension"'`
+   for the app's request and delegate results, and
+   `log show --last 10m --predicate 'process == "sysextd"'` for the system's
+   side.
+
+The app submits no deactivation request. Installing System Extensions and
+Drivers says deleting the app uninstalls its system extensions; after that,
+`systemextensionsctl list` shows `terminated waiting for uninstall on reboot`
+and the `ioreg` entry is gone after the restart. Without the entitlements and
+profiles above, runtime validation is **blocked by provisioning
+prerequisites**, not passed or skipped. The shell guards check packaging,
+source membership and this document only; they cannot certify registration.
 
 ## Reader boundary
 
