@@ -95,8 +95,19 @@ struct DiskImageInspectorView: View {
 
     // MARK: - Body
 
+    private var route: ImageAttachmentRoute {
+        ImageAttachmentRoute(container: probe.container)
+    }
+
+    /// qcow2 and VHDX attach through DriverKit, so they get the same mount
+    /// controls as raw, VHD and VMDK (diskjockey#486).
+    private var mountState: DiskImageInspectorMountState {
+        DiskImageInspectorMountState(container: probe.container,
+                                     hasPartitionTable: probe.table != "none" && !probe.partitions.isEmpty)
+    }
+
     private var isMountableContainer: Bool {
-        ["raw", "vhd", "vmdk"].contains(probe.container)
+        mountState == .mountControls
     }
 
     var body: some View {
@@ -109,7 +120,7 @@ struct DiskImageInspectorView: View {
                 if isMountableContainer {
                     mountControls
                 } else {
-                    upcomingMountNotice
+                    unsupportedContainerNotice
                 }
             }
             .padding(24)
@@ -249,17 +260,19 @@ struct DiskImageInspectorView: View {
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
-    // MARK: - Upcoming notice (non-mountable container formats)
+    // MARK: - Unsupported notice (images the inspector cannot attach)
 
-    private var upcomingMountNotice: some View {
+    private var unsupportedContainerNotice: some View {
         HStack(spacing: 12) {
-            Image(systemName: "clock.badge.questionmark")
+            Image(systemName: "nosign")
                 .font(.title3)
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Mounting coming in a future update")
+                Text("This image cannot be mounted")
                     .font(.subheadline).bold()
-                Text("\(containerLabel) mounting will be available in an upcoming version of DiskJockey.")
+                Text(mountState == .wholeDiskUnsupported
+                     ? "\(containerLabel) images mount their partitions; this one has no partition table."
+                     : "DiskJockey has no way to attach a \(containerLabel) image as a disk.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -419,14 +432,12 @@ struct DiskImageInspectorView: View {
 
     private func isMountableKind(_ kind: String) -> Bool {
         // EROFS / SquashFS are DiskJockey read-only filesystems. They
-        // mount through the same hdiutil-attach + fs_core-slice path the
-        // other DiskJockey drivers use, so they're only mountable from a
-        // raw / VHD / VMDK source (same gate as the rest of `ours`).
+        // mount through the same attach + slice path the other DiskJockey
+        // drivers use, so they share the container gate with the rest of
+        // `ours`; Apple's filesystems follow the attachment route.
         let ours: Set<String> = ["ext4", "ext3", "ext2", "ntfs", "bcachefs", "squashfs", "erofs"]
-        let apple: Set<String> = ["fat32", "fat16", "exfat", "hfs_plus", "apfs"]
-        let hdiutilCompatible = ["raw", "vhd", "vmdk"].contains(probe.container)
-        guard hdiutilCompatible else { return false }
-        return ours.contains(kind) || apple.contains(kind)
+        guard isMountableContainer else { return false }
+        return ours.contains(kind) || route.appleMountType(forProbeKind: kind) != nil
     }
 
     private func driverFor(_ kind: String) -> String {
@@ -435,9 +446,11 @@ struct DiskImageInspectorView: View {
         let oursReadOnly: Set<String> = ["squashfs", "erofs"]
         let ours: Set<String> = ["ext4", "ext3", "ext2", "ntfs", "bcachefs"]
         let apple: Set<String> = ["fat32", "fat16", "exfat", "hfs_plus", "apfs"]
-        if oursReadOnly.contains(kind) { return isMountableContainer ? "DiskJockey (read-only)" : "coming soon" }
-        if ours.contains(kind) { return isMountableContainer ? "DiskJockey" : "coming soon" }
-        if apple.contains(kind) { return isMountableContainer ? "Apple" : "coming soon" }
+        // Everything on the DriverKit route mounts read-only (diskjockey#479).
+        let readOnly = route.mountsReadOnly ? " (read-only)" : ""
+        if oursReadOnly.contains(kind) { return isMountableContainer ? "DiskJockey (read-only)" : "unsupported" }
+        if ours.contains(kind) { return isMountableContainer ? "DiskJockey\(readOnly)" : "unsupported" }
+        if apple.contains(kind) { return isMountableContainer ? "Apple\(readOnly)" : "unsupported" }
         return "unsupported"
     }
 
