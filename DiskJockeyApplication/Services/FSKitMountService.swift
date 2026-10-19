@@ -177,27 +177,13 @@ final class FSKitMountService {
         }
         var c = Classified()
         for part in partitions {
-            // DiskJockey's own filesystems, through their FSKit extensions:
-            // every one the app ships, from the one list (diskjockey#351).
-            // The extension key doubles as the mount fsType.
-            if let key = ShippedFilesystems.extensionKey(forProbeKind: part.fsKind) {
-                c.supported.append((part, key))
-                continue
-            }
-            switch part.fsKind {
-            case "fat32", "fat16":
-                if route.reachesAppleFilesystems { c.supported.append((part, "msdos")) }
-                else { c.skipped.append(part) }
-            case "exfat":
-                if route.reachesAppleFilesystems { c.supported.append((part, "exfat")) }
-                else { c.skipped.append(part) }
-            case "hfs_plus":
-                if route.reachesAppleFilesystems { c.supported.append((part, "hfs")) }
-                else { c.skipped.append(part) }
-            case "apfs":
-                if route.reachesAppleFilesystems { c.supported.append((part, "apfs")) }
-                else { c.skipped.append(part) }
-            default:                     c.skipped.append(part)
+            // DiskJockey's own filesystems, through their FSKit extensions
+            // (the extension key doubles as the mount fsType), then Apple's,
+            // on either attachment route (diskjockey#351, #486).
+            if let fs = route.mountType(forProbeKind: part.fsKind) {
+                c.supported.append((part, fs))
+            } else {
+                c.skipped.append(part)
             }
         }
         for s in c.skipped {
@@ -706,12 +692,11 @@ enum FSKitAttachController {
                                              probe: DiskProbeResult,
                                              logRepository: LogRepository?) {
         // DiskJockey-shipped drivers: every FSKit extension the app ships
-        // (ShippedFilesystems). Apple-shipped drivers reachable via hdiutil:
-        // FAT16/FAT32 (mount_msdos), exFAT (mount_exfat), HFS+
-        // (mount_hfs), APFS (mount_apfs). Apple drivers ONLY work
-        // when the source is raw — hdiutil doesn't understand
-        // qcow2/vhd/vhdx/vmdk so partitions inside containers route
-        // only to our extensions.
+        // (ShippedFilesystems). Apple-shipped drivers: FAT16/FAT32
+        // (mount_msdos), exFAT (mount_exfat), HFS+ (mount_hfs), APFS
+        // (mount_apfs), reachable from any container with an attachment
+        // route — hdiutil for raw/VHD/VMDK, DriverKit read-only for
+        // qcow2/VHDX (diskjockey#486).
         let ourKinds = ShippedFilesystems.probeKinds
         let appleKinds: Set<String> = ["fat32", "fat16", "exfat", "hfs_plus", "apfs"]
         let containerSupportsApple = ImageAttachmentRoute(container: probe.container).reachesAppleFilesystems
@@ -730,7 +715,7 @@ enum FSKitAttachController {
             if !containerSupportsApple {
                 let appleInside = probe.partitions.filter { appleKinds.contains($0.fsKind) }
                 if !appleInside.isEmpty {
-                    msg += " \(appleInside.count) FAT32/exFAT/HFS+/APFS partition(s) require a raw, VHD, or VMDK source. Convert with a disk-image converter tool (e.g. `qemu-img convert -O raw`)."
+                    msg += " \(appleInside.count) FAT32/exFAT/HFS+/APFS partition(s) require a raw, VHD, VMDK, qcow2 or VHDX source. Convert with a disk-image converter tool (e.g. `qemu-img convert -O raw`)."
                 }
             }
             alert.informativeText = msg

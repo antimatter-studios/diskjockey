@@ -55,6 +55,23 @@ struct ImageMountSequenceTests {
         #expect(fake.detached.isEmpty)
     }
 
+    // An APFS partition beside an ext4 one on a qcow2 image: both are
+    // selected, and the APFS one mounts read-only like the rest of the
+    // DriverKit route (diskjockey#486).
+    @Test func driverKitMountsAnAppleFilesystemPartitionReadOnly() async throws {
+        let route = ImageAttachmentRoute(container: "qcow2")
+        let kinds = ["ext4", "apfs"]
+        #expect(kinds.map(route.mountType(forProbeKind:)) == ["ext4", "apfs"])
+        let selected = kinds.indices.filter { route.mountType(forProbeKind: kinds[$0]) != nil }
+        let fake = FakeSteps()
+        let volumes = try await ImageMountSequence.run(route: route, partitions: selected,
+                                                       steps: fake.steps())
+        #expect(fake.mounts.map(\.device) == ["disk9s1", "disk9s2"])
+        #expect(fake.mounts.allSatisfy { $0.readOnly })
+        #expect(volumes.count == 2)
+        #expect(fake.detached.isEmpty)
+    }
+
     @Test func driverKitDetachesOnceWhenAMountFails() async {
         let fake = FakeSteps()
         fake.failingDevices = ["disk9s1"]

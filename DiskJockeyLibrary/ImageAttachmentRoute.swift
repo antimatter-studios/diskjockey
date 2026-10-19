@@ -25,9 +25,54 @@ public enum ImageAttachmentRoute: Equatable, Sendable {
     }
 
     /// Whether Apple's filesystems (FAT, exFAT, HFS+, APFS) can mount from
-    /// this route. They need a kernel block device; only hdiutil provides
-    /// one until the app attaches DriverKit images (diskjockey#479).
+    /// this route. They need a kernel block device: hdiutil provides one,
+    /// and so does the agent's owned DriverKit attachment (diskjockey#486).
     public var reachesAppleFilesystems: Bool {
-        self == .hdiutil
+        self != .unsupported
+    }
+
+    /// Whether every partition on this route mounts read-only. The DriverKit
+    /// virtual disk serves its blocks read-only (diskjockey#479).
+    public var mountsReadOnly: Bool {
+        self == .driverKit
+    }
+
+    /// The Disk Arbitration mount type for an Apple filesystem the probe
+    /// reports, or nil when the kind is not one or this route cannot reach it.
+    public func appleMountType(forProbeKind kind: String) -> String? {
+        guard reachesAppleFilesystems else { return nil }
+        switch kind {
+        case "fat32", "fat16": return "msdos"
+        case "exfat":          return "exfat"
+        case "hfs_plus":       return "hfs"
+        case "apfs":           return "apfs"
+        default:               return nil
+        }
+    }
+
+    /// The mount type for a partition the probe reports: DiskJockey's own
+    /// FSKit extension key, else Apple's mount type, else nil (skipped).
+    public func mountType(forProbeKind kind: String) -> String? {
+        ShippedFilesystems.extensionKey(forProbeKind: kind) ?? appleMountType(forProbeKind: kind)
+    }
+}
+
+/// What the disk-image inspector offers below the partition list: mount
+/// controls for any container with an attachment route, qcow2 and VHDX
+/// included, or a notice for an image it cannot attach.
+public enum DiskImageInspectorMountState: Equatable, Sendable {
+    case mountControls
+    /// No attachment route for this container at all.
+    case unsupportedContainer
+    /// A DriverKit image without a partition table: the route mounts the
+    /// partitions it presents, and a bare filesystem presents none.
+    case wholeDiskUnsupported
+
+    public init(container: String, hasPartitionTable: Bool) {
+        switch ImageAttachmentRoute(container: container) {
+        case .unsupported: self = .unsupportedContainer
+        case .driverKit where !hasPartitionTable: self = .wholeDiskUnsupported
+        case .hdiutil, .driverKit: self = .mountControls
+        }
     }
 }
