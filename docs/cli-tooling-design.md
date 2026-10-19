@@ -401,12 +401,26 @@ filesystems answer the same way.
    | 2 | usage | the command line was wrong (clap's own choice) |
    | 3 | unsupported | the verb exists and this driver or format cannot do it at all: not implemented yet, or the format is read-only |
    | 4 | refused | the volume's current state forbids it — directory not empty, name already exists, target missing, not a directory — from `rm`, `rmdir`, `mv`, `ln`, `mkdir`, `truncate` or `write --at` |
+   | 5 | partial | the operation completed and its output is usable, but some data could not be recovered; the report says which. The constant is `cli::output::EXIT_PARTIAL` |
+
+   Each status is a constant in core's `cli::output` (`EXIT_FAILED`,
+   `EXIT_USAGE`, `EXIT_UNSUPPORTED`, `EXIT_REFUSED`, `EXIT_PARTIAL`), so a
+   driver cannot pick its own; `scripts/tests/cli-exit-statuses.sh` holds
+   this table to them.
 
    3 and 4 are different answers. 3 says no volume of this format will
    ever accept the request from this tool; 4 says this one will not now,
    and the same command succeeds once the volume changes. Before the
    table, fs.ext4 exited 1 for a non-empty `rmdir` and fs.btrfs exited 3
    (diskjockey#390).
+
+   1 and 5 are different answers too. 1 says there is nothing to use; 5
+   says the output is there and is incomplete, and is not 0 because a
+   script takes 0 as safe to discard the source. `fs.ntfs SOURCE rescue
+   ARCHIVE` is the first verb to need it (rust-fs-core#357). Whether a
+   tree transfer that left some items failed moves from 1 to 5 is an open
+   question (rust-fs-core#361); until it is settled the transfer table
+   below keeps 1.
 
 5. **Properties are a namespace, and they get ONE tool with
    subcommands rather than a dotted verb each.** Linux invented
