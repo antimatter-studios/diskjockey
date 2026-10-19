@@ -127,6 +127,42 @@ writes (an Interix file or a reparse point); the checker accepts either
 because both name `data.bin`. The seed is 32 MiB with mkntfs's default
 4 KiB clusters and zeroed timestamps.
 
+## The xfs seed
+
+`bash scripts/xfs-capability-fixture.sh --dest NEW_DIR` builds `xfs.img`
+and `payload.bin` with xfsprogs and the kernel only: `mkfs.xfs -p` formats
+the image and populates it from a protofile, and a kernel loop mount (CI,
+Ubuntu, as root) adds the hard link and writes the xattr with `setfattr`,
+the two things a protofile cannot express. It then checks the unmounted
+seed with `xfs_repair -n` and reads it with `xfs_db`, and reads it again
+through a read-only kernel mount, never with this constellation's readers.
+It refuses a seed whose names, bytes, hard link, symlink target, empty
+directory or xattr disagree. `--check DIR` runs the executor over three
+rows that each relabel the image with `xfs_db -x`, failing if the label has
+already changed, so a reused copy or a write to the source fixture fails
+the run. The Shell scripts job installs xfsprogs and attr and runs both
+modes. A missing `mkfs.xfs`, `xfs_db`, `xfs_repair`, `setfattr`, `getfattr`,
+`mount` or `umount` fails naming its package before anything is created;
+nothing is skipped. These GPL tools are run as separate programs, as
+oracles; nothing links or copies them.
+
+| path | operand for |
+|---|---|
+| `/data.bin` (8 KiB, `user.capability=seed`) | stat, write --at, truncate, rm, xattr |
+| `/dir/file.txt` | recursive ls, rm of a child, a nonempty rmdir refusal |
+| `/empty` | rmdir, mkdir --parents below it |
+| `/link-target.txt`, `/hardlink.txt` | hard links (one inode, link count 2) |
+| `/symlink` -> `data.bin` | symbolic links |
+| `/mv-src.txt`, `/replace-dst.txt` | mv, and mv onto an existing destination |
+| `payload.bin` (4 KiB) | stdin for write rows |
+
+XFS format limits: XFS has no named data streams, so stream verbs have no
+operand and a correct driver refuses them (exit 3). The one xattr is in the
+`user` namespace and short enough to live in the inode's attribute fork.
+mkfs.xfs refuses a filesystem below 300 MiB, so the seed is a sparse
+320 MiB file with mkfs.xfs's defaults (v5, CRCs on, 4 KiB blocks). The
+protofile owns everything as uid 0, gid 0.
+
 This is the execution layer of #387 (#401) and its verified release
 installation layer (#488, part of #402). Independent fixture builders are
 tracked in #489–#495, and the measured seven-driver capability TSV in #496.
