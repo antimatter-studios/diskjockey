@@ -50,6 +50,8 @@
 # then 689 + 7 = 696 with the image mount sequence tests (#479).
 # then 696 + 9 = 705 with the image eject sequence tests (#480), counted
 # from the source; execution remains in CI.
+# then 705 + 10 = 715 with the system extension activation prompt tests
+# (#475), counted from the source.
 # The floor moves up with the suite; it never moves down.
 #
 #   scripts/test-library.sh [--verbose]
@@ -70,15 +72,15 @@ for need in lib/bundle_bcachefs/libdj_bcachefs_bundle.a lib/bundle_bcachefs/incl
 done
 
 rc=0
-scripts/quiet-run.sh "$@" library 3530 272200 -- swift test || rc=$?
+scripts/quiet-run.sh "$@" library 4510 350000 -- swift test || rc=$?
 log="${QUIET_LOG_DIR:-$ROOT/tmp/logs}/library.log"
 
 xct=$(grep -aoE 'Executed [0-9]+ tests' "$log" 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
 swt=$(grep -aoE 'Test run with [0-9]+ tests' "$log" 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
 total=$(( ${xct:-0} + ${swt:-0} ))
-echo "library cases executed: $total = ${xct:-0} XCTest + ${swt:-0} swift-testing (floor 705)"
-if [ "$total" -lt 705 ]; then
-    echo "::error::only $total library cases executed, floor is 705 — 668 ran on 2026-10-12 before the 13 system extension activation cases (#473), the 8 image attachment route cases (#478), the 7 image mount sequence cases (#479) and the 9 image eject sequence cases (#480), and a run that executes less than that has stopped early rather than passed (diskjockey#139)"
+echo "library cases executed: $total = ${xct:-0} XCTest + ${swt:-0} swift-testing (floor 715)"
+if [ "$total" -lt 715 ]; then
+    echo "::error::only $total library cases executed, floor is 715 — 668 ran on 2026-10-12 before the 13 system extension activation cases (#473), the 8 image attachment route cases (#478), the 7 image mount sequence cases (#479), the 9 image eject sequence cases (#480) and the 10 activation prompt cases (#475), and a run that executes less than that has stopped early rather than passed (diskjockey#139)"
     exit 1
 fi
 exit "$rc"
