@@ -90,6 +90,43 @@ Format limits: ext4 has no named data streams, so stream verbs have no
 operand and a correct driver refuses them (exit 3). The seed is 32 MiB with
 4 KiB blocks and 256-byte inodes, so the xattr is stored in the inode.
 
+## The ntfs seed
+
+`bash scripts/ntfs-capability-fixture.sh --dest NEW_DIR` builds `ntfs.img`
+and `payload.bin` with ntfs-3g only: `mkntfs` formats the image and an
+ntfs-3g FUSE mount (CI, Ubuntu, as root) copies a prepared tree in, makes
+the hard link and the symlink, and writes the named stream with `setfattr`.
+It then reads the unmounted seed back with `ntfsls`, `ntfscat` and
+`ntfsinfo`, never with this constellation's readers, and refuses a seed
+whose names, bytes, hard link, symlink target, empty directory or stream
+disagree. `--check DIR` runs the executor over three rows that each
+overwrite `/data.bin` through `ntfscp`, failing if it is already
+overwritten, so a reused copy or a write to the source fixture fails the
+run. The Shell scripts job installs ntfs-3g and attr and runs both modes.
+A missing `mkntfs`, `ntfs-3g`, `ntfscp`, `ntfscat`, `ntfsinfo`, `ntfsls` or
+`setfattr` fails naming its package before anything is created; nothing is
+skipped. These GPL tools are run as separate programs, as oracles; nothing
+links or copies them.
+
+| path | operand for |
+|---|---|
+| `/data.bin` (8 KiB) | stat, write --at, truncate, rm |
+| `/data.bin:capability` (`seed`) | named-stream verbs, and xattr verbs as `user.capability` |
+| `/dir/file.txt` | recursive ls, rm of a child, a nonempty rmdir refusal |
+| `/empty` | rmdir, mkdir --parents below it |
+| `/link-target.txt`, `/hardlink.txt` | hard links (two names on one MFT record) |
+| `/symlink` -> `data.bin` | symbolic links |
+| `/mv-src.txt`, `/replace-dst.txt` | mv, and mv onto an existing destination |
+| `payload.bin` (4 KiB) | stdin for write rows |
+
+NTFS format limits: NTFS has no POSIX xattrs. ntfs-3g presents named data
+streams as `user.*` xattrs, so the one stream is the operand for both verb
+families, and other xattr namespaces have no operand. NTFS extended
+attributes (`$EA`) are not in the seed. The symlink is whatever ntfs-3g
+writes (an Interix file or a reparse point); the checker accepts either
+because both name `data.bin`. The seed is 32 MiB with mkntfs's default
+4 KiB clusters and zeroed timestamps.
+
 This is the execution layer of #387 (#401) and its verified release
 installation layer (#488, part of #402). Independent fixture builders are
 tracked in #489–#495, and the measured seven-driver capability TSV in #496.

@@ -170,6 +170,24 @@ jobs:
           bash scripts/quiet-run.sh ext4-capability-fresh-copy 20 2000 -- \
             bash scripts/ext4-capability-fixture.sh --check tmp/fixtures/ext4
 
+      # The ntfs capability seed (#490, part of #402) is formatted by
+      # mkntfs, populated through an ntfs-3g FUSE mount and read back from
+      # the unmounted image by ntfsls, ntfscat and ntfsinfo, never by this
+      # constellation's writers or readers. ntfs-3g and attr are GPL tools
+      # run at arm's length as oracles; nothing links or copies them. The
+      # runner image does not ship them, so they are installed first, with
+      # apt's output in the kept log; a missing builder fails naming it.
+      # 20 lines / 2,000 bytes is an initial ceiling for about six lines.
+      - name: ntfs capability seed, built and checked independently
+        run: |
+          mkdir -p tmp/logs
+          sudo apt-get update -q > tmp/logs/ntfs-3g-install.log 2>&1
+          sudo apt-get install -y -q ntfs-3g attr >> tmp/logs/ntfs-3g-install.log 2>&1
+          bash scripts/quiet-run.sh ntfs-capability-fixture 20 2000 -- \
+            bash scripts/ntfs-capability-fixture.sh --dest tmp/fixtures/ntfs
+          bash scripts/quiet-run.sh ntfs-capability-fresh-copy 20 2000 -- \
+            bash scripts/ntfs-capability-fixture.sh --check tmp/fixtures/ntfs
+
       # KEEP THE LOG, GREEN OR RED. The tier prints a verdict; the whole run
       # is in tmp/logs/, and a log nothing uploads is a log nobody can read
       # once the runner is gone (#211).
