@@ -111,6 +111,15 @@ reads, a partition-relative sample, bounds, truncation errors and descriptor
 ownership. QEMU's generated fixture uses 512-byte logical sectors; a 4096-byte
 fixture remains part of provisioned-host integration. Fixture tests run in CI.
 
+`dj_agent_qcow2_open` (#395) opens qcow2 through the same descriptor rules and
+read ABI, reporting the decoded virtual size with 512-byte sectors. An image
+that names a backing file is refused, because only the descriptor was
+authorized. The read endpoint tries VHDX and then qcow2, so the content's
+signature picks the decoder, never the file name. `scripts/agent-qcow2-oracle.sh`
+has QEMU convert a raw image with a partition table, a sparse range and a
+capacity that is not a cluster multiple; the C consumer compares capacity and
+reads with QEMU's raw output and checks that a backing-file overlay is refused.
+
 This adapter is not yet linked into the agent target and publishes no media.
 #425 connects it to the shared #421 transport after #394/#419; #426 checks
 failed attachments and detach during pending reads. Keep the reader out of
@@ -232,7 +241,7 @@ the personality.
 `DJAgentReadEndpointOpen` (#443, part of #436) takes a borrowed service,
 mount request, caller-opened readable descriptor and mount identity. It calls
 `AgentAuthority.attachableImage` before opening either the reader or the user
-client. The current host adapter is VHDX; the portable loop accepts the shared
+client. The host adapters are VHDX and qcow2; the portable loop accepts the shared
 reader ABI so decoders remain in the agent. `make vendor-bundles` now builds
 the agent archive separately from the filesystem extensions.
 

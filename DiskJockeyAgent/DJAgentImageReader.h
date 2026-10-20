@@ -1,4 +1,4 @@
-/* Host-only VHDX reader for the agent. Never include or link in the dext. */
+/* Host-only VHDX and qcow2 reader for the agent. Never include or link in the dext. */
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
@@ -17,6 +17,9 @@ typedef struct DJAgentImageGeometry {
  * NULL means invalid input, unsupported/corrupt image or an I/O error.
  * Failure leaves geometry unchanged. No file extension is trusted. */
 DJAgentImageReader *dj_agent_vhdx_open(int fd, DJAgentImageGeometry *geometry);
+/* As dj_agent_vhdx_open, with 512-byte sectors. An image naming a backing file
+ * returns NULL: only fd was authorized, never a path inside the image. */
+DJAgentImageReader *dj_agent_qcow2_open(int fd, DJAgentImageGeometry *geometry);
 /* 0 means every requested byte was decoded. Any other status fails the whole
  * request: discard the output, which may contain a partial read. Offset is in
  * the virtual image; the transport must add its partition offset exactly once.
