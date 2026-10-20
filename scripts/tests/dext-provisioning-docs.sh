@@ -99,6 +99,25 @@ assert "`com.apple.developer.driverkit.userclient-access`" in section
 assert "`DiskJockeyAgent/DiskJockeyAgent.entitlements`" in section
 '
 
+check 'the dext signs with the block-storage family entitlement' '
+granted = entitlements("DiskJockeyVirtualDisk").get("com.apple.developer.driverkit.family.block-storage-device")
+assert granted is True, granted
+'
+
+check 'the agent signs with user-client access to the dext bundle identifier' '
+ids = {value(c, "PRODUCT_BUNDLE_IDENTIFIER") for c in configs("DiskJockeyVirtualDisk")}
+assert len(ids) == 1, ids
+granted = entitlements("DiskJockeyAgent").get("com.apple.developer.driverkit.userclient-access")
+assert granted == [ids.pop()], granted
+'
+
+check 'the capabilities table marks no entitlement as missing from the project' '
+rows = [line for line in section.splitlines() if line.startswith("| the ")]
+assert rows, "the capabilities table has no rows"
+missing = [line.split("|")[2].strip() for line in rows if line.split("|")[4].strip().startswith("**no**")]
+assert not missing, missing
+'
+
 check 'the section names each command and the Apple documents it relies on' '
 for needle in ("systemextensionsctl developer on", "systemextensionsctl developer off",
                "systemextensionsctl list", "csrutil status", "ioreg -l -w0 -c IOUserService",

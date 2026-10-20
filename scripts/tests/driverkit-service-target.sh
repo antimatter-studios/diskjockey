@@ -107,7 +107,9 @@ for key, name in (('kDJDeviceByteOffsetKey', 'DJByteOffset'), ('kDJDeviceByteLen
     assert re.search(r'#define\s+' + key + r'\s+"' + name + r'"\s*$', shared_text, re.M), key
     assert not re.search(r'#\s*define\s+' + key + r'\b', child), key + ' is defined once, in the shared header'
 entitlements = plistlib.loads((root / 'DiskJockeyVirtualDisk/DiskJockeyVirtualDisk.entitlements').read_bytes())
-assert entitlements == {'com.apple.developer.driverkit': True}, 'service-only least privilege'
+assert entitlements == {'com.apple.developer.driverkit': True,
+                        'com.apple.developer.driverkit.family.block-storage-device': True}, \
+    'least privilege: DriverKit plus the block-storage family its child publishes'
 PY
 then
     ok 'the service target embeds a dext whose user client hosts the read dispatch and mount-selector cores'

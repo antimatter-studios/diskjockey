@@ -4,5 +4,9 @@
 <dict>
     <key>com.apple.security.app-sandbox</key>
     <false/>
+    <key>com.apple.developer.driverkit.userclient-access</key>
+    <array>
+        <string>com.antimatterstudios.diskjockey.virtualdisk</string>
+    </array>
 </dict>
 </plist>
