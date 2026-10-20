@@ -250,6 +250,9 @@ final class FSKitMountService {
             }
             steps = ImageMountSteps(
                 attach: {
+                    // The first virtual image is what activates the dext;
+                    // nothing at launch asks the user to approve a driver.
+                    try await SystemExtensionActivator.shared.activate()
                     let owned = try await DriverKitImageAttachment.attach(imageURL: imageURL)
                     ejectAttachment = .driverKit(owned.attachmentID)
                     self.logger.info("DriverKit attach \(source, privacy: .public) -> \(owned.device, privacy: .public) (attachment \(owned.attachmentID, privacy: .public))")
