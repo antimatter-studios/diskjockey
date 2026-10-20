@@ -54,10 +54,14 @@ on:
   workflow_dispatch:
 
 # Cancel an in-progress run when a newer commit supersedes it: keyed per source
-# branch for PRs (head_ref), per ref for main pushes (ref_name).
+# branch for PRs (head_ref), per ref for main pushes (ref_name). Except while a
+# PR's title starts "red:" (agent-core v8): it holds only its failing test and
+# its run is the red evidence, so each push to it is a group of its own commit
+# and is never cancelled, and the push that adds the fix cannot cancel it.
+# scripts/tests/red-runs-uncancelled.sh holds this.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || format('{0}-{1}', github.ref_name, github.sha) }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.head_ref || format('{0}-{1}', github.ref_name, github.sha) }}${{ startsWith(github.event.pull_request.title, 'red:') && format('-red-{0}', github.event.pull_request.head.sha) || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && !startsWith(github.event.pull_request.title, 'red:') }}
 
 # Read-only, stated here rather than inherited from the repository's default
 # workflow permission, so the grant is decided by this reviewed file and not by

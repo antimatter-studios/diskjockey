@@ -18,7 +18,11 @@ bad() { printf '  FAIL %s\n' "$1" >&2; fails=$((fails + 1)); }
 
 for wf in ci.yml cli-pipe.yml xfs-mutations.yml; do
     block="$(awk '/^concurrency:/{f=1;next} f&&/^[^ ]/{exit} f{sub(/^[ \t]+/,""); print}' "$REPO/.github/workflows/$wf")"
-    if grep -qxF "cancel-in-progress: \${{ github.event_name == 'pull_request' }}" <<<"$block"; then
+    expected="cancel-in-progress: \${{ github.event_name == 'pull_request' }}"
+    if [[ "$wf" == ci.yml ]]; then
+        expected="cancel-in-progress: \${{ github.event_name == 'pull_request' && !startsWith(github.event.pull_request.title, 'red:') }}"
+    fi
+    if grep -qxF "$expected" <<<"$block"; then
         ok "$wf cancels only a pull request's superseded run"
     else
         bad "$wf cancels a run that is not a pull request's: $(grep cancel <<<"$block")"
