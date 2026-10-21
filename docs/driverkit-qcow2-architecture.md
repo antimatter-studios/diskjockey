@@ -11,10 +11,12 @@ There are two viable paths for QCOW2/VHDX mounting:
 
 | Path | Complexity | Status |
 |---|---|---|
-| **A — FSKit V2 `FSPathURLResource`** | Low — extend existing FSKit extensions | Available: macOS 26.0 target matches |
+| **A — FSKit V2 `FSPathURLResource`** | Medium — a new path-only FSKit module, with its own bundle id and App Store profile | Available: macOS 26.0 target matches; never mounted an image yet (§1.3) |
 | **B — DriverKit `IOUserBlockStorageDevice`** | High — new dext, entitlement exception, async I/O dispatch | Full block-device semantics, MAS-compatible |
 
-**Recommendation: ship Path A first.** The FSKit API became public in macOS 26.0 (same as the project's deployment target), requires no new entitlements beyond what the extensions already hold, and the Rust Qcow2 reader is already compiled into `libqcow2.a` and linked into the EXT4/NTFS extensions. Path B is documented below as the fallback if Apple rejects Path A at app review or if `FSPathURLResource` turns out not to be mountable via `DADiskMount` at runtime. (`DADiskMount` only ever mounts a block device, so in practice the route is `mount -F`; see the answer under §1.3, #165.)
+**Original recommendation (2026-05-29): ship Path A first**, on the grounds that it extended the existing FSKit extensions and needed no new entitlement. Both grounds turned out to be false (#165). The existing modules cannot take a path at all, because `mount(8)` hands a module that accepts block devices a block-device proxy and never reads `FSSupportsPathURLs`. So Path A needs a separate path-only module (§1.3). That module has its own bundle id, and the release cannot sign it until App Store Connect has a distribution profile for that id (`scripts/install-profiles.py`).
+
+**What `main` builds is Path B.** The dext, the agent's attachment and read bridge, and the app's read-only mount route are merged under #385 (#400, #417, #485, #516, #534, among others). Path A is not a prerequisite for any of it. It stays untested. The first live mount through a path-only module (§1.3) is what would decide whether it is worth a target.
 
 ---
 
@@ -79,6 +81,10 @@ if (acceptsBD) {            // FSSupportsBlockResources
 ```
 
 A module declaring both receives the image *path* as a BSD-name proxy, which resolves to no device, so the extension is never launched — the `extensionKit error 2` / ENOENT from `probeResourceSync:usingBundle:` that #165 measured. The modules now declare `FSSupportsPathURLs = false`, which is what `mount(8)` actually does with them, and `scripts/tests/fskit-path-url-declarations.sh` holds every module to that rule. Path A therefore needs a **separate, path-only FSKit module** (`FSSupportsBlockResources = false`, `FSSupportsPathURLs = true`, `FSRequiresSecurityScopedPathURLResources = true`, its own `FSShortName`); a sandboxed module given the plain `resourceWithURL:` form has no grant to open the file. Whether such a module mounts an image end to end on macOS 26 is still untested here.
+
+**Confirmed on a Mac (2026-10-07, macOS 26.4).** `mount -F -t ext4 <image-file> <dir>` against a build that still declared both kinds failed with `Probing resource: … No such file or directory` and exit 69. At the same moment `fskitd` logged `applyResource starting with resource … kind 1`, then `Open device returned error … Code=2` from `+[FSBlockDeviceResource openWithBSDName:…]`. So the path was turned into a block-device proxy, exactly as the source above says. As a control, the same filesystem, attached with `hdiutil attach -nomount`, mounted through the same `mount -F` by its BSD name.
+
+**Still open.** Nobody has run a path-only module. The test is a scratch appex built from the EXT4 sources with `FSShortName = ext4img` and the three keys above, enabled in System Settings, then `mount -F -t ext4img <bare.ext4> <dir>`. The recipe is in #165. If that run reaches the extension, `probeFileResource` runs for the first time and the `kind` that `fskitd` logs is no longer 1. If it still fails, repeat the run with any other path-capable FSKit module. That tells whether the fault is in our bundle or in the mechanism.
 
 ### 1.4 Extension changes (EXT4 and NTFS)
 
@@ -586,12 +592,12 @@ One dext instance per partition slice. The host app:
 
 ## Part 3: New Xcode targets
 
-### Path A (FSKit URL resource) — zero new targets
+### Path A (FSKit URL resource) — one new target
 
-Changes are confined to:
-- `DiskJockeyEXT4/EXT4FileSystem.swift` — add `FSPathURLResource` dispatch branch
-- `DiskJockeyNTFS/NTFSFileSystem.swift` — same
-- `DiskJockeyApplication/Services/FSKitMountService.swift` — replace the "QCOW2 not supported" error with a URL mount dispatch
+The original plan said "zero new targets", and that cannot work (§1.3). A module that declares block resources never receives a path, so the existing EXT4 and NTFS modules cannot serve Path A.
+- A new path-only FSKit extension target, e.g. `DiskJockeyEXT4Image`. It compiles the EXT4 sources, whose `probeFileResource` / `loadFileResource` already exist. Its `Info.plist` declares `FSSupportsBlockResources = false`, `FSSupportsPathURLs = true` and `FSRequiresSecurityScopedPathURLResources = true`, and it has its own `FSShortName`. `scripts/tests/fskit-path-url-declarations.sh` already holds such a module to that shape.
+- A distribution profile for the new bundle id in App Store Connect, added to `scripts/install-profiles.py`. The release cannot export the app without it.
+- `DiskJockeyApplication/Services/FSKitMountService.swift` — a URL mount dispatch to the new `FSShortName`.
 
 ### Path B (DriverKit) — two new targets
 
@@ -626,12 +632,9 @@ Or, more practically: compile the Rust code as `aarch64-apple-macosx` (same mach
 
 ## Part 5: Implementation order
 
-1. **Test Path A first** (1–2 days):
-   - Add `FSPathURLResource` cast in `probeResource` in EXT4FileSystem.swift
-   - Try `mount -F -t ext4 "file:///path/to/disk.qcow2" /tmp/test` from Terminal
-   - If fskitd delivers the resource as `FSPathURLResource` and the extension can open the file → ship Path A
+1. **Test Path A first.** Done, and it failed (#165). The `FSPathURLResource` cast is in `EXT4Probe.swift` and `EXT4Load.swift`. `mount -F -t ext4 <image-file>` never reaches it, because the module also accepts block devices (§1.3). The remaining test needs a path-only module and a Mac. Its recipe is in #165.
 
-2. **If Path A fails or is rejected at review**, proceed to Path B:
+2. **Path B** is what `main` now builds (#385):
    - Request `com.apple.developer.driverkit.family.storage` exception from Apple
    - Create `DiskJockeyVirtualDisk` dext target
    - Implement `DJVirtualDiskService` (manager) and `DJVirtualDiskDevice` (per-file block device)

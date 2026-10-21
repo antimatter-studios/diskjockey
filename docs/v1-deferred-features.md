@@ -14,15 +14,15 @@ Features cut from the v1 MAS submission. Each section records what was built, wh
 
 | Path | What's needed | Notes |
 |------|--------------|-------|
-| A — FSKit V2 `FSPathURLResource` | No new entitlements; macOS 26+ only | Described in `docs/driverkit-qcow2-architecture.md` §1. Try this first after v1 ships. |
+| A — FSKit V2 `FSPathURLResource` | A new path-only FSKit module with its own bundle id and App Store profile; macOS 26+ only | Described in `docs/driverkit-qcow2-architecture.md` §1. The existing modules cannot take a path (#165); a path-only module has never been run. |
 | B — DriverKit `IOUserBlockStorageDevice` | `com.apple.developer.driverkit.family.storage` + `com.apple.developer.driverkit.allow-any-userclient-access` via entitlement request | Described in `docs/driverkit-qcow2-architecture.md` §2. Apply after the app has a live MAS presence. |
 
 **Code:**
-- `DiskJockeyVirtualDisk/` — DriverKit dext (Path B), compiles and links, on branch `feat/qcow2-mount-via-fskit`
+- `DiskJockeyVirtualDisk/` — DriverKit dext (Path B), on `main` (#385)
 - `DiskJockeyApplication/Views/DiskImageInspectorView.swift` — `isMountableContainer` gate, `upcomingMountNotice` view
 - `DiskJockeyApplication/Services/FSKitMountService.swift` — `attachAllPartitions()` throws for unsupported containers
 
-**To resume:** Start with FSKit Path A (no entitlement needed). If that fails at review, file the DriverKit entitlement request from App Store Connect. The dext is ready.
+**To resume:** Path B is the route `main` builds (#385). Path A is not the cheap first step this section once called it. It needs a separate path-only module, and the live mount that would show whether it works is still to be run (#165).
 
 ---
 
