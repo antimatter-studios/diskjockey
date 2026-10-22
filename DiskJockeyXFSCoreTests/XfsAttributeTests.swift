@@ -196,6 +196,40 @@ struct XfsAttributeTests {
         #expect(request.wasAttributeConsumed(.size) && request.wasAttributeConsumed(.mode))
     }
 
+    @Test func invalidAccessTimeNanosecondsAreRefusedBeforeAnyDriverCall() async throws {
+        for nanoseconds in [-1, 1_000_000_000] {
+            let (volume, driver, item) = try fixture()
+            let request = FSItem.SetAttributesRequest()
+            request.accessTime = timespec(tv_sec: 1, tv_nsec: nanoseconds)
+            #expect(await code { _ = try await volume.setAttributes(request, on: item) } == .EINVAL)
+            #expect(driver.attributeCalls.isEmpty && driver.truncates.isEmpty)
+            #expect(!request.wasAttributeConsumed(.accessTime))
+        }
+    }
+
+    @Test func invalidModificationNanosecondsAreRefusedBeforeAnyDriverCall() async throws {
+        for nanoseconds in [-1, 1_000_000_000] {
+            let (volume, driver, item) = try fixture()
+            let request = FSItem.SetAttributesRequest()
+            request.modifyTime = timespec(tv_sec: 1, tv_nsec: nanoseconds)
+            #expect(await code { _ = try await volume.setAttributes(request, on: item) } == .EINVAL)
+            #expect(driver.attributeCalls.isEmpty && driver.truncates.isEmpty)
+            #expect(!request.wasAttributeConsumed(.modifyTime))
+        }
+    }
+
+    @Test func invalidModificationNanosecondsDoNotReachTheSizePath() async throws {
+        for nanoseconds in [-1, 1_000_000_000] {
+            let (volume, driver, item) = try fixture()
+            let request = FSItem.SetAttributesRequest()
+            request.size = 3
+            request.modifyTime = timespec(tv_sec: 1, tv_nsec: nanoseconds)
+            #expect(await code { _ = try await volume.setAttributes(request, on: item) } == .EINVAL)
+            #expect(driver.attributeCalls.isEmpty && driver.truncates.isEmpty)
+            #expect(!request.wasAttributeConsumed(.size) && !request.wasAttributeConsumed(.modifyTime))
+        }
+    }
+
     /// The ABI sets none of these. A request carrying one is refused whole,
     /// before anything is written.
     @Test(arguments: [FSItem.Attribute.flags, .birthTime, .backupTime, .addedTime])
