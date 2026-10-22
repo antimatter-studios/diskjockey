@@ -300,6 +300,15 @@ final class XfsVolume: FSVolume,
             throw POSIXError(.ENOTSUP)
         }
 
+        // FSKit can supply a timespec the XFS ABI cannot represent. Validate
+        // both times before truncate or setAttributes can make any change;
+        // the driver casts tv_nsec to UInt32, which traps for negative values
+        // and accepts out-of-range values as corrupt on-disk timestamps.
+        guard (!newAttributes.isValid(.accessTime) || Self.hasValidNanoseconds(newAttributes.accessTime)),
+              (!newAttributes.isValid(.modifyTime) || Self.hasValidNanoseconds(newAttributes.modifyTime)) else {
+            throw POSIXError(.EINVAL)
+        }
+
         var consumed: FSItem.Attribute = []
         defer { newAttributes.consumedAttributes = consumed }
         var modified: timespec? = newAttributes.isValid(.modifyTime) ? newAttributes.modifyTime : nil
@@ -900,6 +909,10 @@ final class XfsVolume: FSVolume,
     static func attributes(from attr: ReadOnlyFileAttributes,
                            parentInode: UInt64?) -> FSItem.Attributes {
         ReadOnlyVolumeSupport.fsAttributes(from: attr, parentInode: parentInode)
+    }
+
+    private static func hasValidNanoseconds(_ time: timespec) -> Bool {
+        time.tv_nsec >= 0 && time.tv_nsec < 1_000_000_000
     }
 }
 
