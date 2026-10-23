@@ -247,7 +247,11 @@ for message in "API rate limit exceeded for user ID 1. (HTTP 403)" \
     check "a rate limit exits 5 [$message]" 5 "$rc"
     contains "and says it was rate limited [$message]" "rate limit" "$out"
     contains "and where it stopped [$message]" "stopped at rust-disk-partitions" "$out"
-    check "and makes no request after it [$message]" 2 "$(wc -l < "$calls" | tr -d ' ')"
+    # diskjockey's issues and pull request counts (that stub logs as well,
+    # since #546), then the limited fetch, and nothing after it.
+    check "and makes no request after it [$message]" \
+        "antimatter-studios/diskjockey prcounts antimatter-studios/rust-disk-partitions" \
+        "$(tr '\n' ' ' < "$calls" | sed 's/ $//')"
     case "$out" in
         *PROJECT*) echo "FAIL — a rate-limited run printed a table [$message]" >&2; fails=$((fails + 1)) ;;
         *) echo "ok — a rate-limited run prints no table [$message]" ;;
