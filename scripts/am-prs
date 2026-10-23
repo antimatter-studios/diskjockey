@@ -9,6 +9,7 @@
 #   scripts/am-prs --state STATE      open, closed, merged or all (default all)
 #   scripts/am-prs --project NAME     one project (repeatable)
 #   scripts/am-prs --tsv              the same rows as TSV, with a header
+#   scripts/am-prs --no-cache         ask GitHub even when a fresh answer is kept
 #   scripts/am-prs --print-jq         the row filter, for its own test
 #
 # WHO IS EXTERNAL. GitHub records how the author relates to the repository
@@ -23,9 +24,16 @@
 # project reads as "no pull requests". A token-wide rate limit stops the run
 # with exit 5 before any partial table is printed.
 #
+# CACHED PER REPOSITORY (github-cache.sh), as in am-issues. Each project's
+# pull requests, every state, are kept for AM_GITHUB_CACHE_TTL seconds (600)
+# under the key `prs-all`, and --state and --external filter the kept answer.
+# --no-cache asks anyway, and refreshes the entry. A failed fetch keeps
+# nothing (#546).
+#
 # Environment, for tests:
 #   AM_PRS_FETCH   command called with a slug instead of gh; prints rows in
 #                  the --print-jq format
+#   AM_GITHUB_CACHE_TTL  seconds an answer is kept (600; 0 asks every time)
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -33,6 +41,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/constellation-repositories.sh"
 # shellcheck source=github-rate-limit.sh
 . "$HERE/github-rate-limit.sh"
+# shellcheck source=github-cache.sh
+. "$HERE/github-cache.sh"
 PROJECTS=("${CONSTELLATION_REPOSITORIES[@]}")
 
 PR_QUERY='query($owner: String!, $name: String!, $endCursor: String) {
@@ -60,12 +70,14 @@ PR_JQ='.data.repository.pullRequests.nodes[]
 STATE=ALL
 EXTERNAL=0
 TSV=0
+TTL="${AM_GITHUB_CACHE_TTL:-600}"
 WANT=()
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --external) EXTERNAL=1 ;;
         --tsv)      TSV=1 ;;
+        --no-cache) TTL=0 ;;
         --state)
             shift
             case "${1:-}" in
@@ -74,11 +86,14 @@ while [ $# -gt 0 ]; do
             esac ;;
         --project)  shift; [ $# -gt 0 ] || { echo "am-prs: --project needs a name" >&2; exit 2; }; WANT+=("$1") ;;
         --print-jq) printf '%s\n' "$PR_JQ"; exit 0 ;;
-        -h|--help)  sed -n '2,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help)  awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"; exit 0 ;;
         *)          echo "am-prs: unknown argument '$1'" >&2; exit 2 ;;
     esac
     shift
 done
+case "$TTL" in
+    ''|*[!0-9]*) echo "am-prs: AM_GITHUB_CACHE_TTL must be a number of seconds, not '$TTL'" >&2; exit 2 ;;
+esac
 
 fetch_repo() {
     local slug="$1"
@@ -105,7 +120,7 @@ for entry in "${PROJECTS[@]}"; do
     name="${entry%%:*}"; slug="${entry#*:}"
     wanted "$name" || continue
     nprojects=$((nprojects + 1))
-    out="$(fetch_repo "$slug" 2>"$errs")"; rc=$?
+    out="$(github_cached "$slug" prs-all "$TTL" fetch_repo "$slug" 2>"$errs")"; rc=$?
     github_stop_if_rate_limited am-prs "$name" "$errs" "${AM_PRS_FETCH:-}"
     if [ "$rc" -ne 0 ]; then
         printf '%s\n' "$name" >> "$failed"

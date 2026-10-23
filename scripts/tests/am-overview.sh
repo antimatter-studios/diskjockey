@@ -47,6 +47,7 @@ cat > "$sandbox/fetch" <<'STUB'
 #!/usr/bin/env bash
 slug="$1"
 key="$(printf '%s' "$slug" | tr '/' '-')"
+[ -z "${AM_OVERVIEW_CALLS:-}" ] || echo issues >> "$AM_OVERVIEW_CALLS"
 [ -f "$AM_OVERVIEW_FIXTURES/$key.fail" ] && exit 1
 [ -f "$AM_OVERVIEW_FIXTURES/$key.rows" ] && cat "$AM_OVERVIEW_FIXTURES/$key.rows"
 exit 0
@@ -58,6 +59,7 @@ export AM_OVERVIEW_FETCH="$sandbox/fetch"
 cat > "$sandbox/fetch-prs" <<'STUB'
 #!/usr/bin/env bash
 key="$(printf '%s' "$1" | tr '/' '-')"
+[ -z "${AM_OVERVIEW_CALLS:-}" ] || echo prs >> "$AM_OVERVIEW_CALLS"
 [ -f "$AM_OVERVIEW_FIXTURES/$key.prsfail" ] && exit 1
 [ -f "$AM_OVERVIEW_FIXTURES/$key.prs" ] && cat "$AM_OVERVIEW_FIXTURES/$key.prs"
 exit 0
@@ -70,12 +72,17 @@ export AM_OVERVIEW_FETCH_PRS="$sandbox/fetch-prs"
 cat > "$sandbox/fetch-pr-counts" <<'STUB'
 #!/usr/bin/env bash
 key="$(printf '%s' "$1" | tr '/' '-')"
+[ -z "${AM_OVERVIEW_CALLS:-}" ] || echo prcounts >> "$AM_OVERVIEW_CALLS"
 [ -f "$AM_OVERVIEW_FIXTURES/$key.prcountsfail" ] && exit 1
 if [ -f "$AM_OVERVIEW_FIXTURES/$key.prcounts" ]; then cat "$AM_OVERVIEW_FIXTURES/$key.prcounts"; else echo "0 0"; fi
 STUB
 chmod +x "$sandbox/fetch-pr-counts"
 export AM_OVERVIEW_FETCH_PR_COUNTS="$sandbox/fetch-pr-counts"
 export AM_OVERVIEW_FIXTURES="$sandbox"
+# The cache lives in this run's sandbox, and until its own section below
+# every call asks: a TTL of 0 reads no entry (#546).
+export XDG_CACHE_HOME="$sandbox/cache"
+export AM_GITHUB_CACHE_TTL=0
 
 row() { printf '%s\x1f%s\x1f%s\x1f%s\n' "$1" "$2" "$3" "$4"; }
 now_minus() { # seconds -> ISO-8601 Z
@@ -240,7 +247,11 @@ for message in "API rate limit exceeded for user ID 1. (HTTP 403)" \
     check "a rate limit exits 5 [$message]" 5 "$rc"
     contains "and says it was rate limited [$message]" "rate limit" "$out"
     contains "and where it stopped [$message]" "stopped at rust-disk-partitions" "$out"
-    check "and makes no request after it [$message]" 2 "$(wc -l < "$calls" | tr -d ' ')"
+    # diskjockey's issues and pull request counts (that stub logs as well,
+    # since #546), then the limited fetch, and nothing after it.
+    check "and makes no request after it [$message]" \
+        "antimatter-studios/diskjockey prcounts antimatter-studios/rust-disk-partitions" \
+        "$(tr '\n' ' ' < "$calls" | sed 's/ $//')"
     case "$out" in
         *PROJECT*) echo "FAIL — a rate-limited run printed a table [$message]" >&2; fails=$((fails + 1)) ;;
         *) echo "ok — a rate-limited run prints no table [$message]" ;;
@@ -311,6 +322,50 @@ JSON
 else
     echo "ok — jq absent, filter check skipped (stated, not silent)"
 fi
+
+# ------------------------------------------- the cache, per repository (#546)
+# With the default TTL, each question's answer is kept per repository under a
+# key of its own, a second call within the TTL asks GitHub nothing, and a
+# failed fetch keeps nothing, so the next call asks again.
+unset AM_GITHUB_CACHE_TTL
+rm -rf "$XDG_CACHE_HOME"
+export AM_OVERVIEW_CALLS="$sandbox/calls"
+cached() { printf '%s/am/github/antimatter-studios/%s/%s' "$XDG_CACHE_HOME" "$1" "$2"; }
+exists() { if [ -e "$1" ]; then echo yes; else echo no; fi; }
+asked() { tr '\n' ' ' < "$AM_OVERVIEW_CALLS" | sed 's/ $//'; }
+rm -f "$sandbox"/antimatter-studios-diskjockey.{fail,prsfail,prcountsfail}
+row 7 2026-01-01T00:00:00Z bug "a cached issue" > "$sandbox/antimatter-studios-diskjockey.rows"
+: > "$AM_OVERVIEW_CALLS"
+"$BIN" --project diskjockey >/dev/null
+check "the first call asks for the issues and the pull request counts" "issues prcounts" "$(asked)"
+check "and keeps each answer under XDG_CACHE_HOME, per repository" "yes yes" \
+    "$(exists "$(cached diskjockey overview-issues)") $(exists "$(cached diskjockey overview-pr-counts)")"
+: > "$AM_OVERVIEW_CALLS"
+out="$("$BIN" --project diskjockey)"
+check "while they are fresh, asking again asks GitHub nothing" "" "$(asked)"
+contains "and the kept answer is the table" "a cached issue" "$out"
+"$BIN" --project diskjockey --list >/dev/null
+check "--list asks only for the pull requests, which nothing kept yet" "prs" "$(asked)"
+check "and keeps them under a key of their own" yes "$(exists "$(cached diskjockey overview-prs)")"
+: > "$AM_OVERVIEW_CALLS"
+"$BIN" --project diskjockey --list >/dev/null
+check "so --list asks nothing the second time" "" "$(asked)"
+"$BIN" --project diskjockey --no-cache >/dev/null
+check "--no-cache asks again" "issues prcounts" "$(asked)"
+: > "$AM_OVERVIEW_CALLS"
+AM_GITHUB_CACHE_TTL=0 "$BIN" --project diskjockey >/dev/null
+check "and so does a TTL of 0" "issues prcounts" "$(asked)"
+AM_GITHUB_CACHE_TTL=soon "$BIN" --project diskjockey >/dev/null 2>&1; rc=$?
+check "a TTL that is not a number of seconds is refused" 2 "$rc"
+: > "$sandbox/antimatter-studios-rust-lzo1x.fail"
+"$BIN" --project rust-lzo1x >/dev/null 2>&1; rc=$?
+check "a failed fetch still exits 4" 4 "$rc"
+check "and keeps no entry" no "$(exists "$(cached rust-lzo1x overview-issues)")"
+rm -f "$sandbox/antimatter-studios-rust-lzo1x.fail"
+: > "$AM_OVERVIEW_CALLS"
+"$BIN" --project rust-lzo1x >/dev/null 2>&1
+check "so the next call asks again" "issues prcounts" "$(asked)"
+unset AM_OVERVIEW_CALLS
 
 if [ "$fails" -eq 0 ]; then
     echo "am-overview: all checks passed"

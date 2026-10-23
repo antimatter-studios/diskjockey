@@ -41,6 +41,10 @@ STUB
 chmod +x "$sandbox/fetch"
 export AM_PRS_FETCH="$sandbox/fetch"
 export AM_PRS_FIXTURES="$sandbox"
+# The cache lives in this run's sandbox, and until its own section below
+# every call asks: a TTL of 0 reads no entry (#546).
+export XDG_CACHE_HOME="$sandbox/cache"
+export AM_GITHUB_CACHE_TTL=0
 
 row() { # number state association author-type login title
     printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f2026-09-01\x1fhttps://github.com/o/r/pull/%s\x1f%s\n' \
@@ -125,6 +129,42 @@ JSON
 else
     echo "ok — jq absent, filter check skipped (stated, not silent)"
 fi
+
+# ------------------------------------------------------------ 7. the cache
+# With the default TTL each repository's pull requests are kept under a key of
+# their own, a second call within the TTL asks GitHub nothing whatever it
+# filters, and a failed fetch keeps nothing, so the next call asks again
+# (#546).
+unset AM_GITHUB_CACHE_TTL
+rm -rf "$XDG_CACHE_HOME"
+calls="$sandbox/calls"
+cached() { printf '%s/am/github/antimatter-studios/%s/%s' "$XDG_CACHE_HOME" "$1" "$2"; }
+exists() { if [ -e "$1" ]; then echo yes; else echo no; fi; }
+ncalls() { wc -l < "$calls" | tr -d ' '; }
+: > "$calls"
+AM_PRS_CALLS="$calls" "$BIN" --project diskjockey >/dev/null
+check "the first call asks" 1 "$(ncalls)"
+check "and keeps the answer under XDG_CACHE_HOME, per repository" yes "$(exists "$(cached diskjockey prs-all)")"
+: > "$calls"
+tsv="$(AM_PRS_CALLS="$calls" "$BIN" --project diskjockey --state open --tsv)"
+check "while it is fresh, asking again asks GitHub nothing, whatever the filter" 0 "$(ncalls)"
+check "and the kept answer is filtered as a fresh one is" "2 3 4 5" \
+    "$(printf '%s\n' "$tsv" | awk -F'\t' 'NR > 1 {print $2}' | tr '\n' ' ' | sed 's/ $//')"
+AM_PRS_CALLS="$calls" "$BIN" --project diskjockey --no-cache >/dev/null
+check "--no-cache asks again" 1 "$(ncalls)"
+: > "$calls"
+AM_GITHUB_CACHE_TTL=0 AM_PRS_CALLS="$calls" "$BIN" --project diskjockey >/dev/null
+check "and so does a TTL of 0" 1 "$(ncalls)"
+AM_GITHUB_CACHE_TTL=soon "$BIN" --project diskjockey >/dev/null 2>&1; rc=$?
+check "a TTL that is not a number of seconds is refused" 2 "$rc"
+: > "$sandbox/antimatter-studios-rust-disk-partitions.fail"
+"$BIN" --project rust-disk-partitions >/dev/null 2>&1; rc=$?
+check "a failed fetch still exits 4" 4 "$rc"
+check "and keeps no entry" no "$(exists "$(cached rust-disk-partitions prs-all)")"
+rm -f "$sandbox/antimatter-studios-rust-disk-partitions.fail"
+: > "$calls"
+AM_PRS_CALLS="$calls" "$BIN" --project rust-disk-partitions >/dev/null 2>&1
+check "so the next call asks again" 1 "$(ncalls)"
 
 if [ "$fails" -eq 0 ]; then
     echo "am-prs: all checks passed"
