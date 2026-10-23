@@ -249,6 +249,25 @@ jobs:
           bash scripts/quiet-run.sh erofs-capability-fresh-copy 20 2000 -- \
             bash scripts/erofs-capability-fixture.sh --check tmp/fixtures/erofs
 
+      # The squashfs capability seed (#495, part of #402) is built by
+      # mksquashfs from a staged tree that already holds its hard link,
+      # symlink and xattr, and is read back by unsquashfs (superblock,
+      # listing and a full extraction) and by a read-only kernel mount, never
+      # by this constellation's writers or readers. squashfs-tools and attr
+      # are GPL tools run at arm's length as oracles; nothing links or copies
+      # them. They are installed first, with apt's output in the kept log; a
+      # missing builder fails naming it.
+      # 20 lines / 2,000 bytes is an initial ceiling for about six lines.
+      - name: squashfs capability seed, built and checked independently
+        run: |
+          mkdir -p tmp/logs
+          sudo apt-get update -q > tmp/logs/squashfs-tools-install.log 2>&1
+          sudo apt-get install -y -q squashfs-tools attr >> tmp/logs/squashfs-tools-install.log 2>&1
+          bash scripts/quiet-run.sh squashfs-capability-fixture 20 2000 -- \
+            bash scripts/squashfs-capability-fixture.sh --dest tmp/fixtures/squashfs
+          bash scripts/quiet-run.sh squashfs-capability-fresh-copy 20 2000 -- \
+            bash scripts/squashfs-capability-fixture.sh --check tmp/fixtures/squashfs
+
       # KEEP THE LOG, GREEN OR RED. The tier prints a verdict; the whole run
       # is in tmp/logs/, and a log nothing uploads is a log nobody can read
       # once the runner is gone (#211).

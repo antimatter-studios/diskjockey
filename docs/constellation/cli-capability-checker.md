@@ -237,6 +237,46 @@ namespace. The image is uncompressed, with mkfs.erofs's defaults (4 KiB
 blocks), sized to its contents, and keeps the staged files' owner, so the
 files belong to the CI user, not root.
 
+## The squashfs seed
+
+`bash scripts/squashfs-capability-fixture.sh --dest NEW_DIR` builds
+`squashfs.img` and `payload.bin` with squashfs-tools only. The tree is
+staged first, with its hard link, its symbolic link and the
+`user.capability` xattr (set with `setfattr`), and `mksquashfs` builds the
+image from it, so nothing writes the image afterwards. It reads the seed's
+superblock with `unsquashfs -s`, lists it with `unsquashfs -l`, extracts the
+whole image with `unsquashfs`, and reads it again through a read-only kernel
+mount, never with this constellation's readers. It refuses a seed whose
+names, bytes, hard link, symlink target, empty directory or xattr disagree.
+`--check DIR` runs the executor over three rows. A squashfs image cannot be
+changed in place and its superblock is at byte 0, so each row's probe reads
+its copy's superblock, requires the copy to hash as the seed, and then
+appends a mark after the bytes the superblock counts, which readers ignore.
+A reused copy or a write to the source fixture fails the run. The Shell
+scripts job installs squashfs-tools and attr and runs both modes. A missing
+`mksquashfs`, `unsquashfs`, `setfattr`, `getfattr`, `mount` or `umount` fails
+naming its package before anything is created; nothing is skipped. These GPL
+tools are run as separate programs, as oracles; nothing links or copies
+them.
+
+| path | operand for |
+|---|---|
+| `/data.bin` (8 KiB, `user.capability=seed`) | stat, write --at, truncate, rm, xattr |
+| `/dir/file.txt` | recursive ls, rm of a child, a nonempty rmdir refusal |
+| `/empty` | rmdir, mkdir --parents below it |
+| `/link-target.txt`, `/hardlink.txt` | hard links (one inode, link count 2) |
+| `/symlink` -> `data.bin` | symbolic links |
+| `/mv-src.txt`, `/replace-dst.txt` | mv, and mv onto an existing destination |
+| `payload.bin` (4 KiB) | stdin for write rows |
+
+SquashFS format limits: SquashFS is read-only, so a correct driver refuses
+every verb that would change the image (exit 3), with the image
+byte-identical; the operands exist so each refusal is made against a real
+target, not a missing one. SquashFS has no named data streams. The one xattr
+is in the `user` namespace. The image uses mksquashfs's defaults (gzip,
+128 KiB blocks, padded to 4 KiB) and keeps the staged files' owner, so the
+files belong to the CI user, not root.
+
 This is the execution layer of #387 (#401) and its verified release
 installation layer (#488, part of #402). Independent fixture builders are
 tracked in #489–#495, and the measured seven-driver capability TSV in #496.
