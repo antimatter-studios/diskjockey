@@ -66,6 +66,8 @@
 # The xfs capability seed guard (#491) raises it to 75 files.
 # The red-run concurrency guard raises it to 76 files.
 # The issue list and GitHub cache guards (#544) raise it to 78 files.
+# The btrfs capability seed guard (#492) makes 80 files, 79 having been
+# measured on main (run 39918549371), and the floor follows the count.
 # It moves up with the suite; it never moves down.
 #
 # `rc`, not `status`: `status` is READ-ONLY in zsh, so a loop written with it
@@ -76,7 +78,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
-FLOOR=78
+FLOOR=80
 
 # The raw loop, whose whole output is the tier's log. Failure lines carry a
 # TIER-FAIL prefix so the quiet verdict below can name them without a tail.
@@ -110,7 +112,7 @@ if [ "${1:-}" = "--run-all" ]; then
 fi
 
 rc=0
-scripts/quiet-run.sh "$@" scripts 1030 53300 -- bash scripts/test-scripts.sh --run-all || rc=$?
+scripts/quiet-run.sh "$@" scripts 1270 65700 -- bash scripts/test-scripts.sh --run-all || rc=$?
 log="${QUIET_LOG_DIR:-$ROOT/tmp/logs}/scripts.log"
 grep -E '^ran [0-9]+ script test' "$log" 2>/dev/null | tail -1
 grep -E '^TIER-FAIL' "$log" 2>/dev/null | sed 's/^TIER-FAIL //' | head -40
