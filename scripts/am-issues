@@ -1,0 +1,221 @@
+#!/usr/bin/env bash
+#
+# am-issues — every open issue across the constellation, oldest first, as JSON.
+#
+# The projects come from constellation-repositories.sh, like am-overview and
+# am-prs. am-overview is a report for a person: counts, ages in whole days,
+# rows grouped by project. This is data for a program: one array, ordered by
+# the exact moment each issue was opened across every project, each entry
+# carrying what a caller needs to act on it.
+#
+#   scripts/am-issues                  [{"project", "url", "number", "created",
+#                                        "labels", "title"}, ...]
+#   scripts/am-issues --urls           ["https://github.com/.../issues/N", ...]
+#   scripts/am-issues --unclaimed      without the issues labelled `claimed`
+#   scripts/am-issues --prs            each entry also carries "prs": the pull
+#                                      requests that close or mention it, as
+#                                      [{"url", "state"}], or null when that
+#                                      lookup failed
+#   scripts/am-issues --project NAME   one project (repeatable)
+#   scripts/am-issues --no-cache       ask GitHub even when a fresh answer is kept
+#   scripts/am-issues --print-jq       the issue filter, for its own test
+#   scripts/am-issues --print-pr-jq    the pull request filter, likewise
+#
+# CACHED PER REPOSITORY (github-cache.sh). Each project's answer is kept for
+# AM_GITHUB_CACHE_TTL seconds (600) under the XDG cache directory, keyed
+# `issues-open` and, for --prs, `issues-open-prs`. A caller that asks every
+# few minutes then costs GitHub one request per project per ten minutes, not
+# one per call. --no-cache asks anyway, and refreshes the entries.
+#
+# EXIT STATUS IS PART OF THE OUTPUT, as in am-overview. A project whose fetch
+# fails is named on stderr, the array holds every project that answered, and
+# the command exits 4, because a missing project reads as "no open issues". A
+# rate limit stops the run with exit 5 before anything is printed.
+#
+# Environment:
+#   AM_GITHUB_CACHE_TTL   seconds a cached answer stays fresh (600)
+#   AM_ISSUES_FETCH       for tests: called with a slug instead of gh, printing
+#                         rows in the --print-jq format
+#   AM_ISSUES_FETCH_PRS   likewise for --prs, in the --print-pr-jq format
+set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# shellcheck source=constellation-repositories.sh
+. "$HERE/constellation-repositories.sh"
+# shellcheck source=github-rate-limit.sh
+. "$HERE/github-rate-limit.sh"
+# shellcheck source=github-cache.sh
+. "$HERE/github-cache.sh"
+
+PROJECTS=("${CONSTELLATION_REPOSITORIES[@]}")
+
+# created TAB claimed (1 or 0) TAB number TAB link TAB the entry as JSON.
+# `repos/<slug>/issues` RETURNS PULL REQUESTS TOO, hence the filter. `tojson`
+# escapes every tab and newline a title can hold, so the entry is always the
+# fifth field and always one line.
+ISSUE_JQ='.[] | select(.pull_request == null)
+    | [.created_at,
+       (if any(.labels[]; .name == "claimed") then "1" else "0" end),
+       (.number | tostring),
+       .html_url,
+       ({url: .html_url, number: .number, created: .created_at,
+         labels: [.labels[].name], title: .title} | tojson)]
+    | join("\t")'
+
+# --prs. A pull request belongs to an issue when it will close it or when it
+# mentions it, as in am-overview's --list; each comes with its state, so a
+# caller can tell an issue someone is working on from one a merge left open.
+PR_QUERY='query($owner: String!, $name: String!, $endCursor: String) {
+  repository(owner: $owner, name: $name) {
+    issues(states: OPEN, first: 100, after: $endCursor) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        number
+        closedByPullRequestsReferences(first: 20, includeClosedPrs: true) { nodes { number url state } }
+        timelineItems(itemTypes: [CROSS_REFERENCED_EVENT], first: 50) {
+          nodes { ... on CrossReferencedEvent { source { __typename ... on PullRequest { number url state } } } }
+        }
+      }
+    }
+  }
+}'
+# number TAB the pull requests as a JSON array, in number order.
+PR_JQ='.data.repository.issues.nodes[]
+    | ([.closedByPullRequestsReferences.nodes[]]
+       + [.timelineItems.nodes[].source | select(.__typename == "PullRequest")]) as $prs
+    | [(.number | tostring),
+       ($prs | unique_by(.url) | sort_by(.number)
+             | map({url: .url, state: .state}) | tojson)]
+    | join("\t")'
+
+URLS=0
+UNCLAIMED=0
+PRS=0
+TTL="${AM_GITHUB_CACHE_TTL:-600}"
+WANT=()
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --urls)        URLS=1 ;;
+        --unclaimed)   UNCLAIMED=1 ;;
+        --prs)         PRS=1 ;;
+        --no-cache)    TTL=0 ;;
+        --project)     shift; [ $# -gt 0 ] || { echo "am-issues: --project needs a name" >&2; exit 2; }; WANT+=("$1") ;;
+        --print-jq)    printf '%s\n' "$ISSUE_JQ"; exit 0 ;;
+        --print-pr-jq) printf '%s\n' "$PR_JQ"; exit 0 ;;
+        -h|--help)     awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"; exit 0 ;;
+        *)             echo "am-issues: unknown argument '$1'" >&2; exit 2 ;;
+    esac
+    shift
+done
+if [ "$URLS" -eq 1 ] && [ "$PRS" -eq 1 ]; then
+    echo "am-issues: --urls prints links only, so --prs has nothing to add to it" >&2
+    exit 2
+fi
+case "$TTL" in
+    ''|*[!0-9]*) echo "am-issues: AM_GITHUB_CACHE_TTL must be a number of seconds, not '$TTL'" >&2; exit 2 ;;
+esac
+
+fetch_issues() {
+    local slug="$1"
+    if [ -n "${AM_ISSUES_FETCH:-}" ]; then
+        "$AM_ISSUES_FETCH" "$slug"
+        return $?
+    fi
+    gh api "repos/$slug/issues" -X GET -f state=open -f per_page=100 --paginate --jq "$ISSUE_JQ"
+}
+
+fetch_prs() {
+    local slug="$1"
+    if [ -n "${AM_ISSUES_FETCH_PRS:-}" ]; then
+        "$AM_ISSUES_FETCH_PRS" "$slug"
+        return $?
+    fi
+    gh api graphql --paginate -F owner="${slug%%/*}" -F name="${slug#*/}" \
+        -f query="$PR_QUERY" --jq "$PR_JQ"
+}
+
+wanted() {
+    [ ${#WANT[@]} -eq 0 ] && return 0
+    local w
+    for w in "${WANT[@]}"; do [ "$w" = "$1" ] && return 0; done
+    return 1
+}
+
+rows="$(mktemp)"; prs="$(mktemp)"; prfailed="$(mktemp)"; failed="$(mktemp)"; errs="$(mktemp)"
+trap 'rm -f "$rows" "$prs" "$prfailed" "$failed" "$errs"' EXIT
+STUBS="${AM_ISSUES_FETCH:-}${AM_ISSUES_FETCH_PRS:-}"
+
+nprojects=0
+for entry in "${PROJECTS[@]}"; do
+    name="${entry%%:*}"; slug="${entry#*:}"
+    wanted "$name" || continue
+    nprojects=$((nprojects + 1))
+    out="$(github_cached "$slug" issues-open "$TTL" fetch_issues "$slug" 2>"$errs")"; rc=$?
+    github_stop_if_rate_limited am-issues "$name" "$errs" "$STUBS"
+    if [ "$rc" -ne 0 ]; then
+        printf '%s\n' "$name" >> "$failed"
+        continue
+    fi
+    # The project's name is added here rather than by the query, so a cached
+    # answer is the repository's whichever name or command asked for it.
+    [ -z "$out" ] || printf '%s\n' "$out" | awk -F'\t' -v OFS='\t' -v name="$name" \
+        'NF == 5 { print $1, $2, name, $3, $4, $5 }' >> "$rows"
+    [ "$PRS" -eq 1 ] || continue
+    out="$(github_cached "$slug" issues-open-prs "$TTL" fetch_prs "$slug" 2>"$errs")"; rc=$?
+    github_stop_if_rate_limited am-issues "$name (pull requests)" "$errs" "$STUBS"
+    if [ "$rc" -ne 0 ]; then
+        printf '%s (pull requests)\n' "$name" >> "$failed"
+        printf '%s\n' "$name" >> "$prfailed"
+        continue
+    fi
+    [ -z "$out" ] || printf '%s\n' "$out" | awk -F'\t' -v OFS='\t' -v name="$name" \
+        'NF == 2 { print name, $1, $2 }' >> "$prs"
+done
+
+# Oldest first: ISO-8601 Z times sort as text. Ties, to the second, go by
+# project and then number, so the order never depends on fetch order.
+LC_ALL=C sort -t$'\t' -k1,1 -k3,3 -k4,4n "$rows" \
+    | awk -F'\t' -v urls="$URLS" -v unclaimed="$UNCLAIMED" -v withprs="$PRS" \
+        -v prfile="$prs" -v prfailedfile="$prfailed" '
+        BEGIN {
+            if (withprs) {
+                while ((getline line < prfile) > 0) { split(line, f, "\t"); pr[f[1], f[2]] = f[3] }
+                while ((getline line < prfailedfile) > 0) unknown[line] = 1
+            }
+            printf "["
+        }
+        unclaimed && $2 == "1" { next }
+        {
+            if (urls) {
+                entry = "\"" $5 "\""
+            } else {
+                entry = "{\"project\":\"" $3 "\"," substr($6, 2)
+                if (withprs) {
+                    p = ($3 in unknown) ? "null" : (($3, $4) in pr) ? pr[$3, $4] : "[]"
+                    entry = substr(entry, 1, length(entry) - 1) ",\"prs\":" p "}"
+                }
+            }
+            printf "%s\n  %s", (n++ ? "," : ""), entry
+        }
+        END { printf "%s]\n", (n ? "\n" : "") }'
+
+listed="$(awk -F'\t' -v unclaimed="$UNCLAIMED" '!(unclaimed && $2 == "1")' "$rows" | wc -l | tr -d ' ')"
+nfailed="$(wc -l < "$failed" | tr -d ' ')"
+
+# An empty array and a broken query look alike, so say which this is.
+if [ "$listed" -eq 0 ] && [ "$nfailed" -eq 0 ]; then
+    what="open issues"
+    [ "$UNCLAIMED" -eq 0 ] || what="unclaimed open issues"
+    echo "am-issues: no $what in any of the $nprojects project(s)" >&2
+fi
+
+if [ "$nfailed" -gt 0 ]; then
+    echo >&2
+    echo "am-issues: $nfailed lookup(s) could not be read:" >&2
+    sed 's/^/    FETCH FAILED  /' "$failed" >&2
+    echo "am-issues: the list above is incomplete BY THAT MUCH." >&2
+    exit 4
+fi
+exit 0

@@ -157,6 +157,14 @@ tasks:
     cmds:
       - scripts/am-prs --external {{.CLI_ARGS}}
 
+  issue:list:
+    desc: Every open issue across the constellation, oldest first, as JSON (add -- --unclaimed, --urls, --prs, --no-cache, ...)
+    # No `sources`, for the same reason as overview:list: the answer is on
+    # GitHub. scripts/am-issues keeps each repository's answer itself, under
+    # the XDG cache directory, for AM_GITHUB_CACHE_TTL seconds (600).
+    cmds:
+      - scripts/am-issues {{.CLI_ARGS}}
+
   branch:reap:
     desc: The branches of merged pull requests nothing needs, across the constellation (add -- --apply to delete)
     # No `sources`: the answer is on GitHub, and moves with every merge.

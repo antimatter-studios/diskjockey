@@ -313,6 +313,7 @@ chore overview:list      # every project in turn, with issue numbers and titles
 chore overview:tsv       # the detail rows as TSV
 chore pr:list            # every pull request across the constellation
 chore pr:external        # only those opened by external contributors
+chore issue:list         # every open issue, oldest first, as JSON (cached per repository)
 chore branch:reap        # merged branches nothing needs (-- --apply deletes them)
 chore check:scripts      # the scripts tier: every scripts/tests/*.sh guard
 chore test:library       # the library tier: swift test, host-free
