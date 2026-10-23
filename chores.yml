@@ -23,7 +23,7 @@ chore_min_version: 0.6.0
 # is about a quarter over the measurement, and each row says what it is:
 #
 #   tier      lines    bytes   measured (lines / bytes)     headroom   floor
-#   scripts    1030    53300   819 / 42,583 (51 files)      25% / 25%  70 files
+#   scripts    1270    65700   1,009 / 52,514 (79 files)    26% / 25%  80 files
 #   library    4510   350000   3,548 / 274,815              27% / 27%  715 cases
 #   app        5200   950000   4,119 / 750,848 (raw)        26% / 27%  90 cases
 #   cli-pipe    270    16200   213 / 12,909 (Linux)         27% / 25%  25 macOS, 37 Linux
@@ -42,6 +42,9 @@ chore_min_version: 0.6.0
 # 810 / 42,600 budget. With the DriverKit guard and the CLI exit-status guard
 # the tier is 51 files, floor 51, measured locally the same day at
 # 819 / 42,583, so the budget rises 25% over that.
+# Main's run 39918549371 (2026-10-23) printed 1,009 lines / 52,514 bytes
+# for 79 files against 1,030 / 53,300, leaving less than the btrfs seed
+# guard (#492) prints, so the budget rises about 25% over that measurement.
 # The DriverKit service target guard (#393) raises the inventory floor to 52;
 # its two verdict lines fit the existing measured output headroom.
 # The reader-boundary guard (#418) and host VHDX ABI guard (#424) raise it to 54.

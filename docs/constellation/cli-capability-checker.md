@@ -163,6 +163,43 @@ mkfs.xfs refuses a filesystem below 300 MiB, so the seed is a sparse
 320 MiB file with mkfs.xfs's defaults (v5, CRCs on, 4 KiB blocks). The
 protofile owns everything as uid 0, gid 0.
 
+## The btrfs seed
+
+`bash scripts/btrfs-capability-fixture.sh --dest NEW_DIR` builds `btrfs.img`
+and `payload.bin` with btrfs-progs and the kernel only. `mkfs.btrfs
+--rootdir` formats the image and populates it from a staged tree, symbolic
+link included. A kernel loop mount (CI, Ubuntu, as root) then adds the hard
+link and writes the xattr with `setfattr`. It checks the unmounted seed
+with `btrfs check --readonly` and finds every name and the xattr's name in
+`btrfs inspect-internal dump-tree -t 5`. It reads the seed again through a
+read-only kernel mount, never with this constellation's readers, and refuses
+a seed whose names, bytes, hard link, symlink target, empty directory or
+xattr disagree. `--check DIR` runs the executor over three rows. Each row
+relabels the image with `btrfs filesystem label` and fails if the label has
+already changed, so a reused copy or a write to the source fixture fails the
+run. The Shell scripts job installs btrfs-progs and attr and runs both
+modes. A missing `mkfs.btrfs`, `btrfs`, `setfattr`, `getfattr`, `mount` or
+`umount` fails naming its package before anything is created; nothing is
+skipped. These GPL tools are run as separate programs, as oracles; nothing
+links or copies them.
+
+| path | operand for |
+|---|---|
+| `/data.bin` (8 KiB, `user.capability=seed`) | stat, write --at, truncate, rm, xattr |
+| `/dir/file.txt` | recursive ls, rm of a child, a nonempty rmdir refusal |
+| `/empty` | rmdir, mkdir --parents below it |
+| `/link-target.txt`, `/hardlink.txt` | hard links (one inode, link count 2) |
+| `/symlink` -> `data.bin` | symbolic links |
+| `/mv-src.txt`, `/replace-dst.txt` | mv, and mv onto an existing destination |
+| `payload.bin` (4 KiB) | stdin for write rows |
+
+Btrfs format limits: Btrfs has no named data streams, so stream verbs have
+no operand and a correct driver refuses them (exit 3). The one xattr is in
+the `user` namespace. Everything is in the top-level subvolume (id 5); the
+seed has no other subvolume or snapshot. The seed is a sparse 256 MiB file
+with mkfs.btrfs's defaults for one device, and `--rootdir` keeps the staged
+files' owner, so the files belong to the CI user, not root.
+
 This is the execution layer of #387 (#401) and its verified release
 installation layer (#488, part of #402). Independent fixture builders are
 tracked in #489–#495, and the measured seven-driver capability TSV in #496.
