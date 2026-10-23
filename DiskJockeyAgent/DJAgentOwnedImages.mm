@@ -1,6 +1,8 @@
 // Real platform bindings for the injected bridge. All work shares the registry queue.
 #import "DJAgentOwnedImages.h"
 #include "DJAgentConnections.hpp"
+#include "DJAgentDiskAppeared.hpp"
+#include "DJAgentMediaIdentity.hpp"
 #include "DJAgentReadEndpoint.h"
 #include <DiskArbitration/DiskArbitration.h>
 #include <IOKit/storage/IOMedia.h>
@@ -12,32 +14,51 @@ struct Context {
     uint64_t identity = 0;
     DJAgentOwnedAttachReply reply;
 };
-bool identity(void *media, uint64_t *value) {
-    auto property = IORegistryEntrySearchCFProperty(io_registry_entry_t(uintptr_t(media)),
-        kIOServicePlane, CFSTR(kDJAttachmentIdentityKey), kCFAllocatorDefault,
-        kIORegistryIterateRecursively | kIORegistryIterateParents);
-    if (!property) return false;
-    int64_t number = 0;
-    const bool found = CFGetTypeID(property) == CFNumberGetTypeID() &&
-        CFNumberGetValue(static_cast<CFNumberRef>(property), kCFNumberSInt64Type, &number);
-    CFRelease(property);
-    if (found) *value = uint64_t(number);
-    return found && *value != 0;
+// The registry search DJAgentMediaIdentity runs (#506), bound to IOKit (#507).
+static_assert(DJAgentRegistryIterateRecursively == kIORegistryIterateRecursively,
+    "DJAgentMediaIdentity's recursive option is IOKit's");
+static_assert(DJAgentRegistryIterateParents == kIORegistryIterateParents,
+    "DJAgentMediaIdentity's parents option is IOKit's");
+const void *registrySearch(void *media, const char *plane, const char *key, uint32_t options) {
+    auto name = CFStringCreateWithCString(kCFAllocatorDefault, key, kCFStringEncodingUTF8);
+    if (!name) return nullptr;
+    CFTypeRef property = IORegistryEntrySearchCFProperty(io_registry_entry_t(uintptr_t(media)),
+        plane, name, kCFAllocatorDefault, options);
+    CFRelease(name);
+    return property;
 }
+bool registryNumber(const void *object, uint64_t *value) {
+    int64_t number = 0;
+    if (CFGetTypeID(object) != CFNumberGetTypeID() ||
+        !CFNumberGetValue(static_cast<CFNumberRef>(object), kCFNumberSInt64Type, &number))
+        return false;
+    *value = uint64_t(number);
+    return true;
+}
+void registryRelease(const void *object) { CFRelease(object); }
+const DJAgentRegistry registry{registrySearch, registryNumber, registryRelease};
+bool identity(void *media, uint64_t *value) {
+    return DJAgentMediaIdentity(&registry, media, value);
+}
+// The disk-appeared callback's DiskArbitration boundary (#507).
+const DJAgentDiskArbitration diskArbitration{
+    [](void *disk) -> const void * { return DADiskCopyDescription(static_cast<DADiskRef>(disk)); },
+    [](void *disk) -> void * {
+        return reinterpret_cast<void *>(uintptr_t(DADiskCopyIOMedia(static_cast<DADiskRef>(disk))));
+    },
+    [](void *disk) { return DADiskGetBSDName(static_cast<DADiskRef>(disk)); },
+    [](const void *description) {
+        return CFDictionaryGetValue(static_cast<CFDictionaryRef>(description),
+            kDADiskDescriptionMediaWholeKey) == kCFBooleanTrue;
+    },
+    [](const void *description) { CFRelease(description); },
+    [](void *media) { IOObjectRelease(io_object_t(uintptr_t(media))); }};
 void collect() {
     dispatch_async(DJAgentConnectionQueue(), ^{ DJAgentConnections().collectClosed(); });
 }
 void appeared(DADiskRef disk, void *) {
-    auto description = DADiskCopyDescription(disk);
-    auto media = DADiskCopyIOMedia(disk);
-    if (description && media) {
-        auto whole = CFDictionaryGetValue(description, kDADiskDescriptionMediaWholeKey);
-        DJAgentMediaEvent event{DADiskGetBSDName(disk), whole == kCFBooleanTrue,
-            reinterpret_cast<void *>(uintptr_t(media)), identity};
-        DJAgentConnections().appeared(event);
-    }
-    if (media) IOObjectRelease(media);
-    if (description) CFRelease(description);
+    DJAgentDiskAppeared(diskArbitration, static_cast<void *>(disk), identity,
+        [](const DJAgentMediaEvent &event) { DJAgentConnections().appeared(event); });
     collect();
 }
 DASessionRef session() {

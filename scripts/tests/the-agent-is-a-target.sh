@@ -49,7 +49,7 @@ target_json="$(python3 - "$PBX" <<'PY'
 import json, re, sys
 s = open(sys.argv[1]).read()
 out = {"exists": False, "productType": None, "sandbox": None, "entitlements": None,
-       "sources": [], "embedded_at": None, "app_depends": False}
+       "sources": [], "native": [], "embedded_at": None, "app_depends": False}
 m = re.search(r'/\* DiskJockeyAgent \*/ = \{\n\t+isa = PBXNativeTarget;(.*?)\n\t+name = DiskJockeyAgent;', s, re.S)
 if m:
     out["exists"] = True
@@ -78,6 +78,7 @@ if m:
         blk = re.search(re.escape(pid) + r' /\* [^*]+ \*/ = \{\n\t+isa = PBXSourcesBuildPhase;(.*?)\n\t+\};', s, re.S)
         if blk:
             out["sources"] = sorted(re.findall(r'/\* ([^ ]+\.swift) in Sources \*/', blk.group(1)))
+            out["native"] = sorted(re.findall(r'/\* ([^ ]+\.(?:mm|cpp)) in Sources \*/', blk.group(1)))
 # how the app embeds it, and whether it depends on it
 app = re.search(r'/\* DiskJockey \*/ = \{\n\t+isa = PBXNativeTarget;(.*?)\n\t+name = DiskJockey;', s, re.S)
 if app:
@@ -159,6 +160,16 @@ if [ -z "$missing" ]; then
 else
     fail "DiskJockeyAgent/ has files the target does not compile:$missing"
 fi
+
+# The platform side of the attach flow is native: DJAgentOwnedImages.mm binds
+# DiskArbitration's disk-appeared callback and the IOKit registry search that
+# the injected headers leave open (#507). A target that dropped it would
+# still build, and no attachment would ever see its disk appear.
+native="$(printf '%s' "$target_json" | python3 -c "import json,sys; print(' '.join(json.load(sys.stdin).get('native', [])))")"
+case " $native " in
+    *" DJAgentOwnedImages.mm "*) ok "and it compiles DJAgentOwnedImages.mm, which binds DiskArbitration and the registry search" ;;
+    *) fail "the agent does not compile DJAgentOwnedImages.mm: nothing binds DiskArbitration's disk-appeared callback or the registry search" ;;
+esac
 
 # --------------------------------------------------- where launchd looks
 # `scripts/install-agent-dev.sh` searches DerivedData for

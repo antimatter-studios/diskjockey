@@ -70,6 +70,7 @@
 # measured on main (run 39918549371), and the floor follows the count.
 # The erofs capability seed guard (#494) raises it to 81 files.
 # The squashfs capability seed guard (#495) raises it to 82 files.
+# The agent disk-appeared binding guard (#507) raises it to 83 files.
 # It moves up with the suite; it never moves down.
 #
 # `rc`, not `status`: `status` is READ-ONLY in zsh, so a loop written with it
@@ -80,7 +81,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
-FLOOR=82
+FLOOR=83
 
 # The raw loop, whose whole output is the tier's log. Failure lines carry a
 # TIER-FAIL prefix so the quiet verdict below can name them without a tail.
