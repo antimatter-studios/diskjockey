@@ -211,6 +211,26 @@ jobs:
           bash scripts/quiet-run.sh xfs-capability-fresh-copy 20 2000 -- \
             bash scripts/xfs-capability-fixture.sh --check tmp/fixtures/xfs
 
+      # The btrfs capability seed (#492, part of #402) is formatted and
+      # populated by mkfs.btrfs --rootdir, gets its hard link and xattr
+      # through a kernel loop mount, and is read back by btrfs check
+      # --readonly and btrfs inspect-internal dump-tree from the unmounted
+      # image and by a read-only kernel mount, never by this constellation's
+      # writers or readers. btrfs-progs and attr are GPL tools run at arm's
+      # length as oracles; nothing links or copies them. They are installed
+      # first, with apt's output in the kept log; a missing builder fails
+      # naming it.
+      # 20 lines / 2,000 bytes is an initial ceiling for about six lines.
+      - name: btrfs capability seed, built and checked independently
+        run: |
+          mkdir -p tmp/logs
+          sudo apt-get update -q > tmp/logs/btrfs-progs-install.log 2>&1
+          sudo apt-get install -y -q btrfs-progs attr >> tmp/logs/btrfs-progs-install.log 2>&1
+          bash scripts/quiet-run.sh btrfs-capability-fixture 20 2000 -- \
+            bash scripts/btrfs-capability-fixture.sh --dest tmp/fixtures/btrfs
+          bash scripts/quiet-run.sh btrfs-capability-fresh-copy 20 2000 -- \
+            bash scripts/btrfs-capability-fixture.sh --check tmp/fixtures/btrfs
+
       # KEEP THE LOG, GREEN OR RED. The tier prints a verdict; the whole run
       # is in tmp/logs/, and a log nothing uploads is a log nobody can read
       # once the runner is gone (#211).
