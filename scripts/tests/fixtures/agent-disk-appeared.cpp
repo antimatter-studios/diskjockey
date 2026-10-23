@@ -15,8 +15,8 @@ static void checkQueue() { assert(onQueue); }
 
 // One attachment, as agent-connection-owners.cpp drives it.
 struct World {
-    uint64_t identity = 0;
-    unsigned replies = 0;
+    uint64_t identity = 0, attempt = 0;
+    unsigned replies = 0, closes = 0;
     std::string device;
     DJAttachmentResult result = DJAttachmentResult::Detached;
     DJAgentBridgePlatform platform() {
@@ -27,11 +27,12 @@ struct World {
             [](void *p, uint32_t, const DJMountRequest *, int, uint64_t id) -> void * {
                 checkQueue(); static_cast<World *>(p)->identity = id; return p;
             },
-            [](void *, void *) { checkQueue(); },
+            [](void *p, void *) { checkQueue(); ++static_cast<World *>(p)->closes; },
             [](void *p, void *, uint64_t selector, const uint64_t *input, uint32_t,
                const void *, size_t, uint64_t *output, uint32_t *) -> int32_t {
                 checkQueue(); assert(input[0] == static_cast<World *>(p)->identity);
                 if (selector == kDJSelectorMountImage) output[0] = input[0];
+                else assert(selector == kDJSelectorUnmountImage);
                 return 0;
             }};
     }
@@ -40,8 +41,9 @@ struct World {
             [](void *) -> uint64_t { checkQueue(); return 100; },
             [](void *, uint64_t, void (*)(void *), void *) { checkQueue(); return true; },
             [](void *) { checkQueue(); }, nullptr,
-            [](void *, uint64_t, uint64_t, const char *) { checkQueue(); return true; },
-            nullptr, nullptr};
+            [](void *p, uint64_t, uint64_t attempt, const char *) {
+                checkQueue(); static_cast<World *>(p)->attempt = attempt; return true;
+            }, nullptr, nullptr};
     }
     static void completed(void *p, DJAttachmentResult result, const char *device) {
         checkQueue(); auto &w = *static_cast<World *>(p);
@@ -181,5 +183,14 @@ int main() {
     appear(connections, disk8);
     assert(second.replies == 1 && second.device == "/dev/disk8");
     assert(first.replies == 1);
+
+    // The connection ends, and both attachments are unmounted, removed and
+    // closed before the registry goes: a bridge left open asserts.
+    connections.disconnect(owner);
+    assert(first.attempt && second.attempt);
+    connections.unmounted(one, first.attempt, true);
+    connections.unmounted(two, second.attempt, true);
+    connections.collectClosed();
+    assert(first.closes == 1 && second.closes == 1);
     return 0;
 }

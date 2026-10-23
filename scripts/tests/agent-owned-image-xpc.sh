@@ -33,9 +33,14 @@ for binding in ('DJAgentConnections().attach(owner', 'DJAgentConnections().detac
                 'DJAgentConnectionQueue()', 'DARegisterDiskAppearedCallback',
                 'DASessionSetDispatchQueue', 'DJAgentConnections().appeared',
                 'DADiskUnmount', 'DJAgentConnections().unmounted',
-                'kIORegistryIterateRecursively | kIORegistryIterateParents',
+                'DJAgentRegistryIterateRecursively == kIORegistryIterateRecursively',
+                'DJAgentRegistryIterateParents == kIORegistryIterateParents',
                 'kDJAttachmentIdentityKey'):
     assert binding in bridge, binding + ' missing from platform bridge'
+# The ancestry search walks every parent, through the options the bridge
+# checks against IOKit (#507).
+assert ('DJAgentRegistryIterateRecursively | DJAgentRegistryIterateParents'
+        in read('DiskJockeyAgent/DJAgentMediaIdentity.hpp'))
 assert 'DADiskCreateFromBSDName' not in bridge, 'never detach by a reused BSD name'
 assert 'DADiskCopyIOMedia' in bridge
 assert 'DJAgentOwnedImages.h' in read('DiskJockeyAgent/DiskJockeyAgent-Bridging-Header.h')
