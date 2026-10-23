@@ -1,6 +1,8 @@
 #!/bin/bash
 # Stage the blk.probe binary under lib/blk.probe/, from the attested release
-# of the rust-blk-probe tag SIBLING_PINS.txt names.
+# of the rust-blk-probe tag SIBLING_PINS.txt names. rust-blk-probe is a
+# workspace member of rust-disk-partitions, whose releases of it are on
+# blk-probe-v tags, signed by release-blk-probe.yml (#541).
 #
 # blk.probe is a CLI helper the host app shells out to during the
 # attach-image flow: it opens a path (raw or qcow2/vhd/vhdx/vmdk
@@ -17,15 +19,17 @@
 # pinning the probe's tag alone would still compile whatever those six
 # checkouts held.
 #
-# The release tarball has none of those problems. rust-blk-probe's
-# release.yml builds it against the sibling refs its own CI pins, and signs a
-# build-provenance attestation for it. So this script:
+# The release tarball has none of those problems. rust-disk-partitions'
+# release-blk-probe.yml builds it against the workspace's own crates, and
+# signs a build-provenance attestation for it. So this script:
 #
-#   1. reads `rust-blk-probe <tag>` from SIBLING_PINS.txt;
+#   1. reads `rust-blk-probe <tag>` from SIBLING_PINS.txt, and refuses a tag
+#      that is not a blk-probe-v one;
 #   2. downloads rust-blk-probe-<version>-darwin-arm64.tar.gz and its .sha256
-#      from that tag's GitHub release (the app is ARCHS = arm64 only);
+#      from that tag's GitHub release in rust-disk-partitions (the app is
+#      ARCHS = arm64 only);
 #   3. checks the sha256, then that the attestation was signed by
-#      rust-blk-probe's release workflow, and refuses on either failure;
+#      release-blk-probe.yml, and refuses on either failure;
 #   4. stages bin/blk.probe as lib/blk.probe/blk.probe, beside
 #      VERSION-rust-blk-probe.txt recording the tag, the tarball and its sha256.
 #
@@ -42,8 +46,8 @@
 set -euo pipefail
 
 TOOL=blk.probe
-REPO=antimatter-studios/rust-blk-probe
-SIGNER="${REPO}/.github/workflows/release.yml"
+REPO=antimatter-studios/rust-disk-partitions
+SIGNER="${REPO}/.github/workflows/release-blk-probe.yml"
 PLATFORM=darwin-arm64
 
 SRCROOT="${SRCROOT:-$(pwd)}"
@@ -60,7 +64,11 @@ command -v gh >/dev/null 2>&1 || die "gh is not installed; it downloads the rele
 
 TAG="$(awk '$1=="rust-blk-probe"{print $2}' "${SRCROOT}/SIBLING_PINS.txt" 2>/dev/null || true)"
 [ -n "$TAG" ] || die "SIBLING_PINS.txt names no rust-blk-probe tag, so there is no release to stage"
-VERSION="${TAG#v}"
+case "$TAG" in
+    blk-probe-v?*) ;;
+    *) die "SIBLING_PINS.txt pins rust-blk-probe at ${TAG}, which is not a blk-probe-v tag of ${REPO}" ;;
+esac
+VERSION="${TAG#blk-probe-v}"
 ASSET="rust-blk-probe-${VERSION}-${PLATFORM}.tar.gz"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/dj-blk.probe-XXXXXX")"
@@ -94,7 +102,7 @@ mkdir -p "${PROBE_OUT}"
 cp "$WORK/x/bin/${TOOL}" "${PROBE_OUT}/${TOOL}"
 chmod +x "${PROBE_OUT}/${TOOL}"
 {
-    echo "rust-blk-probe ${TAG}"
+    echo "rust-blk-probe ${TAG} (${REPO})"
     echo "tarball ${ASSET}"
     echo "sha256 ${actual}"
     echo "attestation verified: signer ${SIGNER}"

@@ -35,9 +35,10 @@ go-networkfs        v0.1.5
 # rust-blk-probe is NOT BUILT. scripts/build-blk.probe.sh downloads this
 # tag's attested darwin-arm64 release tarball and stages its bin/blk.probe,
 # because its parser crates are path dependencies that a pin on the probe
-# alone would leave unpinned (#239). Raise it to a tag whose release carries
-# that tarball.
-rust-blk-probe      v0.1.0
+# alone would leave unpinned (#239). It is released from rust-disk-partitions,
+# of which it is a workspace member, on blk-probe-v tags (#541). Raise it to
+# a tag whose release carries that tarball.
+rust-blk-probe      blk-probe-v0.2.0
 
 # fs-linux-test-harness is NOT BUILT either. It is the disposable Linux VM the
 # XFS FSKit mutation oracle's Linux half runs in (scripts/xfs-mutations-vm.sh,
