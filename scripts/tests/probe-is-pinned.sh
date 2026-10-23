@@ -2,6 +2,8 @@
 #
 # probe-is-pinned.sh — the probe the app runs is the attested release of the
 # rust-blk-probe tag SIBLING_PINS.txt names, and nothing else (diskjockey#239).
+# Its releases come from rust-disk-partitions, where it is a workspace member,
+# on blk-probe-v tags signed by release-blk-probe.yml (diskjockey#541).
 #
 # blk.probe parses untrusted images before anything is mounted, and it was the
 # one sibling built from whatever ../rust-blk-probe had checked out: any
@@ -10,18 +12,19 @@
 # scripts/build-blk.probe.sh no longer builds it. It downloads the
 # darwin-arm64 tarball from the pinned tag's GitHub release, checks it against
 # the release's .sha256, verifies its build-provenance attestation was signed
-# by rust-blk-probe's release workflow, and only then stages bin/blk.probe.
+# by rust-disk-partitions' release-blk-probe.yml, and only then stages
+# bin/blk.probe.
 #
 # Run for real, against a stub `gh` on PATH that serves a fixture tarball, and
 # a `cargo` that records being called. Checked:
 #
 #   1. the pinned tag is the one downloaded, and the probe is staged at
 #      lib/blk.probe/blk.probe, executable, beside a record of what it is;
-#   2. the attestation is verified against rust-blk-probe's release workflow;
+#   2. the attestation is verified against release-blk-probe.yml;
 #   3. cargo is never run and ../rust-blk-probe is never read;
 #   4. a checksum that does not match, an attestation that does not verify, a
-#      tarball without bin/blk.probe and a missing pin each stop the script,
-#      and each leaves nothing staged.
+#      tarball without bin/blk.probe, a missing pin and a pin that is not a
+#      blk-probe-v tag each stop the script, and each leaves nothing staged.
 #
 #   bash scripts/tests/probe-is-pinned.sh
 set -uo pipefail
@@ -43,13 +46,12 @@ sha256() {
 # THE PIN IN THIS REPOSITORY. Every run below uses it, so the guard follows a
 # re-pin rather than naming a version of its own.
 pin="$(awk '$1=="rust-blk-probe"{print $2}' "$REPO/SIBLING_PINS.txt")"
-if [ -n "$pin" ]; then
-    ok "SIBLING_PINS.txt pins rust-blk-probe at $pin"
-else
-    fail "SIBLING_PINS.txt names no rust-blk-probe tag"
-    pin="v0.0.0"
-fi
-version="${pin#v}"
+case "$pin" in
+    blk-probe-v?*) ok "SIBLING_PINS.txt pins rust-blk-probe at rust-disk-partitions' $pin" ;;
+    "") fail "SIBLING_PINS.txt names no rust-blk-probe tag"; pin="blk-probe-v0.0.0" ;;
+    *) fail "SIBLING_PINS.txt pins rust-blk-probe at $pin, not a rust-disk-partitions blk-probe-v tag" ;;
+esac
+version="${pin#blk-probe-v}"
 asset="rust-blk-probe-${version}-darwin-arm64.tar.gz"
 
 # A fixture release: the tarball the release workflow publishes, and one
@@ -139,10 +141,10 @@ else
         fail "lib/blk.probe/blk.probe is not the tarball's bin/blk.probe, or is not executable"
     fi
     if grep -qF "gh release download $pin " "$sandbox/good/log" \
-       && grep -q "antimatter-studios/rust-blk-probe" "$sandbox/good/log"; then
-        ok "the release downloaded is rust-blk-probe $pin"
+       && grep -q "antimatter-studios/rust-disk-partitions" "$sandbox/good/log"; then
+        ok "the release downloaded is rust-disk-partitions' $pin"
     else
-        fail "gh was not asked for rust-blk-probe's $pin release: $(tr '\n' ';' < "$sandbox/good/log")"
+        fail "gh was not asked for rust-disk-partitions' $pin release: $(tr '\n' ';' < "$sandbox/good/log")"
     fi
     record="$sandbox/good/app/lib/blk.probe/VERSION-rust-blk-probe.txt"
     if grep -qF "$pin" "$record" 2>/dev/null && grep -qF "$good_sum" "$record" 2>/dev/null; then
@@ -153,10 +155,10 @@ else
 
     # --- 2. The attestation is checked against the release workflow. -----
     verify="$(grep -F 'gh attestation verify' "$sandbox/good/log" || true)"
-    if printf '%s' "$verify" | grep -qF -- "--repo antimatter-studios/rust-blk-probe" \
-       && printf '%s' "$verify" | grep -qF -- "--signer-workflow antimatter-studios/rust-blk-probe/.github/workflows/release.yml" \
+    if printf '%s' "$verify" | grep -qF -- "--repo antimatter-studios/rust-disk-partitions" \
+       && printf '%s' "$verify" | grep -qF -- "--signer-workflow antimatter-studios/rust-disk-partitions/.github/workflows/release-blk-probe.yml" \
        && printf '%s' "$verify" | grep -qF "$asset"; then
-        ok "the attestation is verified against rust-blk-probe's release workflow"
+        ok "the attestation is verified against rust-disk-partitions' release-blk-probe.yml"
     else
         fail "gh attestation verify was not run on $asset with --repo and --signer-workflow: [$verify]"
     fi
@@ -194,6 +196,11 @@ else
     grep -v '^rust-blk-probe' "$REPO/SIBLING_PINS.txt" > "$sandbox/nopin.txt"
     run nopin "$sandbox/release/good.tar.gz" "$good_sum" ok "$sandbox/nopin.txt"
     refused nopin "a SIBLING_PINS.txt with no rust-blk-probe pin" "SIBLING_PINS.txt"
+    # The pin before the move: a tag of the old repository, not of
+    # rust-disk-partitions, whose releases are the only ones attested now.
+    sed -E 's/^(rust-blk-probe[[:space:]]+).*/\1v0.1.0/' "$REPO/SIBLING_PINS.txt" > "$sandbox/oldpin.txt"
+    run oldpin "$sandbox/release/good.tar.gz" "$good_sum" ok "$sandbox/oldpin.txt"
+    refused oldpin "a pin that is not a blk-probe-v tag" "blk-probe-v"
 fi
 
 echo

@@ -41,14 +41,17 @@ grep -qF '"lib/blk.probe/blk.probe"' "$mount" && ok "the app's dev fallback is l
     || fail "FSKitMountService.swift does not fall back to lib/blk.probe/blk.probe"
 
 # --- 3. Nothing spells the tool blk-probe. --------------------------------
-# `rust-blk-probe` is the repository and is fine. The two dated reports are
+# `rust-blk-probe` is the repository and is fine, and so are the names of
+# its releases from rust-disk-partitions: the blk-probe-v tags and their
+# release-blk-probe.yml workflow (diskjockey#541). The two dated reports are
 # records of 2026-08-30 and are not rewritten.
 hits="$(git -C "$REPO" grep -nF 'blk-probe' -- . \
     ":(exclude)$SELF" \
     ':(exclude)docs/constellation-report-2026-08-30.md' \
     ':(exclude)docs/constellation/evidence-2026-08-30.md' \
     ':(exclude)docs/constellation/naming-discussion.md' |
-    sed 's/rust-blk-probe//g' | grep -F 'blk-probe' || true)"
+    sed -e 's/rust-blk-probe//g' -e 's/release-blk-probe\.yml//g' -e 's/blk-probe-v//g' |
+    grep -F 'blk-probe' || true)"
 if [ -z "$hits" ]; then
     ok "no tracked file names the tool blk-probe"
 else
