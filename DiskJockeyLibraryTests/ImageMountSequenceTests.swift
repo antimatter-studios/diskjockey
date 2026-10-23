@@ -37,13 +37,69 @@ private final class FakeSteps {
                 if self.failingDevices.contains(device) { throw Refused() }
                 return "/Volumes/\(device)"
             },
-            detach: { self.detached.append($0) })
+            detach: { self.detached.append($0) },
+            wholeDisk: { whole in
+                guard self.mediaAppears else { throw Refused() }
+                return whole
+            })
     }
 }
 
 @MainActor
 @Suite("Image mount sequence")
 struct ImageMountSequenceTests {
+    // A bare filesystem in a qcow2 or VHDX image has no partition table, so
+    // the DriverKit route mounts its whole media, read-only, and detaches
+    // exactly once when that media never appears or its mount is refused
+    // (diskjockey#515).
+    @Test func driverKitMountsABareFilesystemsWholeDiskReadOnly() async throws {
+        let fake = FakeSteps()
+        let volume = try await ImageMountSequence.runWholeDisk(route: .driverKit, steps: fake.steps())
+        #expect(fake.attachCount == 1)
+        #expect(fake.mounts.map(\.device) == ["disk9"])
+        #expect(fake.mounts.allSatisfy { $0.readOnly })
+        #expect(volume == "/Volumes/disk9")
+        #expect(fake.detached.isEmpty)
+    }
+
+    @Test func driverKitDetachesOnceWhenTheWholeDiskNeverAppears() async {
+        let fake = FakeSteps()
+        fake.mediaAppears = false
+        await #expect(throws: Refused.self) {
+            _ = try await ImageMountSequence.runWholeDisk(route: .driverKit, steps: fake.steps())
+        }
+        #expect(fake.attachCount == 1)
+        #expect(fake.mounts.isEmpty)
+        #expect(fake.detached == ["disk9"])
+    }
+
+    @Test func driverKitDetachesOnceWhenTheWholeDiskMountFails() async {
+        let fake = FakeSteps()
+        fake.failingDevices = ["disk9"]
+        await #expect(throws: Refused.self) {
+            _ = try await ImageMountSequence.runWholeDisk(route: .driverKit, steps: fake.steps())
+        }
+        #expect(fake.attachCount == 1)
+        #expect(fake.detached == ["disk9"])
+    }
+
+    @Test func hdiutilMountsABareFilesystemsWholeDiskReadWrite() async throws {
+        let fake = FakeSteps()
+        let volume = try await ImageMountSequence.runWholeDisk(route: .hdiutil, steps: fake.steps())
+        #expect(fake.mounts.map(\.device) == ["disk9"])
+        #expect(fake.mounts.allSatisfy { !$0.readOnly })
+        #expect(volume == "/Volumes/disk9")
+        #expect(fake.detached.isEmpty)
+    }
+
+    @Test func aWholeDiskWithNoRouteAttachesNothing() async {
+        let fake = FakeSteps()
+        await #expect(throws: ImageMountSequence.Unsupported.self) {
+            _ = try await ImageMountSequence.runWholeDisk(route: .unsupported, steps: fake.steps())
+        }
+        #expect(fake.attachCount == 0)
+    }
+
     @Test func driverKitAttachesOnceAndMountsEachSelectedPartitionReadOnly() async throws {
         let fake = FakeSteps()
         let volumes = try await ImageMountSequence.run(route: .driverKit, partitions: [0, 2],
