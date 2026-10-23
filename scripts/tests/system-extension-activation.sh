@@ -93,12 +93,16 @@ check 'activation is requested only from the DriverKit image mount branch' '
 calls = {p.relative_to(root).as_posix(): len(re.findall(r"SystemExtensionActivator\s*\.\s*shared\s*\.\s*activate\(", p.read_text()))
          for p in app_sources if p != activator}
 calls = {k: v for k, v in calls.items() if v}
-assert calls == {"DiskJockeyApplication/Services/FSKitMountService.swift": 1}, calls
 mount = (root / "DiskJockeyApplication/Services/FSKitMountService.swift").read_text()
-branch_start = mount.index("the DriverKit route needs the image")
-attach = mount.index("DriverKitImageAttachment.attach(", branch_start)
-call = mount.index("SystemExtensionActivator.shared.activate(")
-assert branch_start < call < attach, "activation must precede the DriverKit attach, inside its branch"
+attaches = [m.start() for m in re.finditer(r"DriverKitImageAttachment\.attach\(", mount)]
+assert attaches, "FSKitMountService.swift attaches no DriverKit image"
+assert calls == {"DiskJockeyApplication/Services/FSKitMountService.swift": len(attaches)}, calls
+# One activation per DriverKit branch, the partitioned one and the whole
+# disk (diskjockey#515): each after its own URL check and before its attach.
+for attach in attaches:
+    branch_start = mount.rindex("the DriverKit route needs the image", 0, attach)
+    call = mount.rindex("SystemExtensionActivator.shared.activate(", 0, attach)
+    assert branch_start < call < attach, "activation must precede the DriverKit attach, inside its branch"
 '
 
 check 'nothing on the launch path requests activation' '

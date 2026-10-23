@@ -24,7 +24,7 @@ chore_min_version: 0.6.0
 #
 #   tier      lines    bytes   measured (lines / bytes)     headroom   floor
 #   scripts    1270    65700   1,009 / 52,514 (79 files)    26% / 25%  83 files
-#   library    4510   350000   3,548 / 274,815              27% / 27%  715 cases
+#   library    4510   350000   3,548 / 274,815              27% / 27%  720 cases
 #   app        5200   950000   4,119 / 750,848 (raw)        26% / 27%  90 cases
 #   cli-pipe    270    16200   213 / 12,909 (Linux)         27% / 25%  25 macOS, 37 Linux
 # Floors measured locally 2026-10-07 for #320: 43 script files and
@@ -67,6 +67,8 @@ chore_min_version: 0.6.0
 # (#506) raise it to 70 within the same budget.
 # The activation prompt cases (#475) raise the library floor from 705 to
 # 715, counted from the source; execution stays in CI.
+# The whole-disk mount sequence cases (#515) raise it from 715 to 720,
+# counted from the source; execution stays in CI.
 # The XFS writable-policy gate raises the library floor to 593 (#321),
 # measured locally 2026-10-07: 65 XCTest + 528 swift-testing, all passed.
 # The bcachefs volume raises the library floor to 663 (#342), measured

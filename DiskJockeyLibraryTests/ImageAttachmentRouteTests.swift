@@ -92,28 +92,23 @@ struct ImageAttachmentRouteTests {
     // only for a container it cannot attach.
     @Test func theInspectorOffersMountControlsForQcow2AndVhdxLikeTheOtherImages() {
         for container in ["raw", "vhd", "vmdk", "qcow2", "vhdx"] {
-            #expect(DiskImageInspectorMountState(container: container, hasPartitionTable: true)
-                    == .mountControls, "\(container)")
+            #expect(DiskImageInspectorMountState(container: container) == .mountControls,
+                    "\(container)")
         }
     }
 
     @Test func theInspectorShowsTheUnsupportedNoticeOnlyForAnUnattachableImage() {
-        #expect(DiskImageInspectorMountState(container: "dmg", hasPartitionTable: true)
-                == .unsupportedContainer)
-        #expect(DiskImageInspectorMountState(container: "", hasPartitionTable: false)
-                == .unsupportedContainer)
+        #expect(DiskImageInspectorMountState(container: "dmg") == .unsupportedContainer)
+        #expect(DiskImageInspectorMountState(container: "") == .unsupportedContainer)
     }
 
-    // The DriverKit route mounts the partitions its media presents; a bare
-    // filesystem in a qcow2 or VHDX image presents none, so the inspector
-    // says so instead of offering a mount that would attach and find nothing.
-    // hdiutil mounts a bare filesystem's whole disk, so those keep the controls.
-    @Test func aDriverKitImageWithoutAPartitionTableIsNotOfferedAMount() {
-        #expect(DiskImageInspectorMountState(container: "qcow2", hasPartitionTable: false)
-                == .wholeDiskUnsupported)
-        #expect(DiskImageInspectorMountState(container: "vhdx", hasPartitionTable: false)
-                == .wholeDiskUnsupported)
-        #expect(DiskImageInspectorMountState(container: "raw", hasPartitionTable: false)
-                == .mountControls)
+    // A bare filesystem in a qcow2 or VHDX image mounts its whole DriverKit
+    // media (diskjockey#515), as hdiutil mounts a raw image's whole disk, so
+    // the controls do not depend on a partition table on any route.
+    @Test func aBareFilesystemImageIsOfferedAMountOnEveryRoute() {
+        for container in ["qcow2", "vhdx", "raw"] {
+            #expect(DiskImageInspectorMountState(container: container) == .mountControls,
+                    "\(container)")
+        }
     }
 }

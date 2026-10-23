@@ -9,6 +9,11 @@
 // or one mount refused — detaches exactly once and throws, so no owned
 // attachment survives a half-finished mount (diskjockey#479).
 //
+// A bare filesystem has no partition table, so the attachment's whole disk
+// is the filesystem: runWholeDisk mounts it, read-only on the DriverKit route
+// and read-write on hdiutil's, and detaches exactly once on any failure
+// (diskjockey#515).
+//
 // The steps are closures so the app supplies the agent and Disk Arbitration
 // and the tests supply fakes.
 //
@@ -23,16 +28,30 @@ public struct ImageMountSteps<Attachment, Volume> {
     /// Mount one partition through Disk Arbitration.
     public var mount: (_ device: String, _ readOnly: Bool) async throws -> Volume
     public var detach: (Attachment) async -> Void
+    /// Wait for the attachment's whole disk and return its device, for a
+    /// bare filesystem with no partition table (diskjockey#515).
+    public var wholeDisk: (Attachment) async throws -> String
 
     public init(attach: @escaping () async throws -> Attachment,
                 waitForPartitions: @escaping (Attachment, [Int]) async throws -> [Int: String],
                 mount: @escaping (_ device: String, _ readOnly: Bool) async throws -> Volume,
-                detach: @escaping (Attachment) async -> Void) {
+                detach: @escaping (Attachment) async -> Void,
+                wholeDisk: @escaping (Attachment) async throws -> String = { _ in
+                    throw ImageWholeDiskUnavailable()
+                }) {
         self.attach = attach
         self.waitForPartitions = waitForPartitions
         self.mount = mount
         self.detach = detach
+        self.wholeDisk = wholeDisk
     }
+}
+
+/// The steps name no way to find an attachment's whole disk.
+public struct ImageWholeDiskUnavailable: Error {
+    /// Public, as the default `wholeDisk` step of a public initializer
+    /// builds one.
+    public init() {}
 }
 
 @MainActor
@@ -78,6 +97,24 @@ public enum ImageMountSequence {
                 mounted.append(try await steps.mount(device, true))
             }
             return mounted
+        } catch {
+            await steps.detach(attachment)
+            throw error
+        }
+    }
+
+    /// Mount the attachment's whole disk, for a bare filesystem with no
+    /// partition table (diskjockey#515): read-only on the DriverKit route,
+    /// read-write on hdiutil's. Media that never appears, or a refused mount,
+    /// detaches exactly once and throws.
+    public static func runWholeDisk<Attachment, Volume>(
+        route: ImageAttachmentRoute, steps: ImageMountSteps<Attachment, Volume>
+    ) async throws -> Volume {
+        guard route != .unsupported else { throw Unsupported() }
+        let attachment = try await steps.attach()
+        do {
+            let device = try await steps.wholeDisk(attachment)
+            return try await steps.mount(device, route.mountsReadOnly)
         } catch {
             await steps.detach(attachment)
             throw error

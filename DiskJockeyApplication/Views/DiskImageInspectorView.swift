@@ -102,8 +102,7 @@ struct DiskImageInspectorView: View {
     /// qcow2 and VHDX attach through DriverKit, so they get the same mount
     /// controls as raw, VHD and VMDK (diskjockey#486).
     private var mountState: DiskImageInspectorMountState {
-        DiskImageInspectorMountState(container: probe.container,
-                                     hasPartitionTable: probe.table != "none" && !probe.partitions.isEmpty)
+        DiskImageInspectorMountState(container: probe.container)
     }
 
     private var isMountableContainer: Bool {
@@ -270,9 +269,7 @@ struct DiskImageInspectorView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("This image cannot be mounted")
                     .font(.subheadline).bold()
-                Text(mountState == .wholeDiskUnsupported
-                     ? "\(containerLabel) images mount their partitions; this one has no partition table."
-                     : "DiskJockey has no way to attach a \(containerLabel) image as a disk.")
+                Text("DiskJockey has no way to attach a \(containerLabel) image as a disk.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -389,7 +386,8 @@ struct DiskImageInspectorView: View {
                 } else {
                     // DA probes the device and picks the driver itself; there
                     // is no filesystem type to resolve first and pass on.
-                    let mounted = try await FSKitMountService.shared.attach(imagePath: url.path)
+                    let mounted = try await FSKitMountService.shared.attach(
+                        imagePath: url.path, imageURL: url, container: probe.container)
                     logRepository?.addLogEntry(LogEntry(
                         message: "inspector: mounted \(url.lastPathComponent) at \(mounted.map(\.described).joined(separator: ", "))",
                         category: "info", source: "FSKit"))
