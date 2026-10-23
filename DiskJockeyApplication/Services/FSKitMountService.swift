@@ -99,10 +99,16 @@ final class FSKitMountService {
     /// probing the device, with no argument that names a filesystem type.
     /// A partition table is mounted slice by slice, as `hdiutil attach`
     /// reports the slices; there is no per-call partition option.
+    /// A qcow2 or VHDX image holding a bare filesystem goes through the
+    /// agent's owned DriverKit attachment instead of hdiutil, which cannot
+    /// read it, and its whole media mounts read-only (diskjockey#515).
     /// - Parameter source: absolute path to a filesystem image or /dev/diskN node.
+    /// - Parameter imageURL: the image's URL, which the DriverKit route needs.
+    /// - Parameter container: the container the probe reports.
     /// - Returns: every volume mounted, with the mount point DA reports.
     @discardableResult
-    func attach(imagePath source: String) async throws -> [MountedVolume] {
+    func attach(imagePath source: String, imageURL: URL? = nil,
+                container: String = "raw") async throws -> [MountedVolume] {
         // Block device path — use DA directly, no root needed.
         // diskarbitrationd handles privilege and invokes the appropriate
         // driver (Apple or FSKit extension) based on fs probing.
@@ -115,6 +121,11 @@ final class FSKitMountService {
             let volume = try await Self.mountSliceWithDA(source, session: session)
             logger.info("DA mounted \(source, privacy: .public) -> \(volume.described, privacy: .public)")
             return [volume]
+        }
+
+        if ImageAttachmentRoute(container: container) == .driverKit {
+            return [try await attachWholeDiskDriverKit(imagePath: source, imageURL: imageURL,
+                                                       container: container)]
         }
 
         logger.info("attach (hdiutil) \(source, privacy: .public)")
@@ -287,6 +298,64 @@ final class FSKitMountService {
     /// How long the DriverKit route waits for its media's partitions to
     /// reach Disk Arbitration before detaching.
     static let driverKitMediaTimeout: Duration = .seconds(15)
+
+    /// A qcow2 or VHDX image holding a bare filesystem, with no partition
+    /// table (diskjockey#515): the owned DriverKit media is the filesystem,
+    /// so once it reaches Disk Arbitration the whole disk mounts read-only.
+    /// Media that never appears, or a refused mount, detaches the attachment.
+    private func attachWholeDiskDriverKit(imagePath source: String, imageURL: URL?,
+                                          container: String) async throws -> MountedVolume {
+        guard let imageURL else {
+            throw FSKitError.processFailed(exitCode: -1,
+                stderr: "\(container.uppercased()): the DriverKit route needs the image's URL.")
+        }
+        guard let session = DASessionCreate(kCFAllocatorDefault) else {
+            throw FSKitError.processFailed(exitCode: -1, stderr: "Failed to create DA session")
+        }
+        DASessionSetDispatchQueue(session, .global(qos: .userInitiated))
+        var ejectAttachment: ImageEjectAttachment?
+        let steps = ImageMountSteps<DriverKitImageAttachment, MountedVolume>(
+            attach: {
+                try await SystemExtensionActivator.shared.activate()
+                let owned = try await DriverKitImageAttachment.attach(imageURL: imageURL)
+                ejectAttachment = .driverKit(owned.attachmentID)
+                self.logger.info("DriverKit attach \(source, privacy: .public) -> \(owned.device, privacy: .public) (attachment \(owned.attachmentID, privacy: .public), whole disk)")
+                return owned
+            },
+            waitForPartitions: { _, _ in [:] },
+            mount: { try await self.mountLogged($0, readOnly: $1, session: session) },
+            detach: { owned in
+                do { try await owned.detach() } catch {
+                    self.logger.error("DriverKit detach \(owned.attachmentID, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+                }
+            },
+            wholeDisk: { owned in try await Self.waitForWholeDisk(owned.device, session: session) })
+        let mounted = try await ImageMountSequence.runWholeDisk(route: .driverKit, steps: steps)
+        if let ejectAttachment {
+            imageEject.register(attachment: ejectAttachment, devices: [mounted.device],
+                                mountPaths: [mounted.mountPoint].compactMap { $0 })
+        }
+        return mounted
+    }
+
+    /// Wait until DA describes a DriverKit attachment's whole disk, and
+    /// return its device, or throw at the timeout.
+    private static func waitForWholeDisk(_ whole: String, session: DASession) async throws -> String {
+        let base = whole.hasPrefix("/dev/") ? String(whole.dropFirst(5)) : whole
+        let clock = ContinuousClock()
+        let deadline = clock.now + driverKitMediaTimeout
+        while true {
+            if let disk = DADiskCreateFromBSDName(kCFAllocatorDefault, session, base),
+               DADiskCopyDescription(disk) != nil {
+                return "/dev/\(base)"
+            }
+            guard clock.now < deadline else {
+                throw FSKitError.processFailed(exitCode: -1,
+                    stderr: "DriverKit media \(base) did not appear within \(driverKitMediaTimeout)")
+            }
+            try await Task.sleep(for: .milliseconds(250))
+        }
+    }
 
     /// Wait until DA describes each selected partition of a DriverKit
     /// attachment (`<whole>s<index + 1>`), or throw at the timeout.
@@ -671,7 +740,8 @@ enum FSKitAttachController {
         logRepository?.logFSKit("attach requested: \(url.path)\(probed)", category: "info")
         Task { @MainActor in
             do {
-                let mounted = try await FSKitMountService.shared.attach(imagePath: url.path)
+                let mounted = try await FSKitMountService.shared.attach(
+                    imagePath: url.path, imageURL: url, container: probe?.container ?? "raw")
                 logRepository?.logFSKit(
                     "mounted \(url.path) at \(mounted.map(\.described).joined(separator: ", "))",
                     category: "info")

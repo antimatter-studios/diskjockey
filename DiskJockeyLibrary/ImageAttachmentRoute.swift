@@ -59,19 +59,16 @@ public enum ImageAttachmentRoute: Equatable, Sendable {
 
 /// What the disk-image inspector offers below the partition list: mount
 /// controls for any container with an attachment route, qcow2 and VHDX
-/// included, or a notice for an image it cannot attach.
+/// included, with or without a partition table (a bare filesystem mounts
+/// its whole disk, diskjockey#515), or a notice for an image it cannot attach.
 public enum DiskImageInspectorMountState: Equatable, Sendable {
     case mountControls
     /// No attachment route for this container at all.
     case unsupportedContainer
-    /// A DriverKit image without a partition table: the route mounts the
-    /// partitions it presents, and a bare filesystem presents none.
-    case wholeDiskUnsupported
 
-    public init(container: String, hasPartitionTable: Bool) {
+    public init(container: String) {
         switch ImageAttachmentRoute(container: container) {
         case .unsupported: self = .unsupportedContainer
-        case .driverKit where !hasPartitionTable: self = .wholeDiskUnsupported
         case .hdiutil, .driverKit: self = .mountControls
         }
     }
