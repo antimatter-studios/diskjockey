@@ -377,7 +377,7 @@ This runs:
 1. `vendor-bundles` — `scripts/build-bundles.sh` builds one Rust static library per filesystem from `rust-bundles/dj-<fs>-bundle` into `lib/bundle_<fs>/`.
 2. `vendor-gonetworkfs` — builds per-driver Go static libs (`libftp.a`, `libsftp.a`, …) plus the combined `libnetworkfs.a` dispatcher into `lib/go-networkfs/`. It expects go-networkfs at `../go-networkfs`; from a worktree elsewhere, set `NETWORKFS_SRC=/path/to/go-networkfs`.
 
-`make vendor-probe` stages `blk.probe`, the image and partition probe the app runs, into `lib/blk.probe/`. It is not built: `scripts/build-blk.probe.sh` downloads the darwin-arm64 tarball from the release of the `rust-blk-probe` tag pinned in `SIBLING_PINS.txt`, checks its sha256 and its build-provenance attestation with `gh`, and refuses to stage anything that fails either.
+`make vendor-probe` stages `blk.probe`, the image and partition probe the app runs, into `lib/blk.probe/`. It is not built: `scripts/build-blk.probe.sh` downloads the darwin-arm64 tarball from rust-disk-partitions' release of the `blk-probe-v` tag pinned for `rust-blk-probe` in `SIBLING_PINS.txt`, checks its sha256 and its build-provenance attestation (signed by `release-blk-probe.yml`) with `gh`, and refuses to stage anything that fails either.
 
 Then regenerate protobuf bindings (one-shot, regenerate after `.proto` changes):
 
