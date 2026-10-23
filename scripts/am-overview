@@ -14,6 +14,7 @@
 #                                       requests and title
 #   scripts/am-overview --project NAME  one project (repeatable)
 #   scripts/am-overview --tsv           detail rows as TSV, no padding
+#   scripts/am-overview --no-cache      ask GitHub even when a fresh answer is kept
 #   scripts/am-overview --print-jq      the issue filter, for its own test
 #   scripts/am-overview --print-pr-jq   the pull request filter, likewise
 #
@@ -30,11 +31,18 @@
 # nothing the first failure didn't. The message names where it stopped and,
 # for the primary limit, when it resets.
 #
+# CACHED PER REPOSITORY (github-cache.sh), as in am-issues. Each project's
+# issues, its --list pull requests and its summary's pull request counts are
+# kept for AM_GITHUB_CACHE_TTL seconds (600), keyed `overview-issues`,
+# `overview-prs` and `overview-pr-counts`. --no-cache asks anyway, and
+# refreshes the entries. A failed fetch keeps nothing (#546).
+#
 # Environment, for tests and for pointing at a different constellation:
 #   AM_OVERVIEW_FETCH        command called with a slug instead of gh
 #   AM_OVERVIEW_FETCH_PRS    likewise, for the --list pull request lookup
 #   AM_OVERVIEW_FETCH_PR_COUNTS  likewise, printing `<open> <closed>`
 #   AM_OVERVIEW_STALE_DAYS   what counts as stale in the summary (30)
+#   AM_GITHUB_CACHE_TTL      seconds an answer is kept (600; 0 asks every time)
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -46,6 +54,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/constellation-repositories.sh"
 # shellcheck source=github-rate-limit.sh
 . "$HERE/github-rate-limit.sh"
+# shellcheck source=github-cache.sh
+. "$HERE/github-cache.sh"
 
 # ---------------------------------------------------------------- projects
 PROJECTS=("${CONSTELLATION_REPOSITORIES[@]}")
@@ -96,6 +106,7 @@ PR_COUNT_QUERY='query($owner: String!, $name: String!) {
 }'
 
 STALE_DAYS="${AM_OVERVIEW_STALE_DAYS:-30}"
+TTL="${AM_GITHUB_CACHE_TTL:-600}"
 MODE=full
 WANT=()
 
@@ -104,14 +115,18 @@ while [ $# -gt 0 ]; do
         --summary) MODE=summary ;;
         --list)    MODE=list ;;
         --tsv)     MODE=tsv ;;
+        --no-cache) TTL=0 ;;
         --project) shift; [ $# -gt 0 ] || { echo "am-overview: --project needs a name" >&2; exit 2; }; WANT+=("$1") ;;
         --print-jq) printf '%s\n' "$ISSUE_JQ"; exit 0 ;;
         --print-pr-jq) printf '%s\n' "$PR_JQ"; exit 0 ;;
-        -h|--help) sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"; exit 0 ;;
         *)         echo "am-overview: unknown argument '$1'" >&2; exit 2 ;;
     esac
     shift
 done
+case "$TTL" in
+    ''|*[!0-9]*) echo "am-overview: AM_GITHUB_CACHE_TTL must be a number of seconds, not '$TTL'" >&2; exit 2 ;;
+esac
 
 # -------------------------------------------------------------------- fetch
 # `repos/<slug>/issues` RETURNS PULL REQUESTS TOO. Every PR is an issue in
@@ -178,7 +193,7 @@ trap 'rm -f "$rows" "$summary" "$failed" "$prs" "$errs"' EXIT
 for entry in "${PROJECTS[@]}"; do
     name="${entry%%:*}"; slug="${entry#*:}"
     wanted "$name" || continue
-    out="$(fetch_repo "$slug" 2>"$errs")"; rc=$?
+    out="$(github_cached "$slug" overview-issues "$TTL" fetch_repo "$slug" 2>"$errs")"; rc=$?
     github_stop_if_rate_limited am-overview "$name" "$errs" \
         "${AM_OVERVIEW_FETCH:-}${AM_OVERVIEW_FETCH_PRS:-}${AM_OVERVIEW_FETCH_PR_COUNTS:-}"
     if [ "$rc" -ne 0 ]; then
@@ -189,7 +204,7 @@ for entry in "${PROJECTS[@]}"; do
     if [ "$MODE" = list ]; then
         # A failed lookup is not "no pull requests": the project is listed as
         # failed and the exit status says the table is incomplete.
-        pr_out="$(fetch_prs "$slug" 2>"$errs")"; pr_rc=$?
+        pr_out="$(github_cached "$slug" overview-prs "$TTL" fetch_prs "$slug" 2>"$errs")"; pr_rc=$?
         github_stop_if_rate_limited am-overview "$name (pull requests)" "$errs" \
             "${AM_OVERVIEW_FETCH:-}${AM_OVERVIEW_FETCH_PRS:-}${AM_OVERVIEW_FETCH_PR_COUNTS:-}"
         if [ "$pr_rc" -eq 0 ]; then
@@ -203,7 +218,7 @@ for entry in "${PROJECTS[@]}"; do
     if [ "$MODE" = summary ] || [ "$MODE" = full ]; then
         # Two numbers or nothing: anything else is a failed lookup, shown as
         # `?` and counted in the exit status rather than printed as zero.
-        pr_counts="$(fetch_pr_counts "$slug" 2>"$errs")"; pr_rc=$?
+        pr_counts="$(github_cached "$slug" overview-pr-counts "$TTL" fetch_pr_counts "$slug" 2>"$errs")"; pr_rc=$?
         github_stop_if_rate_limited am-overview "$name (pull request counts)" "$errs" \
             "${AM_OVERVIEW_FETCH:-}${AM_OVERVIEW_FETCH_PRS:-}${AM_OVERVIEW_FETCH_PR_COUNTS:-}"
         if [ "$pr_rc" -eq 0 ] && [[ "$pr_counts" =~ ^([0-9]+)\ ([0-9]+)$ ]]; then
