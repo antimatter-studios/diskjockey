@@ -48,7 +48,11 @@ public struct ImageMountSteps<Attachment, Volume> {
 }
 
 /// The steps name no way to find an attachment's whole disk.
-public struct ImageWholeDiskUnavailable: Error {}
+public struct ImageWholeDiskUnavailable: Error {
+    /// Public, as the default `wholeDisk` step of a public initializer
+    /// builds one.
+    public init() {}
+}
 
 @MainActor
 public enum ImageMountSequence {

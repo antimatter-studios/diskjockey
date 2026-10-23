@@ -124,8 +124,7 @@ final class FSKitMountService {
         }
 
         if ImageAttachmentRoute(container: container) == .driverKit {
-            return [try await attachWholeDiskDriverKit(imagePath: source, imageURL: imageURL,
-                                                       container: container)]
+            return [try await attachWholeDiskDriverKit(imageURL: imageURL, container: container)]
         }
 
         logger.info("attach (hdiutil) \(source, privacy: .public)")
@@ -303,7 +302,7 @@ final class FSKitMountService {
     /// table (diskjockey#515): the owned DriverKit media is the filesystem,
     /// so once it reaches Disk Arbitration the whole disk mounts read-only.
     /// Media that never appears, or a refused mount, detaches the attachment.
-    private func attachWholeDiskDriverKit(imagePath source: String, imageURL: URL?,
+    private func attachWholeDiskDriverKit(imageURL: URL?,
                                           container: String) async throws -> MountedVolume {
         guard let imageURL else {
             throw FSKitError.processFailed(exitCode: -1,
@@ -319,7 +318,7 @@ final class FSKitMountService {
                 try await SystemExtensionActivator.shared.activate()
                 let owned = try await DriverKitImageAttachment.attach(imageURL: imageURL)
                 ejectAttachment = .driverKit(owned.attachmentID)
-                self.logger.info("DriverKit attach \(source, privacy: .public) -> \(owned.device, privacy: .public) (attachment \(owned.attachmentID, privacy: .public), whole disk)")
+                self.logger.info("DriverKit attach \(imageURL.path, privacy: .public) -> \(owned.device, privacy: .public) (attachment \(owned.attachmentID, privacy: .public), whole disk)")
                 return owned
             },
             waitForPartitions: { _, _ in [:] },
