@@ -96,6 +96,9 @@ check "and one row per queued pull request, in queue order" "559 561 403" \
 out="$("$BIN" --project rust-lzo1x 2>&1)"; rc=$?
 check "an empty queue exits 0" 0 "$rc"
 contains "and says so in words" "no pull request is queued in any of the 1 project(s)" "$out"
+out="$("$BIN" --project rust-fs-core 2>&1)"
+contains "one queued pull request is counted in the singular" \
+    "TOTAL — 1 queued pull request across 1 project(s)" "$out"
 "$BIN" --project no-such-project >/dev/null 2>&1; rc=$?
 check "a project that is not in the constellation is refused" 2 "$rc"
 "$BIN" --sideways >/dev/null 2>&1; rc=$?
@@ -127,6 +130,12 @@ done
 rm -f "$sandbox/antimatter-studios-rust-fs-core.ratelimit"
 
 # ----------------------------------------------------------- 5. the filter
+# A queue asked for by branch name answers null on a repository whose default
+# branch is another, which reads as an empty queue (#562). With no branch
+# named, GitHub answers for the default one.
+src="$(cat "$BIN")"
+contains "the query asks for the default branch's queue" "mergeQueue {" "$src"
+absent "and names no branch" "mergeQueue(branch" "$src"
 if command -v jq >/dev/null 2>&1; then
     cat > "$sandbox/queue.json" <<'JSON'
 {"data":{
