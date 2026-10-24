@@ -1,6 +1,6 @@
 # Backlog loop prompt
 
-The prompt for the self-paced backlog loop: `/loop <everything below the rule>`.
+The prompt for the self-paced backlog loop: start it with `/loop follow AGENTS_LOOP.md`.
 It holds the rules and the live state (stack tops, chains, deferred run ids,
 other sessions' activity), and the loop reads it first every round. Paths are
 relative to the project root.
