@@ -2,7 +2,7 @@
 // DiskJockeyNTFS-Bridging-Header.h
 // Bridging header exposing the fs_ntfs C ABI to Swift.
 // The published fs_ntfs crate is linked into lib/bundle_ntfs/libdj_ntfs_bundle.a.
-// Upstream: github.com/christhomas/rust-fs-ntfs
+// Upstream: github.com/antimatter-studios/rust-fs-ntfs
 //
 
 #ifndef DISKJOCKEY_NTFS_BRIDGING_HEADER_H

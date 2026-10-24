@@ -50,7 +50,7 @@ if [ ! -f "${NETWORKFS_SRC}/go.mod" ]; then
     echo "It is a sibling checkout now, not a submodule. Clone it beside this" >&2
     echo "repository, or point NETWORKFS_SRC at an existing one:" >&2
     echo "" >&2
-    echo "  git clone https://github.com/christhomas/go-networkfs $(dirname "${SRCROOT}")/go-networkfs" >&2
+    echo "  git clone https://github.com/antimatter-studios/go-networkfs $(dirname "${SRCROOT}")/go-networkfs" >&2
     echo "  make vendor-gonetworkfs NETWORKFS_SRC=/path/to/go-networkfs" >&2
     exit 1
 fi

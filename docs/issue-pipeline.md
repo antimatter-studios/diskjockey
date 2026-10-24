@@ -396,7 +396,7 @@ tests that never remove a 64 MiB fixture. The pattern to copy is already
 in `rust-fs-core`'s `tests/size_stability_contract.rs`: `temp_dir()`
 joined with `fs_core_sizecontract_<pid>_<counter>.img`. The same shape
 one layer up — one fixed lock path two processes can reach — is tracked
-separately as the `vm-slot.sh` family (`christhomas/rust-fs-ext4#138`,
+separately as the `vm-slot.sh` family (`antimatter-studios/rust-fs-ext4#138`,
 `rust-fs-btrfs#112`, `rust-fs-xfs#138`).
 
 This is a constellation contract, not permission to maintain divergent copies
@@ -1135,7 +1135,7 @@ the merged PRs that have none as unreviewed in the stage's output (#119):
   `Review skipped: reviews are disabled for this base branch` are not,
   and say nothing either way. Its plan allows one review an hour.
   Measured 2026-09-30 over the 60 most recent merges in
-  `christhomas/rust-fs-ext4` (2026-09-28 and -29): 50 read
+  `antimatter-studios/rust-fs-ext4` (2026-09-28 and -29): 50 read
   `Review rate limited`, 1 `Review skipped`, 9 `Review completed`.
 
       gh api repos/$SLUG/commits/$HEAD/status -q '.statuses[]|select(.context=="CodeRabbit")|.description'
@@ -1155,7 +1155,7 @@ the merged PRs that have none as unreviewed in the stage's output (#119):
 - **An empty list is not an absent review either.** A clean review adds
   no inline comments, and a review object's `commit_id` is the sha it
   *started* at. `pulls/247/reviews` and `pulls/247/comments` on
-  `christhomas/rust-fs-ntfs` return nothing at merged head `dcd64b11`,
+  `antimatter-studios/rust-fs-ntfs` return nothing at merged head `dcd64b11`,
   while Greptile's summary there says `3 files reviewed`. Ask for the
   positive signal; do not infer one from an empty answer.
 
@@ -1163,11 +1163,11 @@ the merged PRs that have none as unreviewed in the stage's output (#119):
 comments, so `commit_id == head` proves only that the line still exists.
 On 2026-09-09, 17 findings arrived already fixed in the merged source,
 several inside the same PR after the comment — among them
-`christhomas/rust-fs-ntfs#247`, `christhomas/rust-fs-ext4#148`,
+`antimatter-studios/rust-fs-ntfs#247`, `antimatter-studios/rust-fs-ext4#148`,
 `rust-fs-xfs#145`/`#154`, and `rust-fs-core#91`/`#94`.
 
 **A finding wrong about the base may be right about the change.**
-Greptile's two-site race on `christhomas/rust-fs-ntfs#247` was rejected
+Greptile's two-site race on `antimatter-studios/rust-fs-ntfs#247` was rejected
 against a `main` with one site; `#253` then added the second. A finding
 anchored to a line the PR adds cannot describe the pre-merge tree —
 check the diff, not only the base.
@@ -1197,7 +1197,7 @@ Greptile is advisory here; the label does not oblige anyone to act.
 **Code search answers 0 when it means "not indexed".** Re-measured
 2026-09-16: `filename:vm-deadline-semantics.sh
 repo:antimatter-studios/rust-fs-btrfs` returns `total_count` 0 for a file
-`rust-fs-btrfs#129` is about, and `christhomas/rust-fs-ntfs#254` built a
+`rust-fs-btrfs#129` is about, and `antimatter-studios/rust-fs-ntfs#254` built a
 severity argument on the same kind of zero. List the tree and grep it:
 
     gh api "repos/$SLUG/git/trees/$REF?recursive=1" -q '.tree[].path'
