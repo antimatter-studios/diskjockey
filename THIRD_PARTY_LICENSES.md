@@ -14,8 +14,8 @@ that bundle's `Cargo.toml` pins.
 | Crate | License | Source |
 |---|---|---|
 | `am-fs-core` | MIT | github.com/antimatter-studios/rust-fs-core |
-| `am-fs-ext4` | MIT | github.com/christhomas/rust-fs-ext4 |
-| `am-fs-ntfs` | MIT OR Apache-2.0 | github.com/christhomas/rust-fs-ntfs |
+| `am-fs-ext4` | MIT | github.com/antimatter-studios/rust-fs-ext4 |
+| `am-fs-ntfs` | MIT OR Apache-2.0 | github.com/antimatter-studios/rust-fs-ntfs |
 | `am-fs-xfs` | MIT | github.com/antimatter-studios/rust-fs-xfs |
 | `am-fs-btrfs` | MIT | github.com/antimatter-studios/rust-fs-btrfs |
 | `am-fs-erofs` | MIT | github.com/antimatter-studios/rust-fs-erofs |
@@ -32,7 +32,7 @@ that bundle's `Cargo.toml` pins.
 
 | Component | License | Source |
 |---|---|---|
-| `go-networkfs` | MIT | github.com/christhomas/go-networkfs |
+| `go-networkfs` | MIT | github.com/antimatter-studios/go-networkfs |
 | `blk.probe` | MIT | first-party, github.com/antimatter-studios/rust-blk-probe |
 | `tabler-icons` | MIT | github.com/tabler/tabler-icons |
 

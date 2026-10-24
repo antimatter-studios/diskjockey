@@ -598,8 +598,8 @@ fifteen are merged.
 | rust-fs-core | [#14](https://github.com/antimatter-studios/rust-fs-core/pull/14) | rust-lzo1x | [#7](https://github.com/antimatter-studios/rust-lzo1x/pull/7) |
 | rust-fs-btrfs | [#49](https://github.com/antimatter-studios/rust-fs-btrfs/pull/49) | rust-partitions | [#14](https://github.com/antimatter-studios/rust-partitions/pull/14) |
 | rust-fs-xfs | [#53](https://github.com/antimatter-studios/rust-fs-xfs/pull/53) | rust-blk-probe | [#4](https://github.com/antimatter-studios/rust-blk-probe/pull/4) |
-| rust-fs-ntfs | [#108](https://github.com/christhomas/rust-fs-ntfs/pull/108) | rust-img-qcow2 | [#26](https://github.com/antimatter-studios/rust-img-qcow2/pull/26) |
-| rust-fs-ext4 | [#50](https://github.com/christhomas/rust-fs-ext4/pull/50) | rust-img-vhd | [#26](https://github.com/antimatter-studios/rust-img-vhd/pull/26) |
+| rust-fs-ntfs | [#108](https://github.com/antimatter-studios/rust-fs-ntfs/pull/108) | rust-img-qcow2 | [#26](https://github.com/antimatter-studios/rust-img-qcow2/pull/26) |
+| rust-fs-ext4 | [#50](https://github.com/antimatter-studios/rust-fs-ext4/pull/50) | rust-img-vhd | [#26](https://github.com/antimatter-studios/rust-img-vhd/pull/26) |
 | rust-fs-erofs | [#26](https://github.com/antimatter-studios/rust-fs-erofs/pull/26) | rust-img-vhdx | [#27](https://github.com/antimatter-studios/rust-img-vhdx/pull/27) |
 | | | rust-img-vmdk | [#26](https://github.com/antimatter-studios/rust-img-vmdk/pull/26) |
 

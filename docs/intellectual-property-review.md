@@ -182,7 +182,7 @@ reproduced "in all copies or substantial portions of the Software."
   there was no `LICENSE` file, which made the licence undetectable
   by GitHub's licence detector, `pkg.go.dev`, and most SCA tools.
   Pushed to branch `add-mit-license` on
-  https://github.com/christhomas/go-networkfs ; merge to `main`,
+  https://github.com/antimatter-studios/go-networkfs ; merge to `main`,
   then run `make pins` in this repo to bump the submodule pointer.
 
 ### Open

@@ -466,7 +466,7 @@ jobs:
         run: |
           ref=$(awk '$1=="go-networkfs"{print $2}' SIBLING_PINS.txt)
           git clone --depth 1 --branch "$ref" \
-            https://github.com/christhomas/go-networkfs.git ../go-networkfs
+            https://github.com/antimatter-studios/go-networkfs.git ../go-networkfs
 
       # Auto-select the newest installed Xcode on the runner.
       - name: Select Xcode

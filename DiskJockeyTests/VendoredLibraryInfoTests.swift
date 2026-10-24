@@ -20,7 +20,7 @@ struct VendoredLibraryInfoTests {
     /// sibling-build.sh, building a pinned tag from a throwaway worktree.
     private static let fromWorktree = """
         lib=go-networkfs
-        source=git@github.com:christhomas/go-networkfs.git
+        source=git@github.com:antimatter-studios/go-networkfs.git
         ref=v0.4.2
         ref_type=tag
         commit=\(commit)
@@ -45,7 +45,7 @@ struct VendoredLibraryInfoTests {
         let info = try #require(VendoredLibraryInfo.parse(Self.fromWorktree))
         #expect(info.name == "go-networkfs")
         #expect(info.id == "go-networkfs")
-        #expect(info.source == "git@github.com:christhomas/go-networkfs.git")
+        #expect(info.source == "git@github.com:antimatter-studios/go-networkfs.git")
         #expect(info.ref == "v0.4.2")
         #expect(info.refType == .tag)
         #expect(info.commit == Self.commit)

@@ -79,7 +79,7 @@ The workflow is `.github/workflows/ci.yml` in the `rust-fs-ntfs`
 submodule. Three trigger paths:
 
 1. **Manual `workflow_dispatch`** (the iteration loop): visit
-   <https://github.com/christhomas/rust-fs-ntfs/actions/workflows/ci.yml>
+   <https://github.com/antimatter-studios/rust-fs-ntfs/actions/workflows/ci.yml>
    and click "Run workflow". No tag needed. Use this every time
    you want to see what real chkdsk says about your latest
    `fs_ntfs_mkfs` output.
