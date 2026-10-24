@@ -1,0 +1,215 @@
+#!/usr/bin/env bash
+#
+# am-queue — every pull request waiting in a merge queue across the
+# constellation, one table (#560).
+#
+# The projects come from constellation-repositories.sh, like am-prs.
+#
+#   scripts/am-queue                  every queued pull request
+#   scripts/am-queue --project NAME   one project (repeatable)
+#   scripts/am-queue --tsv            the same rows as TSV, with a header
+#   scripts/am-queue --no-cache       ask GitHub even when a fresh answer is kept
+#   scripts/am-queue --print-jq       the row filter, for its own test
+#
+# ONE REQUEST, NOT ONE PER PROJECT. Every project whose answer is stale is
+# asked about in a single GraphQL request, one alias each, so a run costs one
+# request however many projects it covers. When that request fails, each of
+# them is asked on its own: one unreadable project then gets a FETCH FAILED
+# row and the command exits 4, rather than the whole constellation reading as
+# "nothing queued". A token-wide rate limit stops the run with exit 5 before
+# any table is printed, and before the per-project requests could make it
+# worse.
+#
+# CACHED PER REPOSITORY (github-cache.sh), under the key `merge-queue`, for
+# AM_GITHUB_CACHE_TTL seconds -- 300 here, not the inventory commands' 600,
+# because a queue moves in minutes. Inside that window a run asks GitHub
+# nothing. --no-cache asks anyway, and refreshes the entries. A failed fetch
+# keeps nothing.
+#
+# Environment, for tests:
+#   AM_QUEUE_FETCH  command called with every slug one request asks about,
+#                   instead of gh; prints rows of slug then the --print-jq
+#                   fields, unit-separated
+#   AM_GITHUB_CACHE_TTL  seconds an answer is kept (300; 0 asks every time)
+set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=constellation-repositories.sh
+. "$HERE/constellation-repositories.sh"
+# shellcheck source=github-rate-limit.sh
+. "$HERE/github-rate-limit.sh"
+# shellcheck source=github-cache.sh
+. "$HERE/github-cache.sh"
+PROJECTS=("${CONSTELLATION_REPOSITORIES[@]}")
+
+# One aliased field per repository, r0, r1, ...; a repository without a merge
+# queue answers null and lists nothing.
+QUEUE_FIELDS='mergeQueue(branch: "main") {
+      entries(first: 100) {
+        nodes { position state enqueuedAt pullRequest { number title url } }
+      }
+    }'
+
+# alias US position US state US queued US number US url US title
+QUEUE_JQ='.data | to_entries[]
+    | .key as $alias
+    | (.value.mergeQueue.entries.nodes // [])[]
+    | [$alias, (.position|tostring), .state, (.enqueuedAt[0:16]),
+       (.pullRequest.number|tostring), .pullRequest.url,
+       (.pullRequest.title | if . == "" then "(no title)" else . end)]
+    | join("\u001f")'
+
+TSV=0
+TTL="${AM_GITHUB_CACHE_TTL:-300}"
+WANT=()
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --tsv)      TSV=1 ;;
+        --no-cache) TTL=0 ;;
+        --project)  shift; [ $# -gt 0 ] || { echo "am-queue: --project needs a name" >&2; exit 2; }; WANT+=("$1") ;;
+        --print-jq) printf '%s\n' "$QUEUE_JQ"; exit 0 ;;
+        -h|--help)  awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"; exit 0 ;;
+        *)          echo "am-queue: unknown argument '$1'" >&2; exit 2 ;;
+    esac
+    shift
+done
+case "$TTL" in
+    ''|*[!0-9]*) echo "am-queue: AM_GITHUB_CACHE_TTL must be a number of seconds, not '$TTL'" >&2; exit 2 ;;
+esac
+
+known() {
+    local entry
+    for entry in "${PROJECTS[@]}"; do [ "${entry%%:*}" = "$1" ] && return 0; done
+    return 1
+}
+for w in ${WANT[@]+"${WANT[@]}"}; do
+    known "$w" || { echo "am-queue: '$w' is not a constellation project" >&2; exit 2; }
+done
+wanted() {
+    [ ${#WANT[@]} -eq 0 ] && return 0
+    local w
+    for w in "${WANT[@]}"; do [ "$w" = "$1" ] && return 0; done
+    return 1
+}
+
+# fetch <slug>...: rows of slug US the --print-jq fields, for every slug in
+# one request.
+fetch() {
+    if [ -n "${AM_QUEUE_FETCH:-}" ]; then
+        "$AM_QUEUE_FETCH" "$@"
+        return $?
+    fi
+    local query="query {" i=0 slug map=""
+    for slug in "$@"; do
+        query+=" r$i: repository(owner: \"${slug%%/*}\", name: \"${slug#*/}\") { $QUEUE_FIELDS }"
+        map+="r$i $slug"$'\n'
+        i=$((i + 1))
+    done
+    query+=" }"
+    local out
+    out="$(gh api graphql -f query="$query" --jq "$QUEUE_JQ")" || return $?
+    [ -n "$out" ] || return 0
+    printf '%s\n' "$out" | awk -F'\037' -v OFS='\037' -v map="$map" '
+        BEGIN { n = split(map, m, "\n"); for (i = 1; i <= n; i++) { split(m[i], p, " "); slug[p[1]] = p[2] } }
+        { $1 = slug[$1]; print }'
+}
+
+# The rows of one slug, without the slug: what its cache entry holds.
+rows_of() { # rows_of <slug> <file>
+    awk -F'\037' -v OFS='\037' -v s="$1" '$1 == s { $1 = ""; sub(/^\037/, ""); print }' "$2"
+}
+
+rows="$(mktemp)"; failed="$(mktemp)"; errs="$(mktemp)"; batch="$(mktemp)"
+trap 'rm -f "$rows" "$failed" "$errs" "$batch"' EXIT
+
+# Which projects are asked about, and which of them have no fresh entry.
+names=(); slugs=(); stale=()
+for entry in "${PROJECTS[@]}"; do
+    name="${entry%%:*}"; slug="${entry#*:}"
+    wanted "$name" || continue
+    names+=("$name"); slugs+=("$slug")
+    if [ "$TTL" -gt 0 ] && path="$(github_cache_path "$slug" merge-queue)" \
+        && age="$(github_cache_age "$path")" && [ "$age" -ge 0 ] && [ "$age" -lt "$TTL" ]; then
+        continue
+    fi
+    stale+=("$slug")
+done
+
+# One request for every stale project. On failure, a rate limit stops the run;
+# anything else leaves each stale project to be asked on its own below.
+batched=0
+if [ ${#stale[@]} -gt 0 ]; then
+    if fetch "${stale[@]}" > "$batch" 2>"$errs"; then
+        batched=1
+    else
+        github_stop_if_rate_limited am-queue "${stale[0]#*/}" "$errs" "${AM_QUEUE_FETCH:-}"
+    fi
+fi
+
+is_stale() {
+    local s
+    for s in ${stale[@]+"${stale[@]}"}; do [ "$s" = "$1" ] && return 0; done
+    return 1
+}
+
+for i in "${!names[@]}"; do
+    name="${names[$i]}"; slug="${slugs[$i]}"
+    if ! is_stale "$slug"; then
+        # Fresh when the run began: read as it was judged, not judged again.
+        out="$(cat "$(github_cache_path "$slug" merge-queue)")"; rc=$?
+    elif [ "$batched" -eq 1 ]; then
+        # A TTL of 0 reads no entry and keeps this answer as the new one.
+        out="$(github_cached "$slug" merge-queue 0 rows_of "$slug" "$batch")"; rc=$?
+    else
+        rc=1
+        if fetch "$slug" > "$batch" 2>"$errs"; then
+            out="$(github_cached "$slug" merge-queue 0 rows_of "$slug" "$batch")"; rc=$?
+        else
+            github_stop_if_rate_limited am-queue "$name" "$errs" "${AM_QUEUE_FETCH:-}"
+        fi
+    fi
+    if [ "$rc" -ne 0 ]; then
+        printf '%s\n' "$name" >> "$failed"
+        continue
+    fi
+    [ -n "$out" ] || continue
+    printf '%s\n' "$out" | awk -F'\037' -v OFS='\037' -v name="$name" \
+        'NF >= 6 { print name, $1, $2, $3, $4, $5, $6 }' >> "$rows"
+done
+
+total="$(wc -l < "$rows" | tr -d ' ')"
+nfailed="$(wc -l < "$failed" | tr -d ' ')"
+
+if [ "$TSV" -eq 1 ]; then
+    printf 'project\tposition\tstate\tqueued\tpr\turl\ttitle\n'
+    tr '\037' '\t' < "$rows"
+elif [ "$total" -eq 0 ]; then
+    # An empty table and a broken query look identical, so say which this is.
+    [ "$nfailed" -gt 0 ] || echo "am-queue: no pull request is queued in any of the ${#names[@]} project(s)"
+else
+    # Columns sized to the data; the title is last so its length moves nothing.
+    awk -F'\037' '
+        { for (i = 1; i <= 7; i++) { c[NR, i] = $i; if (length($i) > w[i]) w[i] = length($i) } }
+        END {
+            split("PROJECT POS STATE QUEUED PR LINK TITLE", h, " ")
+            for (i = 1; i <= 6; i++) if (length(h[i]) > w[i]) w[i] = length(h[i])
+            w[5]++  # the # prefix
+            fmt = "%-" w[1] "s  %" w[2] "s  %-" w[3] "s  %-" w[4] "s  %" w[5] "s  %-" w[6] "s  %s\n"
+            printf fmt, h[1], h[2], h[3], h[4], h[5], h[6], h[7]
+            for (r = 1; r <= NR; r++)
+                printf fmt, c[r,1], c[r,2], c[r,3], c[r,4], "#" c[r,5], c[r,6], c[r,7]
+        }' "$rows"
+    echo
+    printf 'TOTAL — %s queued pull requests across %s project(s)\n' "$total" \
+        "$(cut -d$'\037' -f1 "$rows" | sort -u | wc -l | tr -d ' ')"
+fi
+
+if [ "$nfailed" -gt 0 ]; then
+    echo >&2
+    echo "am-queue: $nfailed project(s) could not be read:" >&2
+    sed 's/^/    FETCH FAILED  /' "$failed" >&2
+    echo "am-queue: the list above is incomplete BY THAT MUCH." >&2
+    exit 4
+fi
+exit 0
