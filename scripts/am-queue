@@ -12,7 +12,8 @@
 #   scripts/am-queue --print-jq       the row filter, for its own test
 #
 # ONE REQUEST, NOT ONE PER PROJECT. Every project whose answer is stale is
-# asked about in a single GraphQL request, one alias each, so a run costs one
+# asked about in a single GraphQL request, one alias each, for the merge
+# queue of its default branch, so a run costs one
 # request however many projects it covers. When that request fails, each of
 # them is asked on its own: one unreadable project then gets a FETCH FAILED
 # row and the command exits 4, rather than the whole constellation reading as
@@ -42,9 +43,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/github-cache.sh"
 PROJECTS=("${CONSTELLATION_REPOSITORIES[@]}")
 
-# One aliased field per repository, r0, r1, ...; a repository without a merge
-# queue answers null and lists nothing.
-QUEUE_FIELDS='mergeQueue(branch: "main") {
+# One aliased field per repository, r0, r1, ...; with no branch named, GitHub
+# answers for the default branch (#562). A repository without a merge queue
+# answers null and lists nothing.
+QUEUE_FIELDS='mergeQueue {
       entries(first: 100) {
         nodes { position state enqueuedAt pullRequest { number title url } }
       }
@@ -201,7 +203,8 @@ else
                 printf fmt, c[r,1], c[r,2], c[r,3], c[r,4], "#" c[r,5], c[r,6], c[r,7]
         }' "$rows"
     echo
-    printf 'TOTAL — %s queued pull requests across %s project(s)\n' "$total" \
+    noun="pull requests"; [ "$total" -eq 1 ] && noun="pull request"
+    printf 'TOTAL — %s queued %s across %s project(s)\n' "$total" "$noun" \
         "$(cut -d$'\037' -f1 "$rows" | sort -u | wc -l | tr -d ' ')"
 fi
 
