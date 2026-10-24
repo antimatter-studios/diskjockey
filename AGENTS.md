@@ -12,7 +12,7 @@ that share a checkout:
   `rust-bundles/dj-<fs>-bundle` into `lib/bundle_<fs>/` — plus the Go
   network drivers' archives from the `../go-networkfs` sibling.
 - **The coordination layer.** `scripts/am-*` (`am-overview`, `am-ledger`,
-  `am-prs`, `am-worktree-reap`, `am-branch-reap`, `am-slot`, `am-cost`,
+  `am-prs`, `am-worktree-reap`, `am-branch-reap`, `am-stranded`, `am-slot`, `am-cost`,
   `am-tokens`),
   `docs/constellation/`, `chores.yml` and the `scripts/tests/*.sh` suites that
   gate them. This is the only repository in the family that knows the family
@@ -315,6 +315,8 @@ chore pr:list            # every pull request across the constellation
 chore pr:external        # only those opened by external contributors
 chore issue:list         # every open issue, oldest first, as JSON (cached per repository)
 chore branch:reap        # merged branches nothing needs (-- --apply deletes them)
+chore stranded:list      # merged pull requests whose work never reached main
+chore stranded:check     # fails while one is neither re-landed nor being restored
 chore check:scripts      # the scripts tier: every scripts/tests/*.sh guard
 chore test:library       # the library tier: swift test, host-free
 chore test:app           # the app tier: xcodebuild, DiskJockeyTests only

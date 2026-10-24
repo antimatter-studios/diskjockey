@@ -1,0 +1,211 @@
+#!/usr/bin/env bash
+#
+# am-stranded — merged pull requests whose work never reached the default
+# branch, across the constellation (#553).
+#
+#   am-stranded                 list every stranded merged pull request
+#   am-stranded --repo <name>   restrict to one repository
+#   am-stranded --check         exit 1 while any of them is neither re-landed
+#                               nor covered by an open pull request
+#
+#   AM_STRANDED_GH   the gh command; the tests replace it
+#
+# WHY THIS EXISTS. In a stack each pull request is based on the branch of
+# the one below it. When the bottom one squash-merges into main and the
+# ones above are then merged into their own bases, instead of being
+# retargeted to main and queued, their work lands on branches that have
+# already landed, and nothing carries it further. GitHub calls each one
+# merged and its issue reads as done. On 2026-10-23 that was 87
+# rust-fs-btrfs and 5 rust-fs-ext4 pull requests, and agents had started
+# redoing their issues before anyone noticed.
+#
+# THE WALK, for each merged pull request whose base was not the default
+# branch:
+#   - its merge commit is reachable from the default branch (compare is
+#     `ahead` or `identical`): it landed. A stack layer the merge queue
+#     squash-merged keeps its stacked base's name, and lands here;
+#   - otherwise its base branch's own pull request, merged AFTER it, took
+#     the work one hop on: the walk repeats from that one, whose merge
+#     commit being reachable is a landing too;
+#   - a base no pull request merged after the work arrived ends the chain
+#     before the default branch: stranded. The chain is printed.
+#
+# STRANDED, BUT ACCOUNTED FOR. A pull request is named by a body that says
+# `#N`, or holds N inside `#A through #B` (also `to`, `-`, `–`, `..`):
+#   - re-landed: a pull request into the default branch, merged after it,
+#     whose merge commit the default branch reaches, names it;
+#   - covered: an open pull request names it -- the restoring work exists.
+# A name is evidence a person wrote, not a fact about commits; the line
+# says which pull request it is, so it can be read.
+#
+# OUTPUT, tab-separated, then a count per repository on stderr:
+#   <slug>  stranded   #N  <chain>
+#   <slug>  re-landed  #N  by #K       <chain>
+#   <slug>  covered    #N  by open #K  <chain>
+# A repository that cannot be read is named and fails the run: a failed
+# read is not "nothing stranded".
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=constellation-repositories.sh
+. "$HERE/constellation-repositories.sh"
+
+GH="${AM_STRANDED_GH:-gh}"
+CHECK=0
+ONLY_REPO=""
+MAX_HOPS=50
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --check) CHECK=1; shift ;;
+        --repo)  ONLY_REPO="${2:?--repo needs a name}"; shift 2 ;;
+        --help|-h) sed -n '2,46p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "am-stranded: unknown argument '$1'" >&2; exit 2 ;;
+    esac
+done
+
+slugs=()
+for entry in "${CONSTELLATION_REPOSITORIES[@]}"; do
+    name="${entry%%:*}"
+    [ -n "$ONLY_REPO" ] && [ "$name" != "$ONLY_REPO" ] && continue
+    slugs+=("${entry#*:}")
+done
+if [ "${#slugs[@]}" -eq 0 ]; then
+    echo "am-stranded: '$ONLY_REPO' is not a constellation repository" >&2
+    exit 2
+fi
+
+# The numbers a body names, as `names`: every `#N`, and each number of a
+# `#A through #B` range of at most 1000.
+NAMES='def names: [scan("#([0-9]+)(?:[ \t]*(?:through|to|-|–|\\.\\.)[ \t]*#([0-9]+))?")
+    | (.[0] | tonumber) as $a | ((.[1] // .[0]) | tonumber) as $b
+    | if $b >= $a and $b - $a <= 1000 then range($a; $b + 1) else $a end];'
+
+# reachable <sha>: whether the default branch reaches the commit. Answers
+# are kept for the repository. A compare that fails is named, fails the
+# run, and counts as unreachable, so it is reported rather than hidden.
+reachable() {
+    local sha="$1" status
+    [ "$sha" != "-" ] || return 1
+    case "$reach_known" in
+        *" $sha=yes "*) return 0 ;;
+        *" $sha=no "*) return 1 ;;
+    esac
+    if ! status="$("$GH" api "repos/$slug/compare/$sha...$default" --jq .status 2>/dev/null </dev/null)"; then
+        echo "$slug: could not compare $sha with $default" >&2
+        unread=$((unread + 1))
+        status=unknown
+    fi
+    case "$status" in
+        ahead|identical) reach_known="$reach_known $sha=yes "; return 0 ;;
+        *) reach_known="$reach_known $sha=no "; return 1 ;;
+    esac
+}
+
+# walk <number> <base> <merge commit> <mergedAt>: 0 when the work reached
+# the default branch; otherwise 1, with the chain it followed in CHAIN.
+walk() {
+    local n="$1" b="$2" o="$3" t="$4" chain="#$1" hops=0 hop prior
+    while :; do
+        if reachable "$o"; then return 0; fi
+        if [ "$b" = "$default" ]; then
+            chain="$chain -> $default: it does not reach #$n's merge commit"
+            break
+        fi
+        hop="$(jq -r --arg b "$b" --arg t "$t" \
+            '[.[] | select(.h == $b and .t > $t)] | sort_by(.t) | first // empty
+             | [(.n | tostring), .b, .o, .t] | @tsv' <<< "$slim")"
+        if [ -z "$hop" ]; then
+            prior="$(jq -r --arg b "$b" --arg t "$t" \
+                '[.[] | select(.h == $b and .t <= $t)] | sort_by(.t) | last // empty
+                 | "#\(.n) merged it into \(.b)"' <<< "$slim")"
+            if [ -n "$prior" ]; then
+                chain="$chain -> $b: $prior before #$n was merged"
+            else
+                chain="$chain -> $b: no pull request merged it"
+            fi
+            break
+        fi
+        IFS=$'\t' read -r n b o t <<< "$hop"
+        chain="$chain -> #$n"
+        hops=$((hops + 1))
+        if [ "$hops" -ge "$MAX_HOPS" ]; then
+            chain="$chain -> stopped after $MAX_HOPS hops"
+            break
+        fi
+    done
+    CHAIN="$chain"
+    return 1
+}
+
+unread=0
+total_stranded=0
+total_relanded=0
+total_covered=0
+
+for slug in "${slugs[@]}"; do
+    if ! default="$("$GH" api "repos/$slug" --jq .default_branch 2>/dev/null </dev/null)" || [ -z "$default" ]; then
+        echo "$slug: could not be read" >&2; unread=$((unread + 1)); continue
+    fi
+    if ! merged="$("$GH" pr list -R "$slug" --state merged --limit 5000 \
+            --json number,baseRefName,headRefName,mergeCommit,mergedAt,body 2>/dev/null </dev/null)" \
+        || ! open="$("$GH" pr list -R "$slug" --state open --limit 1000 \
+            --json number,baseRefName,body 2>/dev/null </dev/null)" \
+        || ! slim="$(jq -c '[.[] | {n: .number, b: .baseRefName, h: .headRefName,
+                o: (.mergeCommit.oid // "-"), t: (.mergedAt // "")}]' <<< "$merged" 2>/dev/null)" \
+        || ! landers="$(jq -r --arg d "$default" "$NAMES"'
+                .[] | select(.baseRefName == $d) | (.number | tostring) as $k
+                | (.mergedAt // "") as $t | (.mergeCommit.oid // "-") as $o
+                | (.body // "") | names[] | [tostring, $k, $t, $o] | @tsv' <<< "$merged" 2>/dev/null)" \
+        || ! coverers="$(jq -r "$NAMES"'
+                .[] | (.number | tostring) as $k | (.body // "") | names[]
+                | [tostring, $k] | @tsv' <<< "$open" 2>/dev/null)"; then
+        echo "$slug: its pull requests could not be read" >&2; unread=$((unread + 1)); continue
+    fi
+
+    reach_known=" "
+    stranded=0; relanded=0; covered=0
+    while IFS=$'\t' read -r n b o t; do
+        [ -n "$n" ] || continue
+        [ "$b" != "$default" ] || continue
+        if walk "$n" "$b" "$o" "$t"; then continue; fi
+
+        by=""
+        while IFS=$'\t' read -r named k kt ko; do
+            [ "$named" = "$n" ] || continue
+            [[ "$kt" > "$t" ]] || continue
+            if reachable "$ko"; then by="$k"; break; fi
+        done <<< "$landers"
+        cover=""
+        if [ -z "$by" ]; then
+            while IFS=$'\t' read -r named k; do
+                if [ "$named" = "$n" ]; then cover="$k"; break; fi
+            done <<< "$coverers"
+        fi
+
+        if [ -n "$by" ]; then
+            echo "$slug	re-landed	#$n	by #$by	$CHAIN"; relanded=$((relanded + 1))
+        elif [ -n "$cover" ]; then
+            echo "$slug	covered	#$n	by open #$cover	$CHAIN"; covered=$((covered + 1))
+        else
+            echo "$slug	stranded	#$n	$CHAIN"; stranded=$((stranded + 1))
+        fi
+    done < <(jq -r '.[] | [(.n | tostring), .b, .o, .t] | @tsv' <<< "$slim")
+    echo "$slug: $stranded stranded, $relanded re-landed, $covered covered" >&2
+    total_stranded=$((total_stranded + stranded))
+    total_relanded=$((total_relanded + relanded))
+    total_covered=$((total_covered + covered))
+done
+
+echo "am-stranded: $total_stranded stranded, $total_relanded re-landed, $total_covered covered" >&2
+if [ "$unread" -gt 0 ]; then
+    echo "am-stranded: $unread read(s) failed" >&2
+fi
+if [ "$CHECK" -eq 1 ]; then
+    if [ "$total_stranded" -gt 0 ]; then
+        echo "am-stranded: $total_stranded stranded pull request(s) not covered by an open restoring pull request" >&2
+        exit 1
+    fi
+    echo "am-stranded: every stranded pull request is re-landed or covered" >&2
+fi
+[ "$unread" -eq 0 ] || exit 1

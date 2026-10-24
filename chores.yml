@@ -176,6 +176,17 @@ tasks:
     cmds:
       - scripts/am-branch-reap {{.CLI_ARGS}}
 
+  stranded:list:
+    desc: Merged pull requests whose work never reached main, across the constellation, with the chain each followed
+    # No `sources`, for the same reason as branch:reap (#553).
+    cmds:
+      - scripts/am-stranded {{.CLI_ARGS}}
+
+  stranded:check:
+    desc: Fails while any stranded merged pull request is neither re-landed nor covered by an open restoring pull request
+    cmds:
+      - scripts/am-stranded --check {{.CLI_ARGS}}
+
   check:scripts:
     desc: The scripts tier — every scripts/tests/*.sh guard, quietly (-- --verbose to stream)
     # The same script the `Shell scripts` CI job runs, so a guard that passes
