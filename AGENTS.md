@@ -12,7 +12,7 @@ that share a checkout:
   `rust-bundles/dj-<fs>-bundle` into `lib/bundle_<fs>/` — plus the Go
   network drivers' archives from the `../go-networkfs` sibling.
 - **The coordination layer.** `scripts/am-*` (`am-overview`, `am-ledger`,
-  `am-prs`, `am-worktree-reap`, `am-branch-reap`, `am-stranded`, `am-slot`, `am-cost`,
+  `am-prs`, `am-queue`, `am-worktree-reap`, `am-branch-reap`, `am-stranded`, `am-slot`, `am-cost`,
   `am-tokens`),
   `docs/constellation/`, `chores.yml` and the `scripts/tests/*.sh` suites that
   gate them. This is the only repository in the family that knows the family
@@ -302,10 +302,24 @@ signal, not a detail of the change.
 
 ## The tasks
 
-`chores.yml` is deliberately thin: every task names a script in `scripts/` and
-nothing else, because the script is what can be tested, reviewed and run
-without `chore` at all. A task that grows a pipeline of its own is a task
-nobody can test.
+Where a task's work lives is a judgement, made by what the work needs:
+
+- **Glue lives in `chores.yml`.** A task that passes its arguments on, runs a
+  few commands in turn, sets an environment or pipes one command into
+  another holds its commands itself. A script behind it would only be one
+  more file to open to see what the task does.
+- **Logic lives in a script in `scripts/`.** Branching, parsing, failure
+  handling and exit statuses that mean something need a test of their own,
+  and `scripts/tests/*.sh` can only drive a file, with the network stubbed
+  out (`AM_PRS_FETCH`, `AM_QUEUE_FETCH`).
+- **A pattern that repeats becomes a `chore` feature.** The same glue or
+  the same plumbing in several tasks, or in several repositories, is a sign
+  the tool lacks something general -- a cached answer with a lifetime, a
+  step run once per entry of a list. Propose it to `chore` as a feature any
+  project could use; never as code that only this one needs (see "Never
+  grow a shared tool" above).
+
+Lean towards the first and move work down the list only when it needs to go.
 
 ```sh
 chore overview:summary   # counts only, one row per project
@@ -313,6 +327,7 @@ chore overview:list      # every project in turn, with issue numbers and titles
 chore overview:tsv       # the detail rows as TSV
 chore pr:list            # every pull request across the constellation
 chore pr:external        # only those opened by external contributors
+chore queue:list         # every pull request waiting in a merge queue (cached 5 minutes)
 chore issue:list         # every open issue, oldest first, as JSON (cached per repository)
 chore branch:reap        # merged branches nothing needs (-- --apply deletes them)
 chore stranded:list      # merged pull requests whose work never reached main

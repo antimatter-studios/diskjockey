@@ -162,6 +162,14 @@ tasks:
     cmds:
       - scripts/am-prs --external {{.CLI_ARGS}}
 
+  queue:list:
+    desc: Every pull request waiting in a merge queue across the constellation (add -- --tsv, --project NAME, --no-cache)
+    # No `sources`, for the same reason as overview:list: the answer is on
+    # GitHub. scripts/am-queue asks every stale project in one request and
+    # keeps each answer for AM_GITHUB_CACHE_TTL seconds (300) (#560).
+    cmds:
+      - scripts/am-queue {{.CLI_ARGS}}
+
   issue:list:
     desc: Every open issue across the constellation, oldest first, as JSON (add -- --unclaimed, --urls, --prs, --no-cache, ...)
     # No `sources`, for the same reason as overview:list: the answer is on
