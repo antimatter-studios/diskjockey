@@ -11,6 +11,7 @@ CONSTELLATION_REPOSITORIES=(
     "rust-fs-core:antimatter-studios/rust-fs-core"
     "rust-fs-xfs:antimatter-studios/rust-fs-xfs"
     "rust-fs-ext4:antimatter-studios/rust-fs-ext4"
+    "rust-fs-exfat:antimatter-studios/rust-fs-exfat"
     "rust-fs-btrfs:antimatter-studios/rust-fs-btrfs"
     "rust-fs-erofs:antimatter-studios/rust-fs-erofs"
     "rust-fs-squashfs:antimatter-studios/rust-fs-squashfs"

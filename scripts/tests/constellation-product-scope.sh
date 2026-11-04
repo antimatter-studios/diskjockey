@@ -47,6 +47,7 @@ antimatter-studios/rust-fs-bcachefs
 antimatter-studios/rust-fs-btrfs
 antimatter-studios/rust-fs-core
 antimatter-studios/rust-fs-erofs
+antimatter-studios/rust-fs-exfat
 antimatter-studios/rust-fs-ext4
 antimatter-studios/rust-fs-ntfs
 antimatter-studios/rust-fs-squashfs
@@ -62,20 +63,20 @@ EOF
 LC_ALL=C sort -u "$AM_SCOPE_CALLS" > "$actual"
 
 if ! diff -u "$expected" "$actual"; then
-    echo "FAIL  overview did not fetch the exact 24-repository product scope" >&2
+    echo "FAIL  overview did not fetch the exact 25-repository product scope" >&2
     exit 1
 fi
 
 calls="$(wc -l < "$AM_SCOPE_CALLS" | tr -d ' ')"
 unique="$(wc -l < "$actual" | tr -d ' ')"
-if [ "$calls" != 24 ] || [ "$unique" != 24 ]; then
-    echo "FAIL  expected 24 unique fetches, got $calls calls / $unique unique" >&2
+if [ "$calls" != 25 ] || [ "$unique" != 25 ]; then
+    echo "FAIL  expected 25 unique fetches, got $calls calls / $unique unique" >&2
     exit 1
 fi
 
 case "$output" in
-    *"no open issues in any of the 24 projects"*) ;;
-    *) printf 'FAIL  completion output does not state the 24-project scope:\n%s\n' "$output" >&2; exit 1 ;;
+    *"no open issues in any of the 25 projects"*) ;;
+    *) printf 'FAIL  completion output does not state the 25-project scope:\n%s\n' "$output" >&2; exit 1 ;;
 esac
 
 echo "constellation-product-scope: all checks passed"
