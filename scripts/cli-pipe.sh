@@ -41,7 +41,7 @@
 # INSTALLED FROM RELEASES, VERIFIED. Each tool comes from its repository's
 # latest GitHub release, the platform's tarball, refused unless its
 # build-provenance attestation was signed by the workflow that builds it,
-# rust-fs-core's release-cli.yml or the repository's own release.yml (and,
+# rust-fs-core's release-cli.yml or the one STREAMS names (and,
 # where the release publishes one, its .sha256 matches): the
 # same checks scripts/build-blk.probe.sh makes for the probe the app ships.
 # Latest rather than pinned, because the question is whether what a user can
@@ -98,7 +98,7 @@ on_here() { [ "$1" = all ] || [ "$1" = "$HERE" ]; }
 # are called by the names only they have (e2fsck, mke2fs, debugfs, ntfscat).
 #
 # repository                          asset prefix     on     tools
-TOOLS='antimatter-studios/rust-blk-probe   rust-blk-probe   all    blk.probe
+TOOLS='antimatter-studios/rust-disk-partitions rust-blk-probe all blk.probe
 antimatter-studios/rust-fs-ntfs     rust-fs-ntfs     all    fs.ntfs mkfs.ntfs fsck.ntfs
 antimatter-studios/rust-fs-ext4     rust-fs-ext4     all    fs.ext4 fsck.ext4
 antimatter-studios/rust-fs-squashfs rust-fs-squashfs all    fs.squashfs
@@ -112,14 +112,36 @@ antimatter-studios/rust-img-vmdk    rust-img-vmdk    all    img.vmdk'
 
 # Who signs a release's attestation. The drivers' tarballs are built and
 # attested by rust-fs-core's shared release-cli.yml, called from each
-# repository's release.yml; a repository listed here attests its tarballs
-# from its own release.yml instead.
+# repository's release.yml.
 CORE_SIGNER=antimatter-studios/rust-fs-core/.github/workflows/release-cli.yml
-OWN_ATTESTED='antimatter-studios/rust-blk-probe'
+
+# A repository that releases more than one thing: which of its tags carry the
+# tools here, and the workflow that signs those tarballs. rust-disk-partitions
+# releases its library on v tags and blk.probe on blk-probe-v tags, so the
+# release GitHub calls its latest is the library's, which has no tarballs.
+#
+# repository                            tag prefix  signing workflow
+STREAMS='antimatter-studios/rust-disk-partitions blk-probe-v .github/workflows/release-blk-probe.yml'
 # signer REPO — the workflow whose attestation REPO's tarballs carry.
 signer() {
-    if printf '%s\n' "$OWN_ATTESTED" | grep -qx "$1"; then echo "$1/.github/workflows/release.yml"
+    local workflow
+    workflow="$(printf '%s\n' "$STREAMS" | awk -v r="$1" '$1 == r { print $3 }')"
+    if [ -n "$workflow" ]; then echo "$1/$workflow"
     else echo "$CORE_SIGNER"; fi
+}
+# stream REPO — the tag prefix STREAMS names for REPO, or nothing.
+stream() { printf '%s\n' "$STREAMS" | awk -v r="$1" '$1 == r { print $2 }'; }
+# latest_tag REPO — the newest published release to install from REPO: the
+# highest version of its stream, or the release GitHub calls its latest.
+latest_tag() {
+    local prefix
+    prefix="$(stream "$1")"
+    if [ -z "$prefix" ]; then
+        gh release view --repo "$1" --json tagName -q .tagName 2>/dev/null
+    else
+        gh release list --repo "$1" --exclude-drafts --exclude-pre-releases --limit 100 \
+            --json tagName -q '.[].tagName' 2>/dev/null | grep "^${prefix}[0-9]" | sort -V | tail -1
+    fi
 }
 
 # Releases still to come: a repository whose latest release cannot give this
@@ -194,10 +216,11 @@ EOF
 # refusal naming why (and what it is waiting on). Links only once every check
 # has passed and every tool is in the tarball.
 install_one() {
-    local dir="$1" platform="$2" repo="$3" prefix="$4" tools="$5" tag asset actual expected pkg tool
-    tag="$(gh release view --repo "$repo" --json tagName -q .tagName 2>/dev/null)"
+    local dir="$1" platform="$2" repo="$3" prefix="$4" tools="$5" tag tag_prefix asset actual expected pkg tool
+    tag="$(latest_tag "$repo")"
     [ -n "$tag" ] || { echo "cli-pipe: $repo has no release to install$(awaited "$repo")"; return 1; }
-    asset="$prefix-${tag#v}-$platform.tar.gz"
+    tag_prefix="$(stream "$repo")"
+    asset="$prefix-${tag#"${tag_prefix:-v}"}-$platform.tar.gz"
     gh release download "$tag" --repo "$repo" --pattern "$asset" --dir "$dir/dl" >/dev/null 2>&1 \
         && [ -f "$dir/dl/$asset" ] \
         || { echo "cli-pipe: the $tag release of $repo has no $asset$(awaited "$repo")"; return 1; }
@@ -227,7 +250,7 @@ require_tools() {
         [ -n "$repo" ] && on_here "$on" || continue
         for tool in $tools; do
             command -v "$tool" >/dev/null 2>&1 && continue
-            echo "MISSING $tool — from $repo's release (scripts/cli-pipe.sh installs it), or brew install antimatter-studios/tap/${repo#*/}"
+            echo "MISSING $tool — from $repo's release (scripts/cli-pipe.sh installs it), or brew install antimatter-studios/tap/$prefix"
             missing=$((missing + 1))
         done
     done <<EOF

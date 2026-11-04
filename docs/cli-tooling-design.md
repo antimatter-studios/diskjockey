@@ -1070,7 +1070,9 @@ As of 2026-10-07. Each repository's tools, its release with tarballs,
 and its formula; the per-repository issues are linked from the tracker,
 #235. Every release's tarballs are built and attested by rust-fs-core's
 shared release-cli.yml, except rust-blk-probe's, which its own release.yml
-attests.
+attests. `blk.probe` has since moved: its releases from `blk-probe-v0.2.0` on
+are rust-disk-partitions', attested by that repository's
+release-blk-probe.yml.
 
 | repository | ships | release with tarballs | formula |
 |---|---|---|---|
@@ -1159,7 +1161,7 @@ DiskJockey, and macOS offers nothing for it.
   and attached once, by rust-fs-core's `release-cli.yml`
   (antimatter-studios/rust-fs-core#202), which every crate's
   `release.yml` calls with its own names; no repository keeps a copy.
-  rust-blk-probe still attests from its own `release.yml`.
+  `blk.probe` attests from rust-disk-partitions' `release-blk-probe.yml`.
 - **The cross-repository pipe test** is `chore test:cli-pipe`
   (`scripts/cli-pipe.sh`, #295, #296), run by `cli-pipe.yml` on a
   schedule and by dispatch, on macOS and Linux. It installs each
