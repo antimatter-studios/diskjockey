@@ -8,6 +8,12 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 sandbox="$(mktemp -d)"
 trap 'rm -rf "$sandbox"' EXIT
 
+# The cache lives in this run's sandbox. am-overview keeps every answer for ten
+# minutes, so against the normal cache a second run reads the stub answers of
+# the first and fetches too little, and every run leaves synthetic answers
+# there for the real command to read (#566).
+export XDG_CACHE_HOME="$sandbox/cache"
+
 cat > "$sandbox/fetch" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$1" >> "$AM_SCOPE_CALLS"
@@ -78,5 +84,50 @@ case "$output" in
     *"no open issues in any of the 25 projects"*) ;;
     *) printf 'FAIL  completion output does not state the 25-project scope:\n%s\n' "$output" >&2; exit 1 ;;
 esac
+
+# Run again, beside a normal cache that already holds an answer for every
+# repository (#566). The guard runs itself once with that cache found through
+# HOME and once through XDG_CACHE_HOME: each run must still fetch the whole
+# inventory, so it read nothing there, and the cache must come out unchanged.
+if [ -z "${AM_SCOPE_NESTED:-}" ]; then
+    normal="$sandbox/normal"
+    while IFS= read -r slug; do
+        mkdir -p "$normal/.cache/am/github/$slug"
+        printf '1\0372026-01-01T00:00:00Z\037-\037a kept answer\n' \
+            > "$normal/.cache/am/github/$slug/overview-issues"
+        printf '9 9\n' > "$normal/.cache/am/github/$slug/overview-pr-counts"
+    done < "$expected"
+
+    # Every path with its modification time, and each file's checksum: a new
+    # entry, a refreshed one and a temporary file left behind all show here.
+    snapshot() (
+        cd "$normal" || exit 1
+        find . | LC_ALL=C sort | while IFS= read -r path; do
+            stat -c '%n %Y' "$path" 2>/dev/null || stat -f '%N %m' "$path"
+            [ ! -f "$path" ] || cksum < "$path"
+        done
+    )
+    before="$(snapshot)"
+
+    for found_through in HOME XDG_CACHE_HOME; do
+        if [ "$found_through" = HOME ]; then
+            nested="$(env -u XDG_CACHE_HOME HOME="$normal" AM_SCOPE_NESTED=1 \
+                bash "${BASH_SOURCE[0]}" 2>&1)"
+        else
+            nested="$(HOME="$normal" XDG_CACHE_HOME="$normal/.cache" AM_SCOPE_NESTED=1 \
+                bash "${BASH_SOURCE[0]}" 2>&1)"
+        fi
+        rc=$?
+        if [ "$rc" -ne 0 ] || [ "${nested##*$'\n'}" != "constellation-product-scope: all checks passed" ]; then
+            printf 'FAIL  a run beside a kept cache (found through %s) exited %s:\n%s\n' \
+                "$found_through" "$rc" "$nested" >&2
+            exit 1
+        fi
+        if [ "$(snapshot)" != "$before" ]; then
+            echo "FAIL  a run changed the normal cache (found through $found_through)" >&2
+            exit 1
+        fi
+    done
+fi
 
 echo "constellation-product-scope: all checks passed"

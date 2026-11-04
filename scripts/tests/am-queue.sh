@@ -159,8 +159,24 @@ unset AM_GITHUB_CACHE_TTL
 rm -rf "$XDG_CACHE_HOME"
 cached() { printf '%s/am/github/antimatter-studios/%s/merge-queue' "$XDG_CACHE_HOME" "$1"; }
 exists() { if [ -e "$1" ]; then echo yes; else echo no; fi; }
-age() { # age <file> <seconds>: date the file that many seconds ago
-    local t=$(( $(date +%s) - $2 ))
+# The clock is pinned, for the entries' dates and for the age am-queue works out
+# from them, because against the live clock a process that takes a second to
+# start turns 299 seconds into 300 (#567). `date +%s` is what github-cache.sh
+# asks. The pinned time is years from any real one, so an age taken from the
+# live clock instead reads as stale and fails the checks below.
+AM_QUEUE_NOW=1700000000
+export AM_QUEUE_NOW
+real_date="$(command -v date)"
+mkdir -p "$sandbox/bin"
+cat > "$sandbox/bin/date" <<STUB
+#!/usr/bin/env bash
+if [ "\$*" = "+%s" ]; then echo "\$AM_QUEUE_NOW"; exit 0; fi
+exec "$real_date" "\$@"
+STUB
+chmod +x "$sandbox/bin/date"
+export PATH="$sandbox/bin:$PATH"
+age() { # age <file> <seconds>: date the file that many seconds before the pinned time
+    local t=$(( AM_QUEUE_NOW - $2 ))
     touch -d "@$t" "$1" 2>/dev/null || touch -t "$(date -r "$t" +%Y%m%d%H%M.%S)" "$1"
 }
 : > "$calls"
@@ -168,16 +184,22 @@ age() { # age <file> <seconds>: date the file that many seconds ago
 check "the first call asks, once" 1 "$(ncalls)"
 check "and keeps each repository's answer" "yes yes yes" \
     "$(exists "$(cached diskjockey)") $(exists "$(cached rust-fs-core)") $(exists "$(cached rust-lzo1x)")"
+# The filesystem dated those by the live clock; date them by the pinned one.
+age "$(cached diskjockey)" 0
+age "$(cached rust-fs-core)" 0
+age "$(cached rust-lzo1x)" 0
 : > "$calls"
 tsv="$("$BIN" "${THREE[@]}" --tsv)"
 check "while they are fresh, asking again asks nothing" 0 "$(ncalls)"
 check "and the kept answers list as fresh ones do" "559 561 403" \
     "$(printf '%s\n' "$tsv" | awk -F'\t' 'NR > 1 {print $5}' | tr '\n' ' ' | sed 's/ $//')"
 age "$(cached rust-fs-core)" 299
+sleep 2 # a loaded host takes this long to start a process; the answer must not expire
 "$BIN" "${THREE[@]}" >/dev/null
 check "an answer 299 seconds old is still fresh" 0 "$(ncalls)"
 age "$(cached rust-fs-core)" 301
 age "$(cached rust-lzo1x)" 301
+sleep 2
 "$BIN" "${THREE[@]}" >/dev/null
 check "past 300 seconds the stale ones are asked about, in one request" \
     "antimatter-studios/rust-fs-core antimatter-studios/rust-lzo1x" "$(cat "$calls")"
