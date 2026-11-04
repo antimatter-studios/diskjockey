@@ -5,7 +5,7 @@ set -uo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 checker="$repo/scripts/check-required-checks.rb"
 sandbox="$(mktemp -d)"
-trap 'rm -rf "$sandbox"' EXIT
+trap 'rm -r "$sandbox"' EXIT
 fails=0
 
 ok() { printf 'ok    %s\n' "$1"; }
@@ -36,12 +36,17 @@ run_case() {
     RC=$?
 }
 
+edit_fixture() {
+    local file="$1" program="$2"
+    awk "$program" "$file" > "$sandbox/edited" && mv "$sandbox/edited" "$file"
+}
+
 case_dir matching
 run_case
 if [ "$RC" -eq 0 ]; then ok 'matching required job passes'; else fail "matching job refused: $OUT"; fi
 
 case_dir renamed
-sed -i 's/name: Build/name: Compile/' "$CASE_DIR/.github/workflows/ci.yml"
+edit_fixture "$CASE_DIR/.github/workflows/ci.yml" '{ sub(/name: Build/, "name: Compile"); print }'
 run_case
 if [ "$RC" -ne 0 ] && [[ "$OUT" == *'no pull-request job produces: Build'* ]] && [[ "$OUT" == *'undeclared pull-request job: Compile'* ]]; then
     ok 'a renamed job reports both sides of the mismatch'
@@ -117,7 +122,7 @@ else
 fi
 
 case_dir tag_only
-sed -i 's/pull_request:/push:\n    tags: ["v*"]/' "$CASE_DIR/.github/workflows/ci.yml"
+edit_fixture "$CASE_DIR/.github/workflows/ci.yml" '{ sub(/pull_request:/, "push:\n    tags: [\"v*\"]"); print }'
 run_case
 if [ "$RC" -ne 0 ] && [[ "$OUT" == *'no pull-request job produces: Build'* ]]; then
     ok 'a tag-only job cannot satisfy a required check'
@@ -149,7 +154,7 @@ if [ "$RC" -eq 0 ]; then
 else
     fail "matrix legs refused: $OUT"
 fi
-sed -i 's/required = Test \/ macos-latest/required = Test \/ windows-latest/' "$CASE_DIR/.github-guard"
+edit_fixture "$CASE_DIR/.github-guard" '{ sub(/required = Test \/ macos-latest/, "required = Test / windows-latest"); print }'
 run_case
 if [ "$RC" -ne 0 ] && [[ "$OUT" == *'no pull-request job produces: Test / windows-latest'* ]]; then
     ok 'matrix drift is detected'
@@ -181,8 +186,8 @@ else
     fail "unnamed matrix legs refused: $OUT"
 fi
 
-sed -i '/os: \[ubuntu-latest, macos-latest\]/a\        include: [{os: windows-latest}]' \
-    "$CASE_DIR/.github/workflows/ci.yml"
+edit_fixture "$CASE_DIR/.github/workflows/ci.yml" \
+    '/os: \[ubuntu-latest, macos-latest\]/ { print; print "        include: [{os: windows-latest}]"; next } 1'
 run_case
 if [ "$RC" -ne 0 ] && [[ "$OUT" == *'matrix include/exclude needs explicit review'* ]]; then
     ok 'unsupported matrix expansion fails closed'
