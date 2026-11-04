@@ -335,7 +335,7 @@ Sibling projects and published crates — all permissively licensed, see [`THIRD
 - `rust-fs-core`, `rust-fs-ext4`, `rust-fs-ntfs`, `rust-fs-xfs`, `rust-fs-bcachefs`, `rust-fs-btrfs`, `rust-fs-erofs`, `rust-fs-squashfs` (filesystem drivers)
 - `rust-img-qcow2`, `rust-img-vhd`, `rust-img-vhdx`, `rust-img-vmdk` (disk-image readers)
 - `rust-lzo1x` (LZO decompression for Btrfs and SquashFS)
-- `rust-blk-probe` (`blk.probe`, the image and partition probe)
+- `rust-disk-partitions` (partition tables, and `blk.probe`, the image and partition probe)
 - `go-networkfs` (Go network FS drivers — MIT)
 - `tabler-icons` (MIT — Paweł Kuna; icons fetched by `scripts/sync-tabler-icons.rb`, not vendored)
 

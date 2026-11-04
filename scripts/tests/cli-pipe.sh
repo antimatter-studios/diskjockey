@@ -16,7 +16,9 @@
 #      ours with its install line: nothing skips;
 #   3. the installer, run for real against a stub `gh` and `uname`, verifies
 #      each tarball's attestation against the workflow that signs it
-#      (rust-fs-core's release-cli.yml, or the repository's own release.yml), and refuses — linking nothing — a tarball whose attestation
+#      (rust-fs-core's release-cli.yml, or the one the script's STREAMS table
+#      names), takes blk.probe from rust-disk-partitions' newest blk-probe-v
+#      release, and refuses — linking nothing — a tarball whose attestation
 #      does not verify, whose .sha256 disagrees, or that lacks a tool, and
 #      names the issue tracking every release it is still waiting for;
 #   4. the pairs #296 asks for are in the script's tables — ext4 both ways,
@@ -50,11 +52,14 @@ table() {
 tools_on() { table TOOLS | awk -v p="$1" '$3 == "all" || $3 == p { for (i = 4; i <= NF; i++) print $i }' | sort -u; }
 repos_on() { table TOOLS | awk -v p="$1" '$3 == "all" || $3 == p { print $1 }'; }
 repo_of()  { table TOOLS | awk -v t="$1" '{ for (i = 4; i <= NF; i++) if ($i == t) { print $1; exit } }'; }
+prefix_of() { table TOOLS | awk -v t="$1" '{ for (i = 4; i <= NF; i++) if ($i == t) { print $2; exit } }'; }
 # signer_of REPO — the workflow whose attestation a release of REPO carries:
-# rust-fs-core's shared release-cli.yml, unless the script's OWN_ATTESTED
-# table lists REPO as attesting its tarballs from its own release.yml.
+# rust-fs-core's shared release-cli.yml, unless the script's STREAMS table
+# names another workflow for REPO's tarballs.
 signer_of() {
-    if table OWN_ATTESTED | grep -qx "$1"; then echo "$1/.github/workflows/release.yml"
+    local workflow
+    workflow="$(table STREAMS | awk -v r="$1" '$1 == r { print $3 }')"
+    if [ -n "$workflow" ]; then echo "$1/$workflow"
     else echo "antimatter-studios/rust-fs-core/.github/workflows/release-cli.yml"; fi
 }
 
@@ -69,15 +74,17 @@ n_ours="$(printf '%s\n' "$ours" | grep -c .)"
 # ------------------------------------------------- 0. the repositories' names
 # Every repository is antimatter-studios', and a release names its tarballs
 # after the repository: the am-* prefixes and christhomas/ paths of before the
-# rename find no asset at all (the CLI pipe run of 2026-10-06).
+# rename find no asset at all (the CLI pipe run of 2026-10-06). The exception
+# is a repository in the STREAMS table: it releases more than one thing, so a
+# tarball there is named after the thing, not the repository.
 renamed=0
 while read -r repo prefix _; do
     [ -n "$repo" ] || continue
-    if [ "${repo%%/*}" = antimatter-studios ] && [ "$prefix" = "${repo#*/}" ]; then renamed=$((renamed + 1))
+    if [ "${repo%%/*}" = antimatter-studios ] && { [ "$prefix" = "${repo#*/}" ] || table STREAMS | grep -q "^$repo "; }; then renamed=$((renamed + 1))
     else fail "TOOLS row $repo $prefix: the repository must be antimatter-studios', and its tarballs are named after it"; fi
 done < <(table TOOLS)
 [ "$renamed" -gt 0 ] && [ "$renamed" = "$(table TOOLS | grep -c .)" ] \
-    && ok "all $renamed TOOLS rows are antimatter-studios repositories whose tarballs carry the repository's name"
+    && ok "all $renamed TOOLS rows are antimatter-studios repositories whose tarballs carry the repository's name, or are in STREAMS"
 
 # --------------------------------------------------------------- 1. wiring
 ruby -ryaml -e '
@@ -154,7 +161,7 @@ named=0
 for tool in $ours; do
     repo="$(repo_of "$tool")"
     grep -qF "MISSING $tool — from $repo's release" "$log" 2>/dev/null \
-        && grep -F "MISSING $tool " "$log" | grep -qF "brew install antimatter-studios/tap/${repo#*/}" \
+        && grep -F "MISSING $tool " "$log" | grep -qF "brew install antimatter-studios/tap/$(prefix_of "$tool")" \
         && named=$((named + 1)) \
         || fail "the missing $tool is not named with $repo and its brew install line"
 done
@@ -173,7 +180,9 @@ cat > "$stub/uname" <<'EOF'
 #!/bin/sh
 case "$1" in -m) echo "${STUB_ARCH:-arm64}" ;; *) echo "${STUB_OS:-Darwin}" ;; esac
 EOF
-# gh: `release view` answers v1.2.3; `release download` builds the asked-for
+# gh: `release view` answers v1.2.3; `release list` answers tags of two
+# streams, in no particular order, or only the library's when
+# STUB_NOSTREAM is set; `release download` builds the asked-for
 # tarball with every tool but $STUB_DROP, has no asset at all for the
 # repository $STUB_NOASSET, and a .sha256 only when STUB_SHA is set (to "bad"
 # or "good"); `attestation verify` exits $STUB_ATTEST.
@@ -182,6 +191,11 @@ cat > "$stub/gh" <<'EOF'
 echo "gh $*" >> "$STUB_LOG"
 case "$1 $2" in
     "release view") echo v1.2.3; exit 0 ;;
+    "release list")
+        echo v9.9.9
+        [ -n "${STUB_NOSTREAM:-}" ] && exit 0
+        printf '%s\n' blk-probe-v1.9.0 blk-probe-v1.10.0 blk-probe-v1.2.0
+        exit 0 ;;
     "release download")
         shift 3; pattern="" dir="." repo=""
         while [ $# -gt 0 ]; do
@@ -244,6 +258,15 @@ for plat in darwin:Darwin:arm64 linux:Linux:x86_64; do
             && signed=$((signed + 1)) || fail "$p: $repo's tarball was not verified against $signer, the workflow that signs it"
     done < <(repos_on "$p")
     [ "$signed" = "$want_repos" ] && ok "$p: each tarball's attestation is checked against the workflow that signs it"
+    # blk.probe is written out here rather than read from the script's tables:
+    # this is the claim that it comes from where it now lives.
+    grep -qF "release download blk-probe-v1.10.0 --repo antimatter-studios/rust-disk-partitions --pattern rust-blk-probe-1.10.0-$label.tar.gz" "$sandbox/gh-good-$p.log" \
+        && ok "$p: blk.probe's tarball is the newest blk-probe-v release of rust-disk-partitions" \
+        || fail "$p: blk.probe's tarball is not rust-blk-probe-1.10.0-$label.tar.gz from rust-disk-partitions' blk-probe-v1.10.0: $(grep -F 'rust-blk-probe-' "$sandbox/gh-good-$p.log" | head -1)"
+    grep "attestation verify" "$sandbox/gh-good-$p.log" | grep -F -- "--repo antimatter-studios/rust-disk-partitions " \
+        | grep -qF -- "--signer-workflow antimatter-studios/rust-disk-partitions/.github/workflows/release-blk-probe.yml" \
+        && ok "$p: blk.probe's attestation is checked against release-blk-probe.yml" \
+        || fail "$p: blk.probe's attestation is not checked against rust-disk-partitions' release-blk-probe.yml"
 done
 
 install unattested STUB_ATTEST=1
@@ -269,6 +292,18 @@ case "$RC:$OUT" in
     *) fail "a tarball without bin/fs.ntfs was refused without naming it: $OUT" ;;
 esac
 
+# rust-disk-partitions' latest release is its library's. With no blk-probe-v
+# tag to take, the installer must refuse rather than fall back to that one.
+install nostream STUB_NOSTREAM=1
+case "$RC:$OUT" in
+    0:*) fail "a repository with no blk-probe-v release was accepted" ;;
+    *"antimatter-studios/rust-disk-partitions has no release"*)
+        grep -q 'release download .* --repo antimatter-studios/rust-disk-partitions' "$sandbox/gh-nostream.log" \
+            && fail "with no blk-probe-v release, the installer still downloaded from rust-disk-partitions" \
+            || ok "a repository with no blk-probe-v release is refused, and its library release is not taken instead" ;;
+    *) fail "a repository with no blk-probe-v release was refused without saying so: $OUT" ;;
+esac
+
 # A release that is still to come is named with the issue tracking it, and
 # every one of them in the same run, not only the first the loop met.
 # The rows are given to the script here, because no release is outstanding
@@ -290,7 +325,8 @@ esac
 
 # ------------------------------------------ 4. the pairs #296 asks for
 for want in antimatter-studios/rust-fs-ext4:fs.ext4 antimatter-studios/rust-fs-ext4:fsck.ext4 \
-            antimatter-studios/rust-fs-xfs:fs.xfs antimatter-studios/rust-fs-btrfs:fs.btrfs; do
+            antimatter-studios/rust-fs-xfs:fs.xfs antimatter-studios/rust-fs-btrfs:fs.btrfs \
+            antimatter-studios/rust-disk-partitions:blk.probe; do
     [ "$(repo_of "${want#*:}")" = "${want%%:*}" ] \
         && ok "${want#*:} is installed from ${want%%:*}'s release" \
         || fail "the TOOLS table installs no ${want#*:} from ${want%%:*}"
