@@ -22,7 +22,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 LEDGER_BIN="$REPO/scripts/am-ledger"
 fails=0
 sandbox="$(mktemp -d)"
-trap 'rm -rf "$sandbox"' EXIT
+trap 'rm -r "$sandbox"' EXIT
 export AM_LEDGER_DIR="$sandbox"
 unset AM_LEDGER_PROJECT
 REAL_DATE="$(command -v date)"
@@ -40,14 +40,48 @@ if [ "\${1:-}" = "-j" ] || { [ "\${1:-}" = "-u" ] && [ "\${2:-}" = "-j" ]; }; th
     shift; [ "\$1" = "-f" ] && shift 2
     input="\$1"; shift
     # -j -f parses in the LOCAL zone and ignores a literal Z; with -u, in UTC.
-    if [ "\$utc" = 1 ]; then TZ=UTC "$REAL_DATE" -d "\${input%Z}" "\$@"; else "$REAL_DATE" -d "\${input%Z}" "\$@"; fi
+    python3 - "\$utc" "\$input" "\$@" <<'PY'
+from datetime import datetime, timezone
+import sys
+
+if sys.argv[3:] != ["+%s"]:
+    sys.exit("date stub: only +%s is supported for -j -f")
+timestamp = datetime.strptime(sys.argv[2], "%Y-%m-%dT%H:%M:%SZ")
+if sys.argv[1] == "1":
+    timestamp = timestamp.replace(tzinfo=timezone.utc)
+print(int(timestamp.timestamp()))
+PY
     exit \$?
 fi
 exec "$REAL_DATE" "\$@"
 STUB
 chmod +x "$sandbox/bsd/date"
 
-ago() { "$REAL_DATE" -u -d "@$(( $("$REAL_DATE" -u +%s) - $1 ))" +%Y-%m-%dT%H:%M:%SZ; }
+check_stub() {
+    local zone="$1" expected="$2" out
+    shift 2
+    out="$(TZ="$zone" "$sandbox/bsd/date" "$@" -j -f '%Y-%m-%dT%H:%M:%SZ' '2020-01-01T00:00:00Z' +%s)"
+    if [ "$out" = "$expected" ]; then ok "BSD date stub, TZ=$zone $*: epoch $expected"
+    else fail "BSD date stub, TZ=$zone $*: expected $expected, got $out"; fi
+}
+check_stub Europe/Berlin 1577833200
+check_stub America/Los_Angeles 1577865600
+check_stub Europe/Berlin 1577836800 -u
+check_stub America/Los_Angeles 1577836800 -u
+if "$sandbox/bsd/date" -d '2020-01-01T00:00:00Z' +%s >/dev/null 2>&1; then
+    fail 'BSD date stub accepts GNU -d'
+else
+    ok 'BSD date stub rejects GNU -d'
+fi
+
+ago() {
+    python3 - "$(( $("$REAL_DATE" -u +%s) - $1 ))" <<'PY'
+from datetime import datetime, timezone
+import sys
+
+print(datetime.fromtimestamp(int(sys.argv[1]), timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+PY
+}
 row() { printf '%s\t%s\t%s\t%s\t-\t-\t%s\t%s\n' "$1" "$2" fixing "$3" "$4" "$5"; }
 {
     row repo 1 alive  "$(ago 900)"            "claimed fifteen minutes ago"
@@ -74,6 +108,7 @@ echo "am-ledger-stale: ages in UTC"
 check_run "BSD date, TZ=Europe/Berlin" "$(PATH="$sandbox/bsd:$PATH" TZ=Europe/Berlin "$LEDGER_BIN" stale 2 2>&1)"
 check_run "BSD date, TZ=America/Los_Angeles" "$(PATH="$sandbox/bsd:$PATH" TZ=America/Los_Angeles "$LEDGER_BIN" stale 2 2>&1)"
 check_run "host date, TZ=Europe/Berlin" "$(TZ=Europe/Berlin "$LEDGER_BIN" stale 2 2>&1)"
+check_run "host date, TZ=America/Los_Angeles" "$(TZ=America/Los_Angeles "$LEDGER_BIN" stale 2 2>&1)"
 
 echo
 if [ "$fails" = 0 ]; then
