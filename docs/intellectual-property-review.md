@@ -183,7 +183,7 @@ reproduced "in all copies or substantial portions of the Software."
   by GitHub's licence detector, `pkg.go.dev`, and most SCA tools.
   Pushed to branch `add-mit-license` on
   https://github.com/antimatter-studios/go-networkfs ; merge to `main`,
-  then run `make pins` in this repo to bump the submodule pointer.
+  then raise the go-networkfs pin in this repo's `SIBLING_PINS.txt`.
 
 ### Open
 

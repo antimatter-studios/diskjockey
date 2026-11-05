@@ -322,6 +322,10 @@ Where a task's work lives is a judgement, made by what the work needs:
 Lean towards the first and move work down the list only when it needs to go.
 
 ```sh
+chore vendor             # every library the Xcode build links, into lib/
+chore build              # vendor, then the app through xcodebuild (-- settings)
+chore installable        # a signed Release app; chore install copies it to /Applications
+chore dev:link <fs>      # one bundle against the sibling driver checkout
 chore overview:summary   # counts only, one row per project
 chore overview:list      # every project in turn, with issue numbers and titles
 chore overview:tsv       # the detail rows as TSV
@@ -360,7 +364,7 @@ chore test:library                      # scripts/test-library.sh: swift test, h
 bash scripts/tests/<name>.sh            # one shell guard
 chore check:scripts                     # scripts/test-scripts.sh: all of them
 chore test:app                          # scripts/test-app.sh: needs Xcode, macOS 15.4+,
-                                        #   make vendor-all and a GUI session
+                                        #   chore vendor and a GUI session
 chore test                              # all three
 ```
 
@@ -446,18 +450,23 @@ precisely the class a text guard can catch and a build cannot.
 
 ## Building
 
-The app does not build from a bare checkout. Two vendoring steps first:
+The app does not build from a bare checkout. The Xcode project builds only
+Swift and C and links the archives in `lib/`, so they are built first. Every
+step is a task in `chores.yml`; there is no Makefile, and
+`scripts/tests/no-makefile.sh` fails if one comes back or an instruction
+tells anyone to run make:
 
 ```sh
-make vendor-bundles       # scripts/build-bundles.sh: one Rust staticlib +
+chore vendor:bundles      # scripts/build-bundles.sh: one Rust staticlib +
                           # headers per filesystem, into lib/bundle_<fs>/
-make vendor-gonetworkfs   # per-driver Go static libs + libnetworkfs.a,
+chore vendor:networkfs    # per-driver Go static libs + libnetworkfs.a,
                           # into lib/go-networkfs/
-make vendor-all           # both
-make proto                # regenerate protobuf bindings after a .proto change
+chore vendor              # both
+chore build               # vendor, then xcodebuild the app, Debug
+chore installable         # scripts/build-installable.sh: signed Release app
 ```
 
-Without `vendor-bundles` the Xcode build fails with `'fs_<fs>.h' file not
+Without `vendor:bundles` the Xcode build fails with `'fs_<fs>.h' file not
 found`: the FSKit targets include those headers through
 `HEADER_SEARCH_PATHS`.
 

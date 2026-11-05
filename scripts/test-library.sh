@@ -68,7 +68,7 @@ cd "$ROOT" || exit 2
 # builds it instead. A missing library fails the tier: nothing skips.
 for need in lib/bundle_bcachefs/libdj_bcachefs_bundle.a lib/bundle_bcachefs/include/fs_bcachefs.h; do
     if [ ! -f "$ROOT/$need" ]; then
-        echo "::error::$need is missing: build it with \`make vendor-bundles\` (or \`scripts/build-bundles.sh bcachefs\`); DiskJockeyBCACHEFSCore links it"
+        echo "::error::$need is missing: build it with \`chore vendor:bundles\` (or \`scripts/build-bundles.sh bcachefs\`); DiskJockeyBCACHEFSCore links it"
         exit 1
     fi
 done

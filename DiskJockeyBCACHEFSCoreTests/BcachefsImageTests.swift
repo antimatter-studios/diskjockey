@@ -23,7 +23,7 @@
 //
 //  NOTHING SKIPS. A fixture that is not there fails the test, naming
 //  scripts/bcachefs-fixtures.sh; a library that is not built fails the
-//  build, and scripts/test-library.sh names `make vendor-bundles` first.
+//  build, and scripts/test-library.sh names `chore vendor:bundles` first.
 //
 
 import CryptoKit

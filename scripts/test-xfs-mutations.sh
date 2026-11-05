@@ -28,7 +28,7 @@ expected="$3"
 [ -f "$image" ] || { echo 'FAIL: make the image with scripts/oracles/xfs-mutations-linux.sh create first' >&2; exit 1; }
 [ -d "$expected" ] || { echo "FAIL: $expected is not a directory" >&2; exit 1; }
 if [ ! -f lib/bundle_xfs/libdj_xfs_bundle.a ] || [ ! -f lib/bundle_xfs/include/fs_xfs.h ]; then
-    echo 'FAIL: run scripts/build-bundles.sh xfs (or make vendor-bundles) to provide the XFS bundle and headers' >&2
+    echo 'FAIL: run scripts/build-bundles.sh xfs (or chore vendor:bundles) to provide the XFS bundle and headers' >&2
     exit 1
 fi
 out=tmp/xfs-oracle

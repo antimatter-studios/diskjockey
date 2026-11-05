@@ -11,7 +11,7 @@
 # checkouts. Edit the sibling source, rebuild, see the change immediately.
 #
 # IMPORTANT: a dev-linked bundle is NOT distribution-clean. Do not commit it.
-# Run scripts/dev-unlink.sh <fs> (or `make dev-unlink FS=<fs>`) to restore.
+# Run scripts/dev-unlink.sh <fs> (or `chore dev:unlink <fs>`) to restore.
 #
 # Usage:
 #   scripts/dev-link.sh <ext4|ntfs|erofs|squashfs|bcachefs> [extra-crate ...]
@@ -50,7 +50,7 @@ crate_to_dir() {
 
 {
     echo ""
-    echo "# >>> dev-link: LOCAL DEV — DO NOT COMMIT. Restore: make dev-unlink FS=${fs}"
+    echo "# >>> dev-link: LOCAL DEV — DO NOT COMMIT. Restore: chore dev:unlink ${fs}"
     echo "[patch.crates-io]"
     echo "rust-fs-${fs} = { path = \"../../../rust-fs-${fs}\" }"
     echo "rust-fs-core = { path = \"${core_path}\" }"
@@ -64,7 +64,7 @@ crate_to_dir() {
 
 echo "dev-link: dj-${fs}-bundle now resolves the driver + rust-fs-core${*:+ + $*} from the sibling checkouts beside this repository."
 echo "  edit the sibling checkout, then rebuild the bundle/app to test."
-echo "  restore distribution-clean state with:  make dev-unlink FS=${fs}"
+echo "  restore distribution-clean state with:  chore dev:unlink ${fs}"
 if ( cd "$bundle" && cargo build --release --target aarch64-apple-darwin >/dev/null 2>&1 ); then
     echo "  verified: bundle builds with the local override."
 else

@@ -259,7 +259,7 @@ let package = Package(
         // THE BCACHEFS VOLUME, AND THE DRIVER UNDER IT.
         //
         // Unlike the targets above, this one links the Rust driver: the
-        // bundle library `make vendor-bundles` builds into
+        // bundle library `chore vendor:bundles` builds into
         // lib/bundle_bcachefs, through CBcachefsBundle. BcachefsVolume.swift
         // still makes no C call — BcachefsDriver.swift makes them all, behind
         // BcachefsBackend — so the volume's decisions are tested over a

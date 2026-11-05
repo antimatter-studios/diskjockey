@@ -3,7 +3,7 @@
 # test-app.sh — the app tier: the app-hosted DiskJockeyTests bundle through
 # xcodebuild, the way the `Build & Test` CI job runs it and `chore test:app`
 # does (#211). Needs Xcode, a macOS 15.4+ host, the vendored libraries
-# (`make vendor-all`) and, locally, a GUI session: app-hosted tests abort in
+# (`chore vendor`) and, locally, a GUI session: app-hosted tests abort in
 # a background session.
 #
 # Quiet by default: the RAW xcodebuild stream goes to tmp/logs/app.log through

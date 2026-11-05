@@ -512,11 +512,11 @@ jobs:
 
       - name: Build libraries
         if: steps.vendor-cache.outputs.cache-hit != 'true'
-        # vendor-bundles builds the per-extension aggregator staticlibs
+        # vendor:bundles builds the per-extension aggregator staticlibs
         # (lib/bundle_<fs>/) and their C headers, which the FSKit extension
         # targets include via HEADER_SEARCH_PATHS. Without it the Xcode build
         # fails with "'fs_<fs>.h' file not found".
-        run: make vendor-gonetworkfs vendor-bundles
+        run: chore vendor
 
 
       - name: Install xcbeautify

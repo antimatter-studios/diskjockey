@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Native callback oracle, after make vendor-all and scripts/test-app.sh.
+# Native callback oracle, after chore vendor and scripts/test-app.sh.
 # DJ_FRAMEWORK_DIR optionally overrides Xcode's Debug products directory.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -18,7 +18,7 @@ if [ ! -d "$frameworks/DiskJockeyLibrary.framework" ]; then
     exit 1
 fi
 if [ ! -f lib/bundle_xfs/include/fs_core.h ] || [ ! -f lib/bundle_xfs/libdj_xfs_bundle.a ]; then
-    echo 'FAIL: run make vendor-bundles to provide the published XFS bundle and headers' >&2
+    echo 'FAIL: run chore vendor:bundles to provide the published XFS bundle and headers' >&2
     exit 1
 fi
 mkdir -p tmp/xfs-oracle

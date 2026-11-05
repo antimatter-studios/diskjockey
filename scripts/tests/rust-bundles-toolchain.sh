@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Every crate under rust-bundles/ pins one Rust toolchain, the same one.
 #
-# make vendor-bundles builds each crate with whatever rustc its directory
+# chore vendor:bundles builds each crate with whatever rustc its directory
 # selects. A crate with no rust-toolchain.toml gets the machine's `stable`,
 # which on a Mac last updated in 2022 is cargo 1.64.0: it cannot read a
-# version 4 Cargo.lock, so vendor-all stops after the filesystem bundles
+# version 4 Cargo.lock, so chore vendor stops after the filesystem bundles
 # (#575). CI installs a current stable and never sees it. A crate pinned to
 # a different channel builds, and links into the app beside archives from
 # another rustc, which is what the pins exist to prevent
@@ -59,7 +59,7 @@ fi
 # manifest it is handed: `cargo build --manifest-path rust-bundles/x/Cargo.toml`
 # run from the repository root ignores x's rust-toolchain.toml and builds with
 # the machine's stable. So a crate here is built from inside its directory.
-for file in "$ROOT"/scripts/*.sh "$ROOT"/Makefile "$ROOT"/chores.yml "$ROOT"/.github/workflows/*.yml; do
+for file in "$ROOT"/scripts/*.sh "$ROOT"/chores.yml "$ROOT"/.github/workflows/*.yml; do
     [ -f "$file" ] || continue
     rel="${file#"$ROOT"/}"
     while IFS= read -r hit; do
