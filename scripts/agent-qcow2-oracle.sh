@@ -32,7 +32,7 @@ virtual = json.load(open(root + '/info.json'))['virtual-size']
 assert virtual == os.stat(root + '/expected.raw').st_size
 assert virtual != os.stat(root + '/image.data').st_size
 PY
-cargo build --locked --manifest-path "$ROOT/rust-bundles/dj-agent-image-reader/Cargo.toml"
+( cd "$ROOT/rust-bundles/dj-agent-image-reader" && cargo build --locked )
 cc -std=c11 -D_XOPEN_SOURCE=700 -Wall -Wextra -Werror \
     -I "$ROOT/DiskJockeyAgent" "$ROOT/scripts/tests/fixtures/agent-qcow2-reader.c" \
     "$ROOT/rust-bundles/dj-agent-image-reader/target/debug/libdj_agent_image_reader.a" \
