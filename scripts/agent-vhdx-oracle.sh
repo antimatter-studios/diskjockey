@@ -24,7 +24,7 @@ import json, os, sys
 root = sys.argv[1]
 assert json.load(open(root + '/info.json'))['virtual-size'] == os.stat(root + '/expected.raw').st_size
 PY
-cargo build --locked --manifest-path "$ROOT/rust-bundles/dj-agent-image-reader/Cargo.toml"
+( cd "$ROOT/rust-bundles/dj-agent-image-reader" && cargo build --locked )
 cc -std=c11 -D_XOPEN_SOURCE=700 -Wall -Wextra -Werror \
     -I "$ROOT/DiskJockeyAgent" "$ROOT/scripts/tests/fixtures/agent-vhdx-reader.c" \
     "$ROOT/rust-bundles/dj-agent-image-reader/target/debug/libdj_agent_image_reader.a" \

@@ -85,7 +85,7 @@ done
 if [ "$#" -eq 0 ]; then
     bundle="$root/rust-bundles/dj-agent-image-reader"
     out="$root/lib/agent_image_reader"
-    cargo build --locked --release --target "$target" --manifest-path "$bundle/Cargo.toml"
+    ( cd "$bundle" && cargo build --locked --release --target "$target" )
     mkdir -p "$out"
     cp "$bundle/target/$target/release/libdj_agent_image_reader.a" "$out/"
 fi
