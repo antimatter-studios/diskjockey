@@ -324,7 +324,7 @@ Lean towards the first and move work down the list only when it needs to go.
 ```sh
 chore vendor             # every library the Xcode build links, into lib/
 chore build              # vendor, then the app through xcodebuild (-- settings)
-chore installable        # a signed Release app; chore install copies it to /Applications
+chore installable        # a signed Release app; install:user or install:system copies it
 chore dev:link <fs>      # one bundle against the sibling driver checkout
 chore overview:summary   # counts only, one row per project
 chore overview:list      # every project in turn, with issue numbers and titles
@@ -464,6 +464,8 @@ chore vendor:networkfs    # per-driver Go static libs + libnetworkfs.a,
 chore vendor              # both
 chore build               # vendor, then xcodebuild the app, Debug
 chore installable         # scripts/build-installable.sh: signed Release app
+chore install:user        # ... into ~/Applications
+chore install:system      # ... into /Applications (sudo only for a non-admin account)
 ```
 
 Without `vendor:bundles` the Xcode build fails with `'fs_<fs>.h' file not
