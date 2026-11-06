@@ -114,8 +114,10 @@ chore_min_version: 0.6.0
 #
 # diskjockey is the controller: it orchestrates the twelve library
 # repositories rather than being one of them, so it has no `staticlib` and no
-# `artifact` — the two tasks every sibling exposes. What it does have is
-# oversight, and that is what lives here.
+# `artifact` — the two tasks every sibling exposes. What it does have is the
+# app's build, its tests, and oversight of the family, and that is what lives
+# here. It is the only entry point: the Makefile that used to wrap the build
+# scripts is gone (#577), and scripts/tests/no-makefile.sh keeps it gone.
 #
 # The tasks are thin on purpose. Each one names a script in scripts/ and
 # nothing else: the knowledge of HOW to answer a question belongs in the
@@ -123,6 +125,83 @@ chore_min_version: 0.6.0
 # A task that grows a pipeline of its own is a task nobody can test.
 
 tasks:
+  # THE BUILD. The Xcode project builds nothing but Swift and C: it links the
+  # archives in lib/ and expects them to be there. `vendor` puts them there,
+  # and has to run again after a pin or a bundle changes. `build` does both.
+
+  vendor:
+    desc: Every library the Xcode build links — the Rust bundles and the go-networkfs archives — into lib/
+    # The scripts themselves, not `- task:` steps: a called task sees the
+    # caller's arguments after --, so `chore build -- <xcodebuild setting>`
+    # would hand the setting to build-bundles.sh as a bundle name.
+    cmds:
+      - scripts/build-bundles.sh
+      - scripts/build-gonetworkfs.sh
+
+  vendor:bundles:
+    desc: One Rust staticlib per filesystem extension, plus the agent's image reader, into lib/ (-- <fs> ... for some)
+    # No `sources`: cargo decides what is stale, from crates it resolves.
+    cmds:
+      - scripts/build-bundles.sh {{.CLI_ARGS}}
+
+  vendor:networkfs:
+    desc: The go-networkfs c-archives at the pinned tag, into lib/go-networkfs (NETWORKFS_SRC=<checkout> when not ../go-networkfs)
+    # go-networkfs owns its driver list and its staleness checks; the script
+    # only resolves the tag in SIBLING_PINS.txt and builds that.
+    cmds:
+      - scripts/build-gonetworkfs.sh
+
+  vendor:probe:
+    desc: The attested blk.probe release pinned in SIBLING_PINS.txt, into lib/blk.probe (needs gh; not part of vendor)
+    cmds:
+      - scripts/build-blk.probe.sh
+
+  build:
+    desc: The libraries, then the app and every extension through xcodebuild, Debug (-- <xcodebuild settings>)
+    # -allowProvisioningUpdates lets automatic signing create the profiles it
+    # needs. Without an Apple Development identity, pass
+    # `-- CODE_SIGNING_ALLOWED=NO` to compile unsigned, as CI does.
+    cmds:
+      - scripts/build-bundles.sh
+      - scripts/build-gonetworkfs.sh
+      - xcodebuild -scheme DiskJockey -configuration Debug -destination 'platform=macOS' -allowProvisioningUpdates build {{.CLI_ARGS}}
+
+  installable:
+    desc: A Release DiskJockey.app signed with the team's Apple Development certificate, in build/export/
+    cmds:
+      - scripts/build-installable.sh
+
+  install:
+    desc: The same Release build, copied into /Applications after asking
+    cmds:
+      - scripts/build-installable.sh --install
+
+  install:agent:
+    desc: Load the agent from the Debug build as a user LaunchAgent (development only; again after each build)
+    cmds:
+      - scripts/install-agent-dev.sh
+
+  dev:link:
+    desc: Point one bundle at the sibling driver checkout instead of crates.io (-- <extra crate> ... to add readers)
+    args:
+      - name: fs
+        desc: ext4, ntfs, erofs, squashfs or bcachefs
+    cmds:
+      - scripts/dev-link.sh {{.FS}} {{.CLI_ARGS}}
+
+  dev:unlink:
+    desc: Restore one bundle to its published crates.io dependencies
+    args:
+      - name: fs
+        desc: ext4, ntfs, erofs, squashfs or bcachefs
+    cmds:
+      - scripts/dev-unlink.sh {{.FS}}
+
+  clean:
+    desc: Delete the built libraries in lib/, so the next vendor builds them again
+    cmds:
+      - rm -rf lib/bundle_* lib/agent_image_reader lib/go-networkfs
+
   overview:summary:
     desc: Counts only — one row per project, no issue detail
     cmds:
@@ -217,7 +296,7 @@ tasks:
       - scripts/bcachefs-fixtures.sh {{.CLI_ARGS}}
 
   test:app:
-    desc: The app tier — DiskJockeyTests through xcodebuild, quietly (needs make vendor-all and a GUI session)
+    desc: The app tier — DiskJockeyTests through xcodebuild, quietly (needs chore vendor and a GUI session)
     # The same script the `Build & Test` CI job runs, floor and bundle verdict
     # included. -- --verbose streams through xcbeautify when it is installed.
     cmds:

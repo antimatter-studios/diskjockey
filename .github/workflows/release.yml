@@ -130,11 +130,11 @@ jobs:
 
       - name: Build vendor libraries
         if: steps.vendor-cache.outputs.cache-hit != 'true'
-        # vendor-bundles builds lib/bundle_<fs>/{libdj_<fs>_bundle.a,include/*.h}
+        # vendor:bundles builds lib/bundle_<fs>/{libdj_<fs>_bundle.a,include/*.h}
         # (via build-bundles.sh) — the aggregator staticlibs + C headers the
         # FSKit extensions actually link/#import (e.g. fs_ntfs.h). Without it the
         # archive fails: DiskJockeyNTFS-Bridging-Header.h → 'fs_ntfs.h' not found.
-        run: make vendor-gonetworkfs vendor-bundles
+        run: chore vendor
 
       # ---------------------------------------------------------------------------
       # Code signing

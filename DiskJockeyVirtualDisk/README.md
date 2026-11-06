@@ -45,7 +45,7 @@ xcodebuild -project DiskJockey.xcodeproj -target DiskJockeyVirtualDisk \
 
 This compiles the `.iig` with the installed DriverKit SDK and links only
 DriverKit. No macOS Rust archive, replacement Rust symbol or Mach-O platform
-rewrite is involved. The existing app build still needs `make vendor-all`.
+rewrite is involved. The existing app build still needs `chore vendor`.
 
 An unsigned build does not prove activation. What a signed, activated build
 needs is in [Activation and provisioning](#activation-and-provisioning).
@@ -321,7 +321,7 @@ the personality.
 mount request, caller-opened readable descriptor and mount identity. It calls
 `AgentAuthority.attachableImage` before opening either the reader or the user
 client. The host adapters are VHDX and qcow2; the portable loop accepts the shared
-reader ABI so decoders remain in the agent. `make vendor-bundles` now builds
+reader ABI so decoders remain in the agent. `chore vendor:bundles` now builds
 the agent archive separately from the filesystem extensions.
 
 The endpoint connects with the version scalar and an async completion. Its

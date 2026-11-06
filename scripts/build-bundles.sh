@@ -11,7 +11,7 @@
 # taken from the resolved crates.io packages.
 #
 # For local co-development (hack a driver without publishing), see
-# scripts/dev-link.sh / `make dev-link FS=<fs>`.
+# scripts/dev-link.sh / `chore dev:link <fs>`.
 #
 # Output per fs: lib/bundle_<fs>/{libdj_<fs>_bundle.a, include/*.h, VERSION.txt}
 #

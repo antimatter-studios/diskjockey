@@ -375,7 +375,7 @@ def main():
         provenance = (ROOT / "lib/bundle_xfs/VERSION.txt").read_text()
         if f"  rust-fs-xfs {version}\n" not in provenance:
             raise ValueError(
-                "driver version differs from vendored VERSION.txt; run make vendor-bundles"
+                "driver version differs from vendored VERSION.txt; run chore vendor:bundles"
             )
         import tomllib
 

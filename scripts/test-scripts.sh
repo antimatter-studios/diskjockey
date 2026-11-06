@@ -74,6 +74,7 @@
 # The stranded-merge scan's guard (#553) raises it to 84 files.
 # The merge-queue guard (#560) raises it to 85 files.
 # The rust-bundles toolchain guard (#575) raises it to 86 files.
+# The no-Makefile guard (#577) raises it to 87 files.
 # It moves up with the suite; it never moves down.
 #
 # `rc`, not `status`: `status` is READ-ONLY in zsh, so a loop written with it
@@ -84,7 +85,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
-FLOOR=86
+FLOOR=87
 
 # The raw loop, whose whole output is the tier's log. Failure lines carry a
 # TIER-FAIL prefix so the quiet verdict below can name them without a tail.

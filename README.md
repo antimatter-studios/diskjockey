@@ -348,8 +348,8 @@ Sibling projects and published crates — all permissively licensed, see [`THIRD
 - **macOS 26 or later**: the app and its extensions are built for macOS 26
 - **Xcode 26+**
 - **Go 1.26+**, the version go-networkfs declares
-- **Rust toolchain** (current stable; the Rust crates pin via `rust-toolchain.toml`)
-- **`protoc`** with `protoc-gen-go` and `protoc-gen-swift`
+- **Rust through rustup**: each crate under `rust-bundles/` pins its toolchain in `rust-toolchain.toml`, and rustup installs it
+- **[chore](https://github.com/antimatter-studios/chore)** at or above the version `SIBLING_PINS.txt` names: every build step is a task in `chores.yml`
 - **Apple Developer account** (for code signing — required to run the File Provider and FSKit extensions)
 - Optional: **Docker** for the network-driver test stack under `../go-networkfs/test-server/`
 
@@ -369,36 +369,32 @@ The filesystem and disk-image drivers are not checked out at all for a normal bu
 ### Build the vendored libraries
 
 ```bash
-make vendor-all
+chore vendor
 ```
 
 This runs:
 
-1. `vendor-bundles` — `scripts/build-bundles.sh` builds one Rust static library per filesystem from `rust-bundles/dj-<fs>-bundle` into `lib/bundle_<fs>/`.
-2. `vendor-gonetworkfs` — builds per-driver Go static libs (`libftp.a`, `libsftp.a`, …) plus the combined `libnetworkfs.a` dispatcher into `lib/go-networkfs/`. It expects go-networkfs at `../go-networkfs`; from a worktree elsewhere, set `NETWORKFS_SRC=/path/to/go-networkfs`.
+1. `vendor:bundles` — `scripts/build-bundles.sh` builds one Rust static library per filesystem from `rust-bundles/dj-<fs>-bundle` into `lib/bundle_<fs>/`, and the agent's image reader into `lib/agent_image_reader/`.
+2. `vendor:networkfs` — builds per-driver Go static libs (`libftp.a`, `libsftp.a`, …) plus the combined `libnetworkfs.a` dispatcher into `lib/go-networkfs/`. It expects go-networkfs at `../go-networkfs`; from a worktree elsewhere, run `NETWORKFS_SRC=/path/to/go-networkfs chore vendor:networkfs`.
 
-`make vendor-probe` stages `blk.probe`, the image and partition probe the app runs, into `lib/blk.probe/`. It is not built: `scripts/build-blk.probe.sh` downloads the darwin-arm64 tarball from rust-disk-partitions' release of the `blk-probe-v` tag pinned for `rust-blk-probe` in `SIBLING_PINS.txt`, checks its sha256 and its build-provenance attestation (signed by `release-blk-probe.yml`) with `gh`, and refuses to stage anything that fails either.
+`chore vendor:probe` stages `blk.probe`, the image and partition probe the app runs, into `lib/blk.probe/`. It is not built: `scripts/build-blk.probe.sh` downloads the darwin-arm64 tarball from rust-disk-partitions' release of the `blk-probe-v` tag pinned for `rust-blk-probe` in `SIBLING_PINS.txt`, checks its sha256 and its build-provenance attestation (signed by `release-blk-probe.yml`) with `gh`, and refuses to stage anything that fails either.
 
-Then regenerate protobuf bindings (one-shot, regenerate after `.proto` changes):
-
-```bash
-make proto
-```
-
-`make all` chains `vendor-all` + `proto`.
+`chore clean` deletes the built libraries so the next `chore vendor` builds them again. `chore --list` shows every task.
 
 ### Build the app + extensions
 
 ```bash
-xcodebuild -scheme DiskJockey -allowProvisioningUpdates build
+chore build
 ```
 
-The Xcode build does not rebuild the vendored libraries: run `make vendor-all` again after a pin or a bundle changes. The app target's one Run Script phase copies each `lib/*/VERSION*.txt` into the bundle for the About page, and User Script Sandboxing is off for that target because a sandboxed script may read only the input files its phase declares, and a glob cannot be declared.
+`chore build` runs `chore vendor`, then `xcodebuild -scheme DiskJockey -configuration Debug -allowProvisioningUpdates build`. Arguments after `--` go to `xcodebuild`: without an Apple Development identity, `chore build -- CODE_SIGNING_ALLOWED=NO` compiles unsigned, as CI does.
+
+The Xcode build does not rebuild the vendored libraries: run `chore vendor` again after a pin or a bundle changes, or build through `chore build`. The app target's one Run Script phase copies each `lib/*/VERSION*.txt` into the bundle for the About page, and User Script Sandboxing is off for that target because a sandboxed script may read only the input files its phase declares, and a glob cannot be declared.
 
 ### Install a local build
 
 ```bash
-scripts/build-installable.sh --install   # or: make installable-install
+chore install   # scripts/build-installable.sh --install
 ```
 
 Builds a Release-configured `DiskJockey.app` signed with your team's Apple Development certificate and installs it into `/Applications`, after asking before it replaces an existing copy. Other `DiskJockey.app` copies on the machine, such as Xcode's DerivedData builds, register the same extension identifiers, and macOS may pick one of them; after a development build, run `/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f -R /Applications/DiskJockey.app` to make the installed copy the one in use.
@@ -416,4 +412,4 @@ docker compose up
 
 ### Sibling pins
 
-The ref each sibling project is built at is plain text in [`SIBLING_PINS.txt`](SIBLING_PINS.txt), which replaced the submodule-era `VENDOR_PINS.txt` and explains how `scripts/sibling-build.sh` uses it. Bump a pin by editing that file. There is no `make pins` target any more.
+The ref each sibling project is built at is plain text in [`SIBLING_PINS.txt`](SIBLING_PINS.txt), which replaced the submodule-era `VENDOR_PINS.txt` and explains how `scripts/sibling-build.sh` uses it. Bump a pin by editing that file.

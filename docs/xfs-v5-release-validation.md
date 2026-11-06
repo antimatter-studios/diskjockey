@@ -22,8 +22,8 @@ Do not supply physical devices, valuable data or partitioned disk images.
    dependency and lockfile, when an update is needed. Do not infer support from
    the application's ability to build. This change does **not** move the
    existing `rust-fs-xfs 0.12.0` bundle pin or advertise v5 write/repair support.
-3. In a clean release checkout, run `make vendor-all`, the three test tiers and
-   `make installable`. Keep the vendor and signed archive/export build logs.
+3. In a clean release checkout, run `chore vendor`, the three test tiers and
+   `chore installable`. Keep the vendor and signed archive/export build logs.
    Build against the reviewed lockfile without `dev-link` overrides. Produce
    the receipt below **from that build**, binding the extension executable and
    the archive to the resolved driver version. A receipt copied from another

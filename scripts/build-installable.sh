@@ -52,8 +52,7 @@ copy) after prompting.
 
 Requires:
   * Xcode + matching Apple Development cert in team 43UMKXZ8P4
-  * Vendor libraries built (`make vendor-all` runs automatically if
-    `lib/` is missing or stale)
+  * chore, which builds the vendor libraries first (`chore vendor`)
 EOF
 }
 
@@ -87,6 +86,11 @@ if ! command -v xcodebuild >/dev/null 2>&1; then
     exit 2
 fi
 
+if ! command -v chore >/dev/null 2>&1; then
+    echo "ERROR: chore not in PATH; it builds the vendor libraries (chore vendor)" >&2
+    exit 2
+fi
+
 # Make sure the team's Apple Development cert is available. We don't
 # fail hard on absence — xcodebuild's automatic signing might still
 # resolve it via the account credentials — but warn loudly so a
@@ -99,15 +103,13 @@ fi
 
 # --- vendor libraries ---------------------------------------------------
 #
-# The build links against five vendor static libs (lib/fs_ext4,
-# lib/fs_ntfs, lib/fs_erofs, lib/fs_squashfs, lib/go-networkfs) plus the
-# four img-* containers (lib/img_qcow2, lib/img_vhd, lib/img_vhdx,
-# lib/img_vmdk). Run the
-# umbrella `vendor-all` target — its stamp files mean a no-op fast
-# path when they're already current.
+# The build links one Rust bundle per filesystem extension (lib/bundle_<fs>),
+# the agent's image reader (lib/agent_image_reader) and the go-networkfs
+# archives (lib/go-networkfs). `chore vendor` builds them all; cargo and
+# go-networkfs each skip what is already current.
 
 echo "==> building vendor libraries (lib/)"
-make vendor-all
+chore vendor
 
 # --- archive ------------------------------------------------------------
 

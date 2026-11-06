@@ -23,10 +23,11 @@ extension on macOS 26. Assumes the Swift side has built cleanly in Xcode
    `com.antimatterstudios.diskjockey.ext4`, then re-download the
    provisioning profile from Xcode > Settings > Accounts.
 
-4. **libfs_ext4 vendored** under `vendor/fs_ext4/`. Refresh with:
+4. **The ext4 bundle built** into `lib/bundle_ext4/`, from the
+   published `rust-fs-ext4`. Refresh with:
 
    ```sh
-   make vendor-fs-ext4 EXT4_SRC=vendor/rust-fs-ext4
+   chore vendor:bundles -- ext4
    ```
 
 ## First launch

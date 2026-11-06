@@ -4,7 +4,7 @@
   -exportArchive` when building a locally-installable .app signed
   with an Apple Development certificate.
 
-  Used by scripts/build-installable.sh (and `make installable`).
+  Used by scripts/build-installable.sh (and `chore installable`).
   Not intended for App Store or notarized Developer ID distribution
   — those would need their own ExportOptions files with
   `method = app-store-connect` or `method = developer-id`.
