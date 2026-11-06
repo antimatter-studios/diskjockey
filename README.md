@@ -394,10 +394,13 @@ The Xcode build does not rebuild the vendored libraries: run `chore vendor` agai
 ### Install a local build
 
 ```bash
-chore install   # scripts/build-installable.sh --install
+chore install:user     # scripts/build-installable.sh --install user: into ~/Applications
+chore install:system   # scripts/build-installable.sh --install system: into /Applications
 ```
 
-Builds a Release-configured `DiskJockey.app` signed with your team's Apple Development certificate and installs it into `/Applications`, after asking before it replaces an existing copy. Other `DiskJockey.app` copies on the machine, such as Xcode's DerivedData builds, register the same extension identifiers, and macOS may pick one of them; after a development build, run `/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f -R /Applications/DiskJockey.app` to make the installed copy the one in use.
+Both build a Release-configured `DiskJockey.app` signed with your team's Apple Development certificate and install it, after asking before they replace an existing copy. `install:user` creates `~/Applications` when it is missing and never needs a password. `install:system` writes `/Applications` directly from an administrator account, and goes through `sudo`, which asks for a password, from any other account.
+
+Other `DiskJockey.app` copies on the machine, such as Xcode's DerivedData builds, register the same extension identifiers, and macOS may pick one of them. After a development build, run `/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f -R <Applications folder>/DiskJockey.app` to make the installed copy the one in use.
 
 ### Test stack for network drivers
 

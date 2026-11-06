@@ -13,9 +13,10 @@
 # plus a `xcrun notarytool submit` step.
 #
 # Usage:
-#   ./scripts/build-installable.sh           # build only, leave .app in build/export/
-#   ./scripts/build-installable.sh --install # build, then copy to /Applications
-#   ./scripts/build-installable.sh -h        # help
+#   ./scripts/build-installable.sh                  # build only, leave .app in build/export/
+#   ./scripts/build-installable.sh --install user   # build, then copy to ~/Applications
+#   ./scripts/build-installable.sh --install system # build, then copy to /Applications
+#   ./scripts/build-installable.sh -h               # help
 #
 # Exit codes:
 #   0  success
@@ -35,20 +36,25 @@ BUILD_DIR="$PROJECT_ROOT/build"
 ARCHIVE_PATH="$BUILD_DIR/DiskJockey.xcarchive"
 EXPORT_DIR="$BUILD_DIR/export"
 EXPORT_PLIST="$SCRIPT_DIR/ExportOptions-development.plist"
-INSTALL_DEST="/Applications/DiskJockey.app"
+# DJ_SYSTEM_APPLICATIONS exists for scripts/tests/build-installable.sh, which
+# cannot write the real /Applications.
+SYSTEM_APPLICATIONS="${DJ_SYSTEM_APPLICATIONS:-/Applications}"
+USER_APPLICATIONS="$HOME/Applications"
 
-DO_INSTALL=false
+INSTALL_TO=""
 
 usage() {
     cat <<'EOF'
-Usage: scripts/build-installable.sh [--install] [-h|--help]
+Usage: scripts/build-installable.sh [--install user|system] [-h|--help]
 
 Builds a Release-configured DiskJockey.app signed with the team's
-Apple Development certificate, ready for /Applications.
+Apple Development certificate, ready for an Applications folder.
 
 Without --install, leaves the artifact at build/export/DiskJockey.app.
-With --install, copies it to /Applications (replacing any existing
-copy) after prompting.
+--install user copies it to ~/Applications, creating the folder.
+--install system copies it to /Applications, through sudo only when
+this account cannot write there (an administrator account can).
+Either asks before replacing an existing copy.
 
 Requires:
   * Xcode + matching Apple Development cert in team 43UMKXZ8P4
@@ -59,8 +65,16 @@ EOF
 while [ $# -gt 0 ]; do
     case "$1" in
         --install)
-            DO_INSTALL=true
-            shift
+            INSTALL_TO="${2:-}"
+            case "$INSTALL_TO" in
+                user|system) ;;
+                *)
+                    echo "--install takes user or system, not '${INSTALL_TO}'" >&2
+                    usage >&2
+                    exit 2
+                    ;;
+            esac
+            shift 2
             ;;
         -h|--help)
             usage
@@ -154,7 +168,24 @@ echo "==> built: $EXPORT_DIR/DiskJockey.app"
 
 # --- install (optional) -------------------------------------------------
 
-if [ "$DO_INSTALL" = true ]; then
+if [ -n "$INSTALL_TO" ]; then
+    if [ "$INSTALL_TO" = user ]; then
+        mkdir -p "$USER_APPLICATIONS"
+        INSTALL_DEST="$USER_APPLICATIONS/DiskJockey.app"
+    else
+        INSTALL_DEST="$SYSTEM_APPLICATIONS/DiskJockey.app"
+    fi
+
+    # An administrator account can write /Applications (root:admin, mode
+    # 775) and needs no password. Any other account, or a copy owned by
+    # another user, goes through sudo, which asks for one.
+    SUDO=""
+    if [ ! -w "$(dirname "$INSTALL_DEST")" ] \
+        || { [ -e "$INSTALL_DEST" ] && [ ! -w "$INSTALL_DEST" ]; }; then
+        echo "==> $(dirname "$INSTALL_DEST") is not writable by $(id -un); sudo will ask for a password"
+        SUDO=sudo
+    fi
+
     if [ -d "$INSTALL_DEST" ]; then
         # Replacing /Applications/DiskJockey.app — confirm so a stray
         # `--install` flag can't silently overwrite an installed copy
@@ -177,17 +208,17 @@ if [ "$DO_INSTALL" = true ]; then
     # way a `ditto` failure (disk full, I/O error) can never leave the user
     # with their previous install deleted and no replacement.
     staging="${INSTALL_DEST}.installing.$$"
-    rm -rf "$staging"
+    $SUDO rm -rf "$staging"
     # `ditto` preserves code signatures and extended attributes that
     # `cp -R` strips; required for the signed bundle to keep working.
     echo "==> installing to $INSTALL_DEST"
-    ditto "$EXPORT_DIR/DiskJockey.app" "$staging"
+    $SUDO ditto "$EXPORT_DIR/DiskJockey.app" "$staging"
 
     # Strip the quarantine attribute LaunchServices applies to anything
     # arriving through "untrusted" channels. Without this, Gatekeeper
     # prompts the user on first launch even though the bundle is
     # validly signed — annoying for a local-build install path.
-    xattr -dr com.apple.quarantine "$staging" 2>/dev/null || true
+    $SUDO xattr -dr com.apple.quarantine "$staging" 2>/dev/null || true
 
     # Verify the staged copy before the swap so a copy mishap or stripped
     # signature surfaces here, not at first launch.
@@ -196,8 +227,8 @@ if [ "$DO_INSTALL" = true ]; then
 
     # Atomic-ish swap: the old install only disappears once the new copy
     # is proven good.
-    rm -rf "$INSTALL_DEST"
-    mv "$staging" "$INSTALL_DEST"
+    $SUDO rm -rf "$INSTALL_DEST"
+    $SUDO mv "$staging" "$INSTALL_DEST"
 
     echo ""
     echo "Installed: $INSTALL_DEST"
@@ -205,6 +236,6 @@ if [ "$DO_INSTALL" = true ]; then
 else
     echo ""
     echo "Built: $EXPORT_DIR/DiskJockey.app"
-    echo "Install to /Applications by re-running with --install,"
+    echo "Install by re-running with --install user (~/Applications) or --install system (/Applications),"
     echo "or copy manually:  ditto '$EXPORT_DIR/DiskJockey.app' /Applications/DiskJockey.app"
 fi

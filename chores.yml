@@ -171,10 +171,15 @@ tasks:
     cmds:
       - scripts/build-installable.sh
 
-  install:
-    desc: The same Release build, copied into /Applications after asking
+  install:user:
+    desc: The same Release build, copied into ~/Applications after asking
     cmds:
-      - scripts/build-installable.sh --install
+      - scripts/build-installable.sh --install user
+
+  install:system:
+    desc: The same Release build, copied into /Applications after asking (sudo only for a non-admin account)
+    cmds:
+      - scripts/build-installable.sh --install system
 
   install:agent:
     desc: Load the agent from the Debug build as a user LaunchAgent (development only; again after each build)
