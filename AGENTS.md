@@ -261,6 +261,38 @@ a fragment until it ships and a line of `CHANGELOG.md` after, never both.
   application in the README, the source, or CLI help.
 <!-- END SHARED BLOCK: agent-core v7 -->
 
+## Checks that guard data are never weakened
+
+These drivers read and write real disks, and the application mounts them on
+people's machines. A checker that wrongly calls a damaged volume clean, or a
+test loosened until it passes, hides a defect that can destroy data nobody can
+get back. So, for every agent and every contributor, in this repository and
+in any driver it builds:
+
+- **Never skip, disable, relax, quiet or retarget a test, gate, checker,
+  floor, budget or pass/fail rule to make a run go green.** That includes
+  turning a failure into a warning, narrowing what a gate accepts, dropping a
+  case, lowering an executed-case floor, and raising a budget to hide a
+  regression. A budget may be raised only for a run that passed everything,
+  with the measurement written beside the row.
+- **Never add a baseline line, expected-failure entry or ignore to make a
+  disagreement disappear** unless there is an issue for it *and* evidence of
+  which side is correct. "Probably harmless" is not evidence.
+- **When the driver and an independent oracle disagree,** work out from the
+  on-disk format and the oracle's own behaviour which side is right. If the
+  driver is wrong, fix the driver: the failing test first, then the fix, the
+  test untouched. If the oracle is wrong or the difference is correct, say why
+  with evidence in the issue.
+- **If you cannot tell which side is right, stop and report it as blocked**
+  with what you tried. A blocked item is a good result; a convenient guess is
+  not.
+- **Changing what a gate accepts is the owner's decision,** never an
+  agent's. Propose it in an issue with the numbers and leave it open.
+- A fix that makes the nightly or a queue run green by any of the above is
+  worse than the red it replaced. Say so plainly in the pull request when a
+  change touches a gate, a floor, a budget or a baseline, and name which of
+  these it is.
+
 ## Where the shared block does not map cleanly
 
 Two clauses above are written for a Rust driver crate, and reading them
