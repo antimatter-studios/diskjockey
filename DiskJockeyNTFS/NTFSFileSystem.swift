@@ -455,11 +455,13 @@ final class NTFSFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             return Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
                 .read(into: UnsafeMutableRawPointer(buf), offset: off_t(offset), length: Int(len))
         }
-        coreCfg.write = isWritable ? { ctx, offset, buf, len in
-            guard let ctx = ctx, let buf = buf else { return EIO }
-            return Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
-                .write(from: UnsafeRawPointer(buf), offset: off_t(offset), length: Int(len))
-        } : nil
+        if isWritable {
+            coreCfg.write = { ctx, offset, buf, len in
+                guard let ctx = ctx, let buf = buf else { return EIO }
+                return Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                    .write(from: UnsafeRawPointer(buf), offset: off_t(offset), length: Int(len))
+            }
+        }
         coreCfg.flush = nil
         coreCfg.ctx = contextPtr
         coreCfg.size = sizeBytes
