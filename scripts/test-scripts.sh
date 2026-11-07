@@ -76,6 +76,7 @@
 # The rust-bundles toolchain guard (#575) raises it to 86 files.
 # The no-Makefile guard (#577) raises it to 87 files.
 # The installable script's destination guard (#581) raises it to 88 files.
+# The conditional-closure guard (#580) raises it to 89 files.
 # It moves up with the suite; it never moves down.
 #
 # `rc`, not `status`: `status` is READ-ONLY in zsh, so a loop written with it
@@ -86,7 +87,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
-FLOOR=88
+FLOOR=89
 
 # The raw loop, whose whole output is the tier's log. Failure lines carry a
 # TIER-FAIL prefix so the quiet verdict below can name them without a tail.
