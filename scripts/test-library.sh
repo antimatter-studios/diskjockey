@@ -17,8 +17,8 @@
 # A FLOOR, BECAUSE THE FAILURE MODE HERE IS AN ABSENCE TOO. A run that builds
 # and then executes nothing exits 0 having reported no failures. Only a count
 # sees it. Both frameworks are in this target and each prints its own total:
-# XCTest's "Executed N tests" (once per suite plus once for the bundle, so
-# take the largest) and swift-testing's "Test run with N tests".
+# XCTest's "Executed N tests" and swift-testing's "Test run with N tests",
+# summed over the test targets (count_cases below says how).
 # Measured 2026-09-10: 51 + 39 = 90, then 51 + 65 = 116, 51 + 78 = 129,
 # 51 + 109 = 160, 51 + 132 = 183, 51 + 153 = 204, 51 + 178 = 229, then
 # 51 + 191 = 242 with the shared readlink contract (2026-09-28), then
@@ -57,10 +57,35 @@
 # The floor moves up with the suite; it never moves down.
 #
 #   scripts/test-library.sh [--verbose]
+#   scripts/test-library.sh --count <log>   # the count alone, over a saved log
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
+
+# count_cases <log>: sets xct and swt to the cases each framework executed.
+# scripts/tests/library-case-count.sh runs it over saved logs through --count.
+#
+# Swift 6.2 runs the package in one process; Swift 6.4 runs one per test
+# target, and each prints its own totals (#579). So sum them: XCTest's
+# "Executed N tests" under each 'All tests' suite, which every process prints
+# once (the lines under each suite and bundle repeat its cases), and every
+# swift-testing "Test run with N tests".
+count_cases() {
+    xct=$(awk '/^Test Suite .All tests. (passed|failed)/ { all = 1; next }
+               all && match($0, /Executed [0-9]+ tests/) { split(substr($0, RSTART, RLENGTH), w, " "); n += w[2] }
+               { all = 0 }
+               END { print n + 0 }' "$1" 2>/dev/null)
+    swt=$(grep -aoE 'Test run with [0-9]+ tests' "$1" 2>/dev/null | awk '{ n += $4 } END { print n + 0 }')
+    xct=${xct:-0}
+    swt=${swt:-0}
+}
+
+if [ "${1:-}" = "--count" ]; then
+    count_cases "${2:?--count takes a log}"
+    echo "$(( xct + swt )) = $xct XCTest + $swt swift-testing"
+    exit 0
+fi
 
 # THE BCACHEFS VOLUME'S TESTS LINK THE DRIVER (Package.swift,
 # DiskJockeyBCACHEFSCore), so `swift test` needs the bundle library. Without
@@ -77,10 +102,9 @@ rc=0
 scripts/quiet-run.sh "$@" library 4510 350000 -- swift test || rc=$?
 log="${QUIET_LOG_DIR:-$ROOT/tmp/logs}/library.log"
 
-xct=$(grep -aoE 'Executed [0-9]+ tests' "$log" 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
-swt=$(grep -aoE 'Test run with [0-9]+ tests' "$log" 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
-total=$(( ${xct:-0} + ${swt:-0} ))
-echo "library cases executed: $total = ${xct:-0} XCTest + ${swt:-0} swift-testing (floor 720)"
+count_cases "$log"
+total=$(( xct + swt ))
+echo "library cases executed: $total = $xct XCTest + $swt swift-testing (floor 720)"
 if [ "$total" -lt 720 ]; then
     echo "::error::only $total library cases executed, floor is 720 — 668 ran on 2026-10-12 before the 13 system extension activation cases (#473), the 8 image attachment route cases (#478), the 7 image mount sequence cases (#479), the 9 image eject sequence cases (#480), the 10 activation prompt cases (#475) and the 5 whole-disk mount sequence cases (#515), and a run that executes less than that has stopped early rather than passed (diskjockey#139)"
     exit 1
