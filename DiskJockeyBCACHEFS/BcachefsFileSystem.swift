@@ -221,11 +221,13 @@ final class BcachefsFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             return Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
                 .read(into: UnsafeMutableRawPointer(buf), offset: off_t(offset), length: Int(len))
         }
-        cfg.write = writable ? { ctx, offset, buf, len in
-            guard let ctx, let buf else { return EIO }
-            return Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
-                .write(from: UnsafeRawPointer(buf), offset: off_t(offset), length: Int(len))
-        } : nil
+        if writable {
+            cfg.write = { ctx, offset, buf, len in
+                guard let ctx, let buf else { return EIO }
+                return Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                    .write(from: UnsafeRawPointer(buf), offset: off_t(offset), length: Int(len))
+            }
+        }
         cfg.flush = { ctx in
             guard let ctx else { return EIO }
             return Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue().flush()

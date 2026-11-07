@@ -312,11 +312,13 @@ extension EXT4FileSystem {
             return Unmanaged<FileDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
                 .read(into: UnsafeMutableRawPointer(buf), offset: off_t(offset), length: Int(len))
         }
-        coreCfg.write = isWritable ? { ctx, offset, buf, len in
-            guard let ctx = ctx, let buf = buf else { return EIO }
-            return Unmanaged<FileDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
-                .write(from: UnsafeRawPointer(buf), offset: off_t(offset), length: Int(len))
-        } : nil
+        if isWritable {
+            coreCfg.write = { ctx, offset, buf, len in
+                guard let ctx = ctx, let buf = buf else { return EIO }
+                return Unmanaged<FileDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                    .write(from: UnsafeRawPointer(buf), offset: off_t(offset), length: Int(len))
+            }
+        }
         coreCfg.flush = { ctx in
             guard let ctx = ctx else { return EIO }
             return Unmanaged<FileDeviceContext>.fromOpaque(ctx).takeUnretainedValue().flush()
@@ -437,11 +439,13 @@ extension EXT4FileSystem {
             return Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
                 .read(into: UnsafeMutableRawPointer(buf), offset: off_t(offset), length: Int(len))
         }
-        coreCfg.write = isWritable ? { ctx, offset, buf, len in
-            guard let ctx = ctx, let buf = buf else { return EIO }
-            return Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
-                .write(from: UnsafeRawPointer(buf), offset: off_t(offset), length: Int(len))
-        } : nil
+        if isWritable {
+            coreCfg.write = { ctx, offset, buf, len in
+                guard let ctx = ctx, let buf = buf else { return EIO }
+                return Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue()
+                    .write(from: UnsafeRawPointer(buf), offset: off_t(offset), length: Int(len))
+            }
+        }
         coreCfg.flush = { ctx in
             guard let ctx = ctx else { return EIO }
             return Unmanaged<BlockDeviceContext>.fromOpaque(ctx).takeUnretainedValue().flush()
