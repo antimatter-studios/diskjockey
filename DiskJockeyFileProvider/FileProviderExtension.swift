@@ -239,7 +239,15 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFile
                     url = FileManager.default.temporaryDirectory
                         .appendingPathComponent(UUID().uuidString)
                 }
+                // Best-effort stats either side of the download carry
+                // the remote revision into the returned item, so its
+                // version matches what enumeration reports for the
+                // same revision (diskjockey#588). They go straight to
+                // the driver: a server that cannot stat must neither
+                // fail the fetch nor raise a mount error.
+                let before = try? NetworkFSDriver.stat(mountID: direct.mountID, path: path)
                 try direct.fetchFile(path: path, to: url)
+                let after = try? NetworkFSDriver.stat(mountID: direct.mountID, path: path)
                 let parentPath = (path as NSString).deletingLastPathComponent
                 let name = (path as NSString).lastPathComponent
                 let size: Int64
@@ -256,7 +264,9 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFile
                                       latencyNs: monotonicNanos() &- t0,
                                       error: false)
                 let item = FileProviderItem(
-                    info: DiskJockeyFileItem(name: name, size: size, isDirectory: false),
+                    info: fetchedFileInfo(name: name, downloadedSize: size,
+                                          before: before?.toFileItem(),
+                                          after: after?.toFileItem()),
                     parentPath: parentPath
                 )
                 completionHandler(url, item, nil)

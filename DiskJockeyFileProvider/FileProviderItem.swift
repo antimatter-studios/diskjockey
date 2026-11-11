@@ -111,13 +111,66 @@ class FileProviderItem: NSObject, NSFileProviderItem {
         // the cache happily kept the old `kUTTypeData` UTI and
         // Finder kept skipping `fetchThumbnailsForItemIdentifiers`.
         // v3: capabilities expanded from read-only to full read/write.
-        let schemaVersion = 3
-        let versionString = "v\(schemaVersion)-\(info.name)-\(info.size)"
+        // v4: versions carry the remote's kind, modification time and
+        //     mode, and the item reports contentModificationDate.
+        //
+        // The version is the item's remote revision as far as the
+        // backend lets us see it (diskjockey#588). go-networkfs reports
+        // size, kind, a modification time in whole seconds and mode
+        // bits; no backend exposes an ETag or other validator through
+        // it. So a same-size edit is told apart by its modification
+        // time, and two same-size edits inside one second, or a server
+        // that preserves the old timestamp, still collide. Neither
+        // version is ever derived from anything but the stat record.
+        //
+        // Fields are joined with NUL, which no filename can contain, so
+        // a name holding the separator cannot forge another item's
+        // version.
+        let schemaVersion = 4
+        let kind = info.isDirectory ? "dir" : "file"
+        let modificationTime = info.modificationTime.map { String($0) } ?? "?"
+        let mode = info.mode.map { String($0, radix: 8) } ?? "?"
+        let content = ["v\(schemaVersion)", kind, String(info.size), modificationTime]
+        let metadata = content + [info.name, mode]
         return NSFileProviderItemVersion(
-            contentVersion: versionString.data(using: .utf8)!,
-            metadataVersion: versionString.data(using: .utf8)!
+            contentVersion: Data(content.joined(separator: "\u{0}").utf8),
+            metadataVersion: Data(metadata.joined(separator: "\u{0}").utf8)
         )
     }
+    var contentModificationDate: Date? {
+        guard let seconds = info.modificationTime else { return nil }
+        return Date(timeIntervalSince1970: TimeInterval(seconds))
+    }
+}
+
+/// The stat record to report for a file whose bytes were just fetched.
+///
+/// `before` and `after` are best-effort stats taken either side of the
+/// download; either may be nil (an FTP server without MLST/MDTM cannot
+/// stat at all). The remote revision is reported only when the bytes on
+/// disk are known to belong to it: the stats agree with each other when
+/// both exist, describe a file, and match the downloaded size. Otherwise
+/// the item carries no modification time, so its version cannot equal a
+/// revision the enumerator reported and fileproviderd will not mistake
+/// these bytes for that revision (diskjockey#588). When only `after`
+/// exists, a same-size edit landing during the download is not caught.
+func fetchedFileInfo(name: String, downloadedSize: Int64,
+                     before: DiskJockeyFileItem?,
+                     after: DiskJockeyFileItem?) -> DiskJockeyFileItem {
+    let unknown = DiskJockeyFileItem(name: name, size: downloadedSize, isDirectory: false)
+    guard let after = after, !after.isDirectory, after.size == downloadedSize else {
+        return unknown
+    }
+    if let before = before {
+        guard before.isDirectory == after.isDirectory,
+              before.size == after.size,
+              before.modificationTime == after.modificationTime,
+              before.mode == after.mode else {
+            return unknown
+        }
+    }
+    return DiskJockeyFileItem(name: name, size: downloadedSize, isDirectory: false,
+                              modificationTime: after.modificationTime, mode: after.mode)
 }
 
 /// Compose a child path under a parent dir, normalising slashes so
