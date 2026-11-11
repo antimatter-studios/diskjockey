@@ -37,6 +37,10 @@
 #                over the ext4, and on Linux ntfscat (ntfs-3g) over the NTFS,
 #                each written file read back by the tool that is not ours;
 #                every partition re-read, and sgdisk -v on the table.
+#   not found    each fs tool, asked through the raw disk's probe to read a
+#                path that does not exist, fails with the contract's JSON
+#                error on stderr, and its "kind" is "not_found" (#532): a
+#                released tool whose error lacks the kind fails the run.
 #
 # INSTALLED FROM RELEASES, VERIFIED. Each tool comes from its repository's
 # latest GitHub release, the platform's tarball, refused unless its
@@ -403,9 +407,30 @@ probe_leg() {
         [ "$got" != "$SRC_SHA" ] \
             && ok "$name: $tool one block past slot $slot's start does not give the bytes back" \
             || fail "$name: $tool read the file at the wrong offset $((start + 4096)), so this leg cannot tell a broken link from a working one"
+        # A missing path is named as one, once per tool, through the raw disk.
+        [ "$name" = raw ] && missing_path_kind "$name" "$tool" "$start" "$raw"
     done <<EOF
 $LAYOUT_HERE
 EOF
+}
+
+# missing_path_kind NAME TOOL OFFSET IMAGE — TOOL, asked to read a path that
+# does not exist, exits non-zero, writes nothing on stdout, and its JSON error
+# on stderr carries "kind": "not_found" (#532). An error with no kind, another
+# kind, or no JSON at all fails, naming what the tool did print.
+missing_path_kind() {
+    local name="$1" tool="$2" off="$3" image="$4" missing=/cli-pipe-no-such-path rc kind
+    "$tool" --offset "$off" "$image" read "$missing" > "$WORK/nf.out" 2> "$WORK/nf.err"; rc=$?
+    kind="$(jq -rs 'map(objects) | last | .kind // "none"' "$WORK/nf.err" 2>/dev/null)" || kind="no JSON"
+    if [ "$rc" = 0 ]; then
+        fail "$name: $tool --offset $off read $missing, a path that does not exist, exited 0"
+    elif [ -s "$WORK/nf.out" ]; then
+        fail "$name: $tool --offset $off read $missing, a path that does not exist, wrote $(wc -c < "$WORK/nf.out" | tr -d ' ') bytes on stdout"
+    elif [ "$kind" = not_found ]; then
+        ok "$name: $tool --offset $off read $missing fails with kind not_found"
+    else
+        fail "$name: $tool --offset $off read $missing fails with kind '$kind', not not_found: $(head -c 200 "$WORK/nf.err" | tr '\n' ' ')"
+    fi
 }
 
 # container_leg FMT QEMU_FMT [QEMU_OPTS] — qemu-img makes the container;

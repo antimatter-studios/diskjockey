@@ -25,7 +25,12 @@
 #   4. the pairs #296 asks for are in the script's tables — ext4 both ways,
 #      XFS and EROFS into ext4, Btrfs into NTFS — with the floor counting
 #      them, and a Linux leg runs it beside the macOS one, with the oracles
-#      only Linux has (xfsprogs, btrfs-progs, ntfs-3g).
+#      only Linux has (xfsprogs, btrfs-progs, ntfs-3g);
+#   5. the not_found check (#532), its function run against stub tools: a
+#      missing-path error whose JSON carries "kind": "not_found" passes, and
+#      one with no kind (a released fs.ext4 v0.8.0's, byte for byte), another
+#      kind, malformed or empty stderr, bytes on stdout or exit 0 each fail;
+#      and every tool the raw disk's probe routes to is put through it.
 #
 #   bash scripts/tests/cli-pipe.sh
 set -uo pipefail
@@ -41,6 +46,7 @@ sandbox="$(mktemp -d)"
 trap 'rm -rf "$sandbox"' EXIT
 
 command -v ruby >/dev/null 2>&1 || { echo "cli-pipe: ruby is required to parse the workflow" >&2; exit 1; }
+command -v jq >/dev/null 2>&1 || { echo "cli-pipe: jq is required to run the not_found check" >&2; exit 1; }
 
 # table NAME — the rows of one of the script's quoted tables (TOOLS, PAIRS,
 # LAYOUT, AWAITING), quotes and blank lines dropped.
@@ -385,6 +391,53 @@ for p in darwin linux; do
         && ok "$p: the floor of $floor counts $parts partitions through 5 readers and $pairs pairs" \
         || fail "$p: the floor is '${floor:-missing}', below the $need pipelines of $parts partitions and $pairs pairs"
 done
+
+# ------------------------------------------ 5. the not_found kind (#532)
+# The function itself, cut out of the script and run against stub tools, so
+# the stubs exercise exactly the code the live run does.
+fn="$(awk '/^missing_path_kind\(\) \{/ { on = 1 } on { print } on && /^\}/ { exit }' "$SCRIPT")"
+if [ -z "$fn" ]; then
+    fail "the script has no missing_path_kind function"
+else
+    nf="$sandbox/not-found"; mkdir -p "$nf/bin"
+    # stub NAME RC STDOUT STDERR — fs.NAME prints STDOUT and STDERR, exits RC.
+    stub_tool() {
+        printf '#!/bin/sh\nprintf %%s %q\nprintf %%s %q >&2\nexit %s\n' "$3" "$4" "$2" > "$nf/bin/fs.$1"
+        chmod +x "$nf/bin/fs.$1"
+    }
+    stub_tool good    1 '' '{"error": "/cli-pipe-no-such-path: not found", "code": 1, "kind": "not_found"}'
+    stub_tool nokind  1 '' '{"error": "/nope: not found", "code": 1}'
+    stub_tool wrong   1 '' '{"error": "/cli-pipe-no-such-path: not found", "code": 1, "kind": "io"}'
+    stub_tool garbled 1 '' '{"error": "/cli-pipe-no-such-path: not found", "kind": "not_fo'
+    stub_tool silent  1 '' ''
+    stub_tool text    1 '' 'error: /cli-pipe-no-such-path: not found'
+    stub_tool zero    0 '' '{"error": "/cli-pipe-no-such-path: not found", "code": 1, "kind": "not_found"}'
+    stub_tool stdout  1 'bytes' '{"error": "/cli-pipe-no-such-path: not found", "code": 1, "kind": "not_found"}'
+    # judge NAME — the function's one verdict line for fs.NAME.
+    judge() {
+        ( PATH="$nf/bin:$PATH" WORK="$nf"
+          ok()   { printf 'ok %s\n' "$1"; }
+          fail() { printf 'FAIL %s\n' "$1"; }
+          eval "$fn"
+          missing_path_kind raw "fs.$1" 1048576 "$nf/disk.img" )
+    }
+    case "$(judge good)" in
+        "ok raw: fs.good --offset 1048576 read /cli-pipe-no-such-path fails with kind not_found") ok "a missing-path error with kind not_found passes" ;;
+        *) fail "a missing-path error with kind not_found did not pass: $(judge good)" ;;
+    esac
+    for bad in nokind:"kind 'none'" wrong:"kind 'io'" garbled:"kind 'no JSON'" silent:"kind 'none'" text:"kind 'no JSON'" zero:"exited 0" stdout:"wrote 5 bytes on stdout"; do
+        name="${bad%%:*}" want="${bad#*:}" got="$(judge "${bad%%:*}")"
+        case "$got" in
+            "FAIL "*"$want"*) ok "fs.$name's missing-path error fails the check ($want)" ;;
+            *) fail "fs.$name's missing-path error should fail with \"$want\", got: $got" ;;
+        esac
+    done
+    # Wired in: the raw leg puts every tool the probe routes to through it.
+    awk '/^probe_leg\(\) \{/ { on = 1 } on && /^\}/ { exit } on' "$SCRIPT" \
+        | grep -qF '[ "$name" = raw ] && missing_path_kind "$name" "$tool" "$start" "$raw"' \
+        && ok "the raw leg runs the not_found check for every partition's tool" \
+        || fail "probe_leg does not run missing_path_kind for each tool on the raw disk"
+fi
 
 echo
 if [ "$fails" -eq 0 ]; then
