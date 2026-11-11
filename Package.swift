@@ -330,5 +330,37 @@ let package = Package(
             path: "DiskJockeyNTFSCoreTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+
+        // THE FILE PROVIDER ITEM: FileProviderItem.swift maps remote stat
+        // metadata onto NSFileProviderItem, item versions included, and
+        // needs nothing but FileProvider and the library (diskjockey#588).
+        // The other sources call into go-networkfs and stay in Xcode.
+        .target(
+            name: "DiskJockeyFileProviderCore",
+            dependencies: ["DiskJockeyLibrary"],
+            path: "DiskJockeyFileProvider",
+            exclude: [
+                "FileProviderDirectClient.swift",
+                "FileProviderEnumerator.swift",
+                "FileProviderExtension.swift",
+                "MountErrorReporter.swift",
+                "NetworkFSDriver.swift",
+                "NetworkPathMonitor.swift",
+                "ThumbnailCache.swift",
+                "DiskJockeyFileProvider-Bridging-Header.h",
+                "DiskJockeyFileProvider.entitlements",
+                "Info.plist",
+            ],
+            sources: [
+                "FileProviderItem.swift",
+            ],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "DiskJockeyFileProviderCoreTests",
+            dependencies: ["DiskJockeyFileProviderCore", "DiskJockeyLibrary"],
+            path: "DiskJockeyFileProviderCoreTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
     ]
 )

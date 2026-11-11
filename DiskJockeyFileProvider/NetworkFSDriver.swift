@@ -121,9 +121,12 @@ struct RemoteFileInfo: Codable, Equatable {
     }
 
     /// Convert to the library-wide DiskJockeyFileItem so the existing
-    /// FileProviderItem mapping layer keeps working unchanged.
+    /// FileProviderItem mapping layer keeps working unchanged. The
+    /// modification time and mode go with it: they are what tells two
+    /// same-size revisions apart in the item version (diskjockey#588).
     func toFileItem() -> DiskJockeyFileItem {
-        DiskJockeyFileItem(name: name, size: size, isDirectory: isDir)
+        DiskJockeyFileItem(name: name, size: size, isDirectory: isDir,
+                           modificationTime: modTime, mode: mode)
     }
 }
 
