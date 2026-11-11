@@ -110,6 +110,17 @@ antimatter-studios/rust-img-vhdx    rust-img-vhdx    all    img.vhdx
 antimatter-studios/rust-img-vhd     rust-img-vhd     all    img.vhd
 antimatter-studios/rust-img-vmdk    rust-img-vmdk    all    img.vmdk'
 
+# Repositories the tap has no formula for, as docs/cli-tooling-design.md's
+# distribution table records (#571): a tool from one of these, when missing,
+# is named with its release only. blk.probe has no formula by decision, and
+# rust-disk-partitions, which releases it now, has none either.
+NO_FORMULA='antimatter-studios/rust-disk-partitions'
+# formula_of REPO PREFIX — the tap formula a repository's tools install from,
+# or nothing when it has none.
+formula_of() {
+    printf '%s\n' "$NO_FORMULA" | grep -qxF "$1" || echo "antimatter-studios/tap/$2"
+}
+
 # Who signs a release's attestation. The drivers' tarballs are built and
 # attested by rust-fs-core's shared release-cli.yml, called from each
 # repository's release.yml.
@@ -245,12 +256,17 @@ install_one() {
 # require_tools — every tool this platform's run uses is on PATH, or the run
 # fails naming each one that is not and where it comes from.
 require_tools() {
-    local missing=0 repo prefix on tools tool brew apt
+    local missing=0 repo prefix on tools tool brew apt formula
     while read -r repo prefix on tools; do
         [ -n "$repo" ] && on_here "$on" || continue
+        formula="$(formula_of "$repo" "$prefix")"
         for tool in $tools; do
             command -v "$tool" >/dev/null 2>&1 && continue
-            echo "MISSING $tool — from $repo's release (scripts/cli-pipe.sh installs it), or brew install antimatter-studios/tap/$prefix"
+            if [ -n "$formula" ]; then
+                echo "MISSING $tool — from $repo's release (scripts/cli-pipe.sh installs it), or brew install $formula"
+            else
+                echo "MISSING $tool — from $repo's release (scripts/cli-pipe.sh installs it; it has no formula)"
+            fi
             missing=$((missing + 1))
         done
     done <<EOF

@@ -13,7 +13,8 @@
 #      declared advisory — never required, since it tests other repositories'
 #      releases;
 #   2. a run with the tools missing FAILS, before any leg, naming every one of
-#      ours with its install line: nothing skips;
+#      ours with its release, and a brew install line only where the design
+#      document says a formula exists (#571): nothing skips;
 #   3. the installer, run for real against a stub `gh` and `uname`, verifies
 #      each tarball's attestation against the workflow that signs it
 #      (rust-fs-core's release-cli.yml, or the one the script's STREAMS table
@@ -157,15 +158,34 @@ out="$(cd "$REPO" && PATH=/usr/bin:/bin CLI_PIPE_DIR="$sandbox/state-missing" QU
 log="$sandbox/logs-missing/cli-pipe.log"
 if [ "$rc" != 0 ]; then ok "a run with the tools missing fails (exit $rc)"
 else fail "a run with none of the released tools on PATH passed: $out"; fi
+# Which tools have no Homebrew formula is read from the design document's
+# distribution table (#571), not from the script: a tool there whose formula
+# column says "none" must be named with its release ONLY. Advice to brew
+# install a formula that does not exist sends the reader to an error.
+no_formula="$(awk -F'|' '/^\| [a-z0-9-]+ \|/ {
+        f = $5; gsub(/^ +| +$/, "", f)
+        if (f !~ /^none/) next
+        s = $3
+        while (match(s, /`[^`]+`/)) { print substr(s, RSTART + 1, RLENGTH - 2); s = substr(s, RSTART + RLENGTH) }
+    }' "$REPO/docs/cli-tooling-design.md" | sort -u)"
+printf '%s\n' "$no_formula" | grep -qxF blk.probe \
+    && ok "docs/cli-tooling-design.md's distribution table names blk.probe as having no formula" \
+    || fail "docs/cli-tooling-design.md's distribution table names no tool without a formula; expected blk.probe"
 named=0
 for tool in $ours; do
     repo="$(repo_of "$tool")"
-    grep -qF "MISSING $tool — from $repo's release" "$log" 2>/dev/null \
-        && grep -F "MISSING $tool " "$log" | grep -qF "brew install antimatter-studios/tap/$(prefix_of "$tool")" \
-        && named=$((named + 1)) \
-        || fail "the missing $tool is not named with $repo and its brew install line"
+    line="$(grep -F "MISSING $tool " "$log" 2>/dev/null)"
+    if ! printf '%s\n' "$line" | grep -qF "MISSING $tool — from $repo's release"; then
+        fail "the missing $tool is not named with $repo's release"
+    elif printf '%s\n' "$no_formula" | grep -qxF "$tool"; then
+        if printf '%s\n' "$line" | grep -qi 'brew'; then
+            fail "the missing $tool is given brew advice, but it has no formula: $line"
+        else named=$((named + 1)); fi
+    elif ! printf '%s\n' "$line" | grep -qF "brew install antimatter-studios/tap/$(prefix_of "$tool")"; then
+        fail "the missing $tool is not named with its brew install line"
+    else named=$((named + 1)); fi
 done
-[ "$named" = "$n_ours" ] && ok "each of the $named missing tools is named with its release and brew install line"
+[ "$named" = "$n_ours" ] && ok "each of the $named missing tools is named with its release, and a brew install line only where a formula exists"
 if grep -qE '^ok ' "$log" 2>/dev/null; then fail "a leg reported ok with its tools missing"
 else ok "no leg runs, or reports ok, before every tool is present"; fi
 printf '%s\n' "$out" | grep -q 'MISSING blk.probe' \
